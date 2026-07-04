@@ -1,0 +1,16 @@
+[Unit]
+Description=Gambit bot/API
+After=network.target
+
+[Service]
+User=krang
+Group=krang
+WorkingDirectory=/opt/apps/gambit/backend
+EnvironmentFile=/opt/apps/gambit/.env
+Environment="PATH=/opt/apps/gambit/backend/.venv/bin"
+ExecStart=/opt/apps/gambit/backend/.venv/bin/uvicorn app.main:app --host 127.0.0.1 --port 8100
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

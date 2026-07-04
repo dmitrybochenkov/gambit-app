@@ -107,6 +107,14 @@ uv sync --frozen
 uv run alembic upgrade head
 ```
 
+Install and start the systemd service:
+
+```bash
+sudo cp /opt/apps/gambit/scripts/gambit.service /etc/systemd/system/gambit.service
+sudo systemctl daemon-reload
+sudo systemctl enable --now gambit
+```
+
 ## Product Docs
 
 - `docs/product-brief.md`
