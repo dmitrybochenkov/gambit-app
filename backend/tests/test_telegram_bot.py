@@ -29,6 +29,25 @@ async def test_start_command_opens_registration(monkeypatch: pytest.MonkeyPatch)
     assert second_answer.args[0] == "Выбери вариант регистрации:"
 
 
+async def test_registration_input_messages_are_deleted() -> None:
+    bot = SimpleNamespace(delete_message=AsyncMock())
+    message = SimpleNamespace(
+        bot=bot,
+        chat=SimpleNamespace(id=456),
+        delete=AsyncMock(),
+    )
+    state = SimpleNamespace(
+        get_data=AsyncMock(return_value={"prompt_message_id": 789}),
+        update_data=AsyncMock(),
+    )
+
+    await user_handlers._delete_prompt_and_input(message, state)
+
+    bot.delete_message.assert_awaited_once_with(chat_id=456, message_id=789)
+    message.delete.assert_awaited_once()
+    state.update_data.assert_awaited_once_with(prompt_message_id=None)
+
+
 async def test_webhook_rejects_invalid_secret(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(webhook_module, "telegram_bot", object())
     monkeypatch.setattr(webhook_module.settings, "telegram_webhook_secret", "secret")

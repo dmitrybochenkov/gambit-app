@@ -1,4 +1,5 @@
 from aiogram import F, Router
+from aiogram.exceptions import TelegramBadRequest
 from aiogram.filters import CommandStart
 from aiogram.fsm.context import FSMContext
 from aiogram.types import CallbackQuery, Message, ReplyKeyboardRemove
@@ -67,6 +68,38 @@ async def _send_confirmation(message: Message, state: FSMContext) -> None:
     )
 
 
+async def _delete_message(message: Message) -> None:
+    try:
+        await message.delete()
+    except TelegramBadRequest:
+        pass
+
+
+async def _delete_prompt_and_input(message: Message, state: FSMContext) -> None:
+    data = await state.get_data()
+    prompt_message_id = data.get("prompt_message_id")
+    if prompt_message_id:
+        try:
+            await message.bot.delete_message(
+                chat_id=message.chat.id,
+                message_id=prompt_message_id,
+            )
+        except TelegramBadRequest:
+            pass
+
+    await _delete_message(message)
+    await state.update_data(prompt_message_id=None)
+
+
+async def _send_input_prompt(
+    message: Message,
+    state: FSMContext,
+    text: str,
+) -> None:
+    prompt = await message.answer(text)
+    await state.update_data(prompt_message_id=prompt.message_id)
+
+
 @router.message(CommandStart())
 async def start_command(message: Message, state: FSMContext) -> None:
     await state.clear()
@@ -110,14 +143,15 @@ async def choose_registration_mode(
 
     await state.clear()
     await state.update_data(mode=callback_data.mode.value)
+    await _delete_message(callback.message)
 
     if callback_data.mode == RegistrationMode.NICKNAME:
         await state.set_state(RegistrationStates.entering_nickname)
-        await callback.message.answer("Введи никнейм.")
+        await _send_input_prompt(callback.message, state, "Введи никнейм.")
         return
 
     await state.set_state(RegistrationStates.entering_full_name)
-    await callback.message.answer("Введи фамилию и имя.")
+    await _send_input_prompt(callback.message, state, "Введи фамилию и имя.")
 
 
 @router.message(RegistrationStates.entering_full_name)
@@ -140,11 +174,12 @@ async def enter_full_name(message: Message, state: FSMContext) -> None:
         await message.answer("Такие имя и фамилия уже существуют. Попробуй другие.")
         return
 
+    await _delete_prompt_and_input(message, state)
     await state.update_data(full_name=full_name)
     data = await state.get_data()
     if data["mode"] == RegistrationMode.BOTH.value:
         await state.set_state(RegistrationStates.entering_nickname)
-        await message.answer("Теперь введи никнейм.")
+        await _send_input_prompt(message, state, "Теперь введи никнейм.")
         return
 
     await _send_confirmation(message, state)
@@ -170,6 +205,7 @@ async def enter_nickname(message: Message, state: FSMContext) -> None:
         await message.answer("Такой никнейм уже существует. Попробуй другой.")
         return
 
+    await _delete_prompt_and_input(message, state)
     await state.update_data(nickname=nickname)
     await _send_confirmation(message, state)
 
@@ -180,6 +216,7 @@ async def restart_registration(callback: CallbackQuery, state: FSMContext) -> No
     if callback.message is None:
         return
 
+    await _delete_message(callback.message)
     await state.clear()
     await _send_registration_intro(callback.message)
 
@@ -190,6 +227,7 @@ async def confirm_registration(callback: CallbackQuery, state: FSMContext) -> No
     if callback.message is None:
         return
 
+    await _delete_message(callback.message)
     data = await state.get_data()
     full_name = data.get("full_name")
     nickname = data.get("nickname")
@@ -211,7 +249,11 @@ async def confirm_registration(callback: CallbackQuery, state: FSMContext) -> No
             else RegistrationStates.entering_nickname
         )
         await state.set_state(target_state)
-        await callback.message.answer("Эти данные уже заняты. Введи другое значение.")
+        await _send_input_prompt(
+            callback.message,
+            state,
+            "Эти данные уже заняты. Введи другое значение.",
+        )
         return
     except RegistrationNotAllowedError:
         await state.clear()
