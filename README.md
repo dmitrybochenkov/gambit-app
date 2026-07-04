@@ -103,8 +103,9 @@ Apply migrations from the backend directory:
 
 ```bash
 cd /opt/apps/gambit/backend
-uv sync --frozen
-uv run alembic upgrade head
+python3 -m venv .venv
+.venv/bin/python -m pip install -e .
+.venv/bin/alembic upgrade head
 ```
 
 Install and start the systemd service:
