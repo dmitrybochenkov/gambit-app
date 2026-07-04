@@ -6,15 +6,24 @@ from fastapi import HTTPException
 
 from app.api import telegram_webhook as webhook_module
 from app.bot.telegram import runtime
-from app.bot.telegram.handlers import start_command
+from app.bot.telegram.handlers import user as user_handlers
 
 
-async def test_start_command_answers_working() -> None:
-    message = SimpleNamespace(answer=AsyncMock())
+async def test_start_command_opens_registration(monkeypatch: pytest.MonkeyPatch) -> None:
+    message = SimpleNamespace(
+        from_user=SimpleNamespace(id=123),
+        answer=AsyncMock(),
+    )
+    state = SimpleNamespace(clear=AsyncMock())
+    service = SimpleNamespace(get_by_telegram_id=AsyncMock(return_value=None))
+    monkeypatch.setattr(user_handlers, "player_service", service)
 
-    await start_command(message)
+    await user_handlers.start_command(message, state)
 
-    message.answer.assert_awaited_once_with("Работает")
+    state.clear.assert_awaited_once()
+    service.get_by_telegram_id.assert_awaited_once_with(123)
+    message.answer.assert_awaited_once()
+    assert "Добро пожаловать" in message.answer.await_args.args[0]
 
 
 async def test_webhook_rejects_invalid_secret(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -58,5 +67,5 @@ async def test_setup_webhook_uses_public_url(monkeypatch: pytest.MonkeyPatch) ->
         url="https://gambit.example/webhooks/tg",
         secret_token="secret",
         drop_pending_updates=True,
-        allowed_updates=["message"],
+        allowed_updates=["callback_query", "message"],
     )

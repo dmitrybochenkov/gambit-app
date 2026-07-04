@@ -51,7 +51,7 @@ Inline keyboard:
 
 ### Admin Review
 
-After confirmation, registration receives status `pending_review`.
+After confirmation, registration receives status `pending`.
 
 Admin manually checks the submitted data. Admin decision:
 
@@ -175,4 +175,3 @@ Profile output:
 ## How To Find Us
 
 Bot sends address and optional map link.
-
