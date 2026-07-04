@@ -1,7 +1,7 @@
 from aiogram import F, Router
 from aiogram.filters import CommandStart
 from aiogram.fsm.context import FSMContext
-from aiogram.types import CallbackQuery, Message
+from aiogram.types import CallbackQuery, Message, ReplyKeyboardRemove
 
 from app.bot.telegram.keyboards.main import main_keyboard
 from app.bot.telegram.keyboards.registration import (
@@ -45,7 +45,11 @@ def _is_valid_nickname(value: str) -> bool:
 
 
 async def _send_registration_intro(message: Message) -> None:
-    await message.answer(REGISTRATION_GREETING, reply_markup=registration_mode_keyboard())
+    await message.answer(REGISTRATION_GREETING, reply_markup=ReplyKeyboardRemove())
+    await message.answer(
+        "Выбери вариант регистрации:",
+        reply_markup=registration_mode_keyboard(),
+    )
 
 
 async def _send_confirmation(message: Message, state: FSMContext) -> None:
@@ -75,11 +79,17 @@ async def start_command(message: Message, state: FSMContext) -> None:
         return
 
     if player.status == PlayerStatus.PENDING:
-        await message.answer("Твоя заявка на регистрацию находится на проверке.")
+        await message.answer(
+            "Твоя заявка на регистрацию находится на проверке.",
+            reply_markup=ReplyKeyboardRemove(),
+        )
         return
 
     if player.status == PlayerStatus.BLOCKED:
-        await message.answer("Доступ к боту заблокирован.")
+        await message.answer(
+            "Доступ к боту заблокирован.",
+            reply_markup=ReplyKeyboardRemove(),
+        )
         return
 
     await message.answer(

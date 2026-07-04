@@ -22,8 +22,11 @@ async def test_start_command_opens_registration(monkeypatch: pytest.MonkeyPatch)
 
     state.clear.assert_awaited_once()
     service.get_by_telegram_id.assert_awaited_once_with(123)
-    message.answer.assert_awaited_once()
-    assert "Добро пожаловать" in message.answer.await_args.args[0]
+    assert message.answer.await_count == 2
+    first_answer, second_answer = message.answer.await_args_list
+    assert "Добро пожаловать" in first_answer.args[0]
+    assert first_answer.kwargs["reply_markup"].remove_keyboard is True
+    assert second_answer.args[0] == "Выбери вариант регистрации:"
 
 
 async def test_webhook_rejects_invalid_secret(monkeypatch: pytest.MonkeyPatch) -> None:
