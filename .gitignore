@@ -1,16 +1,41 @@
-.DS_Store
+# Environment
 .env
-.idea/
+.venv/
+
+# Python cache
+__pycache__/
+*.py[cod]
+*.pyo
+
+# Tool caches
 .pytest_cache/
 .ruff_cache/
-.venv/
-__pycache__/
+.mypy_cache/
+
+# Local databases
 *.db
+*.sqlite3
 *.db-shm
 *.db-wal
-*.py[cod]
-htmlcov/
-.coverage
-dist/
+data/*.db
+data/*.db-shm
+data/*.db-wal
+
+# Runtime logs
+logs/*
+!logs/.gitkeep
+
+# Build artifacts
 build/
+dist/
 *.egg-info/
+
+# Coverage
+.coverage
+htmlcov/
+
+# Editor / OS
+.DS_Store
+**/.DS_Store
+.idea/
+.vscode/
