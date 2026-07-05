@@ -5,7 +5,7 @@ import pytest
 from fastapi import HTTPException
 
 from app.api import telegram_webhook as webhook_module
-from app.bot.telegram import runtime
+from app.bot.telegram import notifications, runtime
 from app.bot.telegram.handlers import user as user_handlers
 
 
@@ -46,6 +46,29 @@ async def test_registration_input_messages_are_deleted() -> None:
     bot.delete_message.assert_awaited_once_with(chat_id=456, message_id=789)
     message.delete.assert_awaited_once()
     state.update_data.assert_awaited_once_with(prompt_message_id=None)
+
+
+async def test_pending_registration_notifies_admins(monkeypatch: pytest.MonkeyPatch) -> None:
+    bot = SimpleNamespace(send_message=AsyncMock())
+    player = SimpleNamespace(
+        id=10,
+        telegram_id=200,
+        full_name="Игрок Второй",
+        nickname="Ace",
+    )
+    admins = [
+        SimpleNamespace(telegram_id=100),
+        SimpleNamespace(telegram_id=101),
+    ]
+    service = SimpleNamespace(get_active_admins=AsyncMock(return_value=admins))
+    monkeypatch.setattr(notifications, "player_service", service)
+
+    await notifications.notify_admins_about_registration(bot, player)
+
+    service.get_active_admins.assert_awaited_once()
+    assert bot.send_message.await_count == 2
+    assert bot.send_message.await_args_list[0].kwargs["chat_id"] == 100
+    assert bot.send_message.await_args_list[1].kwargs["chat_id"] == 101
 
 
 async def test_webhook_rejects_invalid_secret(monkeypatch: pytest.MonkeyPatch) -> None:

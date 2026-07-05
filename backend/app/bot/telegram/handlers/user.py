@@ -12,8 +12,9 @@ from app.bot.telegram.keyboards.registration import (
     registration_confirmation_keyboard,
     registration_mode_keyboard,
 )
+from app.bot.telegram.notifications import notify_admins_about_registration
 from app.bot.telegram.states import RegistrationMode, RegistrationStates
-from app.db.models.enums import PlayerStatus
+from app.db.models.enums import PlayerRole, PlayerStatus
 from app.services.player_service import (
     IdentityAlreadyExistsError,
     RegistrationNotAllowedError,
@@ -127,7 +128,9 @@ async def start_command(message: Message, state: FSMContext) -> None:
 
     await message.answer(
         f"{player.display_name}, добро пожаловать!",
-        reply_markup=main_keyboard(),
+        reply_markup=main_keyboard(
+            is_admin=player.role in {PlayerRole.ADMIN, PlayerRole.SUPERADMIN}
+        ),
     )
 
 
@@ -261,6 +264,7 @@ async def confirm_registration(callback: CallbackQuery, state: FSMContext) -> No
         return
 
     await state.clear()
+    await notify_admins_about_registration(callback.bot, player)
     await callback.message.answer(
         f"{player.display_name}, заявка отправлена на проверку администратору."
     )

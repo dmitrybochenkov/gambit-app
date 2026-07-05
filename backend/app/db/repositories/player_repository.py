@@ -2,7 +2,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.models import Player
-from app.db.models.enums import PlayerStatus
+from app.db.models.enums import PlayerRole, PlayerStatus
 
 
 class PlayerRepository:
@@ -12,6 +12,29 @@ class PlayerRepository:
     async def get_by_telegram_id(self, telegram_id: int) -> Player | None:
         result = await self.session.execute(select(Player).where(Player.telegram_id == telegram_id))
         return result.scalar_one_or_none()
+
+    async def get_by_id(self, player_id: int) -> Player | None:
+        return await self.session.get(Player, player_id)
+
+    async def list_pending(self, limit: int = 20) -> list[Player]:
+        result = await self.session.execute(
+            select(Player)
+            .where(Player.status == PlayerStatus.PENDING)
+            .order_by(Player.created_at)
+            .limit(limit)
+        )
+        return list(result.scalars())
+
+    async def list_active_admins(self) -> list[Player]:
+        result = await self.session.execute(
+            select(Player)
+            .where(
+                Player.status == PlayerStatus.ACTIVE,
+                Player.role.in_([PlayerRole.ADMIN, PlayerRole.SUPERADMIN]),
+            )
+            .order_by(Player.id)
+        )
+        return list(result.scalars())
 
     async def full_name_exists(self, full_name: str, telegram_id: int) -> bool:
         result = await self.session.execute(
