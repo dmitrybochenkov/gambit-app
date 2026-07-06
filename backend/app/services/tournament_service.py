@@ -20,10 +20,6 @@ class TournamentUnavailableError(ValueError):
     pass
 
 
-class TournamentAlreadyRegisteredError(ValueError):
-    pass
-
-
 class TournamentFullError(ValueError):
     pass
 
@@ -41,51 +37,67 @@ class TournamentService:
                 from_date=from_date or date.today()
             )
 
-    async def register_player(
+    async def register_player_for_tournaments(
         self,
         telegram_id: int,
-        tournament_id: int,
+        tournament_ids: list[int],
         from_date: date | None = None,
-    ) -> tuple[TournamentRegistration, Tournament]:
+    ) -> list[Tournament]:
+        unique_tournament_ids = list(dict.fromkeys(tournament_ids))
+        if not unique_tournament_ids:
+            return []
+
         async with self.session_factory() as session:
             player = await PlayerRepository(session).get_by_telegram_id(telegram_id)
             if player is None or player.status != PlayerStatus.ACTIVE:
                 raise TournamentRegistrationNotAllowedError
 
-            tournament = await TournamentRepository(session).get_by_id(tournament_id)
             today = from_date or date.today()
-            if (
-                tournament is None
-                or tournament.status != TournamentStatus.ACTIVE
-                or tournament.date < today
-            ):
-                raise TournamentUnavailableError
+            tournament_repository = TournamentRepository(session)
+            registration_repository = TournamentRegistrationRepository(session)
+            selected: list[tuple[Tournament, TournamentRegistration | None]] = []
 
-            repository = TournamentRegistrationRepository(session)
-            registration = await repository.get(tournament.id, player.id)
-            if registration is not None and registration.status == RegistrationStatus.REGISTERED:
-                raise TournamentAlreadyRegisteredError
+            for tournament_id in unique_tournament_ids:
+                tournament = await tournament_repository.get_by_id(tournament_id)
+                if (
+                    tournament is None
+                    or tournament.status != TournamentStatus.ACTIVE
+                    or tournament.date < today
+                ):
+                    raise TournamentUnavailableError
 
-            if await repository.count_registered(tournament.id) >= tournament.capacity:
-                raise TournamentFullError
+                registration = await registration_repository.get(
+                    tournament.id,
+                    player.id,
+                )
+                if (
+                    registration is None
+                    or registration.status != RegistrationStatus.REGISTERED
+                ) and (
+                    await registration_repository.count_registered(tournament.id)
+                    >= tournament.capacity
+                ):
+                    raise TournamentFullError
+                selected.append((tournament, registration))
 
             now = datetime.now(UTC)
-            if registration is None:
-                registration = TournamentRegistration(
-                    tournament_id=tournament.id,
-                    player_id=player.id,
-                    status=RegistrationStatus.REGISTERED,
-                    registered_at=now,
-                )
-                session.add(registration)
-            else:
-                registration.status = RegistrationStatus.REGISTERED
-                registration.registered_at = now
-                registration.cancelled_at = None
+            for tournament, registration in selected:
+                if registration is None:
+                    session.add(
+                        TournamentRegistration(
+                            tournament_id=tournament.id,
+                            player_id=player.id,
+                            status=RegistrationStatus.REGISTERED,
+                            registered_at=now,
+                        )
+                    )
+                elif registration.status != RegistrationStatus.REGISTERED:
+                    registration.status = RegistrationStatus.REGISTERED
+                    registration.registered_at = now
+                    registration.cancelled_at = None
 
             await session.commit()
-            await session.refresh(registration)
-            return registration, tournament
+            return [tournament for tournament, _ in selected]
 
 
 tournament_service = TournamentService(SessionFactory)

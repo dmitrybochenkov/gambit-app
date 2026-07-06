@@ -1,22 +1,25 @@
 from datetime import date
 from pathlib import Path
 
-import pytest
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
 from app.bot.telegram.formatters import format_tournament_schedule
 from app.db.base import Base
-from app.db.models import Player, ScoringConfig, Season, Tournament
+from app.db.models import (
+    Player,
+    ScoringConfig,
+    Season,
+    Tournament,
+    TournamentRegistration,
+)
 from app.db.models.enums import (
     PlayerStatus,
     RegistrationStatus,
     SeasonStatus,
     TournamentStatus,
 )
-from app.services.tournament_service import (
-    TournamentAlreadyRegisteredError,
-    TournamentService,
-)
+from app.services.tournament_service import TournamentService
 
 
 async def test_upcoming_schedule_uses_active_tournaments(tmp_path: Path) -> None:
@@ -89,7 +92,7 @@ def test_empty_schedule_message() -> None:
     assert format_tournament_schedule([]) == "Ближайших турниров пока нет."
 
 
-async def test_active_player_can_register_for_tournament(tmp_path: Path) -> None:
+async def test_active_player_can_register_for_multiple_tournaments(tmp_path: Path) -> None:
     engine = create_async_engine(f"sqlite+aiosqlite:///{tmp_path / 'registration.db'}")
     async with engine.begin() as connection:
         await connection.run_sync(Base.metadata.create_all)
@@ -113,36 +116,58 @@ async def test_active_player_can_register_for_tournament(tmp_path: Path) -> None
         )
         session.add_all([season, player])
         await session.flush()
-        tournament = Tournament(
-            season_id=season.id,
-            type=1,
-            date=date(2026, 7, 8),
-            capacity=30,
-            status=TournamentStatus.ACTIVE,
-        )
-        session.add(tournament)
+        tournaments = [
+            Tournament(
+                season_id=season.id,
+                type=1,
+                date=date(2026, 7, 8),
+                capacity=30,
+                status=TournamentStatus.ACTIVE,
+            ),
+            Tournament(
+                season_id=season.id,
+                type=2,
+                date=date(2026, 7, 9),
+                capacity=30,
+                status=TournamentStatus.ACTIVE,
+            ),
+        ]
+        session.add_all(tournaments)
         await session.commit()
-        tournament_id = tournament.id
+        tournament_ids = [tournament.id for tournament in tournaments]
         player_id = player.id
 
     service = TournamentService(session_factory)
     try:
-        registration, registered_tournament = await service.register_player(
+        registered_tournaments = await service.register_player_for_tournaments(
             telegram_id=100,
-            tournament_id=tournament_id,
+            tournament_ids=tournament_ids,
             from_date=date(2026, 7, 6),
         )
 
-        assert registration.player_id == player_id
-        assert registration.tournament_id == tournament_id
-        assert registration.status == RegistrationStatus.REGISTERED
-        assert registered_tournament.id == tournament_id
+        assert [tournament.id for tournament in registered_tournaments] == tournament_ids
 
-        with pytest.raises(TournamentAlreadyRegisteredError):
-            await service.register_player(
-                telegram_id=100,
-                tournament_id=tournament_id,
-                from_date=date(2026, 7, 6),
+        await service.register_player_for_tournaments(
+            telegram_id=100,
+            tournament_ids=tournament_ids,
+            from_date=date(2026, 7, 6),
+        )
+
+        async with session_factory() as session:
+            registrations = list(
+                (
+                    await session.execute(
+                        select(TournamentRegistration).order_by(
+                            TournamentRegistration.tournament_id
+                        )
+                    )
+                ).scalars()
             )
+        assert len(registrations) == 2
+        assert all(registration.player_id == player_id for registration in registrations)
+        assert all(
+            registration.status == RegistrationStatus.REGISTERED
+            for registration in registrations
+        )
     finally:
         await engine.dispose()
