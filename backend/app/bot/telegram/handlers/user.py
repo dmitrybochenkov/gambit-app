@@ -4,6 +4,7 @@ from aiogram.filters import CommandStart
 from aiogram.fsm.context import FSMContext
 from aiogram.types import CallbackQuery, Message, ReplyKeyboardRemove
 
+from app.bot.telegram.formatters import format_tournament_schedule
 from app.bot.telegram.keyboards.main import main_keyboard
 from app.bot.telegram.keyboards.registration import (
     CONFIRM_REGISTRATION_CALLBACK,
@@ -20,6 +21,7 @@ from app.services.player_service import (
     RegistrationNotAllowedError,
     player_service,
 )
+from app.services.tournament_service import tournament_service
 
 router = Router(name="user")
 
@@ -132,6 +134,20 @@ async def start_command(message: Message, state: FSMContext) -> None:
             is_admin=player.role in {PlayerRole.ADMIN, PlayerRole.SUPERADMIN}
         ),
     )
+
+
+@router.message(F.text == "Расписание турниров")
+async def show_tournament_schedule(message: Message) -> None:
+    if message.from_user is None:
+        return
+
+    player = await player_service.get_by_telegram_id(message.from_user.id)
+    if player is None or player.status != PlayerStatus.ACTIVE:
+        await message.answer("Расписание доступно зарегистрированным игрокам. Нажми /start.")
+        return
+
+    tournaments = await tournament_service.get_upcoming_schedule()
+    await message.answer(format_tournament_schedule(tournaments))
 
 
 @router.callback_query(RegistrationModeCallback.filter())
