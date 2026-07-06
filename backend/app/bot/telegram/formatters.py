@@ -1,6 +1,7 @@
 from decimal import Decimal
 
 from app.db.models import Tournament
+from app.db.repositories.profile_repository import PlayerProfileStats
 from app.db.repositories.rating_repository import (
     KnockoutsRatingRow,
     PointsRatingRow,
@@ -76,6 +77,29 @@ def format_rating(
                 f"Босс КО: {row.boss_knockouts_count}"
             )
     return "\n".join(lines)
+
+
+def format_profile(title: str, stats: PlayerProfileStats | None) -> str:
+    if stats is None:
+        return f"{title}\n\nПрофиль не найден. Нажми /start."
+
+    points = _format_decimal(stats.total_points)
+    return "\n".join(
+        [
+            title,
+            "",
+            stats.display_name,
+            f"Рейтинг: {points} очков",
+            f"Количество КО: {stats.total_knockouts_count}",
+            f"Количество турниров: {stats.tournaments_count}",
+            "Количество призовых мест:",
+            f"1 место: {stats.first_places_count}",
+            f"2 место: {stats.second_places_count}",
+            f"3 место: {stats.third_places_count}",
+            f"4 место: {stats.fourth_places_count}",
+            f"5 место: {stats.fifth_places_count}",
+        ]
+    )
 
 
 def _format_decimal(value: Decimal) -> str:

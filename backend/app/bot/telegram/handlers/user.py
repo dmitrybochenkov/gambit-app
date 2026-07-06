@@ -5,11 +5,13 @@ from aiogram.fsm.context import FSMContext
 from aiogram.types import CallbackQuery, Message, ReplyKeyboardRemove
 
 from app.bot.telegram.formatters import (
+    format_profile,
     format_rating,
     format_tournament_label,
     format_tournament_schedule,
 )
 from app.bot.telegram.keyboards.main import main_keyboard
+from app.bot.telegram.keyboards.profile import ProfileCallback, profile_keyboard
 from app.bot.telegram.keyboards.rating import RatingCallback, rating_keyboard
 from app.bot.telegram.keyboards.registration import (
     CONFIRM_REGISTRATION_CALLBACK,
@@ -36,6 +38,7 @@ from app.services.player_service import (
     RegistrationNotAllowedError,
     player_service,
 )
+from app.services.profile_service import profile_service
 from app.services.rating_service import rating_service
 from app.services.tournament_service import (
     TournamentCancellationUnavailableError,
@@ -218,6 +221,44 @@ async def show_rating(
     await callback.answer()
     if callback.message is not None:
         await callback.message.answer(format_rating(title, rows))
+
+
+@router.message(F.text == "Твой профиль")
+async def show_profile_menu(message: Message) -> None:
+    if message.from_user is None:
+        return
+
+    player = await player_service.get_by_telegram_id(message.from_user.id)
+    if player is None or player.status != PlayerStatus.ACTIVE:
+        await message.answer("Профиль доступен зарегистрированным игрокам. Нажми /start.")
+        return
+
+    await message.answer(
+        "За какой период ты хочешь посмотреть свои достижения?",
+        reply_markup=profile_keyboard(),
+    )
+
+
+@router.callback_query(ProfileCallback.filter())
+async def show_profile(
+    callback: CallbackQuery,
+    callback_data: ProfileCallback,
+) -> None:
+    player = await player_service.get_by_telegram_id(callback.from_user.id)
+    if player is None or player.status != PlayerStatus.ACTIVE:
+        await callback.answer(
+            "Профиль доступен только активным игрокам.",
+            show_alert=True,
+        )
+        return
+
+    title, stats = await profile_service.get_profile(
+        telegram_id=callback.from_user.id,
+        kind=callback_data.kind,
+    )
+    await callback.answer()
+    if callback.message is not None:
+        await callback.message.answer(format_profile(title, stats))
 
 
 @router.message(F.text == "Записаться")

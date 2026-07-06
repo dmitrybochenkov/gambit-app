@@ -9,6 +9,7 @@ from app.api import telegram_webhook as webhook_module
 from app.bot.telegram import notifications, runtime
 from app.bot.telegram.handlers import user as user_handlers
 from app.db.models.enums import PlayerStatus
+from app.services.profile_service import ProfileKind
 from app.services.rating_service import RatingKind
 
 
@@ -120,6 +121,59 @@ async def test_rating_callback_sends_selected_rating(
     rating_service.get_rating.assert_awaited_once_with(RatingKind.CURRENT_SEASON)
     message.answer.assert_awaited_once_with(
         "Рейтинг — текущий сезон\n\nВ рейтинге пока нет данных."
+    )
+
+
+async def test_profile_button_shows_two_filters(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    message = SimpleNamespace(
+        from_user=SimpleNamespace(id=123),
+        answer=AsyncMock(),
+    )
+    player = SimpleNamespace(status=PlayerStatus.ACTIVE)
+    service = SimpleNamespace(get_by_telegram_id=AsyncMock(return_value=player))
+    monkeypatch.setattr(user_handlers, "player_service", service)
+
+    await user_handlers.show_profile_menu(message)
+
+    answer = message.answer.await_args
+    assert answer.args[0] == "За какой период ты хочешь посмотреть свои достижения?"
+    buttons = [
+        row[0].text
+        for row in answer.kwargs["reply_markup"].inline_keyboard
+    ]
+    assert buttons == ["За текущий сезон", "За все время"]
+
+
+async def test_profile_callback_sends_selected_profile(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    player = SimpleNamespace(status=PlayerStatus.ACTIVE)
+    player_service = SimpleNamespace(
+        get_by_telegram_id=AsyncMock(return_value=player)
+    )
+    profile_service = SimpleNamespace(
+        get_profile=AsyncMock(return_value=("Твой профиль — текущий сезон", None))
+    )
+    monkeypatch.setattr(user_handlers, "player_service", player_service)
+    monkeypatch.setattr(user_handlers, "profile_service", profile_service)
+    message = SimpleNamespace(answer=AsyncMock())
+    callback = SimpleNamespace(
+        from_user=SimpleNamespace(id=123),
+        message=message,
+        answer=AsyncMock(),
+    )
+    callback_data = SimpleNamespace(kind=ProfileKind.CURRENT_SEASON)
+
+    await user_handlers.show_profile(callback, callback_data)
+
+    profile_service.get_profile.assert_awaited_once_with(
+        telegram_id=123,
+        kind=ProfileKind.CURRENT_SEASON,
+    )
+    message.answer.assert_awaited_once_with(
+        "Твой профиль — текущий сезон\n\nПрофиль не найден. Нажми /start."
     )
 
 
