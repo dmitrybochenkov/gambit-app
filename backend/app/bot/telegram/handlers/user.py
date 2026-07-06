@@ -14,9 +14,13 @@ from app.bot.telegram.keyboards.registration import (
     registration_mode_keyboard,
 )
 from app.bot.telegram.keyboards.tournaments import (
+    CANCEL_TOURNAMENT_CANCELLATION_CALLBACK,
     CANCEL_TOURNAMENT_REGISTRATION_CALLBACK,
+    CONFIRM_TOURNAMENT_CANCELLATION_CALLBACK,
     CONFIRM_TOURNAMENT_REGISTRATION_CALLBACK,
+    TournamentCancellationCallback,
     TournamentRegistrationCallback,
+    tournament_cancellation_keyboard,
     tournament_registration_keyboard,
 )
 from app.bot.telegram.notifications import notify_admins_about_registration
@@ -28,6 +32,7 @@ from app.services.player_service import (
     player_service,
 )
 from app.services.tournament_service import (
+    TournamentCancellationUnavailableError,
     TournamentFullError,
     TournamentRegistrationNotAllowedError,
     TournamentUnavailableError,
@@ -284,6 +289,134 @@ async def cancel_tournament_registration_selection(
     if callback.message is not None:
         await callback.message.edit_reply_markup(reply_markup=None)
         await callback.message.answer("Запись на турнир(ы) отменена.")
+
+
+@router.message(F.text == "Отменить запись")
+async def show_tournaments_for_cancellation(
+    message: Message,
+    state: FSMContext,
+) -> None:
+    if message.from_user is None:
+        return
+
+    try:
+        tournaments = await tournament_service.get_player_upcoming_registrations(
+            message.from_user.id
+        )
+    except TournamentRegistrationNotAllowedError:
+        await message.answer(
+            "Отмена записи доступна зарегистрированным игрокам. Нажми /start."
+        )
+        return
+
+    if not tournaments:
+        await message.answer("Ты не записан ни на один турнир.")
+        return
+
+    await state.update_data(tournament_cancellation_selection=[])
+    await message.answer(
+        "Выбери турниры, на которые хочешь отменить запись, "
+        "и нажми «Подтвердить».",
+        reply_markup=tournament_cancellation_keyboard(tournaments),
+    )
+
+
+@router.callback_query(TournamentCancellationCallback.filter())
+async def select_tournament_for_cancellation(
+    callback: CallbackQuery,
+    callback_data: TournamentCancellationCallback,
+    state: FSMContext,
+) -> None:
+    data = await state.get_data()
+    selected_tournament_ids = set(data.get("tournament_cancellation_selection", []))
+    if callback_data.tournament_id in selected_tournament_ids:
+        selected_tournament_ids.remove(callback_data.tournament_id)
+        answer = "Турнир убран из выбранных."
+    else:
+        selected_tournament_ids.add(callback_data.tournament_id)
+        answer = "Турнир добавлен."
+
+    try:
+        tournaments = await tournament_service.get_player_upcoming_registrations(
+            callback.from_user.id
+        )
+    except TournamentRegistrationNotAllowedError:
+        await callback.answer(
+            "Отмена записи доступна только активным игрокам.",
+            show_alert=True,
+        )
+        return
+
+    available_ids = {tournament.id for tournament in tournaments}
+    selected_tournament_ids &= available_ids
+    await state.update_data(
+        tournament_cancellation_selection=sorted(selected_tournament_ids)
+    )
+    if callback.message is not None:
+        await callback.message.edit_reply_markup(
+            reply_markup=tournament_cancellation_keyboard(
+                tournaments,
+                selected_tournament_ids,
+            )
+        )
+    await callback.answer(answer)
+
+
+@router.callback_query(F.data == CONFIRM_TOURNAMENT_CANCELLATION_CALLBACK)
+async def confirm_tournament_cancellation(
+    callback: CallbackQuery,
+    state: FSMContext,
+) -> None:
+    data = await state.get_data()
+    tournament_ids = data.get("tournament_cancellation_selection", [])
+    if not tournament_ids:
+        await callback.answer("Сначала выбери хотя бы один турнир.", show_alert=True)
+        return
+
+    try:
+        tournaments = await tournament_service.cancel_player_tournament_registrations(
+            telegram_id=callback.from_user.id,
+            tournament_ids=tournament_ids,
+        )
+    except TournamentRegistrationNotAllowedError:
+        await callback.answer(
+            "Отмена записи доступна только активным игрокам.",
+            show_alert=True,
+        )
+        return
+    except TournamentCancellationUnavailableError:
+        await callback.answer(
+            "Одна из записей уже недоступна для отмены.",
+            show_alert=True,
+        )
+        return
+
+    await state.update_data(tournament_cancellation_selection=[])
+    await callback.answer("Готово!")
+    if callback.message is not None:
+        await callback.message.edit_reply_markup(reply_markup=None)
+        heading = (
+            "Ты отменил запись на турнир:"
+            if len(tournaments) == 1
+            else "Ты отменил запись на турниры:"
+        )
+        tournament_lines = "\n".join(
+            f"• {format_tournament_label(tournament)}"
+            for tournament in tournaments
+        )
+        await callback.message.answer(f"{heading}\n\n{tournament_lines}")
+
+
+@router.callback_query(F.data == CANCEL_TOURNAMENT_CANCELLATION_CALLBACK)
+async def cancel_tournament_cancellation_selection(
+    callback: CallbackQuery,
+    state: FSMContext,
+) -> None:
+    await state.update_data(tournament_cancellation_selection=[])
+    await callback.answer()
+    if callback.message is not None:
+        await callback.message.edit_reply_markup(reply_markup=None)
+        await callback.message.answer("Отмена записи на турниры отменена.")
 
 
 @router.callback_query(RegistrationModeCallback.filter())

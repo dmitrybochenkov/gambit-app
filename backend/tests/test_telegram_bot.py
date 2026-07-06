@@ -159,6 +159,81 @@ async def test_tournament_registration_selection_can_be_cancelled() -> None:
     message.answer.assert_awaited_once_with("Запись на турнир(ы) отменена.")
 
 
+async def test_cancellation_button_reports_when_player_has_no_registrations(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    service = SimpleNamespace(
+        get_player_upcoming_registrations=AsyncMock(return_value=[])
+    )
+    monkeypatch.setattr(user_handlers, "tournament_service", service)
+    message = SimpleNamespace(
+        from_user=SimpleNamespace(id=123),
+        answer=AsyncMock(),
+    )
+    state = SimpleNamespace(update_data=AsyncMock())
+
+    await user_handlers.show_tournaments_for_cancellation(message, state)
+
+    message.answer.assert_awaited_once_with("Ты не записан ни на один турнир.")
+    state.update_data.assert_not_awaited()
+
+
+async def test_multiple_tournament_cancellation_sends_confirmation(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    tournaments = [
+        SimpleNamespace(id=7, date=date(2026, 7, 8), type=1),
+        SimpleNamespace(id=8, date=date(2026, 7, 9), type=2),
+    ]
+    service = SimpleNamespace(
+        cancel_player_tournament_registrations=AsyncMock(
+            return_value=tournaments
+        )
+    )
+    monkeypatch.setattr(user_handlers, "tournament_service", service)
+    message = SimpleNamespace(
+        edit_reply_markup=AsyncMock(),
+        answer=AsyncMock(),
+    )
+    callback = SimpleNamespace(
+        from_user=SimpleNamespace(id=123),
+        message=message,
+        answer=AsyncMock(),
+    )
+    state = SimpleNamespace(
+        get_data=AsyncMock(
+            return_value={"tournament_cancellation_selection": [7, 8]}
+        ),
+        update_data=AsyncMock(),
+    )
+
+    await user_handlers.confirm_tournament_cancellation(callback, state)
+
+    service.cancel_player_tournament_registrations.assert_awaited_once_with(
+        telegram_id=123,
+        tournament_ids=[7, 8],
+    )
+    confirmation = message.answer.await_args.args[0]
+    assert "Ты отменил запись на турниры:" in confirmation
+    assert "Среда, 8 июля — Турнир 1" in confirmation
+    assert "Четверг, 9 июля — Турнир 2" in confirmation
+
+
+async def test_tournament_cancellation_selection_can_be_cancelled() -> None:
+    message = SimpleNamespace(
+        edit_reply_markup=AsyncMock(),
+        answer=AsyncMock(),
+    )
+    callback = SimpleNamespace(message=message, answer=AsyncMock())
+    state = SimpleNamespace(update_data=AsyncMock())
+
+    await user_handlers.cancel_tournament_cancellation_selection(callback, state)
+
+    state.update_data.assert_awaited_once_with(tournament_cancellation_selection=[])
+    message.edit_reply_markup.assert_awaited_once_with(reply_markup=None)
+    message.answer.assert_awaited_once_with("Отмена записи на турниры отменена.")
+
+
 async def test_pending_registration_notifies_admins(monkeypatch: pytest.MonkeyPatch) -> None:
     bot = SimpleNamespace(send_message=AsyncMock())
     player = SimpleNamespace(

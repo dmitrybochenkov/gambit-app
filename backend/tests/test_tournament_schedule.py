@@ -169,5 +169,50 @@ async def test_active_player_can_register_for_multiple_tournaments(tmp_path: Pat
             registration.status == RegistrationStatus.REGISTERED
             for registration in registrations
         )
+
+        upcoming_registrations = await service.get_player_upcoming_registrations(
+            telegram_id=100,
+            from_date=date(2026, 7, 6),
+        )
+        assert [
+            tournament.id for tournament in upcoming_registrations
+        ] == tournament_ids
+
+        cancelled_tournaments = (
+            await service.cancel_player_tournament_registrations(
+                telegram_id=100,
+                tournament_ids=tournament_ids,
+                from_date=date(2026, 7, 6),
+            )
+        )
+        assert [
+            tournament.id for tournament in cancelled_tournaments
+        ] == tournament_ids
+
+        async with session_factory() as session:
+            cancelled_registrations = list(
+                (
+                    await session.execute(
+                        select(TournamentRegistration).order_by(
+                            TournamentRegistration.tournament_id
+                        )
+                    )
+                ).scalars()
+            )
+        assert all(
+            registration.status == RegistrationStatus.CANCELLED
+            for registration in cancelled_registrations
+        )
+        assert all(
+            registration.cancelled_at is not None
+            for registration in cancelled_registrations
+        )
+        assert (
+            await service.get_player_upcoming_registrations(
+                telegram_id=100,
+                from_date=date(2026, 7, 6),
+            )
+            == []
+        )
     finally:
         await engine.dispose()

@@ -1,8 +1,10 @@
+from datetime import date
+
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.db.models import TournamentRegistration
-from app.db.models.enums import RegistrationStatus
+from app.db.models import Tournament, TournamentRegistration
+from app.db.models.enums import RegistrationStatus, TournamentStatus
 
 
 class TournamentRegistrationRepository:
@@ -30,3 +32,24 @@ class TournamentRegistrationRepository:
             )
         )
         return result.scalar_one()
+
+    async def list_registered_upcoming(
+        self,
+        player_id: int,
+        from_date: date,
+    ) -> list[Tournament]:
+        result = await self.session.execute(
+            select(Tournament)
+            .join(
+                TournamentRegistration,
+                TournamentRegistration.tournament_id == Tournament.id,
+            )
+            .where(
+                TournamentRegistration.player_id == player_id,
+                TournamentRegistration.status == RegistrationStatus.REGISTERED,
+                Tournament.status == TournamentStatus.ACTIVE,
+                Tournament.date >= from_date,
+            )
+            .order_by(Tournament.date, Tournament.type)
+        )
+        return list(result.scalars())

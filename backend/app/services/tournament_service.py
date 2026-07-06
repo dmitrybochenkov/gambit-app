@@ -24,6 +24,10 @@ class TournamentFullError(ValueError):
     pass
 
 
+class TournamentCancellationUnavailableError(ValueError):
+    pass
+
+
 class TournamentService:
     def __init__(self, session_factory: async_sessionmaker[AsyncSession]) -> None:
         self.session_factory = session_factory
@@ -35,6 +39,22 @@ class TournamentService:
         async with self.session_factory() as session:
             return await TournamentRepository(session).list_upcoming_active(
                 from_date=from_date or date.today()
+            )
+
+    async def get_player_upcoming_registrations(
+        self,
+        telegram_id: int,
+        from_date: date | None = None,
+    ) -> list[Tournament]:
+        async with self.session_factory() as session:
+            player = await PlayerRepository(session).get_by_telegram_id(telegram_id)
+            if player is None or player.status != PlayerStatus.ACTIVE:
+                raise TournamentRegistrationNotAllowedError
+            return await TournamentRegistrationRepository(
+                session
+            ).list_registered_upcoming(
+                player_id=player.id,
+                from_date=from_date or date.today(),
             )
 
     async def register_player_for_tournaments(
@@ -98,6 +118,57 @@ class TournamentService:
 
             await session.commit()
             return [tournament for tournament, _ in selected]
+
+    async def cancel_player_tournament_registrations(
+        self,
+        telegram_id: int,
+        tournament_ids: list[int],
+        from_date: date | None = None,
+    ) -> list[Tournament]:
+        unique_tournament_ids = list(dict.fromkeys(tournament_ids))
+        if not unique_tournament_ids:
+            return []
+
+        async with self.session_factory() as session:
+            player = await PlayerRepository(session).get_by_telegram_id(telegram_id)
+            if player is None or player.status != PlayerStatus.ACTIVE:
+                raise TournamentRegistrationNotAllowedError
+
+            repository = TournamentRegistrationRepository(session)
+            available_tournaments = await repository.list_registered_upcoming(
+                player_id=player.id,
+                from_date=from_date or date.today(),
+            )
+            tournaments_by_id = {
+                tournament.id: tournament
+                for tournament in available_tournaments
+            }
+            if any(
+                tournament_id not in tournaments_by_id
+                for tournament_id in unique_tournament_ids
+            ):
+                raise TournamentCancellationUnavailableError
+
+            registrations: list[TournamentRegistration] = []
+            for tournament_id in unique_tournament_ids:
+                registration = await repository.get(tournament_id, player.id)
+                if (
+                    registration is None
+                    or registration.status != RegistrationStatus.REGISTERED
+                ):
+                    raise TournamentCancellationUnavailableError
+                registrations.append(registration)
+
+            now = datetime.now(UTC)
+            for registration in registrations:
+                registration.status = RegistrationStatus.CANCELLED
+                registration.cancelled_at = now
+
+            await session.commit()
+            return [
+                tournaments_by_id[tournament_id]
+                for tournament_id in unique_tournament_ids
+            ]
 
 
 tournament_service = TournamentService(SessionFactory)
