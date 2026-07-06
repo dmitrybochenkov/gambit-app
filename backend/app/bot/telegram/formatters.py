@@ -26,16 +26,23 @@ MONTHS = {
 }
 
 
+def format_tournament_label(tournament: Tournament) -> str:
+    weekday = WEEKDAYS[tournament.date.weekday()]
+    month = MONTHS[tournament.date.month]
+    return (
+        f"{weekday}, {tournament.date.day} {month} — "
+        f"Турнир {tournament.type}"
+    )
+
+
 def format_tournament_schedule(tournaments: list[Tournament]) -> str:
     if not tournaments:
         return "Ближайших турниров пока нет."
 
     lines = ["Расписание турниров", ""]
     for tournament in tournaments:
-        weekday = WEEKDAYS[tournament.date.weekday()]
-        month = MONTHS[tournament.date.month]
         lines.append(
-            f"{weekday}, {tournament.date.day} {month} — "
-            f"Турнир {tournament.type} (до {tournament.capacity} игроков)"
+            f"{format_tournament_label(tournament)} "
+            f"(до {tournament.capacity} игроков)"
         )
     return "\n".join(lines)

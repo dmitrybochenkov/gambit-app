@@ -4,7 +4,7 @@ from aiogram.filters import CommandStart
 from aiogram.fsm.context import FSMContext
 from aiogram.types import CallbackQuery, Message, ReplyKeyboardRemove
 
-from app.bot.telegram.formatters import format_tournament_schedule
+from app.bot.telegram.formatters import format_tournament_label, format_tournament_schedule
 from app.bot.telegram.keyboards.main import main_keyboard
 from app.bot.telegram.keyboards.registration import (
     CONFIRM_REGISTRATION_CALLBACK,
@@ -12,6 +12,10 @@ from app.bot.telegram.keyboards.registration import (
     RegistrationModeCallback,
     registration_confirmation_keyboard,
     registration_mode_keyboard,
+)
+from app.bot.telegram.keyboards.tournaments import (
+    TournamentRegistrationCallback,
+    tournament_registration_keyboard,
 )
 from app.bot.telegram.notifications import notify_admins_about_registration
 from app.bot.telegram.states import RegistrationMode, RegistrationStates
@@ -21,7 +25,13 @@ from app.services.player_service import (
     RegistrationNotAllowedError,
     player_service,
 )
-from app.services.tournament_service import tournament_service
+from app.services.tournament_service import (
+    TournamentAlreadyRegisteredError,
+    TournamentFullError,
+    TournamentRegistrationNotAllowedError,
+    TournamentUnavailableError,
+    tournament_service,
+)
 
 router = Router(name="user")
 
@@ -161,6 +171,57 @@ async def show_club_address(message: Message) -> None:
         return
 
     await message.answer("Адрес: г. Орехово-Зуево, д. 1")
+
+
+@router.message(F.text == "Записаться")
+async def show_tournaments_for_registration(message: Message) -> None:
+    if message.from_user is None:
+        return
+
+    player = await player_service.get_by_telegram_id(message.from_user.id)
+    if player is None or player.status != PlayerStatus.ACTIVE:
+        await message.answer("Запись доступна зарегистрированным игрокам. Нажми /start.")
+        return
+
+    tournaments = await tournament_service.get_upcoming_schedule()
+    if not tournaments:
+        await message.answer("Ближайших турниров для записи пока нет.")
+        return
+
+    await message.answer(
+        "Выбери турнир, на который хочешь записаться:",
+        reply_markup=tournament_registration_keyboard(tournaments),
+    )
+
+
+@router.callback_query(TournamentRegistrationCallback.filter())
+async def register_for_tournament(
+    callback: CallbackQuery,
+    callback_data: TournamentRegistrationCallback,
+) -> None:
+    try:
+        _, tournament = await tournament_service.register_player(
+            telegram_id=callback.from_user.id,
+            tournament_id=callback_data.tournament_id,
+        )
+    except TournamentRegistrationNotAllowedError:
+        await callback.answer("Запись доступна только активным игрокам.", show_alert=True)
+        return
+    except TournamentUnavailableError:
+        await callback.answer("Этот турнир уже недоступен для записи.", show_alert=True)
+        return
+    except TournamentAlreadyRegisteredError:
+        await callback.answer("Ты уже записан на этот турнир.", show_alert=True)
+        return
+    except TournamentFullError:
+        await callback.answer("К сожалению, свободных мест уже нет.", show_alert=True)
+        return
+
+    await callback.answer("Готово!")
+    if callback.message is not None:
+        await callback.message.answer(
+            f"Ты записан на {format_tournament_label(tournament).lower()}."
+        )
 
 
 @router.callback_query(RegistrationModeCallback.filter())

@@ -26,3 +26,6 @@ class TournamentRepository:
             .limit(limit)
         )
         return list(result.scalars())
+
+    async def get_by_id(self, tournament_id: int) -> Tournament | None:
+        return await self.session.get(Tournament, tournament_id)

@@ -1,3 +1,4 @@
+from datetime import date
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
@@ -64,6 +65,35 @@ async def test_club_address_is_sent_to_active_player(
 
     service.get_by_telegram_id.assert_awaited_once_with(123)
     message.answer.assert_awaited_once_with("Адрес: г. Орехово-Зуево, д. 1")
+
+
+async def test_registration_button_shows_upcoming_tournaments(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    message = SimpleNamespace(
+        from_user=SimpleNamespace(id=123),
+        answer=AsyncMock(),
+    )
+    player = SimpleNamespace(status=PlayerStatus.ACTIVE)
+    tournament = SimpleNamespace(
+        id=7,
+        date=date(2026, 7, 8),
+        type=1,
+    )
+    player_service = SimpleNamespace(get_by_telegram_id=AsyncMock(return_value=player))
+    tournament_service = SimpleNamespace(
+        get_upcoming_schedule=AsyncMock(return_value=[tournament])
+    )
+    monkeypatch.setattr(user_handlers, "player_service", player_service)
+    monkeypatch.setattr(user_handlers, "tournament_service", tournament_service)
+
+    await user_handlers.show_tournaments_for_registration(message)
+
+    answer = message.answer.await_args
+    assert answer.args[0] == "Выбери турнир, на который хочешь записаться:"
+    button = answer.kwargs["reply_markup"].inline_keyboard[0][0]
+    assert button.text == "Среда, 8 июля — Турнир 1"
+    assert button.callback_data == "tournament_register:7"
 
 
 async def test_pending_registration_notifies_admins(monkeypatch: pytest.MonkeyPatch) -> None:
