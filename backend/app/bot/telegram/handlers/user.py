@@ -150,6 +150,19 @@ async def show_tournament_schedule(message: Message) -> None:
     await message.answer(format_tournament_schedule(tournaments))
 
 
+@router.message(F.text == "Как нас найти")
+async def show_club_address(message: Message) -> None:
+    if message.from_user is None:
+        return
+
+    player = await player_service.get_by_telegram_id(message.from_user.id)
+    if player is None or player.status != PlayerStatus.ACTIVE:
+        await message.answer("Адрес доступен зарегистрированным игрокам. Нажми /start.")
+        return
+
+    await message.answer("Адрес: г. Орехово-Зуево, д. 1")
+
+
 @router.callback_query(RegistrationModeCallback.filter())
 async def choose_registration_mode(
     callback: CallbackQuery,

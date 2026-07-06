@@ -7,6 +7,7 @@ from fastapi import HTTPException
 from app.api import telegram_webhook as webhook_module
 from app.bot.telegram import notifications, runtime
 from app.bot.telegram.handlers import user as user_handlers
+from app.db.models.enums import PlayerStatus
 
 
 async def test_start_command_opens_registration(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -46,6 +47,23 @@ async def test_registration_input_messages_are_deleted() -> None:
     bot.delete_message.assert_awaited_once_with(chat_id=456, message_id=789)
     message.delete.assert_awaited_once()
     state.update_data.assert_awaited_once_with(prompt_message_id=None)
+
+
+async def test_club_address_is_sent_to_active_player(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    message = SimpleNamespace(
+        from_user=SimpleNamespace(id=123),
+        answer=AsyncMock(),
+    )
+    player = SimpleNamespace(status=PlayerStatus.ACTIVE)
+    service = SimpleNamespace(get_by_telegram_id=AsyncMock(return_value=player))
+    monkeypatch.setattr(user_handlers, "player_service", service)
+
+    await user_handlers.show_club_address(message)
+
+    service.get_by_telegram_id.assert_awaited_once_with(123)
+    message.answer.assert_awaited_once_with("Адрес: г. Орехово-Зуево, д. 1")
 
 
 async def test_pending_registration_notifies_admins(monkeypatch: pytest.MonkeyPatch) -> None:
