@@ -1,4 +1,10 @@
+from decimal import Decimal
+
 from app.db.models import Tournament
+from app.db.repositories.rating_repository import (
+    KnockoutsRatingRow,
+    PointsRatingRow,
+)
 
 WEEKDAYS = {
     0: "Понедельник",
@@ -46,3 +52,31 @@ def format_tournament_schedule(tournaments: list[Tournament]) -> str:
             f"(до {tournament.capacity} игроков)"
         )
     return "\n".join(lines)
+
+
+def format_rating(
+    title: str,
+    rows: list[PointsRatingRow] | list[KnockoutsRatingRow],
+) -> str:
+    if not rows:
+        return f"{title}\n\nВ рейтинге пока нет данных."
+
+    lines = [title, ""]
+    for position, row in enumerate(rows, start=1):
+        if isinstance(row, PointsRatingRow):
+            points = _format_decimal(row.total_points)
+            lines.append(
+                f"{position}. {row.display_name} — {points} очков "
+                f"(турниров: {row.tournaments_count})"
+            )
+        else:
+            lines.append(
+                f"{position}. {row.display_name} — "
+                f"всего КО: {row.total_knockouts_count}, "
+                f"Босс КО: {row.boss_knockouts_count}"
+            )
+    return "\n".join(lines)
+
+
+def _format_decimal(value: Decimal) -> str:
+    return format(value.normalize(), "f")

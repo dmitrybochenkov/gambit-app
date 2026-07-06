@@ -4,8 +4,13 @@ from aiogram.filters import CommandStart
 from aiogram.fsm.context import FSMContext
 from aiogram.types import CallbackQuery, Message, ReplyKeyboardRemove
 
-from app.bot.telegram.formatters import format_tournament_label, format_tournament_schedule
+from app.bot.telegram.formatters import (
+    format_rating,
+    format_tournament_label,
+    format_tournament_schedule,
+)
 from app.bot.telegram.keyboards.main import main_keyboard
+from app.bot.telegram.keyboards.rating import RatingCallback, rating_keyboard
 from app.bot.telegram.keyboards.registration import (
     CONFIRM_REGISTRATION_CALLBACK,
     RESTART_REGISTRATION_CALLBACK,
@@ -31,6 +36,7 @@ from app.services.player_service import (
     RegistrationNotAllowedError,
     player_service,
 )
+from app.services.rating_service import rating_service
 from app.services.tournament_service import (
     TournamentCancellationUnavailableError,
     TournamentFullError,
@@ -177,6 +183,41 @@ async def show_club_address(message: Message) -> None:
         return
 
     await message.answer("Адрес: г. Орехово-Зуево, д. 1")
+
+
+@router.message(F.text == "Рейтинг")
+async def show_rating_menu(message: Message) -> None:
+    if message.from_user is None:
+        return
+
+    player = await player_service.get_by_telegram_id(message.from_user.id)
+    if player is None or player.status != PlayerStatus.ACTIVE:
+        await message.answer("Рейтинг доступен зарегистрированным игрокам. Нажми /start.")
+        return
+
+    await message.answer(
+        "Какой рейтинг ты хочешь посмотреть?",
+        reply_markup=rating_keyboard(),
+    )
+
+
+@router.callback_query(RatingCallback.filter())
+async def show_rating(
+    callback: CallbackQuery,
+    callback_data: RatingCallback,
+) -> None:
+    player = await player_service.get_by_telegram_id(callback.from_user.id)
+    if player is None or player.status != PlayerStatus.ACTIVE:
+        await callback.answer(
+            "Рейтинг доступен только активным игрокам.",
+            show_alert=True,
+        )
+        return
+
+    title, rows = await rating_service.get_rating(callback_data.kind)
+    await callback.answer()
+    if callback.message is not None:
+        await callback.message.answer(format_rating(title, rows))
 
 
 @router.message(F.text == "Записаться")

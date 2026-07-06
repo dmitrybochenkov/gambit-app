@@ -9,6 +9,7 @@ from app.api import telegram_webhook as webhook_module
 from app.bot.telegram import notifications, runtime
 from app.bot.telegram.handlers import user as user_handlers
 from app.db.models.enums import PlayerStatus
+from app.services.rating_service import RatingKind
 
 
 async def test_start_command_opens_registration(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -65,6 +66,61 @@ async def test_club_address_is_sent_to_active_player(
 
     service.get_by_telegram_id.assert_awaited_once_with(123)
     message.answer.assert_awaited_once_with("Адрес: г. Орехово-Зуево, д. 1")
+
+
+async def test_rating_button_shows_four_filters(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    message = SimpleNamespace(
+        from_user=SimpleNamespace(id=123),
+        answer=AsyncMock(),
+    )
+    player = SimpleNamespace(status=PlayerStatus.ACTIVE)
+    service = SimpleNamespace(get_by_telegram_id=AsyncMock(return_value=player))
+    monkeypatch.setattr(user_handlers, "player_service", service)
+
+    await user_handlers.show_rating_menu(message)
+
+    answer = message.answer.await_args
+    assert answer.args[0] == "Какой рейтинг ты хочешь посмотреть?"
+    buttons = [
+        row[0].text
+        for row in answer.kwargs["reply_markup"].inline_keyboard
+    ]
+    assert buttons == [
+        "Текущий сезон",
+        "За все время",
+        "Нокауты",
+        "Нокауты за время",
+    ]
+
+
+async def test_rating_callback_sends_selected_rating(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    player = SimpleNamespace(status=PlayerStatus.ACTIVE)
+    player_service = SimpleNamespace(
+        get_by_telegram_id=AsyncMock(return_value=player)
+    )
+    rating_service = SimpleNamespace(
+        get_rating=AsyncMock(return_value=("Рейтинг — текущий сезон", []))
+    )
+    monkeypatch.setattr(user_handlers, "player_service", player_service)
+    monkeypatch.setattr(user_handlers, "rating_service", rating_service)
+    message = SimpleNamespace(answer=AsyncMock())
+    callback = SimpleNamespace(
+        from_user=SimpleNamespace(id=123),
+        message=message,
+        answer=AsyncMock(),
+    )
+    callback_data = SimpleNamespace(kind=RatingKind.CURRENT_SEASON)
+
+    await user_handlers.show_rating(callback, callback_data)
+
+    rating_service.get_rating.assert_awaited_once_with(RatingKind.CURRENT_SEASON)
+    message.answer.assert_awaited_once_with(
+        "Рейтинг — текущий сезон\n\nВ рейтинге пока нет данных."
+    )
 
 
 async def test_registration_button_shows_upcoming_tournaments(
