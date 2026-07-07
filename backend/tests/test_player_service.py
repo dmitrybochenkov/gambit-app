@@ -61,6 +61,39 @@ async def test_registration_identity_must_be_unique(tmp_path: Path) -> None:
         await engine.dispose()
 
 
+async def test_registration_can_claim_historical_player(tmp_path: Path) -> None:
+    service, engine = await create_player_service(tmp_path / "players.db")
+    try:
+        session_factory = async_sessionmaker(engine, expire_on_commit=False)
+        async with session_factory() as session:
+            historical_player = Player(
+                telegram_id=-1,
+                full_name="Исторический Игрок",
+                status=PlayerStatus.ACTIVE,
+            )
+            session.add(historical_player)
+            await session.commit()
+
+        await service.validate_unique_identity(
+            telegram_id=100,
+            full_name="Исторический Игрок",
+            nickname=None,
+        )
+        claimed_player = await service.submit_registration(
+            telegram_id=100,
+            full_name="Исторический Игрок",
+            nickname=None,
+        )
+
+        assert claimed_player.status == PlayerStatus.PENDING
+        assert claimed_player.telegram_id == 100
+        stored_player = await service.get_by_telegram_id(100)
+        assert stored_player is not None
+        assert stored_player.full_name == "Исторический Игрок"
+    finally:
+        await engine.dispose()
+
+
 async def test_superadmin_can_approve_registration(tmp_path: Path) -> None:
     service, engine = await create_player_service(tmp_path / "players.db")
     try:

@@ -21,7 +21,7 @@ class TournamentResult(TimestampMixin, Base):
         nullable=False,
         index=True,
     )
-    place: Mapped[int] = mapped_column(Integer, nullable=False)
+    place: Mapped[int | None] = mapped_column(Integer, nullable=True)
     knockouts_count: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
     boss_knockouts_count: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
     tournament_points: Mapped[Decimal] = mapped_column(
@@ -46,12 +46,7 @@ class TournamentResult(TimestampMixin, Base):
             "player_id",
             name="uq_tournament_results_tournament_player",
         ),
-        UniqueConstraint(
-            "tournament_id",
-            "place",
-            name="uq_tournament_results_tournament_place",
-        ),
-        CheckConstraint("place > 0", name="place_positive"),
+        CheckConstraint("place IS NULL OR place > 0", name="place_positive"),
         CheckConstraint("knockouts_count >= 0", name="knockouts_count_nonnegative"),
         CheckConstraint(
             "boss_knockouts_count >= 0",

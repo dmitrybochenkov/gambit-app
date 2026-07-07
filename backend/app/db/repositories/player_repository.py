@@ -1,4 +1,4 @@
-from sqlalchemy import select
+from sqlalchemy import or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.models import Player
@@ -41,6 +41,7 @@ class PlayerRepository:
             select(Player.id).where(
                 Player.full_name == full_name,
                 Player.telegram_id != telegram_id,
+                Player.telegram_id > 0,
             )
         )
         return result.scalar_one_or_none() is not None
@@ -50,9 +51,33 @@ class PlayerRepository:
             select(Player.id).where(
                 Player.nickname == nickname,
                 Player.telegram_id != telegram_id,
+                Player.telegram_id > 0,
             )
         )
         return result.scalar_one_or_none() is not None
+
+    async def list_historical_by_identity(
+        self,
+        full_name: str | None,
+        nickname: str | None,
+    ) -> list[Player]:
+        filters = []
+        if full_name:
+            filters.append(Player.full_name == full_name)
+        if nickname:
+            filters.append(Player.nickname == nickname)
+        if not filters:
+            return []
+
+        result = await self.session.execute(
+            select(Player)
+            .where(
+                Player.telegram_id < 0,
+                or_(*filters),
+            )
+            .order_by(Player.id)
+        )
+        return list(result.scalars())
 
     async def save_pending_registration(
         self,
@@ -73,6 +98,24 @@ class PlayerRepository:
 
         player.full_name = full_name
         player.nickname = nickname
+        player.status = PlayerStatus.PENDING
+        player.approved_at = None
+        player.approved_by_admin_id = None
+        player.rejected_at = None
+        player.rejected_by_admin_id = None
+        player.rejection_reason = None
+        return player
+
+    async def claim_historical_registration(
+        self,
+        player: Player,
+        telegram_id: int,
+        full_name: str | None,
+        nickname: str | None,
+    ) -> Player:
+        player.telegram_id = telegram_id
+        player.full_name = full_name or player.full_name
+        player.nickname = nickname or player.nickname
         player.status = PlayerStatus.PENDING
         player.approved_at = None
         player.approved_by_admin_id = None

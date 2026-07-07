@@ -122,6 +122,23 @@ class PlayerService:
             if nickname and await repository.nickname_exists(nickname, telegram_id):
                 raise IdentityAlreadyExistsError("nickname")
 
+            historical_players = await repository.list_historical_by_identity(
+                full_name=full_name,
+                nickname=nickname,
+            )
+            if len(historical_players) > 1:
+                raise IdentityAlreadyExistsError("full_name")
+            if historical_players:
+                player = await repository.claim_historical_registration(
+                    player=historical_players[0],
+                    telegram_id=telegram_id,
+                    full_name=full_name,
+                    nickname=nickname,
+                )
+                await session.commit()
+                await session.refresh(player)
+                return player
+
             player = await repository.save_pending_registration(
                 telegram_id=telegram_id,
                 full_name=full_name,
