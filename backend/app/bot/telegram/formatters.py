@@ -1,6 +1,8 @@
+import json
+from datetime import date
 from decimal import Decimal
 
-from app.db.models import Tournament
+from app.db.models import AdminPrompt, Tournament
 from app.db.repositories.profile_repository import PlayerProfileStats
 from app.db.repositories.rating_repository import (
     KnockoutsRatingRow,
@@ -100,6 +102,39 @@ def format_profile(title: str, stats: PlayerProfileStats | None) -> str:
             f"5 место: {stats.fifth_places_count}",
         ]
     )
+
+
+def format_admin_calendar_prompt(prompt: AdminPrompt) -> str:
+    payload = json.loads(prompt.payload)
+    if prompt.kind == "season_proposal":
+        starts_at = date.fromisoformat(payload["starts_at"])
+        ends_at = date.fromisoformat(payload["ends_at"])
+        return "\n".join(
+            [
+                "Нужно подготовить следующий сезон.",
+                "",
+                f"Предложение: {payload['name']}",
+                f"Период: {format_date(starts_at)} — {format_date(ends_at)}",
+                "",
+                "Подтвердить создание?",
+            ]
+        )
+
+    lines = ["Нужно создать турниры на две недели вперед.", ""]
+    for item in payload["tournaments"]:
+        tournament = Tournament(
+            season_id=0,
+            type=int(item["type"]),
+            date=date.fromisoformat(item["date"]),
+            capacity=int(item["capacity"]),
+        )
+        lines.append(f"• {format_tournament_label(tournament)}")
+    lines.extend(["", "Подтвердить создание?"])
+    return "\n".join(lines)
+
+
+def format_date(value: date) -> str:
+    return f"{value.day} {MONTHS[value.month]} {value.year}"
 
 
 def _format_decimal(value: Decimal) -> str:

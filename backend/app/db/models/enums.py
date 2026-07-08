@@ -17,8 +17,16 @@ class PlayerRole(StrEnum):
 
 
 class SeasonStatus(StrEnum):
+    UPCOMING = "upcoming"
     ACTIVE = "active"
     CLOSED = "closed"
+
+
+class AdminPromptStatus(StrEnum):
+    PENDING = "pending"
+    CONFIRMED = "confirmed"
+    CANCELLED = "cancelled"
+    NEEDS_CHANGES = "needs_changes"
 
 
 class TournamentStatus(StrEnum):

@@ -20,6 +20,8 @@ class Settings(BaseSettings):
     database_url: str = ""
     telegram_bot_token: str = ""
     telegram_webhook_secret: str = ""
+    admin_calendar_checks_enabled: bool = True
+    admin_calendar_check_interval_seconds: int = 21_600
 
     model_config = SettingsConfigDict(
         env_file=(".env", "../.env"),

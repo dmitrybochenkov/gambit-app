@@ -29,3 +29,16 @@ class TournamentRepository:
 
     async def get_by_id(self, tournament_id: int) -> Tournament | None:
         return await self.session.get(Tournament, tournament_id)
+
+    async def exists_for_date_and_type(
+        self,
+        tournament_date: date,
+        tournament_type: int,
+    ) -> bool:
+        result = await self.session.execute(
+            select(Tournament.id).where(
+                Tournament.date == tournament_date,
+                Tournament.type == tournament_type,
+            )
+        )
+        return result.scalar_one_or_none() is not None

@@ -4,12 +4,22 @@ from aiogram.filters import Command
 from aiogram.types import CallbackQuery, Message, ReplyKeyboardRemove
 
 from app.bot.telegram.keyboards.admin import (
+    CalendarPromptAction as KeyboardCalendarPromptAction,
+)
+from app.bot.telegram.keyboards.admin import (
+    CalendarPromptCallback,
     RegistrationReviewAction,
     RegistrationReviewCallback,
     registration_review_keyboard,
 )
 from app.bot.telegram.keyboards.main import main_keyboard
 from app.bot.telegram.notifications import format_registration_review
+from app.services.calendar_service import (
+    CalendarPromptAction,
+    CalendarPromptAlreadyResolvedError,
+    CalendarPromptNotFoundError,
+    calendar_service,
+)
 from app.services.player_service import (
     AdminAccessDeniedError,
     PlayerNotFoundError,
@@ -94,3 +104,40 @@ async def review_registration(
         )
     except (TelegramBadRequest, TelegramForbiddenError):
         pass
+
+
+@router.callback_query(CalendarPromptCallback.filter())
+async def review_calendar_prompt(
+    callback: CallbackQuery,
+    callback_data: CalendarPromptCallback,
+) -> None:
+    action = CalendarPromptAction(callback_data.action.value)
+    try:
+        await calendar_service.resolve_prompt(
+            prompt_id=callback_data.prompt_id,
+            admin_telegram_id=callback.from_user.id,
+            action=action,
+        )
+    except CalendarPromptNotFoundError:
+        await callback.answer("Предложение не найдено.", show_alert=True)
+        return
+    except CalendarPromptAlreadyResolvedError:
+        await callback.answer("Предложение уже обработано.", show_alert=True)
+        return
+
+    if callback_data.action == KeyboardCalendarPromptAction.CONFIRM:
+        result_text = "Подтверждено"
+    elif callback_data.action == KeyboardCalendarPromptAction.CANCEL:
+        result_text = "Отменено"
+    else:
+        result_text = "Нужны правки. Ручное редактирование добавим в админке."
+
+    await callback.answer(result_text)
+    if callback.message is not None:
+        try:
+            await callback.message.edit_text(
+                f"{callback.message.text}\n\n{result_text}: "
+                f"{callback.from_user.full_name}"
+            )
+        except TelegramBadRequest:
+            pass

@@ -6,6 +6,7 @@ from alembic import context
 from app.config import settings
 from app.db.base import Base
 from app.db.models import (
+    AdminPrompt,
     Player,
     ScoringConfig,
     Season,
@@ -14,7 +15,7 @@ from app.db.models import (
     TournamentResult,
 )
 
-del Player, ScoringConfig, Season, Tournament, TournamentRegistration, TournamentResult
+del AdminPrompt, Player, ScoringConfig, Season, Tournament, TournamentRegistration, TournamentResult
 
 config = context.config
 
