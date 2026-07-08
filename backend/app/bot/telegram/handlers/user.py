@@ -185,7 +185,10 @@ async def show_club_address(message: Message) -> None:
         await message.answer("Адрес доступен зарегистрированным игрокам. Нажми /start.")
         return
 
-    await message.answer("Адрес: г. Орехово-Зуево, д. 1")
+    await message.answer(
+        "📍 Орехово-Зуево, ул. Ленина, 105\n"
+        "🏆 Играем исключительно на рейтинг и спортивный интерес."
+    )
 
 
 @router.message(F.text == "Рейтинг")

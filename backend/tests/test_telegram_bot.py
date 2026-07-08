@@ -66,7 +66,10 @@ async def test_club_address_is_sent_to_active_player(
     await user_handlers.show_club_address(message)
 
     service.get_by_telegram_id.assert_awaited_once_with(123)
-    message.answer.assert_awaited_once_with("Адрес: г. Орехово-Зуево, д. 1")
+    message.answer.assert_awaited_once_with(
+        "📍 Орехово-Зуево, ул. Ленина, 105\n"
+        "🏆 Играем исключительно на рейтинг и спортивный интерес."
+    )
 
 
 async def test_rating_button_shows_four_filters(
