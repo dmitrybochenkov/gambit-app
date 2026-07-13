@@ -47,7 +47,7 @@ def main() -> None:
         default=DEFAULT_SEASON_NAME,
         help="Season name for imported historical tournaments",
     )
-    parser.add_argument("--tournament-type", type=int, default=1)
+    parser.add_argument("--tournament-type-code", default="bounty")
     parser.add_argument(
         "--export-csv",
         type=Path,
@@ -75,7 +75,7 @@ def main() -> None:
         db_path=args.db,
         rows=rows,
         season_name=args.season_name,
-        tournament_type=args.tournament_type,
+        tournament_type_code=args.tournament_type_code,
     )
     print(f"Imported {len(rows)} rows into {args.db}")
 
@@ -188,7 +188,7 @@ def import_rows(
     db_path: Path,
     rows: list[HistoryRow],
     season_name: str,
-    tournament_type: int,
+    tournament_type_code: str,
 ) -> None:
     connection = sqlite3.connect(db_path)
     connection.execute("PRAGMA foreign_keys = ON")
@@ -206,7 +206,7 @@ def import_rows(
                 connection=connection,
                 rows=rows,
                 season_id=season_id,
-                tournament_type=tournament_type,
+                tournament_type_code=tournament_type_code,
             )
             player_ids = ensure_players(connection, rows)
             upsert_results(connection, rows, tournament_ids, player_ids)
@@ -226,8 +226,8 @@ def ensure_scoring_config(connection: sqlite3.Connection) -> int:
             place_3_coefficient,
             place_4_coefficient,
             place_5_coefficient,
-            knockout_points,
-            boss_knockout_points,
+            knockout_small_points,
+            knockout_big_points,
             created_at,
             updated_at
         )
@@ -270,8 +270,9 @@ def ensure_tournaments(
     connection: sqlite3.Connection,
     rows: list[HistoryRow],
     season_id: int,
-    tournament_type: int,
+    tournament_type_code: str,
 ) -> dict[date, int]:
+    tournament_type_id = get_tournament_type_id(connection, tournament_type_code)
     rows_by_date: dict[date, list[HistoryRow]] = defaultdict(list)
     for row in rows:
         rows_by_date[row.tournament_date].append(row)
@@ -284,8 +285,8 @@ def ensure_tournaments(
         )
         capacity = max(1, len(tournament_rows))
         existing = connection.execute(
-            "SELECT id FROM tournaments WHERE date = ? AND type = ?",
-            (tournament_date.isoformat(), tournament_type),
+            "SELECT id FROM tournaments WHERE date = ? AND tournament_type_id = ?",
+            (tournament_date.isoformat(), tournament_type_id),
         ).fetchone()
         if existing:
             tournament_id = int(existing[0])
@@ -306,7 +307,7 @@ def ensure_tournaments(
                 """
                 INSERT INTO tournaments (
                     season_id,
-                    type,
+                    tournament_type_id,
                     date,
                     capacity,
                     points_pool,
@@ -318,7 +319,7 @@ def ensure_tournaments(
                 """,
                 (
                     season_id,
-                    tournament_type,
+                    tournament_type_id,
                     tournament_date.isoformat(),
                     capacity,
                     money(points_pool),
@@ -327,6 +328,16 @@ def ensure_tournaments(
             tournament_id = int(cursor.lastrowid)
         tournament_ids[tournament_date] = tournament_id
     return tournament_ids
+
+
+def get_tournament_type_id(connection: sqlite3.Connection, code: str) -> int:
+    row = connection.execute(
+        "SELECT id FROM tournament_types WHERE code = ?",
+        (code,),
+    ).fetchone()
+    if row is None:
+        raise SystemExit(f"Tournament type not found: {code}")
+    return int(row[0])
 
 
 def ensure_players(

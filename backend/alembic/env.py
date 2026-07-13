@@ -11,11 +11,29 @@ from app.db.models import (
     ScoringConfig,
     Season,
     Tournament,
+    TournamentEconomyConfig,
+    TournamentRebuyConfig,
     TournamentRegistration,
     TournamentResult,
+    TournamentType,
+    TournamentTypeRule,
+    WeeklyTournamentTemplate,
 )
 
-del AdminPrompt, Player, ScoringConfig, Season, Tournament, TournamentRegistration, TournamentResult
+del (
+    AdminPrompt,
+    Player,
+    ScoringConfig,
+    Season,
+    Tournament,
+    TournamentEconomyConfig,
+    TournamentRebuyConfig,
+    TournamentRegistration,
+    TournamentResult,
+    TournamentType,
+    TournamentTypeRule,
+    WeeklyTournamentTemplate,
+)
 
 config = context.config
 

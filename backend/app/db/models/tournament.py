@@ -1,12 +1,18 @@
+from __future__ import annotations
+
 from datetime import date
 from decimal import Decimal
+from typing import TYPE_CHECKING
 
 from sqlalchemy import CheckConstraint, Date, ForeignKey, Integer, Numeric
-from sqlalchemy.orm import Mapped, mapped_column
+from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.base import Base
 from app.db.models.enums import TournamentStatus, database_enum
 from app.db.models.mixins import TimestampMixin
+
+if TYPE_CHECKING:
+    from app.db.models.tournament_type import TournamentType
 
 
 class Tournament(TimestampMixin, Base):
@@ -18,7 +24,11 @@ class Tournament(TimestampMixin, Base):
         nullable=False,
         index=True,
     )
-    type: Mapped[int] = mapped_column(Integer, nullable=False)
+    tournament_type_id: Mapped[int] = mapped_column(
+        ForeignKey("tournament_types.id", ondelete="RESTRICT"),
+        nullable=False,
+        index=True,
+    )
     date: Mapped[date] = mapped_column(Date, nullable=False, index=True)
     capacity: Mapped[int] = mapped_column(Integer, nullable=False)
     points_pool: Mapped[Decimal | None] = mapped_column(Numeric(12, 2), nullable=True)
@@ -28,9 +38,9 @@ class Tournament(TimestampMixin, Base):
         nullable=False,
         index=True,
     )
+    tournament_type: Mapped[TournamentType] = relationship()
 
     __table_args__ = (
-        CheckConstraint("type IN (1, 2, 3)", name="type_supported"),
         CheckConstraint("capacity > 0", name="capacity_positive"),
         CheckConstraint(
             "points_pool IS NULL OR points_pool >= 0",

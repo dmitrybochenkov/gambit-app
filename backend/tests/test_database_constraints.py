@@ -2,6 +2,7 @@ from datetime import date
 from decimal import Decimal
 
 import pytest
+from conftest import seed_tournament_types, tournament_type_id
 from sqlalchemy import create_engine
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
@@ -33,6 +34,7 @@ def test_closed_tournament_requires_points_pool(session: Session) -> None:
     scoring_config = ScoringConfig()
     session.add(scoring_config)
     session.flush()
+    seed_tournament_types(session)
 
     season = Season(
         name="Season 1",
@@ -47,7 +49,7 @@ def test_closed_tournament_requires_points_pool(session: Session) -> None:
     session.add(
         Tournament(
             season_id=season.id,
-            type=1,
+            tournament_type_id=tournament_type_id("bounty"),
             date=date(2026, 7, 4),
             capacity=30,
             points_pool=None,

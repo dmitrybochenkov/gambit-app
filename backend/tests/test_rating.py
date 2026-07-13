@@ -2,6 +2,7 @@ from datetime import date
 from decimal import Decimal
 from pathlib import Path
 
+from conftest import seed_tournament_types_async, tournament_type_id
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
 from app.bot.telegram.formatters import format_rating
@@ -27,6 +28,7 @@ async def test_rating_filters_current_season_and_all_time(tmp_path: Path) -> Non
         config = ScoringConfig()
         session.add(config)
         await session.flush()
+        await seed_tournament_types_async(session)
         current_season = Season(
             name="Current season",
             scoring_config_id=config.id,
@@ -63,14 +65,14 @@ async def test_rating_filters_current_season_and_all_time(tmp_path: Path) -> Non
         await session.flush()
         current_tournament = Tournament(
             season_id=current_season.id,
-            type=1,
+            tournament_type_id=tournament_type_id("bounty"),
             date=date(2026, 7, 8),
             capacity=30,
             status=TournamentStatus.ACTIVE,
         )
         previous_tournament = Tournament(
             season_id=previous_season.id,
-            type=2,
+            tournament_type_id=tournament_type_id("classic"),
             date=date(2026, 6, 20),
             capacity=30,
             status=TournamentStatus.ACTIVE,

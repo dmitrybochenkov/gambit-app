@@ -40,6 +40,17 @@ class RegistrationStatus(StrEnum):
     CANCELLED = "cancelled"
 
 
+class TournamentTypeStatus(StrEnum):
+    ACTIVE = "active"
+    ARCHIVED = "archived"
+
+
+class KnockoutMode(StrEnum):
+    NONE = "none"
+    SMALL = "small"
+    SMALL_BIG = "small_big"
+
+
 def database_enum[EnumType: StrEnum](enum_class: type[EnumType], name: str) -> SqlEnum:
     return SqlEnum(
         enum_class,

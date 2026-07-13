@@ -16,11 +16,6 @@ from app.db.session import SessionFactory
 
 SEASON_NOTICE_DAYS = 7
 DEFAULT_TOURNAMENT_CAPACITY = 30
-DEFAULT_WEEKLY_TOURNAMENTS = {
-    2: 1,
-    3: 2,
-    4: 3,
-}
 
 
 class AdminPromptKind(StrEnum):
@@ -49,7 +44,8 @@ class CalendarPromptUnsupportedError(ValueError):
 @dataclass(frozen=True)
 class ProposedTournament:
     date: date
-    type: int
+    tournament_type_id: int
+    tournament_type_name: str
     capacity: int = DEFAULT_TOURNAMENT_CAPACITY
 
 
@@ -178,7 +174,8 @@ class CalendarService:
                 "tournaments": [
                     {
                         "date": tournament.date.isoformat(),
-                        "type": tournament.type,
+                        "tournament_type_id": tournament.tournament_type_id,
+                        "tournament_type_name": tournament.tournament_type_name,
                         "capacity": tournament.capacity,
                     }
                     for tournament in proposed_tournaments
@@ -200,23 +197,56 @@ class CalendarService:
         first_monday = today + timedelta(days=1)
         last_day = first_monday + timedelta(days=13)
         repository = TournamentRepository(session)
+        templates_by_weekday = await self._templates_by_weekday(repository)
+        rotation_counts: dict[int, int] = {}
         proposed: list[ProposedTournament] = []
 
         current_day = first_monday
         while current_day <= last_day:
-            tournament_type = DEFAULT_WEEKLY_TOURNAMENTS.get(current_day.weekday())
-            if tournament_type is not None and not await repository.exists_for_date_and_type(
+            template = self._select_template_for_day(
+                templates_by_weekday.get(current_day.weekday(), []),
+                rotation_counts.get(current_day.weekday(), 0),
+            )
+            if template is not None and not await repository.exists_for_date_and_type_id(
                 current_day,
-                tournament_type,
+                template.tournament_type_id,
             ):
                 proposed.append(
                     ProposedTournament(
                         date=current_day,
-                        type=tournament_type,
+                        tournament_type_id=template.tournament_type_id,
+                        tournament_type_name=template.tournament_type.name,
                     )
+                )
+                rotation_counts[current_day.weekday()] = (
+                    rotation_counts.get(current_day.weekday(), 0) + 1
                 )
             current_day += timedelta(days=1)
         return proposed
+
+    async def _templates_by_weekday(
+        self,
+        repository: TournamentRepository,
+    ) -> dict[int, list[object]]:
+        templates_by_weekday: dict[int, list[object]] = {}
+        for template in await repository.list_active_weekly_templates():
+            templates_by_weekday.setdefault(template.weekday, []).append(template)
+        return templates_by_weekday
+
+    @staticmethod
+    def _select_template_for_day(
+        templates: list[object],
+        rotation_count: int,
+    ) -> object | None:
+        if not templates:
+            return None
+        if len(templates) == 1:
+            return templates[0]
+        ordered_templates = sorted(
+            templates,
+            key=lambda template: template.rotation_order or template.id,
+        )
+        return ordered_templates[rotation_count % len(ordered_templates)]
 
     async def _apply_prompt(
         self,
@@ -264,10 +294,10 @@ class CalendarService:
         tournament_repository = TournamentRepository(session)
         for item in payload["tournaments"]:
             tournament_date = date.fromisoformat(item["date"])
-            tournament_type = int(item["type"])
-            if await tournament_repository.exists_for_date_and_type(
+            tournament_type_id = int(item["tournament_type_id"])
+            if await tournament_repository.exists_for_date_and_type_id(
                 tournament_date,
-                tournament_type,
+                tournament_type_id,
             ):
                 continue
 
@@ -278,7 +308,7 @@ class CalendarService:
             session.add(
                 Tournament(
                     season_id=season.id,
-                    type=tournament_type,
+                    tournament_type_id=tournament_type_id,
                     date=tournament_date,
                     capacity=int(item["capacity"]),
                     status=TournamentStatus.ACTIVE,

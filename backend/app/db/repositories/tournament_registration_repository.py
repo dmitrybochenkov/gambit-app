@@ -50,6 +50,6 @@ class TournamentRegistrationRepository:
                 Tournament.status == TournamentStatus.ACTIVE,
                 Tournament.date >= from_date,
             )
-            .order_by(Tournament.date, Tournament.type)
+            .order_by(Tournament.date, Tournament.tournament_type_id)
         )
         return list(result.scalars())

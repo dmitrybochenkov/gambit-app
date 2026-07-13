@@ -2,6 +2,7 @@ import json
 from datetime import date
 from pathlib import Path
 
+from conftest import seed_tournament_types_async, seed_weekly_templates_async
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncEngine, async_sessionmaker, create_async_engine
 
@@ -33,6 +34,8 @@ async def test_collects_weekly_tournament_prompt_on_sunday(tmp_path: Path) -> No
             config = ScoringConfig()
             session.add(config)
             await session.flush()
+            await seed_tournament_types_async(session)
+            await seed_weekly_templates_async(session)
             session.add(
                 Season(
                     name="Лето 2026",
@@ -57,9 +60,25 @@ async def test_collects_weekly_tournament_prompt_on_sunday(tmp_path: Path) -> No
             "2026-07-15",
             "2026-07-16",
             "2026-07-17",
+            "2026-07-18",
+            "2026-07-19",
             "2026-07-22",
             "2026-07-23",
             "2026-07-24",
+            "2026-07-25",
+            "2026-07-26",
+        ]
+        assert [item["tournament_type_name"] for item in payload["tournaments"]] == [
+            "Баунти турнир",
+            "Классика",
+            "Фризаут",
+            "Double Double",
+            "Mystery Bounty",
+            "Баунти турнир",
+            "Классика",
+            "Фризаут",
+            "Double Double",
+            "Boss Bounty",
         ]
     finally:
         await engine.dispose()
@@ -74,6 +93,8 @@ async def test_confirming_tournament_prompt_creates_tournaments(tmp_path: Path) 
             config = ScoringConfig()
             session.add(config)
             await session.flush()
+            await seed_tournament_types_async(session)
+            await seed_weekly_templates_async(session)
             session.add(
                 Season(
                     name="Лето 2026",
@@ -95,14 +116,21 @@ async def test_confirming_tournament_prompt_creates_tournaments(tmp_path: Path) 
         async with session_factory() as session:
             tournaments = list((await session.execute(select(Tournament))).scalars())
 
-        assert len(tournaments) == 6
-        assert [(tournament.date, tournament.type) for tournament in tournaments] == [
+        assert len(tournaments) == 10
+        assert [
+            (tournament.date, tournament.tournament_type_id)
+            for tournament in tournaments
+        ] == [
             (date(2026, 7, 15), 1),
             (date(2026, 7, 16), 2),
             (date(2026, 7, 17), 3),
+            (date(2026, 7, 18), 4),
+            (date(2026, 7, 19), 5),
             (date(2026, 7, 22), 1),
             (date(2026, 7, 23), 2),
             (date(2026, 7, 24), 3),
+            (date(2026, 7, 25), 4),
+            (date(2026, 7, 26), 6),
         ]
         assert all(tournament.status == TournamentStatus.ACTIVE for tournament in tournaments)
     finally:
@@ -118,6 +146,8 @@ async def test_collects_season_prompt_seven_days_before_end(tmp_path: Path) -> N
             config = ScoringConfig()
             session.add(config)
             await session.flush()
+            await seed_tournament_types_async(session)
+            await seed_weekly_templates_async(session)
             session.add(
                 Season(
                     name="Лето 2026",
@@ -149,6 +179,8 @@ async def test_confirming_season_prompt_creates_upcoming_season(tmp_path: Path) 
             config = ScoringConfig()
             session.add(config)
             await session.flush()
+            await seed_tournament_types_async(session)
+            await seed_weekly_templates_async(session)
             session.add(
                 Season(
                     name="Лето 2026",

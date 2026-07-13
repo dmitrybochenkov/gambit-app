@@ -1,6 +1,7 @@
 from datetime import date
 from pathlib import Path
 
+from conftest import seed_tournament_types_async, tournament_type_id
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
@@ -32,6 +33,7 @@ async def test_upcoming_schedule_uses_active_tournaments(tmp_path: Path) -> None
         config = ScoringConfig()
         session.add(config)
         await session.flush()
+        await seed_tournament_types_async(session)
         season = Season(
             name="Test season",
             scoring_config_id=config.id,
@@ -45,28 +47,28 @@ async def test_upcoming_schedule_uses_active_tournaments(tmp_path: Path) -> None
             [
                 Tournament(
                     season_id=season.id,
-                    type=3,
+                    tournament_type_id=tournament_type_id("freezeout"),
                     date=date(2026, 7, 10),
                     capacity=30,
                     status=TournamentStatus.ACTIVE,
                 ),
                 Tournament(
                     season_id=season.id,
-                    type=1,
+                    tournament_type_id=tournament_type_id("bounty"),
                     date=date(2026, 7, 8),
                     capacity=30,
                     status=TournamentStatus.ACTIVE,
                 ),
                 Tournament(
                     season_id=season.id,
-                    type=2,
+                    tournament_type_id=tournament_type_id("classic"),
                     date=date(2026, 7, 9),
                     capacity=30,
                     status=TournamentStatus.ACTIVE,
                 ),
                 Tournament(
                     season_id=season.id,
-                    type=1,
+                    tournament_type_id=tournament_type_id("bounty"),
                     date=date(2026, 7, 7),
                     capacity=30,
                     status=TournamentStatus.CANCELLED,
@@ -78,12 +80,16 @@ async def test_upcoming_schedule_uses_active_tournaments(tmp_path: Path) -> None
     service = TournamentService(session_factory)
     tournaments = await service.get_upcoming_schedule(from_date=date(2026, 7, 6))
 
-    assert [tournament.type for tournament in tournaments] == [1, 2, 3]
+    assert [tournament.tournament_type_id for tournament in tournaments] == [
+        tournament_type_id("bounty"),
+        tournament_type_id("classic"),
+        tournament_type_id("freezeout"),
+    ]
     assert format_tournament_schedule(tournaments) == (
         "Расписание турниров\n\n"
-        "Среда, 8 июля — Турнир 1 (до 30 игроков)\n"
-        "Четверг, 9 июля — Турнир 2 (до 30 игроков)\n"
-        "Пятница, 10 июля — Турнир 3 (до 30 игроков)"
+        "Среда, 8 июля — Баунти турнир (до 30 игроков)\n"
+        "Четверг, 9 июля — Классика (до 30 игроков)\n"
+        "Пятница, 10 июля — Фризаут (до 30 игроков)"
     )
     await engine.dispose()
 
@@ -102,6 +108,7 @@ async def test_active_player_can_register_for_multiple_tournaments(tmp_path: Pat
         config = ScoringConfig()
         session.add(config)
         await session.flush()
+        await seed_tournament_types_async(session)
         season = Season(
             name="Test season",
             scoring_config_id=config.id,
@@ -119,14 +126,14 @@ async def test_active_player_can_register_for_multiple_tournaments(tmp_path: Pat
         tournaments = [
             Tournament(
                 season_id=season.id,
-                type=1,
+                tournament_type_id=tournament_type_id("bounty"),
                 date=date(2026, 7, 8),
                 capacity=30,
                 status=TournamentStatus.ACTIVE,
             ),
             Tournament(
                 season_id=season.id,
-                type=2,
+                tournament_type_id=tournament_type_id("classic"),
                 date=date(2026, 7, 9),
                 capacity=30,
                 status=TournamentStatus.ACTIVE,

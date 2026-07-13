@@ -38,9 +38,15 @@ MONTHS = {
 def format_tournament_label(tournament: Tournament) -> str:
     weekday = WEEKDAYS[tournament.date.weekday()]
     month = MONTHS[tournament.date.month]
+    tournament_type = tournament.__dict__.get("tournament_type")
+    type_name = (
+        tournament_type.name
+        if tournament_type is not None
+        else f"Турнир {getattr(tournament, 'tournament_type_id', getattr(tournament, 'type', ''))}"
+    )
     return (
         f"{weekday}, {tournament.date.day} {month} — "
-        f"Турнир {tournament.type}"
+        f"{type_name}"
     )
 
 
@@ -124,10 +130,15 @@ def format_admin_calendar_prompt(prompt: AdminPrompt) -> str:
     for item in payload["tournaments"]:
         tournament = Tournament(
             season_id=0,
-            type=int(item["type"]),
+            tournament_type_id=int(item["tournament_type_id"]),
             date=date.fromisoformat(item["date"]),
             capacity=int(item["capacity"]),
         )
+        tournament.__dict__["tournament_type"] = type(
+            "TournamentTypeLabel",
+            (),
+            {"name": item["tournament_type_name"]},
+        )()
         lines.append(f"• {format_tournament_label(tournament)}")
     lines.extend(["", "Подтвердить создание?"])
     return "\n".join(lines)
