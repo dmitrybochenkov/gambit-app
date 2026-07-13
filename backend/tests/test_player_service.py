@@ -5,7 +5,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncEngine, async_sessionmaker, create_async_engine
 
 from app.db.base import Base
-from app.db.models import Player
+from app.db.models import Player, RegistrationMatch
 from app.db.models.enums import PlayerRole, PlayerStatus
 from app.services.player_service import (
     AdminAccessDeniedError,
@@ -61,7 +61,9 @@ async def test_registration_identity_must_be_unique(tmp_path: Path) -> None:
         await engine.dispose()
 
 
-async def test_registration_can_claim_historical_player(tmp_path: Path) -> None:
+async def test_registration_creates_historical_match_before_approval(
+    tmp_path: Path,
+) -> None:
     service, engine = await create_player_service(tmp_path / "players.db")
     try:
         session_factory = async_sessionmaker(engine, expire_on_commit=False)
@@ -79,17 +81,123 @@ async def test_registration_can_claim_historical_player(tmp_path: Path) -> None:
             full_name="Исторический Игрок",
             nickname=None,
         )
-        claimed_player = await service.submit_registration(
+        pending_player = await service.submit_registration(
             telegram_id=100,
             full_name="Исторический Игрок",
             nickname=None,
         )
 
-        assert claimed_player.status == PlayerStatus.PENDING
-        assert claimed_player.telegram_id == 100
+        assert pending_player.status == PlayerStatus.PENDING
+        assert pending_player.telegram_id == 100
         stored_player = await service.get_by_telegram_id(100)
         assert stored_player is not None
         assert stored_player.full_name == "Исторический Игрок"
+        async with session_factory() as session:
+            historical = await session.get(Player, historical_player.id)
+            assert historical is not None
+            assert historical.telegram_id == -1
+
+            match = (
+                await session.execute(select(RegistrationMatch))
+            ).scalar_one()
+            assert match.pending_player_id == pending_player.id
+            assert match.historical_player_id == historical_player.id
+            assert match.score == 100
+    finally:
+        await engine.dispose()
+
+
+async def test_approval_merges_best_historical_match(tmp_path: Path) -> None:
+    service, engine = await create_player_service(tmp_path / "players.db")
+    try:
+        admin = await service.submit_registration(
+            telegram_id=100,
+            full_name="Админ Первый",
+            nickname=None,
+        )
+        session_factory = async_sessionmaker(engine, expire_on_commit=False)
+        async with session_factory() as session:
+            stored_admin = await session.get(Player, admin.id)
+            assert stored_admin is not None
+            stored_admin.status = PlayerStatus.ACTIVE
+            stored_admin.role = PlayerRole.SUPERADMIN
+            historical_player = Player(
+                telegram_id=-1,
+                full_name="Дима Боченков",
+                nickname="GambitDima",
+                status=PlayerStatus.ACTIVE,
+            )
+            session.add(historical_player)
+            await session.commit()
+
+        pending_player = await service.submit_registration(
+            telegram_id=200,
+            full_name="Дима Боченкав",
+            nickname="gambit.dima",
+        )
+
+        approved = await service.approve_registration(
+            admin_telegram_id=100,
+            player_id=pending_player.id,
+        )
+
+        assert approved.id == historical_player.id
+        assert approved.telegram_id == 200
+        assert approved.status == PlayerStatus.ACTIVE
+        assert approved.full_name == "Дима Боченков"
+        assert approved.nickname == "GambitDima"
+        assert await service.get_by_telegram_id(200) is not None
+
+        async with session_factory() as session:
+            removed_pending = await session.get(Player, pending_player.id)
+            assert removed_pending is None
+    finally:
+        await engine.dispose()
+
+
+async def test_approval_can_ignore_historical_match(tmp_path: Path) -> None:
+    service, engine = await create_player_service(tmp_path / "players.db")
+    try:
+        admin = await service.submit_registration(
+            telegram_id=100,
+            full_name="Админ Первый",
+            nickname=None,
+        )
+        session_factory = async_sessionmaker(engine, expire_on_commit=False)
+        async with session_factory() as session:
+            stored_admin = await session.get(Player, admin.id)
+            assert stored_admin is not None
+            stored_admin.status = PlayerStatus.ACTIVE
+            stored_admin.role = PlayerRole.SUPERADMIN
+            historical_player = Player(
+                telegram_id=-1,
+                full_name="Дима Боченков",
+                nickname="GambitDima",
+                status=PlayerStatus.ACTIVE,
+            )
+            session.add(historical_player)
+            await session.commit()
+
+        pending_player = await service.submit_registration(
+            telegram_id=200,
+            full_name="Дима Боченкав",
+            nickname="gambit.dima",
+        )
+
+        approved = await service.approve_registration(
+            admin_telegram_id=100,
+            player_id=pending_player.id,
+            use_registration_match=False,
+        )
+
+        assert approved.id == pending_player.id
+        assert approved.telegram_id == 200
+        assert approved.status == PlayerStatus.ACTIVE
+
+        async with session_factory() as session:
+            historical = await session.get(Player, historical_player.id)
+            assert historical is not None
+            assert historical.telegram_id == -1
     finally:
         await engine.dispose()
 

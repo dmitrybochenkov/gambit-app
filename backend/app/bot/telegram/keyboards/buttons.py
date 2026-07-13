@@ -15,6 +15,8 @@ CANCEL = "Отмена"
 EDIT = "Исправить"
 
 ADMIN_APPROVE = "Одобрить"
+ADMIN_APPROVE_WITH_HISTORY = "Одобрить + история"
+ADMIN_APPROVE_AS_NEW = "Как нового"
 ADMIN_REJECT = "Отклонить"
 
 RATING_CURRENT_SEASON = "Текущий сезон"

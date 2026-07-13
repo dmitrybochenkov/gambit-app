@@ -3,18 +3,22 @@ from aiogram.exceptions import TelegramBadRequest, TelegramForbiddenError
 
 from app.bot.telegram import keyboards, texts
 from app.bot.telegram.formatters import format_admin_calendar_prompt
-from app.db.models import AdminPrompt, Player
+from app.db.models import AdminPrompt, Player, RegistrationMatch
 from app.services.player_service import player_service
 
 
-def format_registration_review(player: Player) -> str:
-    return texts.admin.registration_review(player)
+def format_registration_review(
+    player: Player,
+    matches: list[tuple[RegistrationMatch, Player]] | None = None,
+) -> str:
+    return texts.admin.registration_review(player, matches or [])
 
 
 async def notify_admins_about_registration(bot: Bot, player: Player) -> None:
     admins = await player_service.get_active_admins()
-    text = format_registration_review(player)
-    keyboard = keyboards.registration_review_keyboard(player.id)
+    matches = await player_service.get_registration_matches(player.id)
+    text = format_registration_review(player, matches)
+    keyboard = keyboards.registration_review_keyboard(player.id, has_matches=bool(matches))
 
     for admin in admins:
         try:

@@ -9,6 +9,7 @@ from app.bot.telegram.keyboards import buttons
 
 class RegistrationReviewAction(StrEnum):
     APPROVE = "approve"
+    APPROVE_NEW = "approve_new"
     REJECT = "reject"
 
 
@@ -28,15 +29,26 @@ class CalendarPromptCallback(CallbackData, prefix="calendar_prompt"):
     prompt_id: int
 
 
-def registration_review_keyboard(player_id: int) -> InlineKeyboardMarkup:
+def registration_review_keyboard(
+    player_id: int,
+    has_matches: bool = False,
+) -> InlineKeyboardMarkup:
     builder = InlineKeyboardBuilder()
     builder.button(
-        text=buttons.ADMIN_APPROVE,
+        text=buttons.ADMIN_APPROVE_WITH_HISTORY if has_matches else buttons.ADMIN_APPROVE,
         callback_data=RegistrationReviewCallback(
             action=RegistrationReviewAction.APPROVE,
             player_id=player_id,
         ),
     )
+    if has_matches:
+        builder.button(
+            text=buttons.ADMIN_APPROVE_AS_NEW,
+            callback_data=RegistrationReviewCallback(
+                action=RegistrationReviewAction.APPROVE_NEW,
+                player_id=player_id,
+            ),
+        )
     builder.button(
         text=buttons.ADMIN_REJECT,
         callback_data=RegistrationReviewCallback(
@@ -44,7 +56,7 @@ def registration_review_keyboard(player_id: int) -> InlineKeyboardMarkup:
             player_id=player_id,
         ),
     )
-    builder.adjust(2)
+    builder.adjust(1, 2) if has_matches else builder.adjust(2)
     return builder.as_markup()
 
 

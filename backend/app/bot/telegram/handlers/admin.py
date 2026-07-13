@@ -39,9 +39,13 @@ async def show_pending_registrations(message: Message) -> None:
 
     await message.answer(texts.admin.pending_registrations_count(len(players)))
     for player in players:
+        matches = await player_service.get_registration_matches(player.id)
         await message.answer(
-            format_registration_review(player),
-            reply_markup=keyboards.registration_review_keyboard(player.id),
+            format_registration_review(player, matches),
+            reply_markup=keyboards.registration_review_keyboard(
+                player.id,
+                has_matches=bool(matches),
+            ),
         )
 
 
@@ -51,12 +55,22 @@ async def review_registration(
     callback_data: keyboards.RegistrationReviewCallback,
 ) -> None:
     try:
-        if callback_data.action == keyboards.RegistrationReviewAction.APPROVE:
+        if callback_data.action in {
+            keyboards.RegistrationReviewAction.APPROVE,
+            keyboards.RegistrationReviewAction.APPROVE_NEW,
+        }:
             player = await player_service.approve_registration(
                 admin_telegram_id=callback.from_user.id,
                 player_id=callback_data.player_id,
+                use_registration_match=(
+                    callback_data.action == keyboards.RegistrationReviewAction.APPROVE
+                ),
             )
-            result_text = texts.admin.REGISTRATION_APPROVED
+            result_text = (
+                texts.admin.REGISTRATION_APPROVED_AS_NEW
+                if callback_data.action == keyboards.RegistrationReviewAction.APPROVE_NEW
+                else texts.admin.REGISTRATION_APPROVED
+            )
             player_text = texts.admin.registration_approved_message(
                 player.display_name
             )
@@ -87,7 +101,7 @@ async def review_registration(
         try:
             await callback.message.edit_text(
                 texts.admin.reviewed_by_admin(
-                    review_text=format_registration_review(player),
+                    review_text=callback.message.text or format_registration_review(player),
                     result_text=result_text,
                     admin_name=callback.from_user.full_name,
                 )

@@ -1,8 +1,8 @@
 from sqlalchemy import or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.db.models import Player
-from app.db.models.enums import PlayerRole, PlayerStatus
+from app.db.models import Player, RegistrationMatch
+from app.db.models.enums import PlayerRole, PlayerStatus, RegistrationMatchStatus
 
 
 class PlayerRepository:
@@ -36,68 +36,104 @@ class PlayerRepository:
         )
         return list(result.scalars())
 
-    async def full_name_exists(self, full_name: str, telegram_id: int) -> bool:
-        result = await self.session.execute(
-            select(Player.id).where(
-                Player.full_name == full_name,
-                Player.telegram_id != telegram_id,
-                Player.telegram_id > 0,
-            )
-        )
-        return result.scalar_one_or_none() is not None
-
-    async def nickname_exists(self, nickname: str, telegram_id: int) -> bool:
-        result = await self.session.execute(
-            select(Player.id).where(
-                Player.nickname == nickname,
-                Player.telegram_id != telegram_id,
-                Player.telegram_id > 0,
-            )
-        )
-        return result.scalar_one_or_none() is not None
-
-    async def list_historical_by_identity(
+    async def full_name_exists(
         self,
-        full_name: str | None,
-        nickname: str | None,
-    ) -> list[Player]:
-        filters = []
-        if full_name:
-            filters.append(Player.full_name == full_name)
-        if nickname:
-            filters.append(Player.nickname == nickname)
-        if not filters:
-            return []
+        full_name: str,
+        full_name_normalized: str,
+        telegram_id: int,
+    ) -> bool:
+        result = await self.session.execute(
+            select(Player.id).where(
+                or_(
+                    Player.full_name == full_name,
+                    Player.full_name_normalized == full_name_normalized,
+                ),
+                Player.telegram_id != telegram_id,
+                Player.telegram_id > 0,
+                Player.status.in_(
+                    [
+                        PlayerStatus.PENDING,
+                        PlayerStatus.ACTIVE,
+                        PlayerStatus.BLOCKED,
+                    ]
+                ),
+            )
+        )
+        return result.scalar_one_or_none() is not None
 
+    async def nickname_exists(
+        self,
+        nickname: str,
+        nickname_normalized: str,
+        telegram_id: int,
+    ) -> bool:
+        result = await self.session.execute(
+            select(Player.id).where(
+                or_(
+                    Player.nickname == nickname,
+                    Player.nickname_normalized == nickname_normalized,
+                ),
+                Player.telegram_id != telegram_id,
+                Player.telegram_id > 0,
+                Player.status.in_(
+                    [
+                        PlayerStatus.PENDING,
+                        PlayerStatus.ACTIVE,
+                        PlayerStatus.BLOCKED,
+                    ]
+                ),
+            )
+        )
+        return result.scalar_one_or_none() is not None
+
+    async def list_historical_players(self) -> list[Player]:
         result = await self.session.execute(
             select(Player)
-            .where(
-                Player.telegram_id < 0,
-                or_(*filters),
-            )
+            .where(Player.telegram_id < 0)
             .order_by(Player.id)
         )
         return list(result.scalars())
+
+    async def list_registration_matches(
+        self,
+        pending_player_id: int,
+    ) -> list[tuple[RegistrationMatch, Player]]:
+        result = await self.session.execute(
+            select(RegistrationMatch, Player)
+            .join(Player, Player.id == RegistrationMatch.historical_player_id)
+            .where(
+                RegistrationMatch.pending_player_id == pending_player_id,
+                RegistrationMatch.status == RegistrationMatchStatus.CANDIDATE,
+            )
+            .order_by(RegistrationMatch.score.desc(), RegistrationMatch.id)
+        )
+        return list(result.all())
 
     async def save_pending_registration(
         self,
         telegram_id: int,
         full_name: str | None,
+        full_name_normalized: str | None,
         nickname: str | None,
+        nickname_normalized: str | None,
     ) -> Player:
         player = await self.get_by_telegram_id(telegram_id)
         if player is None:
             player = Player(
                 telegram_id=telegram_id,
                 full_name=full_name,
+                full_name_normalized=full_name_normalized,
                 nickname=nickname,
+                nickname_normalized=nickname_normalized,
                 status=PlayerStatus.PENDING,
             )
             self.session.add(player)
             return player
 
         player.full_name = full_name
+        player.full_name_normalized = full_name_normalized
         player.nickname = nickname
+        player.nickname_normalized = nickname_normalized
         player.status = PlayerStatus.PENDING
         player.approved_at = None
         player.approved_by_admin_id = None
@@ -106,20 +142,26 @@ class PlayerRepository:
         player.rejection_reason = None
         return player
 
-    async def claim_historical_registration(
+    async def replace_registration_matches(
         self,
-        player: Player,
-        telegram_id: int,
-        full_name: str | None,
-        nickname: str | None,
-    ) -> Player:
-        player.telegram_id = telegram_id
-        player.full_name = full_name or player.full_name
-        player.nickname = nickname or player.nickname
-        player.status = PlayerStatus.PENDING
-        player.approved_at = None
-        player.approved_by_admin_id = None
-        player.rejected_at = None
-        player.rejected_by_admin_id = None
-        player.rejection_reason = None
-        return player
+        pending_player_id: int,
+        matches: list[tuple[int, int, str]],
+    ) -> None:
+        existing_matches = await self.session.execute(
+            select(RegistrationMatch).where(
+                RegistrationMatch.pending_player_id == pending_player_id
+            )
+        )
+        for registration_match in existing_matches.scalars():
+            await self.session.delete(registration_match)
+
+        for historical_player_id, score, reason in matches:
+            self.session.add(
+                RegistrationMatch(
+                    pending_player_id=pending_player_id,
+                    historical_player_id=historical_player_id,
+                    score=score,
+                    reason=reason,
+                    status=RegistrationMatchStatus.CANDIDATE,
+                )
+            )

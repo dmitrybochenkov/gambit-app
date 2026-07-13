@@ -13,8 +13,18 @@ class Player(TimestampMixin, Base):
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     telegram_id: Mapped[int] = mapped_column(BigInteger, unique=True, index=True, nullable=False)
-    full_name: Mapped[str | None] = mapped_column(String(255), unique=True, nullable=True)
-    nickname: Mapped[str | None] = mapped_column(String(100), unique=True, nullable=True)
+    full_name: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    full_name_normalized: Mapped[str | None] = mapped_column(
+        String(255),
+        nullable=True,
+        index=True,
+    )
+    nickname: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    nickname_normalized: Mapped[str | None] = mapped_column(
+        String(100),
+        nullable=True,
+        index=True,
+    )
     status: Mapped[PlayerStatus] = mapped_column(
         database_enum(PlayerStatus, "player_status"),
         default=PlayerStatus.PENDING,

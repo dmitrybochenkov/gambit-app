@@ -359,15 +359,20 @@ async def test_pending_registration_notifies_admins(monkeypatch: pytest.MonkeyPa
         SimpleNamespace(telegram_id=100),
         SimpleNamespace(telegram_id=101),
     ]
-    service = SimpleNamespace(get_active_admins=AsyncMock(return_value=admins))
+    service = SimpleNamespace(
+        get_active_admins=AsyncMock(return_value=admins),
+        get_registration_matches=AsyncMock(return_value=[]),
+    )
     monkeypatch.setattr(notifications, "player_service", service)
 
     await notifications.notify_admins_about_registration(bot, player)
 
     service.get_active_admins.assert_awaited_once()
+    service.get_registration_matches.assert_awaited_once_with(10)
     assert bot.send_message.await_count == 2
     assert bot.send_message.await_args_list[0].kwargs["chat_id"] == 100
     assert bot.send_message.await_args_list[1].kwargs["chat_id"] == 101
+    assert "Telegram ID" not in bot.send_message.await_args_list[0].kwargs["text"]
 
 
 async def test_webhook_rejects_invalid_secret(monkeypatch: pytest.MonkeyPatch) -> None:

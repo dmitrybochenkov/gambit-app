@@ -45,6 +45,12 @@ class TournamentTypeStatus(StrEnum):
     ARCHIVED = "archived"
 
 
+class RegistrationMatchStatus(StrEnum):
+    CANDIDATE = "candidate"
+    ACCEPTED = "accepted"
+    IGNORED = "ignored"
+
+
 class KnockoutMode(StrEnum):
     NONE = "none"
     SMALL = "small"

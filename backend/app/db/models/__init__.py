@@ -1,5 +1,6 @@
 from app.db.models.admin_prompt import AdminPrompt
 from app.db.models.player import Player
+from app.db.models.registration_match import RegistrationMatch
 from app.db.models.scoring_config import ScoringConfig
 from app.db.models.season import Season
 from app.db.models.tournament import Tournament
@@ -15,6 +16,7 @@ from app.db.models.tournament_type import (
 
 __all__ = [
     "Player",
+    "RegistrationMatch",
     "AdminPrompt",
     "ScoringConfig",
     "Season",
