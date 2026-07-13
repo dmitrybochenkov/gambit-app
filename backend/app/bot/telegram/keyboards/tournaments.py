@@ -3,6 +3,7 @@ from aiogram.types import InlineKeyboardMarkup
 from aiogram.utils.keyboard import InlineKeyboardBuilder
 
 from app.bot.telegram.formatters import format_tournament_label
+from app.bot.telegram.keyboards import buttons
 from app.db.models import Tournament
 
 
@@ -27,17 +28,17 @@ def tournament_registration_keyboard(
     selected_tournament_ids = selected_tournament_ids or set()
     builder = InlineKeyboardBuilder()
     for tournament in tournaments:
-        prefix = "✅ " if tournament.id in selected_tournament_ids else ""
+        prefix = buttons.SELECTED_PREFIX if tournament.id in selected_tournament_ids else ""
         builder.button(
             text=f"{prefix}{format_tournament_label(tournament)}",
             callback_data=TournamentRegistrationCallback(tournament_id=tournament.id),
         )
     builder.button(
-        text="Подтвердить",
+        text=buttons.CONFIRM,
         callback_data=CONFIRM_TOURNAMENT_REGISTRATION_CALLBACK,
     )
     builder.button(
-        text="Отмена",
+        text=buttons.CANCEL,
         callback_data=CANCEL_TOURNAMENT_REGISTRATION_CALLBACK,
     )
     builder.adjust(*([1] * len(tournaments)), 2)
@@ -51,17 +52,17 @@ def tournament_cancellation_keyboard(
     selected_tournament_ids = selected_tournament_ids or set()
     builder = InlineKeyboardBuilder()
     for tournament in tournaments:
-        prefix = "✅ " if tournament.id in selected_tournament_ids else ""
+        prefix = buttons.SELECTED_PREFIX if tournament.id in selected_tournament_ids else ""
         builder.button(
             text=f"{prefix}{format_tournament_label(tournament)}",
             callback_data=TournamentCancellationCallback(tournament_id=tournament.id),
         )
     builder.button(
-        text="Подтвердить",
+        text=buttons.CONFIRM,
         callback_data=CONFIRM_TOURNAMENT_CANCELLATION_CALLBACK,
     )
     builder.button(
-        text="Отмена",
+        text=buttons.CANCEL,
         callback_data=CANCEL_TOURNAMENT_CANCELLATION_CALLBACK,
     )
     builder.adjust(*([1] * len(tournaments)), 2)

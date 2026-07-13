@@ -1,48 +1,20 @@
 import json
 from datetime import date
-from decimal import Decimal
 
+from app.bot.telegram import texts
 from app.db.models import AdminPrompt, Tournament
 from app.db.repositories.profile_repository import PlayerProfileStats
-from app.db.repositories.rating_repository import (
-    KnockoutsRatingRow,
-    PointsRatingRow,
-)
-
-WEEKDAYS = {
-    0: "Понедельник",
-    1: "Вторник",
-    2: "Среда",
-    3: "Четверг",
-    4: "Пятница",
-    5: "Суббота",
-    6: "Воскресенье",
-}
-
-MONTHS = {
-    1: "января",
-    2: "февраля",
-    3: "марта",
-    4: "апреля",
-    5: "мая",
-    6: "июня",
-    7: "июля",
-    8: "августа",
-    9: "сентября",
-    10: "октября",
-    11: "ноября",
-    12: "декабря",
-}
+from app.db.repositories.rating_repository import KnockoutsRatingRow, PointsRatingRow
 
 
 def format_tournament_label(tournament: Tournament) -> str:
-    weekday = WEEKDAYS[tournament.date.weekday()]
-    month = MONTHS[tournament.date.month]
+    weekday = texts.common.WEEKDAYS[tournament.date.weekday()]
+    month = texts.common.MONTHS[tournament.date.month]
     tournament_type = tournament.__dict__.get("tournament_type")
     type_name = (
         tournament_type.name
         if tournament_type is not None
-        else f"Турнир {getattr(tournament, 'tournament_type_id', getattr(tournament, 'type', ''))}"
+        else _fallback_tournament_type_name(tournament)
     )
     return (
         f"{weekday}, {tournament.date.day} {month} — "
@@ -52,13 +24,16 @@ def format_tournament_label(tournament: Tournament) -> str:
 
 def format_tournament_schedule(tournaments: list[Tournament]) -> str:
     if not tournaments:
-        return "Ближайших турниров пока нет."
+        return texts.user.TOURNAMENTS_EMPTY
 
-    lines = ["Расписание турниров", ""]
+    lines = [texts.user.TOURNAMENT_SCHEDULE_TITLE, ""]
     for tournament in tournaments:
+        capacity_text = texts.user.TOURNAMENT_CAPACITY_LABEL.format(
+            capacity=tournament.capacity
+        )
         lines.append(
             f"{format_tournament_label(tournament)} "
-            f"(до {tournament.capacity} игроков)"
+            f"({capacity_text})"
         )
     return "\n".join(lines)
 
@@ -67,47 +42,11 @@ def format_rating(
     title: str,
     rows: list[PointsRatingRow] | list[KnockoutsRatingRow],
 ) -> str:
-    if not rows:
-        return f"{title}\n\nВ рейтинге пока нет данных."
-
-    lines = [title, ""]
-    for position, row in enumerate(rows, start=1):
-        if isinstance(row, PointsRatingRow):
-            points = _format_decimal(row.total_points)
-            lines.append(
-                f"{position}. {row.display_name} — {points} очков "
-                f"(турниров: {row.tournaments_count})"
-            )
-        else:
-            lines.append(
-                f"{position}. {row.display_name} — "
-                f"всего КО: {row.total_knockouts_count}, "
-                f"Босс КО: {row.boss_knockouts_count}"
-            )
-    return "\n".join(lines)
+    return texts.user.rating_message(title, rows)
 
 
 def format_profile(title: str, stats: PlayerProfileStats | None) -> str:
-    if stats is None:
-        return f"{title}\n\nПрофиль не найден. Нажми /start."
-
-    points = _format_decimal(stats.total_points)
-    return "\n".join(
-        [
-            title,
-            "",
-            stats.display_name,
-            f"Рейтинг: {points} очков",
-            f"Количество КО: {stats.total_knockouts_count}",
-            f"Количество турниров: {stats.tournaments_count}",
-            "Количество призовых мест:",
-            f"1 место: {stats.first_places_count}",
-            f"2 место: {stats.second_places_count}",
-            f"3 место: {stats.third_places_count}",
-            f"4 место: {stats.fourth_places_count}",
-            f"5 место: {stats.fifth_places_count}",
-        ]
-    )
+    return texts.user.profile_message(title, stats)
 
 
 def format_admin_calendar_prompt(prompt: AdminPrompt) -> str:
@@ -117,16 +56,17 @@ def format_admin_calendar_prompt(prompt: AdminPrompt) -> str:
         ends_at = date.fromisoformat(payload["ends_at"])
         return "\n".join(
             [
-                "Нужно подготовить следующий сезон.",
+                texts.admin.SEASON_PROPOSAL_TITLE,
                 "",
-                f"Предложение: {payload['name']}",
-                f"Период: {format_date(starts_at)} — {format_date(ends_at)}",
+                f"{texts.admin.SEASON_PROPOSAL_LABEL}: {payload['name']}",
+                f"{texts.admin.SEASON_PERIOD_LABEL}: "
+                f"{format_date(starts_at)} — {format_date(ends_at)}",
                 "",
-                "Подтвердить создание?",
+                texts.admin.CONFIRM_CREATION_PROMPT,
             ]
         )
 
-    lines = ["Нужно создать турниры на две недели вперед.", ""]
+    lines = [texts.admin.TOURNAMENTS_PROPOSAL_TITLE, ""]
     for item in payload["tournaments"]:
         tournament = Tournament(
             season_id=0,
@@ -140,13 +80,14 @@ def format_admin_calendar_prompt(prompt: AdminPrompt) -> str:
             {"name": item["tournament_type_name"]},
         )()
         lines.append(f"• {format_tournament_label(tournament)}")
-    lines.extend(["", "Подтвердить создание?"])
+    lines.extend(["", texts.admin.CONFIRM_CREATION_PROMPT])
     return "\n".join(lines)
 
 
 def format_date(value: date) -> str:
-    return f"{value.day} {MONTHS[value.month]} {value.year}"
+    return f"{value.day} {texts.common.MONTHS[value.month]} {value.year}"
 
 
-def _format_decimal(value: Decimal) -> str:
-    return format(value.normalize(), "f")
+def _fallback_tournament_type_name(tournament: Tournament) -> str:
+    type_id = getattr(tournament, "tournament_type_id", getattr(tournament, "type", ""))
+    return texts.user.TOURNAMENT_TYPE_FALLBACK.format(type_id=type_id)

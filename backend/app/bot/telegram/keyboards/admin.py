@@ -4,6 +4,8 @@ from aiogram.filters.callback_data import CallbackData
 from aiogram.types import InlineKeyboardMarkup
 from aiogram.utils.keyboard import InlineKeyboardBuilder
 
+from app.bot.telegram.keyboards import buttons
+
 
 class RegistrationReviewAction(StrEnum):
     APPROVE = "approve"
@@ -29,14 +31,14 @@ class CalendarPromptCallback(CallbackData, prefix="calendar_prompt"):
 def registration_review_keyboard(player_id: int) -> InlineKeyboardMarkup:
     builder = InlineKeyboardBuilder()
     builder.button(
-        text="Одобрить",
+        text=buttons.ADMIN_APPROVE,
         callback_data=RegistrationReviewCallback(
             action=RegistrationReviewAction.APPROVE,
             player_id=player_id,
         ),
     )
     builder.button(
-        text="Отклонить",
+        text=buttons.ADMIN_REJECT,
         callback_data=RegistrationReviewCallback(
             action=RegistrationReviewAction.REJECT,
             player_id=player_id,
@@ -49,21 +51,21 @@ def registration_review_keyboard(player_id: int) -> InlineKeyboardMarkup:
 def calendar_prompt_keyboard(prompt_id: int) -> InlineKeyboardMarkup:
     builder = InlineKeyboardBuilder()
     builder.button(
-        text="Подтвердить",
+        text=buttons.CONFIRM,
         callback_data=CalendarPromptCallback(
             action=CalendarPromptAction.CONFIRM,
             prompt_id=prompt_id,
         ),
     )
     builder.button(
-        text="Отмена",
+        text=buttons.CANCEL,
         callback_data=CalendarPromptCallback(
             action=CalendarPromptAction.CANCEL,
             prompt_id=prompt_id,
         ),
     )
     builder.button(
-        text="Исправить",
+        text=buttons.EDIT,
         callback_data=CalendarPromptCallback(
             action=CalendarPromptAction.EDIT,
             prompt_id=prompt_id,

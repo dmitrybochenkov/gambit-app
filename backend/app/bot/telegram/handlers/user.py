@@ -4,31 +4,12 @@ from aiogram.filters import CommandStart
 from aiogram.fsm.context import FSMContext
 from aiogram.types import CallbackQuery, Message, ReplyKeyboardRemove
 
+from app.bot.telegram import keyboards, texts
 from app.bot.telegram.formatters import (
     format_profile,
     format_rating,
     format_tournament_label,
     format_tournament_schedule,
-)
-from app.bot.telegram.keyboards.main import main_keyboard
-from app.bot.telegram.keyboards.profile import ProfileCallback, profile_keyboard
-from app.bot.telegram.keyboards.rating import RatingCallback, rating_keyboard
-from app.bot.telegram.keyboards.registration import (
-    CONFIRM_REGISTRATION_CALLBACK,
-    RESTART_REGISTRATION_CALLBACK,
-    RegistrationModeCallback,
-    registration_confirmation_keyboard,
-    registration_mode_keyboard,
-)
-from app.bot.telegram.keyboards.tournaments import (
-    CANCEL_TOURNAMENT_CANCELLATION_CALLBACK,
-    CANCEL_TOURNAMENT_REGISTRATION_CALLBACK,
-    CONFIRM_TOURNAMENT_CANCELLATION_CALLBACK,
-    CONFIRM_TOURNAMENT_REGISTRATION_CALLBACK,
-    TournamentCancellationCallback,
-    TournamentRegistrationCallback,
-    tournament_cancellation_keyboard,
-    tournament_registration_keyboard,
 )
 from app.bot.telegram.notifications import notify_admins_about_registration
 from app.bot.telegram.states import RegistrationMode, RegistrationStates
@@ -50,16 +31,6 @@ from app.services.tournament_service import (
 
 router = Router(name="user")
 
-REGISTRATION_GREETING = (
-    "🤚 Добро пожаловать в покерный клуб Гамбит. Я бот, который поможет тебе "
-    "стать участником нашего комьюнити.\n\n"
-    "Чтобы я знал, как к тебе обращаться, и мог отслеживать твои достижения, "
-    "введи свои фамилию и имя и/или никнейм.\n\n"
-    "❌ Запрещено использовать ненормативную лексику!\n\n"
-    "✅ Чтобы корректно учесть твои достижения, вводи никнейм, под которым "
-    "ты играл в клубе ранее."
-)
-
 
 def _clean_text(value: str) -> str:
     return " ".join(value.split())
@@ -74,25 +45,26 @@ def _is_valid_nickname(value: str) -> bool:
 
 
 async def _send_registration_intro(message: Message) -> None:
-    await message.answer(REGISTRATION_GREETING, reply_markup=ReplyKeyboardRemove())
     await message.answer(
-        "Выбери вариант регистрации:",
-        reply_markup=registration_mode_keyboard(),
+        texts.user.REGISTRATION_GREETING,
+        reply_markup=ReplyKeyboardRemove(),
+    )
+    await message.answer(
+        texts.user.REGISTRATION_MODE_PROMPT,
+        reply_markup=keyboards.registration_mode_keyboard(),
     )
 
 
 async def _send_confirmation(message: Message, state: FSMContext) -> None:
     data = await state.get_data()
-    lines = ["Проверь введенные данные:"]
-    if full_name := data.get("full_name"):
-        lines.append(f"Фамилия и имя: {full_name}")
-    if nickname := data.get("nickname"):
-        lines.append(f"Никнейм: {nickname}")
 
     await state.set_state(RegistrationStates.confirming)
     await message.answer(
-        "\n".join(lines),
-        reply_markup=registration_confirmation_keyboard(),
+        texts.user.registration_confirmation(
+            full_name=data.get("full_name"),
+            nickname=data.get("nickname"),
+        ),
+        reply_markup=keyboards.registration_confirmation_keyboard(),
     )
 
 
@@ -141,81 +113,78 @@ async def start_command(message: Message, state: FSMContext) -> None:
 
     if player.status == PlayerStatus.PENDING:
         await message.answer(
-            "Твоя заявка на регистрацию находится на проверке.",
+            texts.user.REGISTRATION_PENDING,
             reply_markup=ReplyKeyboardRemove(),
         )
         return
 
     if player.status == PlayerStatus.BLOCKED:
         await message.answer(
-            "Доступ к боту заблокирован.",
+            texts.user.BOT_ACCESS_BLOCKED,
             reply_markup=ReplyKeyboardRemove(),
         )
         return
 
     await message.answer(
-        f"{player.display_name}, добро пожаловать!",
-        reply_markup=main_keyboard(
+        texts.user.welcome_back(player.display_name),
+        reply_markup=keyboards.main_keyboard(
             is_admin=player.role in {PlayerRole.ADMIN, PlayerRole.SUPERADMIN}
         ),
     )
 
 
-@router.message(F.text == "Расписание турниров")
+@router.message(F.text == keyboards.MAIN_SCHEDULE)
 async def show_tournament_schedule(message: Message) -> None:
     if message.from_user is None:
         return
 
     player = await player_service.get_by_telegram_id(message.from_user.id)
     if player is None or player.status != PlayerStatus.ACTIVE:
-        await message.answer("Расписание доступно зарегистрированным игрокам. Нажми /start.")
+        await message.answer(texts.user.SCHEDULE_UNAVAILABLE)
         return
 
     tournaments = await tournament_service.get_upcoming_schedule()
     await message.answer(format_tournament_schedule(tournaments))
 
 
-@router.message(F.text == "Как нас найти")
+@router.message(F.text == keyboards.MAIN_ADDRESS)
 async def show_club_address(message: Message) -> None:
     if message.from_user is None:
         return
 
     player = await player_service.get_by_telegram_id(message.from_user.id)
     if player is None or player.status != PlayerStatus.ACTIVE:
-        await message.answer("Адрес доступен зарегистрированным игрокам. Нажми /start.")
+        await message.answer(texts.user.ADDRESS_UNAVAILABLE)
         return
 
-    await message.answer(
-        "📍 Орехово-Зуево, ул. Ленина, 105\n"
-        "🏆 Играем исключительно на рейтинг и спортивный интерес."
-    )
+    await message.answer(texts.user.CLUB_ADDRESS)
 
 
-@router.message(F.text == "Рейтинг")
+@router.message(F.text == keyboards.MAIN_RATING)
 async def show_rating_menu(message: Message) -> None:
     if message.from_user is None:
         return
 
     player = await player_service.get_by_telegram_id(message.from_user.id)
     if player is None or player.status != PlayerStatus.ACTIVE:
-        await message.answer("Рейтинг доступен зарегистрированным игрокам. Нажми /start.")
+        await message.answer(texts.user.RATING_UNAVAILABLE)
         return
 
     await message.answer(
-        "Какой рейтинг ты хочешь посмотреть?",
-        reply_markup=rating_keyboard(),
+        texts.user.RATING_MENU_PROMPT,
+        reply_markup=keyboards.rating_keyboard(),
     )
 
 
-@router.callback_query(RatingCallback.filter())
+@router.callback_query(keyboards.RatingCallback.filter())
 async def show_rating(
     callback: CallbackQuery,
-    callback_data: RatingCallback,
+    callback_data: keyboards.RatingCallback,
 ) -> None:
     player = await player_service.get_by_telegram_id(callback.from_user.id)
     if player is None or player.status != PlayerStatus.ACTIVE:
         await callback.answer(
-            "Рейтинг доступен только активным игрокам.",
+            texts.user.RATING_ACTIVE_ONLY,
             show_alert=True,
         )
         return
@@ -226,31 +195,31 @@ async def show_rating(
         await callback.message.answer(format_rating(title, rows))
 
 
-@router.message(F.text == "Твой профиль")
+@router.message(F.text == keyboards.MAIN_PROFILE)
 async def show_profile_menu(message: Message) -> None:
     if message.from_user is None:
         return
 
     player = await player_service.get_by_telegram_id(message.from_user.id)
     if player is None or player.status != PlayerStatus.ACTIVE:
-        await message.answer("Профиль доступен зарегистрированным игрокам. Нажми /start.")
+        await message.answer(texts.user.PROFILE_UNAVAILABLE)
         return
 
     await message.answer(
-        "За какой период ты хочешь посмотреть свои достижения?",
-        reply_markup=profile_keyboard(),
+        texts.user.PROFILE_MENU_PROMPT,
+        reply_markup=keyboards.profile_keyboard(),
     )
 
 
-@router.callback_query(ProfileCallback.filter())
+@router.callback_query(keyboards.ProfileCallback.filter())
 async def show_profile(
     callback: CallbackQuery,
-    callback_data: ProfileCallback,
+    callback_data: keyboards.ProfileCallback,
 ) -> None:
     player = await player_service.get_by_telegram_id(callback.from_user.id)
     if player is None or player.status != PlayerStatus.ACTIVE:
         await callback.answer(
-            "Профиль доступен только активным игрокам.",
+            texts.user.PROFILE_ACTIVE_ONLY,
             show_alert=True,
         )
         return
@@ -264,42 +233,42 @@ async def show_profile(
         await callback.message.answer(format_profile(title, stats))
 
 
-@router.message(F.text == "Записаться")
+@router.message(F.text == keyboards.MAIN_REGISTER)
 async def show_tournaments_for_registration(message: Message, state: FSMContext) -> None:
     if message.from_user is None:
         return
 
     player = await player_service.get_by_telegram_id(message.from_user.id)
     if player is None or player.status != PlayerStatus.ACTIVE:
-        await message.answer("Запись доступна зарегистрированным игрокам. Нажми /start.")
+        await message.answer(texts.user.TOURNAMENT_REGISTRATION_UNAVAILABLE)
         return
 
     tournaments = await tournament_service.get_upcoming_schedule()
     if not tournaments:
-        await message.answer("Ближайших турниров для записи пока нет.")
+        await message.answer(texts.user.TOURNAMENT_REGISTRATION_EMPTY)
         return
 
     await state.update_data(tournament_registration_selection=[])
     await message.answer(
-        "Выбери даты турниров, на которые хочешь записаться, и нажми «Подтвердить».",
-        reply_markup=tournament_registration_keyboard(tournaments),
+        texts.user.TOURNAMENT_REGISTRATION_PROMPT,
+        reply_markup=keyboards.tournament_registration_keyboard(tournaments),
     )
 
 
-@router.callback_query(TournamentRegistrationCallback.filter())
+@router.callback_query(keyboards.TournamentRegistrationCallback.filter())
 async def register_for_tournament(
     callback: CallbackQuery,
-    callback_data: TournamentRegistrationCallback,
+    callback_data: keyboards.TournamentRegistrationCallback,
     state: FSMContext,
 ) -> None:
     data = await state.get_data()
     selected_tournament_ids = set(data.get("tournament_registration_selection", []))
     if callback_data.tournament_id in selected_tournament_ids:
         selected_tournament_ids.remove(callback_data.tournament_id)
-        answer = "Турнир убран из выбранных."
+        answer = texts.user.TOURNAMENT_REMOVED_FROM_SELECTION
     else:
         selected_tournament_ids.add(callback_data.tournament_id)
-        answer = "Турнир добавлен."
+        answer = texts.user.TOURNAMENT_ADDED_TO_SELECTION
 
     tournaments = await tournament_service.get_upcoming_schedule()
     available_ids = {tournament.id for tournament in tournaments}
@@ -310,7 +279,7 @@ async def register_for_tournament(
 
     if callback.message is not None:
         await callback.message.edit_reply_markup(
-            reply_markup=tournament_registration_keyboard(
+            reply_markup=keyboards.tournament_registration_keyboard(
                 tournaments,
                 selected_tournament_ids,
             )
@@ -318,7 +287,7 @@ async def register_for_tournament(
     await callback.answer(answer)
 
 
-@router.callback_query(F.data == CONFIRM_TOURNAMENT_REGISTRATION_CALLBACK)
+@router.callback_query(F.data == keyboards.CONFIRM_TOURNAMENT_REGISTRATION_CALLBACK)
 async def confirm_tournament_registration(
     callback: CallbackQuery,
     state: FSMContext,
@@ -326,7 +295,7 @@ async def confirm_tournament_registration(
     data = await state.get_data()
     tournament_ids = data.get("tournament_registration_selection", [])
     if not tournament_ids:
-        await callback.answer("Сначала выбери хотя бы один турнир.", show_alert=True)
+        await callback.answer(texts.user.TOURNAMENT_SELECTION_EMPTY, show_alert=True)
         return
 
     try:
@@ -335,36 +304,30 @@ async def confirm_tournament_registration(
             tournament_ids=tournament_ids,
         )
     except TournamentRegistrationNotAllowedError:
-        await callback.answer("Запись доступна только активным игрокам.", show_alert=True)
+        await callback.answer(
+            texts.user.TOURNAMENT_REGISTRATION_ACTIVE_ONLY,
+            show_alert=True,
+        )
         return
     except TournamentUnavailableError:
-        await callback.answer("Этот турнир уже недоступен для записи.", show_alert=True)
+        await callback.answer(texts.user.TOURNAMENT_UNAVAILABLE, show_alert=True)
         return
     except TournamentFullError:
-        await callback.answer("К сожалению, свободных мест уже нет.", show_alert=True)
+        await callback.answer(texts.user.TOURNAMENT_FULL, show_alert=True)
         return
 
     await state.update_data(tournament_registration_selection=[])
-    await callback.answer("Готово!")
+    await callback.answer(texts.user.ACTION_DONE)
     if callback.message is not None:
         await callback.message.edit_reply_markup(reply_markup=None)
-        heading = (
-            "Вы записались на турнир:"
-            if len(tournaments) == 1
-            else "Вы записались на турниры:"
-        )
-        tournament_lines = "\n".join(
-            f"• {format_tournament_label(tournament)}"
-            for tournament in tournaments
-        )
         await callback.message.answer(
-            f"{heading}\n\n{tournament_lines}\n\n"
-            "Будем благодарны, если при изменении планов, "
-            "вы отмените запись заранее."
+            texts.user.tournament_registration_success(
+                [format_tournament_label(tournament) for tournament in tournaments]
+            )
         )
 
 
-@router.callback_query(F.data == CANCEL_TOURNAMENT_REGISTRATION_CALLBACK)
+@router.callback_query(F.data == keyboards.CANCEL_TOURNAMENT_REGISTRATION_CALLBACK)
 async def cancel_tournament_registration_selection(
     callback: CallbackQuery,
     state: FSMContext,
@@ -373,10 +336,10 @@ async def cancel_tournament_registration_selection(
     await callback.answer()
     if callback.message is not None:
         await callback.message.edit_reply_markup(reply_markup=None)
-        await callback.message.answer("Запись на турнир(ы) отменена.")
+        await callback.message.answer(texts.user.TOURNAMENT_REGISTRATION_CANCELLED)
 
 
-@router.message(F.text == "Отменить запись")
+@router.message(F.text == keyboards.MAIN_CANCEL_REGISTRATION)
 async def show_tournaments_for_cancellation(
     message: Message,
     state: FSMContext,
@@ -389,37 +352,34 @@ async def show_tournaments_for_cancellation(
             message.from_user.id
         )
     except TournamentRegistrationNotAllowedError:
-        await message.answer(
-            "Отмена записи доступна зарегистрированным игрокам. Нажми /start."
-        )
+        await message.answer(texts.user.TOURNAMENT_CANCELLATION_UNAVAILABLE)
         return
 
     if not tournaments:
-        await message.answer("Ты не записан ни на один турнир.")
+        await message.answer(texts.user.TOURNAMENT_CANCELLATION_EMPTY)
         return
 
     await state.update_data(tournament_cancellation_selection=[])
     await message.answer(
-        "Выбери турниры, на которые хочешь отменить запись, "
-        "и нажми «Подтвердить».",
-        reply_markup=tournament_cancellation_keyboard(tournaments),
+        texts.user.TOURNAMENT_CANCELLATION_PROMPT,
+        reply_markup=keyboards.tournament_cancellation_keyboard(tournaments),
     )
 
 
-@router.callback_query(TournamentCancellationCallback.filter())
+@router.callback_query(keyboards.TournamentCancellationCallback.filter())
 async def select_tournament_for_cancellation(
     callback: CallbackQuery,
-    callback_data: TournamentCancellationCallback,
+    callback_data: keyboards.TournamentCancellationCallback,
     state: FSMContext,
 ) -> None:
     data = await state.get_data()
     selected_tournament_ids = set(data.get("tournament_cancellation_selection", []))
     if callback_data.tournament_id in selected_tournament_ids:
         selected_tournament_ids.remove(callback_data.tournament_id)
-        answer = "Турнир убран из выбранных."
+        answer = texts.user.TOURNAMENT_REMOVED_FROM_SELECTION
     else:
         selected_tournament_ids.add(callback_data.tournament_id)
-        answer = "Турнир добавлен."
+        answer = texts.user.TOURNAMENT_ADDED_TO_SELECTION
 
     try:
         tournaments = await tournament_service.get_player_upcoming_registrations(
@@ -427,7 +387,7 @@ async def select_tournament_for_cancellation(
         )
     except TournamentRegistrationNotAllowedError:
         await callback.answer(
-            "Отмена записи доступна только активным игрокам.",
+            texts.user.TOURNAMENT_CANCELLATION_ACTIVE_ONLY,
             show_alert=True,
         )
         return
@@ -439,7 +399,7 @@ async def select_tournament_for_cancellation(
     )
     if callback.message is not None:
         await callback.message.edit_reply_markup(
-            reply_markup=tournament_cancellation_keyboard(
+            reply_markup=keyboards.tournament_cancellation_keyboard(
                 tournaments,
                 selected_tournament_ids,
             )
@@ -447,7 +407,7 @@ async def select_tournament_for_cancellation(
     await callback.answer(answer)
 
 
-@router.callback_query(F.data == CONFIRM_TOURNAMENT_CANCELLATION_CALLBACK)
+@router.callback_query(F.data == keyboards.CONFIRM_TOURNAMENT_CANCELLATION_CALLBACK)
 async def confirm_tournament_cancellation(
     callback: CallbackQuery,
     state: FSMContext,
@@ -455,7 +415,7 @@ async def confirm_tournament_cancellation(
     data = await state.get_data()
     tournament_ids = data.get("tournament_cancellation_selection", [])
     if not tournament_ids:
-        await callback.answer("Сначала выбери хотя бы один турнир.", show_alert=True)
+        await callback.answer(texts.user.TOURNAMENT_SELECTION_EMPTY, show_alert=True)
         return
 
     try:
@@ -465,34 +425,29 @@ async def confirm_tournament_cancellation(
         )
     except TournamentRegistrationNotAllowedError:
         await callback.answer(
-            "Отмена записи доступна только активным игрокам.",
+            texts.user.TOURNAMENT_CANCELLATION_ACTIVE_ONLY,
             show_alert=True,
         )
         return
     except TournamentCancellationUnavailableError:
         await callback.answer(
-            "Одна из записей уже недоступна для отмены.",
+            texts.user.TOURNAMENT_CANCELLATION_UNAVAILABLE_ITEM,
             show_alert=True,
         )
         return
 
     await state.update_data(tournament_cancellation_selection=[])
-    await callback.answer("Готово!")
+    await callback.answer(texts.user.ACTION_DONE)
     if callback.message is not None:
         await callback.message.edit_reply_markup(reply_markup=None)
-        heading = (
-            "Ты отменил запись на турнир:"
-            if len(tournaments) == 1
-            else "Ты отменил запись на турниры:"
+        await callback.message.answer(
+            texts.user.tournament_cancellation_success(
+                [format_tournament_label(tournament) for tournament in tournaments]
+            )
         )
-        tournament_lines = "\n".join(
-            f"• {format_tournament_label(tournament)}"
-            for tournament in tournaments
-        )
-        await callback.message.answer(f"{heading}\n\n{tournament_lines}")
 
 
-@router.callback_query(F.data == CANCEL_TOURNAMENT_CANCELLATION_CALLBACK)
+@router.callback_query(F.data == keyboards.CANCEL_TOURNAMENT_CANCELLATION_CALLBACK)
 async def cancel_tournament_cancellation_selection(
     callback: CallbackQuery,
     state: FSMContext,
@@ -501,13 +456,13 @@ async def cancel_tournament_cancellation_selection(
     await callback.answer()
     if callback.message is not None:
         await callback.message.edit_reply_markup(reply_markup=None)
-        await callback.message.answer("Отмена записи на турниры отменена.")
+        await callback.message.answer(texts.user.TOURNAMENT_CANCELLATION_CANCELLED)
 
 
-@router.callback_query(RegistrationModeCallback.filter())
+@router.callback_query(keyboards.RegistrationModeCallback.filter())
 async def choose_registration_mode(
     callback: CallbackQuery,
-    callback_data: RegistrationModeCallback,
+    callback_data: keyboards.RegistrationModeCallback,
     state: FSMContext,
 ) -> None:
     await callback.answer()
@@ -520,11 +475,11 @@ async def choose_registration_mode(
 
     if callback_data.mode == RegistrationMode.NICKNAME:
         await state.set_state(RegistrationStates.entering_nickname)
-        await _send_input_prompt(callback.message, state, "Введи никнейм.")
+        await _send_input_prompt(callback.message, state, texts.user.ENTER_NICKNAME)
         return
 
     await state.set_state(RegistrationStates.entering_full_name)
-    await _send_input_prompt(callback.message, state, "Введи фамилию и имя.")
+    await _send_input_prompt(callback.message, state, texts.user.ENTER_FULL_NAME)
 
 
 @router.message(RegistrationStates.entering_full_name)
@@ -534,7 +489,7 @@ async def enter_full_name(message: Message, state: FSMContext) -> None:
 
     full_name = _clean_text(message.text or "")
     if not _is_valid_full_name(full_name):
-        await message.answer("Введи фамилию и имя через пробел.")
+        await message.answer(texts.user.INVALID_FULL_NAME)
         return
 
     try:
@@ -544,7 +499,7 @@ async def enter_full_name(message: Message, state: FSMContext) -> None:
             nickname=None,
         )
     except IdentityAlreadyExistsError:
-        await message.answer("Такие имя и фамилия уже существуют. Попробуй другие.")
+        await message.answer(texts.user.FULL_NAME_ALREADY_EXISTS)
         return
 
     await _delete_prompt_and_input(message, state)
@@ -552,7 +507,11 @@ async def enter_full_name(message: Message, state: FSMContext) -> None:
     data = await state.get_data()
     if data["mode"] == RegistrationMode.BOTH.value:
         await state.set_state(RegistrationStates.entering_nickname)
-        await _send_input_prompt(message, state, "Теперь введи никнейм.")
+        await _send_input_prompt(
+            message,
+            state,
+            texts.user.ENTER_NICKNAME_AFTER_FULL_NAME,
+        )
         return
 
     await _send_confirmation(message, state)
@@ -565,7 +524,7 @@ async def enter_nickname(message: Message, state: FSMContext) -> None:
 
     nickname = _clean_text(message.text or "")
     if not _is_valid_nickname(nickname):
-        await message.answer("Никнейм должен содержать от 2 до 100 символов.")
+        await message.answer(texts.user.INVALID_NICKNAME)
         return
 
     try:
@@ -575,7 +534,7 @@ async def enter_nickname(message: Message, state: FSMContext) -> None:
             nickname=nickname,
         )
     except IdentityAlreadyExistsError:
-        await message.answer("Такой никнейм уже существует. Попробуй другой.")
+        await message.answer(texts.user.NICKNAME_ALREADY_EXISTS)
         return
 
     await _delete_prompt_and_input(message, state)
@@ -583,7 +542,7 @@ async def enter_nickname(message: Message, state: FSMContext) -> None:
     await _send_confirmation(message, state)
 
 
-@router.callback_query(F.data == RESTART_REGISTRATION_CALLBACK)
+@router.callback_query(F.data == keyboards.RESTART_REGISTRATION_CALLBACK)
 async def restart_registration(callback: CallbackQuery, state: FSMContext) -> None:
     await callback.answer()
     if callback.message is None:
@@ -594,7 +553,7 @@ async def restart_registration(callback: CallbackQuery, state: FSMContext) -> No
     await _send_registration_intro(callback.message)
 
 
-@router.callback_query(F.data == CONFIRM_REGISTRATION_CALLBACK)
+@router.callback_query(F.data == keyboards.CONFIRM_REGISTRATION_CALLBACK)
 async def confirm_registration(callback: CallbackQuery, state: FSMContext) -> None:
     await callback.answer()
     if callback.message is None:
@@ -606,7 +565,7 @@ async def confirm_registration(callback: CallbackQuery, state: FSMContext) -> No
     nickname = data.get("nickname")
     if not full_name and not nickname:
         await state.clear()
-        await callback.message.answer("Данные регистрации устарели. Начни заново: /start")
+        await callback.message.answer(texts.user.REGISTRATION_EXPIRED)
         return
 
     try:
@@ -625,16 +584,14 @@ async def confirm_registration(callback: CallbackQuery, state: FSMContext) -> No
         await _send_input_prompt(
             callback.message,
             state,
-            "Эти данные уже заняты. Введи другое значение.",
+            texts.user.REGISTRATION_DATA_ALREADY_EXISTS,
         )
         return
     except RegistrationNotAllowedError:
         await state.clear()
-        await callback.message.answer("Повторная регистрация недоступна.")
+        await callback.message.answer(texts.user.REGISTRATION_NOT_ALLOWED)
         return
 
     await state.clear()
     await notify_admins_about_registration(callback.bot, player)
-    await callback.message.answer(
-        f"{player.display_name}, заявка отправлена на проверку администратору."
-    )
+    await callback.message.answer(texts.user.registration_submitted(player.display_name))
