@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import argparse
 import csv
+import re
 import sqlite3
 import unicodedata
 from collections import defaultdict
@@ -13,8 +14,20 @@ from pathlib import Path
 from typing import Any
 
 DEFAULT_SHEET_NAME = "Данные за все время"
-DEFAULT_SEASON_NAME = "Исторические результаты 2026"
+DEFAULT_TOURNAMENT_TYPE_CODE = "legacy_unknown"
 HISTORICAL_TELEGRAM_ID_START = -1
+
+KNOWN_SEASONS = [
+    ("Сезон 1", date(2025, 10, 16), date(2026, 1, 25), "closed"),
+    ("Сезон 2", date(2026, 1, 27), date(2026, 5, 31), "closed"),
+]
+
+SEASON_NAMES = {
+    1: "Зима",
+    2: "Весна",
+    3: "Лето",
+    4: "Осень",
+}
 
 
 @dataclass(frozen=True)
@@ -43,11 +56,10 @@ def main() -> None:
     )
     parser.add_argument("--sheet", default=DEFAULT_SHEET_NAME, help="Excel sheet name")
     parser.add_argument(
-        "--season-name",
-        default=DEFAULT_SEASON_NAME,
-        help="Season name for imported historical tournaments",
+        "--tournament-type-code",
+        default=DEFAULT_TOURNAMENT_TYPE_CODE,
+        help="Tournament type code for all imported historical tournaments",
     )
-    parser.add_argument("--tournament-type-code", default="bounty")
     parser.add_argument(
         "--export-csv",
         type=Path,
@@ -74,13 +86,14 @@ def main() -> None:
     import_rows(
         db_path=args.db,
         rows=rows,
-        season_name=args.season_name,
         tournament_type_code=args.tournament_type_code,
     )
     print(f"Imported {len(rows)} rows into {args.db}")
 
 
 def load_rows(source: Path, sheet_name: str) -> tuple[list[HistoryRow], list[int]]:
+    if not source.exists():
+        raise SystemExit(f"Source file not found: {source}")
     if source.suffix.lower() == ".csv":
         return load_csv(source)
     if source.suffix.lower() in {".xlsx", ".xlsm", ".xls"}:
@@ -187,7 +200,6 @@ def export_csv(path: Path, rows: list[HistoryRow]) -> None:
 def import_rows(
     db_path: Path,
     rows: list[HistoryRow],
-    season_name: str,
     tournament_type_code: str,
 ) -> None:
     connection = sqlite3.connect(db_path)
@@ -195,18 +207,17 @@ def import_rows(
     try:
         with connection:
             scoring_config_id = ensure_scoring_config(connection)
-            season_id = ensure_season(
-                connection=connection,
-                name=season_name,
-                scoring_config_id=scoring_config_id,
-                starts_at=min(row.tournament_date for row in rows),
-                ends_at=max(row.tournament_date for row in rows),
+            ensure_known_seasons(connection, scoring_config_id)
+            tournament_type_id = ensure_legacy_tournament_type(
+                connection,
+                tournament_type_code,
             )
+            season_ids = ensure_seasons_for_rows(connection, rows, scoring_config_id)
             tournament_ids = ensure_tournaments(
                 connection=connection,
                 rows=rows,
-                season_id=season_id,
-                tournament_type_code=tournament_type_code,
+                season_ids=season_ids,
+                tournament_type_id=tournament_type_id,
             )
             player_ids = ensure_players(connection, rows)
             upsert_results(connection, rows, tournament_ids, player_ids)
@@ -237,42 +248,158 @@ def ensure_scoring_config(connection: sqlite3.Connection) -> int:
     return int(cursor.lastrowid)
 
 
+def ensure_known_seasons(
+    connection: sqlite3.Connection,
+    scoring_config_id: int,
+) -> None:
+    for name, starts_at, ends_at, status in KNOWN_SEASONS:
+        ensure_season(
+            connection=connection,
+            name=name,
+            scoring_config_id=scoring_config_id,
+            starts_at=starts_at,
+            ends_at=ends_at,
+            status=status,
+        )
+
+
+def ensure_seasons_for_rows(
+    connection: sqlite3.Connection,
+    rows: list[HistoryRow],
+    scoring_config_id: int,
+) -> dict[date, int]:
+    season_ids: dict[date, int] = {}
+    for tournament_date in sorted({row.tournament_date for row in rows}):
+        season_id = find_season_id_for_date(connection, tournament_date)
+        if season_id is None:
+            season_id = ensure_calendar_season(
+                connection,
+                scoring_config_id,
+                tournament_date,
+            )
+        season_ids[tournament_date] = season_id
+    return season_ids
+
+
+def ensure_calendar_season(
+    connection: sqlite3.Connection,
+    scoring_config_id: int,
+    value: date,
+) -> int:
+    quarter = (value.month - 1) // 3 + 1
+    starts_at = date(value.year, 3 * (quarter - 1) + 1, 1)
+    if quarter == 4:
+        ends_at = date(value.year, 12, 31)
+    else:
+        ends_at = date(value.year, 3 * quarter + 1, 1).replace(day=1)
+        ends_at = date.fromordinal(ends_at.toordinal() - 1)
+    name = f"{SEASON_NAMES[quarter]} {value.year}"
+    status = "active" if starts_at <= date.today() <= ends_at else "closed"
+    return ensure_season(
+        connection=connection,
+        name=name,
+        scoring_config_id=scoring_config_id,
+        starts_at=starts_at,
+        ends_at=ends_at,
+        status=status,
+    )
+
+
 def ensure_season(
     connection: sqlite3.Connection,
     name: str,
     scoring_config_id: int,
     starts_at: date,
     ends_at: date,
+    status: str,
 ) -> int:
     row = connection.execute("SELECT id FROM seasons WHERE name = ?", (name,)).fetchone()
     if row:
         connection.execute(
             """
             UPDATE seasons
-            SET starts_at = ?, ends_at = ?, scoring_config_id = ?, status = 'closed'
+            SET starts_at = ?, ends_at = ?, scoring_config_id = ?, status = ?
             WHERE id = ?
             """,
-            (starts_at.isoformat(), ends_at.isoformat(), scoring_config_id, row[0]),
+            (starts_at.isoformat(), ends_at.isoformat(), scoring_config_id, status, row[0]),
         )
         return int(row[0])
 
     cursor = connection.execute(
         """
         INSERT INTO seasons (name, scoring_config_id, starts_at, ends_at, status)
-        VALUES (?, ?, ?, ?, 'closed')
+        VALUES (?, ?, ?, ?, ?)
         """,
-        (name, scoring_config_id, starts_at.isoformat(), ends_at.isoformat()),
+        (name, scoring_config_id, starts_at.isoformat(), ends_at.isoformat(), status),
     )
     return int(cursor.lastrowid)
+
+
+def find_season_id_for_date(
+    connection: sqlite3.Connection,
+    value: date,
+) -> int | None:
+    row = connection.execute(
+        """
+        SELECT id FROM seasons
+        WHERE starts_at <= ? AND ends_at >= ?
+        ORDER BY id
+        LIMIT 1
+        """,
+        (value.isoformat(), value.isoformat()),
+    ).fetchone()
+    return int(row[0]) if row else None
+
+
+def ensure_legacy_tournament_type(connection: sqlite3.Connection, code: str) -> int:
+    row = connection.execute(
+        "SELECT id FROM tournament_types WHERE code = ?",
+        (code,),
+    ).fetchone()
+    if row:
+        return int(row[0])
+
+    cursor = connection.execute(
+        """
+        INSERT INTO tournament_types (
+            code, name, description, status, created_at, updated_at
+        )
+        VALUES (
+            ?,
+            'Неопределенный турнир',
+            'Исторический турнир из старой таблицы результатов.',
+            'active',
+            CURRENT_TIMESTAMP,
+            CURRENT_TIMESTAMP
+        )
+        """,
+        (code,),
+    )
+    tournament_type_id = int(cursor.lastrowid)
+    connection.execute(
+        """
+        INSERT INTO tournament_type_rules (
+            tournament_type_id,
+            points_multiplier,
+            prize_place_multiplier,
+            prize_place_multiplier_places,
+            knockout_mode,
+            created_at,
+            updated_at
+        )
+        VALUES (?, 1.00, 1.00, NULL, 'none', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+        """,
+        (tournament_type_id,),
+    )
+    return tournament_type_id
 
 
 def ensure_tournaments(
     connection: sqlite3.Connection,
     rows: list[HistoryRow],
-    season_id: int,
-    tournament_type_code: str,
+    season_ids: dict[date, int],
+    tournament_type_id: int,
 ) -> dict[date, int]:
-    tournament_type_id = get_tournament_type_id(connection, tournament_type_code)
     rows_by_date: dict[date, list[HistoryRow]] = defaultdict(list)
     for row in rows:
         rows_by_date[row.tournament_date].append(row)
@@ -300,7 +427,12 @@ def ensure_tournaments(
                     updated_at = CURRENT_TIMESTAMP
                 WHERE id = ?
                 """,
-                (season_id, capacity, money(points_pool), tournament_id),
+                (
+                    season_ids[tournament_date],
+                    capacity,
+                    money(points_pool),
+                    tournament_id,
+                ),
             )
         else:
             cursor = connection.execute(
@@ -318,7 +450,7 @@ def ensure_tournaments(
                 VALUES (?, ?, ?, ?, ?, 'closed', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
                 """,
                 (
-                    season_id,
+                    season_ids[tournament_date],
                     tournament_type_id,
                     tournament_date.isoformat(),
                     capacity,
@@ -330,16 +462,6 @@ def ensure_tournaments(
     return tournament_ids
 
 
-def get_tournament_type_id(connection: sqlite3.Connection, code: str) -> int:
-    row = connection.execute(
-        "SELECT id FROM tournament_types WHERE code = ?",
-        (code,),
-    ).fetchone()
-    if row is None:
-        raise SystemExit(f"Tournament type not found: {code}")
-    return int(row[0])
-
-
 def ensure_players(
     connection: sqlite3.Connection,
     rows: list[HistoryRow],
@@ -349,17 +471,17 @@ def ensure_players(
 
     for player_name in sorted({row.player_name for row in rows}):
         full_name, nickname = split_identity(player_name)
-        existing = connection.execute(
-            """
-            SELECT id FROM players
-            WHERE full_name = ? OR nickname = ?
-            ORDER BY telegram_id DESC
-            LIMIT 1
-            """,
-            (player_name, player_name),
-        ).fetchone()
+        full_name_normalized = normalize_full_name(full_name)
+        nickname_normalized = normalize_nickname(nickname)
+        existing = find_existing_player(
+            connection,
+            full_name=full_name,
+            full_name_normalized=full_name_normalized,
+            nickname=nickname,
+            nickname_normalized=nickname_normalized,
+        )
         if existing:
-            player_ids[player_name] = int(existing[0])
+            player_ids[player_name] = existing
             continue
 
         cursor = connection.execute(
@@ -367,7 +489,9 @@ def ensure_players(
             INSERT INTO players (
                 telegram_id,
                 full_name,
+                full_name_normalized,
                 nickname,
+                nickname_normalized,
                 status,
                 role,
                 approved_at,
@@ -378,6 +502,8 @@ def ensure_players(
                 ?,
                 ?,
                 ?,
+                ?,
+                ?,
                 'active',
                 'user',
                 CURRENT_TIMESTAMP,
@@ -385,11 +511,50 @@ def ensure_players(
                 CURRENT_TIMESTAMP
             )
             """,
-            (next_historical_telegram_id, full_name, nickname),
+            (
+                next_historical_telegram_id,
+                full_name,
+                full_name_normalized,
+                nickname,
+                nickname_normalized,
+            ),
         )
         player_ids[player_name] = int(cursor.lastrowid)
         next_historical_telegram_id -= 1
     return player_ids
+
+
+def find_existing_player(
+    connection: sqlite3.Connection,
+    full_name: str | None,
+    full_name_normalized: str | None,
+    nickname: str | None,
+    nickname_normalized: str | None,
+) -> int | None:
+    filters = []
+    values: list[str] = []
+    for column, value in [
+        ("full_name", full_name),
+        ("full_name_normalized", full_name_normalized),
+        ("nickname", nickname),
+        ("nickname_normalized", nickname_normalized),
+    ]:
+        if value:
+            filters.append(f"{column} = ?")
+            values.append(value)
+    if not filters:
+        return None
+
+    row = connection.execute(
+        f"""
+        SELECT id FROM players
+        WHERE {" OR ".join(filters)}
+        ORDER BY telegram_id DESC, id
+        LIMIT 1
+        """,
+        values,
+    ).fetchone()
+    return int(row[0]) if row else None
 
 
 def upsert_results(
@@ -446,18 +611,28 @@ def next_negative_telegram_id(connection: sqlite3.Connection) -> int:
 
 
 def split_identity(player_name: str) -> tuple[str | None, str | None]:
+    match = re.fullmatch(r"(.+?)\s*\((.+)\)", player_name)
+    if match:
+        full_name = clean_text(match.group(1))
+        nickname = clean_text(match.group(2))
+        return full_name or None, nickname or None
     if len(player_name.split()) >= 2:
         return player_name, None
     return None, player_name
 
 
 def build_summary(rows: list[HistoryRow], skipped_rows: list[int]) -> dict[str, Any]:
+    season_counts: dict[str, int] = defaultdict(int)
+    for tournament_date in {row.tournament_date for row in rows}:
+        season_counts[season_name_for_date(tournament_date)] += 1
+
     return {
         "rows": len(rows),
         "skipped_blank_player_rows": len(skipped_rows),
         "first_skipped_blank_player_rows": skipped_rows[:20],
         "players": len({row.player_name for row in rows}),
         "dates": len({row.tournament_date for row in rows}),
+        "tournaments_by_season": dict(sorted(season_counts.items())),
         "placed_rows": sum(1 for row in rows if row.place is not None),
         "rows_with_points": sum(
             1
@@ -465,6 +640,14 @@ def build_summary(rows: list[HistoryRow], skipped_rows: list[int]) -> dict[str, 
             if row.tournament_points + row.knockout_points + row.bonus_points > 0
         ),
     }
+
+
+def season_name_for_date(value: date) -> str:
+    for name, starts_at, ends_at, _status in KNOWN_SEASONS:
+        if starts_at <= value <= ends_at:
+            return name
+    quarter = (value.month - 1) // 3 + 1
+    return f"{SEASON_NAMES[quarter]} {value.year}"
 
 
 def print_summary(summary: dict[str, Any]) -> None:
@@ -481,6 +664,25 @@ def clean_text(value: Any) -> str:
         char for char in text if unicodedata.category(char) not in {"Cf", "Cc"}
     )
     return " ".join(text.split()).strip()
+
+
+def normalize_full_name(value: str | None) -> str | None:
+    if value is None:
+        return None
+    normalized = value.casefold().replace("ё", "е")
+    normalized = re.sub(r"[^0-9a-zа-я]+", " ", normalized)
+    normalized = " ".join(normalized.split())
+    return normalized or None
+
+
+def normalize_nickname(value: str | None) -> str | None:
+    if value is None:
+        return None
+    normalized = value.casefold().replace("ё", "е").strip()
+    normalized = normalized.removeprefix("@")
+    normalized = re.sub(r"[\s._-]+", "", normalized)
+    normalized = re.sub(r"[^0-9a-zа-я]+", "", normalized)
+    return normalized or None
 
 
 def optional_int(value: Any) -> int | None:
