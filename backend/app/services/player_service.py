@@ -83,13 +83,6 @@ class PlayerService:
             players = await PlayerRepository(session).list_active_admins()
             return [required_player_view(player) for player in players]
 
-    async def get_pending_reviews_for_admin(
-        self,
-        admin_telegram_id: int,
-    ) -> list[RegistrationReviewView]:
-        admin_panel = await self.get_admin_panel_for_admin(admin_telegram_id)
-        return admin_panel.reviews
-
     async def get_admin_panel_for_admin(
         self,
         admin_telegram_id: int,

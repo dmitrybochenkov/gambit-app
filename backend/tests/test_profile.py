@@ -138,15 +138,15 @@ async def test_profile_filters_current_season_and_all_time(tmp_path: Path) -> No
 
     service = ProfileService(session_factory)
     try:
-        current_title, current_stats = await service.get_profile(
+        current_title, current_stats = await service.get_profile_for_player(
             telegram_id=100,
             kind=ProfileKind.CURRENT_SEASON,
         )
-        all_time_title, all_time_stats = await service.get_profile(
+        all_time_title, all_time_stats = await service.get_profile_for_player(
             telegram_id=100,
             kind=ProfileKind.ALL_TIME,
         )
-        _, empty_stats = await service.get_profile(
+        _, empty_stats = await service.get_profile_for_player(
             telegram_id=200,
             kind=ProfileKind.CURRENT_SEASON,
         )

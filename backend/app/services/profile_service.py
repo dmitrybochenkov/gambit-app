@@ -24,14 +24,6 @@ class ProfileService:
     def __init__(self, session_factory: async_sessionmaker[AsyncSession]) -> None:
         self.session_factory = session_factory
 
-    async def get_profile(
-        self,
-        telegram_id: int,
-        kind: ProfileKind,
-    ) -> tuple[str, PlayerProfileView | None]:
-        async with self.session_factory() as session:
-            return await self._get_profile(ProfileRepository(session), telegram_id, kind)
-
     async def get_profile_for_player(
         self,
         telegram_id: int,
