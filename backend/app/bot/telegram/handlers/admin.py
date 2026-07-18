@@ -10,6 +10,7 @@ from aiogram.types import CallbackQuery, Message, ReplyKeyboardRemove
 from app.bot.telegram import keyboards, texts
 from app.bot.telegram.formatters import (
     format_admin_calendar_prompt,
+    format_created_season_prompt,
     format_manual_season_prompt,
 )
 from app.bot.telegram.notifications import format_registration_review
@@ -384,6 +385,12 @@ async def review_calendar_prompt(
             if resolved_prompt.kind == "season_proposal"
             else texts.admin.ADMIN_CALENDAR_TOURNAMENTS_CREATED
         )
+        if resolved_prompt.kind == "season_proposal":
+            await callback.answer(result_text)
+            if callback.message is not None:
+                await _delete_callback_message(callback)
+                await callback.message.answer(format_created_season_prompt(resolved_prompt))
+            return
     elif callback_data.action == keyboards.CalendarPromptAction.CANCEL:
         result_text = texts.admin.CALENDAR_PROMPT_CANCELLED
     else:

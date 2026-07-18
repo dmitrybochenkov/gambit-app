@@ -719,6 +719,60 @@ async def test_admin_calendar_prompt_denies_regular_admin(
     callback.answer.assert_awaited_once_with("Недостаточно прав.", show_alert=True)
 
 
+async def test_manual_season_confirm_deletes_prompt_and_sends_created_message(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    admin = admin_player(1, 100, PlayerRoleView.SUPERADMIN)
+    player_service = SimpleNamespace(require_superadmin=AsyncMock(return_value=admin))
+    calendar_service = SimpleNamespace(
+        resolve_prompt=AsyncMock(
+            return_value=AdminPromptView(
+                id=7,
+                kind="season_proposal",
+                payload=(
+                    '{"name":"Осень 2026",'
+                    '"starts_at":"2026-09-01",'
+                    '"ends_at":"2026-11-30"}'
+                ),
+                status="confirmed",
+            )
+        )
+    )
+    monkeypatch.setattr(admin_handlers, "player_service", player_service)
+    monkeypatch.setattr(admin_handlers, "calendar_service", calendar_service)
+    message = SimpleNamespace(
+        text=(
+            "Будет создан новый сезон:\n"
+            "Осень 2026\n"
+            "Период: 1.09.2026 — 30.11.2026"
+        ),
+        delete=AsyncMock(),
+        answer=AsyncMock(),
+    )
+    callback = SimpleNamespace(
+        from_user=SimpleNamespace(id=100, full_name="Dima Bochenkov"),
+        message=message,
+        answer=AsyncMock(),
+    )
+    callback_data = SimpleNamespace(
+        action=keyboards.CalendarPromptAction.CONFIRM,
+        prompt_id=7,
+    )
+    state = SimpleNamespace(clear=AsyncMock())
+
+    await admin_handlers.review_calendar_prompt(callback, callback_data, state)
+
+    calendar_service.resolve_prompt.assert_awaited_once()
+    state.clear.assert_awaited_once()
+    callback.answer.assert_awaited_once_with("Сезон создан.")
+    message.delete.assert_awaited_once_with()
+    message.answer.assert_awaited_once_with(
+        "Создан новый сезон:\n"
+        "Осень 2026\n"
+        "Период: 1.09.2026 — 30.11.2026"
+    )
+
+
 async def test_season_edit_button_opens_field_menu(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
