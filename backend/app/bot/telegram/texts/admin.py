@@ -24,7 +24,7 @@ REGISTRATION_CANCELLED = "Заявка скрыта"
 PLAYER_NOT_FOUND = "Игрок не найден."
 REGISTRATION_ALREADY_REVIEWED = "Заявка уже обработана."
 
-ADMIN_CALENDAR_PROMPT = "Что хочешь настроить?"
+ADMIN_CALENDAR_PROMPT = "Меню для создания сезонов и турниров в базе данных."
 ADMIN_CALENDAR_CANCELLED = "Отмена."
 ADMIN_CALENDAR_EMPTY_SEASONS = "Новый сезон пока не требуется."
 ADMIN_CALENDAR_EMPTY_TOURNAMENTS = "Турниры на ближайшие две недели уже созданы."
@@ -41,6 +41,7 @@ CALENDAR_PROMPT_NEEDS_CHANGES = (
 )
 
 SEASON_PROPOSAL_TITLE = "Нужно подготовить следующий сезон."
+SEASON_MANUAL_PROPOSAL_TITLE = "Будет создан новый сезон:"
 SEASON_PROPOSAL_LABEL = "Предложение"
 SEASON_PERIOD_LABEL = "Период"
 TOURNAMENTS_PROPOSAL_TITLE = "Нужно создать турниры на две недели вперед."

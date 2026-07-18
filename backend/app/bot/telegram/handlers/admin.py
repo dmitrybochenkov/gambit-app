@@ -4,7 +4,10 @@ from aiogram.filters import Command
 from aiogram.types import CallbackQuery, Message, ReplyKeyboardRemove
 
 from app.bot.telegram import keyboards, texts
-from app.bot.telegram.formatters import format_admin_calendar_prompt
+from app.bot.telegram.formatters import (
+    format_admin_calendar_prompt,
+    format_manual_season_prompt,
+)
 from app.bot.telegram.notifications import format_registration_review
 from app.services.calendar_service import (
     CalendarPromptAction,
@@ -392,7 +395,7 @@ async def select_admin_calendar_section(
         await callback.answer(texts.admin.ACCESS_DENIED, show_alert=True)
         return
 
-    await _remove_callback_keyboard(callback)
+    await _delete_callback_message(callback)
 
     if callback_data.action == keyboards.AdminCalendarAction.CANCEL:
         await callback.answer(texts.admin.ADMIN_CALENDAR_CANCELLED)
@@ -412,7 +415,7 @@ async def select_admin_calendar_section(
         await callback.answer()
         if callback.message is not None:
             await callback.message.answer(
-                format_admin_calendar_prompt(prompt),
+                format_manual_season_prompt(prompt),
                 reply_markup=keyboards.manual_season_prompt_keyboard(prompt.id),
             )
         return
@@ -433,10 +436,13 @@ async def select_admin_calendar_section(
         )
 
 
-async def _remove_callback_keyboard(callback: CallbackQuery) -> None:
+async def _delete_callback_message(callback: CallbackQuery) -> None:
     if callback.message is None:
         return
     try:
-        await callback.message.edit_reply_markup(reply_markup=None)
+        await callback.message.delete()
     except TelegramBadRequest:
-        pass
+        try:
+            await callback.message.edit_reply_markup(reply_markup=None)
+        except TelegramBadRequest:
+            pass

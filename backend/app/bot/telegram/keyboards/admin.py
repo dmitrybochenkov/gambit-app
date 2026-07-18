@@ -238,7 +238,7 @@ def admin_calendar_keyboard() -> InlineKeyboardMarkup:
         text=buttons.ADMIN_CALENDAR_CANCEL,
         callback_data=AdminCalendarCallback(action=AdminCalendarAction.CANCEL),
     )
-    builder.adjust(2, 1)
+    builder.adjust(1)
     return builder.as_markup()
 
 

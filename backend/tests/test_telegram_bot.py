@@ -610,13 +610,18 @@ async def test_admin_calendar_button_shows_inline_menu(
 
     service.get_admin_panel_for_admin.assert_awaited_once_with(100)
     answer = message.answer.await_args
-    assert answer.args[0] == "Что хочешь настроить?"
+    assert answer.args[0] == "Меню для создания сезонов и турниров в базе данных."
     buttons = [
         button.text
         for row in answer.kwargs["reply_markup"].inline_keyboard
         for button in row
     ]
     assert buttons == ["⏳ Сезоны", "🏆 Турниры", "❌ Отмена"]
+    assert [len(row) for row in answer.kwargs["reply_markup"].inline_keyboard] == [
+        1,
+        1,
+        1,
+    ]
 
 
 async def test_admin_calendar_seasons_callback_sends_manual_prompt(
@@ -645,7 +650,7 @@ async def test_admin_calendar_seasons_callback_sends_manual_prompt(
     monkeypatch.setattr(admin_handlers, "player_service", player_service)
     monkeypatch.setattr(admin_handlers, "calendar_service", calendar_service)
     message = SimpleNamespace(
-        edit_reply_markup=AsyncMock(),
+        delete=AsyncMock(),
         answer=AsyncMock(),
     )
     callback = SimpleNamespace(
@@ -659,10 +664,10 @@ async def test_admin_calendar_seasons_callback_sends_manual_prompt(
 
     player_service.get_admin_panel_for_admin.assert_awaited_once_with(100)
     calendar_service.get_or_create_manual_season_prompt.assert_awaited_once_with()
-    message.edit_reply_markup.assert_awaited_once_with(reply_markup=None)
+    message.delete.assert_awaited_once_with()
     message.answer.assert_awaited_once()
     answer = message.answer.await_args
-    assert "Предложение: Осень 2026" in answer.args[0]
+    assert answer.args[0] == "Будет создан новый сезон:\nОсень 2026"
     buttons = [
         button.text
         for row in answer.kwargs["reply_markup"].inline_keyboard

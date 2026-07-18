@@ -83,6 +83,16 @@ def format_admin_calendar_prompt(prompt: AdminPromptView) -> str:
     return "\n".join(lines)
 
 
+def format_manual_season_prompt(prompt: AdminPromptView) -> str:
+    payload = json.loads(prompt.payload)
+    return "\n".join(
+        [
+            texts.admin.SEASON_MANUAL_PROPOSAL_TITLE,
+            payload["name"],
+        ]
+    )
+
+
 def format_date(value: date) -> str:
     return f"{value.day} {texts.common.MONTHS[value.month]} {value.year}"
 
