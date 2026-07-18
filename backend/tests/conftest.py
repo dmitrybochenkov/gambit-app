@@ -1,7 +1,12 @@
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import Session
 
-from app.db.models import TournamentType, WeeklyTournamentTemplate
+from app.db.models import (
+    TournamentEconomyConfig,
+    TournamentRebuyConfig,
+    TournamentType,
+    WeeklyTournamentTemplate,
+)
 from app.db.models.enums import TournamentTypeStatus
 
 TOURNAMENT_TYPE_IDS = {
@@ -21,6 +26,21 @@ TOURNAMENT_TYPE_NAMES = {
     "mystery_bounty": "Mystery Bounty",
     "boss_bounty": "Boss Bounty",
 }
+STANDARD_REBUYS = [
+    (1, 600, 30_000),
+    (2, 800, 50_000),
+    (3, 800, 70_000),
+    (4, 800, 90_000),
+    (5, 1000, 100_000),
+    (6, 1000, 100_000),
+]
+DOUBLE_DOUBLE_REBUYS = [
+    (1, 800, 60_000),
+    (2, 800, 80_000),
+    (3, 800, 80_000),
+    (4, 1000, 100_000),
+    (5, 1000, 100_000),
+]
 
 
 def tournament_type_id(code: str) -> int:
@@ -70,6 +90,71 @@ def build_weekly_templates() -> list[WeeklyTournamentTemplate]:
     ]
 
 
+def build_tournament_economy_configs() -> list[TournamentEconomyConfig]:
+    standard_codes = {"bounty", "classic", "mystery_bounty", "boss_bounty"}
+    configs = [
+        TournamentEconomyConfig(
+            tournament_type_id=tournament_type_id(code),
+            entry_fee=600,
+            entry_stack=20_000,
+            addon_fee=800,
+            addon_stack=125_000,
+        )
+        for code in standard_codes
+    ]
+    configs.extend(
+        [
+            TournamentEconomyConfig(
+                tournament_type_id=tournament_type_id("freezeout"),
+                entry_fee=1000,
+                entry_stack=50_000,
+                addon_fee=1000,
+                addon_stack=175_000,
+            ),
+            TournamentEconomyConfig(
+                tournament_type_id=tournament_type_id("double_double"),
+                entry_fee=800,
+                entry_stack=40_000,
+                addon_fee=800,
+                addon_stack=200_000,
+            ),
+        ]
+    )
+    return configs
+
+
+def build_tournament_rebuy_configs() -> list[TournamentRebuyConfig]:
+    configs: list[TournamentRebuyConfig] = []
+    for code in {"bounty", "classic", "mystery_bounty", "boss_bounty"}:
+        configs.extend(
+            TournamentRebuyConfig(
+                tournament_type_id=tournament_type_id(code),
+                rebuy_order=rebuy_order,
+                fee=fee,
+                stack=stack,
+            )
+            for rebuy_order, fee, stack in STANDARD_REBUYS
+        )
+    configs.append(
+        TournamentRebuyConfig(
+            tournament_type_id=tournament_type_id("freezeout"),
+            rebuy_order=1,
+            fee=1000,
+            stack=75_000,
+        )
+    )
+    configs.extend(
+        TournamentRebuyConfig(
+            tournament_type_id=tournament_type_id("double_double"),
+            rebuy_order=rebuy_order,
+            fee=fee,
+            stack=stack,
+        )
+        for rebuy_order, fee, stack in DOUBLE_DOUBLE_REBUYS
+    )
+    return configs
+
+
 def seed_tournament_types(session: Session) -> None:
     session.add_all(build_tournament_types())
     session.flush()
@@ -77,6 +162,12 @@ def seed_tournament_types(session: Session) -> None:
 
 async def seed_tournament_types_async(session: AsyncSession) -> None:
     session.add_all(build_tournament_types())
+    await session.flush()
+
+
+async def seed_tournament_configs_async(session: AsyncSession) -> None:
+    session.add_all(build_tournament_economy_configs())
+    session.add_all(build_tournament_rebuy_configs())
     await session.flush()
 
 

@@ -8,13 +8,25 @@ from enum import StrEnum
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
-from app.db.models import AdminPrompt, Season, Tournament
-from app.db.models.enums import AdminPromptStatus, SeasonStatus, TournamentStatus
+from app.db.models import (
+    AdminPrompt,
+    Season,
+    Tournament,
+    TournamentEconomyConfig,
+    TournamentRebuyConfig,
+    TournamentType,
+)
+from app.db.models.enums import (
+    AdminPromptStatus,
+    SeasonStatus,
+    TournamentStatus,
+    TournamentTypeStatus,
+)
 from app.db.repositories.admin_prompt_repository import AdminPromptRepository
 from app.db.repositories.season_repository import SeasonRepository
 from app.db.repositories.tournament_repository import TournamentRepository
 from app.db.session import SessionFactory
-from app.services.dto import AdminPromptView
+from app.services.dto import AdminPromptView, TournamentTypeOptionView
 
 DEFAULT_TOURNAMENT_CAPACITY = 30
 
@@ -55,6 +67,11 @@ class ProposedTournament:
     date: date
     tournament_type_id: int
     tournament_type_name: str
+    entry_fee: int
+    entry_stack: int
+    addon_fee: int
+    addon_stack: int
+    rebuys: list[dict[str, int]]
     capacity: int = DEFAULT_TOURNAMENT_CAPACITY
 
 
@@ -101,6 +118,27 @@ class CalendarService:
         async with self.session_factory() as session:
             await self._sync_season_statuses(session, today)
             await session.commit()
+
+    async def get_prompt(self, prompt_id: int) -> AdminPromptView:
+        async with self.session_factory() as session:
+            prompt = await AdminPromptRepository(session).get_by_id(prompt_id)
+            if prompt is None:
+                raise CalendarPromptNotFoundError
+            if prompt.status != AdminPromptStatus.PENDING:
+                raise CalendarPromptAlreadyResolvedError
+            return admin_prompt_view(prompt)
+
+    async def list_tournament_type_options(self) -> list[TournamentTypeOptionView]:
+        async with self.session_factory() as session:
+            result = await session.execute(
+                select(TournamentType)
+                .where(TournamentType.status == TournamentTypeStatus.ACTIVE)
+                .order_by(TournamentType.id)
+            )
+            return [
+                TournamentTypeOptionView(id=tournament_type.id, name=tournament_type.name)
+                for tournament_type in result.scalars()
+            ]
 
     async def resolve_prompt(
         self,
@@ -164,6 +202,67 @@ class CalendarService:
             await session.refresh(prompt)
             return admin_prompt_view(prompt)
 
+    async def update_tournament_prompt_type(
+        self,
+        prompt_id: int,
+        tournament_index: int,
+        tournament_type_id: int,
+    ) -> AdminPromptView:
+        async with self.session_factory() as session:
+            prompt = await self._get_pending_tournament_prompt(session, prompt_id)
+            payload = json.loads(prompt.payload)
+            tournament = self._tournament_payload_item(payload, tournament_index)
+            config = await self._tournament_config_payload(session, tournament_type_id)
+            if config is None:
+                raise CalendarPromptInvalidPayloadError
+            tournament.update(config)
+            prompt.payload = json.dumps(payload, ensure_ascii=False)
+            await session.commit()
+            await session.refresh(prompt)
+            return admin_prompt_view(prompt)
+
+    async def update_tournament_prompt_economy(
+        self,
+        prompt_id: int,
+        tournament_index: int,
+        entry_fee: int,
+        entry_stack: int,
+        addon_fee: int,
+        addon_stack: int,
+    ) -> AdminPromptView:
+        async with self.session_factory() as session:
+            prompt = await self._get_pending_tournament_prompt(session, prompt_id)
+            payload = json.loads(prompt.payload)
+            tournament = self._tournament_payload_item(payload, tournament_index)
+            tournament.update(
+                {
+                    "entry_fee": entry_fee,
+                    "entry_stack": entry_stack,
+                    "addon_fee": addon_fee,
+                    "addon_stack": addon_stack,
+                }
+            )
+            prompt.payload = json.dumps(payload, ensure_ascii=False)
+            await session.commit()
+            await session.refresh(prompt)
+            return admin_prompt_view(prompt)
+
+    async def update_tournament_prompt_rebuys(
+        self,
+        prompt_id: int,
+        tournament_index: int,
+        rebuys: list[dict[str, int]],
+    ) -> AdminPromptView:
+        async with self.session_factory() as session:
+            prompt = await self._get_pending_tournament_prompt(session, prompt_id)
+            payload = json.loads(prompt.payload)
+            tournament = self._tournament_payload_item(payload, tournament_index)
+            tournament["rebuys"] = rebuys
+            prompt.payload = json.dumps(payload, ensure_ascii=False)
+            await session.commit()
+            await session.refresh(prompt)
+            return admin_prompt_view(prompt)
+
     async def _get_or_create_season_prompt(
         self,
         session: AsyncSession,
@@ -216,6 +315,11 @@ class CalendarService:
                         "date": tournament.date.isoformat(),
                         "tournament_type_id": tournament.tournament_type_id,
                         "tournament_type_name": tournament.tournament_type_name,
+                        "entry_fee": tournament.entry_fee,
+                        "entry_stack": tournament.entry_stack,
+                        "addon_fee": tournament.addon_fee,
+                        "addon_stack": tournament.addon_stack,
+                        "rebuys": tournament.rebuys,
                         "capacity": tournament.capacity,
                     }
                     for tournament in proposed_tournaments
@@ -235,7 +339,7 @@ class CalendarService:
         today: date,
     ) -> list[ProposedTournament]:
         first_monday = next_monday_after(today)
-        last_day = first_monday + timedelta(days=13)
+        last_day = first_monday + timedelta(days=6)
         repository = TournamentRepository(session)
         templates_by_weekday = await self._templates_by_weekday(repository)
         rotation_counts: dict[int, int] = {}
@@ -251,11 +355,23 @@ class CalendarService:
                 current_day,
                 template.tournament_type_id,
             ):
+                config = await self._tournament_config_payload(
+                    session,
+                    template.tournament_type_id,
+                )
+                if config is None:
+                    current_day += timedelta(days=1)
+                    continue
                 proposed.append(
                     ProposedTournament(
                         date=current_day,
-                        tournament_type_id=template.tournament_type_id,
-                        tournament_type_name=template.tournament_type.name,
+                        tournament_type_id=int(config["tournament_type_id"]),
+                        tournament_type_name=str(config["tournament_type_name"]),
+                        entry_fee=int(config["entry_fee"]),
+                        entry_stack=int(config["entry_stack"]),
+                        addon_fee=int(config["addon_fee"]),
+                        addon_stack=int(config["addon_stack"]),
+                        rebuys=list(config["rebuys"]),
                     )
                 )
                 rotation_counts[current_day.weekday()] = (
@@ -263,6 +379,80 @@ class CalendarService:
                 )
             current_day += timedelta(days=1)
         return proposed
+
+    async def _get_pending_tournament_prompt(
+        self,
+        session: AsyncSession,
+        prompt_id: int,
+    ) -> AdminPrompt:
+        repository = AdminPromptRepository(session)
+        prompt = await repository.get_by_id(prompt_id)
+        if prompt is None:
+            raise CalendarPromptNotFoundError
+        if prompt.status != AdminPromptStatus.PENDING:
+            raise CalendarPromptAlreadyResolvedError
+        if prompt.kind != AdminPromptKind.TOURNAMENTS_PROPOSAL:
+            raise CalendarPromptUnsupportedError(prompt.kind)
+        return prompt
+
+    @staticmethod
+    def _tournament_payload_item(
+        payload: dict[str, object],
+        tournament_index: int,
+    ) -> dict[str, object]:
+        tournaments = payload["tournaments"]
+        if not isinstance(tournaments, list):
+            raise CalendarPromptInvalidPayloadError
+        try:
+            item = tournaments[tournament_index]
+        except IndexError as error:
+            raise CalendarPromptInvalidPayloadError from error
+        if not isinstance(item, dict):
+            raise CalendarPromptInvalidPayloadError
+        return item
+
+    async def _tournament_config_payload(
+        self,
+        session: AsyncSession,
+        tournament_type_id: int,
+    ) -> dict[str, object] | None:
+        type_result = await session.execute(
+            select(TournamentType).where(TournamentType.id == tournament_type_id)
+        )
+        tournament_type = type_result.scalar_one_or_none()
+        if tournament_type is None:
+            return None
+
+        economy_result = await session.execute(
+            select(TournamentEconomyConfig).where(
+                TournamentEconomyConfig.tournament_type_id == tournament_type_id
+            )
+        )
+        economy = economy_result.scalar_one_or_none()
+        if economy is None:
+            return None
+
+        rebuys_result = await session.execute(
+            select(TournamentRebuyConfig)
+            .where(TournamentRebuyConfig.tournament_type_id == tournament_type_id)
+            .order_by(TournamentRebuyConfig.rebuy_order)
+        )
+        rebuys = [
+            {
+                "fee": rebuy.fee,
+                "stack": rebuy.stack,
+            }
+            for rebuy in rebuys_result.scalars()
+        ]
+        return {
+            "tournament_type_id": tournament_type.id,
+            "tournament_type_name": tournament_type.name,
+            "entry_fee": economy.entry_fee,
+            "entry_stack": economy.entry_stack,
+            "addon_fee": economy.addon_fee,
+            "addon_stack": economy.addon_stack,
+            "rebuys": rebuys,
+        }
 
     async def _templates_by_weekday(
         self,

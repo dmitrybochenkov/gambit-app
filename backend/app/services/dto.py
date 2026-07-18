@@ -93,6 +93,12 @@ class AdminPromptView:
 
 
 @dataclass(frozen=True)
+class TournamentTypeOptionView:
+    id: int
+    name: str
+
+
+@dataclass(frozen=True)
 class PointsRatingView:
     player_id: int
     display_name: str

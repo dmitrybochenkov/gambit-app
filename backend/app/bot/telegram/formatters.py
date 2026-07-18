@@ -69,17 +69,12 @@ def format_admin_calendar_prompt(prompt: AdminPromptView) -> str:
             ]
         )
 
-    lines = [texts.admin.TOURNAMENTS_PROPOSAL_TITLE, ""]
+    lines = [texts.admin.TOURNAMENTS_MANUAL_PROPOSAL_TITLE, ""]
     for item in payload["tournaments"]:
-        tournament = TournamentView(
-            id=0,
-            tournament_type_id=int(item["tournament_type_id"]),
-            date=date.fromisoformat(item["date"]),
-            capacity=int(item["capacity"]),
-            tournament_type_name=item["tournament_type_name"],
-        )
-        lines.append(f"• {format_tournament_label(tournament)}")
-    lines.extend(["", texts.admin.CONFIRM_CREATION_PROMPT])
+        lines.extend(_format_tournament_proposal_item(item))
+        lines.append("")
+    if lines[-1] == "":
+        lines.pop()
     return "\n".join(lines)
 
 
@@ -111,12 +106,56 @@ def format_created_season_prompt(prompt: AdminPromptView) -> str:
     )
 
 
+def format_created_tournaments_prompt(prompt: AdminPromptView) -> str:
+    payload = json.loads(prompt.payload)
+    lines = [texts.admin.TOURNAMENTS_CREATED_TITLE, ""]
+    for item in payload["tournaments"]:
+        lines.extend(_format_tournament_proposal_item(item))
+        lines.append("")
+    if lines[-1] == "":
+        lines.pop()
+    return "\n".join(lines)
+
+
 def format_date(value: date) -> str:
     return f"{value.day} {texts.common.MONTHS[value.month]} {value.year}"
 
 
 def format_numeric_date(value: date) -> str:
     return f"{value.day}.{value.month:02d}.{value.year}"
+
+
+def format_number(value: int) -> str:
+    return f"{value:,}".replace(",", " ")
+
+
+def _format_tournament_proposal_item(item: dict[str, object]) -> list[str]:
+    tournament = TournamentView(
+        id=0,
+        tournament_type_id=int(item["tournament_type_id"]),
+        date=date.fromisoformat(str(item["date"])),
+        capacity=int(item["capacity"]),
+        tournament_type_name=str(item["tournament_type_name"]),
+    )
+    rebuys = item.get("rebuys", [])
+    rebuy_fees = " / ".join(format_number(int(rebuy["fee"])) for rebuy in rebuys)
+    rebuy_stacks = " / ".join(format_number(int(rebuy["stack"])) for rebuy in rebuys)
+    return [
+        f"• {format_tournament_label(tournament)}",
+        texts.admin.TOURNAMENT_ENTRY_LABEL,
+        (
+            f"{format_number(int(item['entry_fee']))} ₽ — "
+            f"{format_number(int(item['entry_stack']))} фишек"
+        ),
+        texts.admin.TOURNAMENT_REBUYS_LABEL,
+        f"{rebuy_fees} ₽" if rebuy_fees else "—",
+        f"{rebuy_stacks} фишек" if rebuy_stacks else "—",
+        texts.admin.TOURNAMENT_ADDON_LABEL,
+        (
+            f"{format_number(int(item['addon_fee']))} ₽ — "
+            f"{format_number(int(item['addon_stack']))} фишек"
+        ),
+    ]
 
 
 def _fallback_tournament_type_name(tournament: TournamentView) -> str:

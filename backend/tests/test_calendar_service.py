@@ -2,7 +2,11 @@ import json
 from datetime import date
 from pathlib import Path
 
-from conftest import seed_tournament_types_async, seed_weekly_templates_async
+from conftest import (
+    seed_tournament_configs_async,
+    seed_tournament_types_async,
+    seed_weekly_templates_async,
+)
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncEngine, async_sessionmaker, create_async_engine
 
@@ -27,7 +31,7 @@ async def create_calendar_service(
     return CalendarService(session_factory), session_factory, engine
 
 
-async def test_manual_tournament_prompt_collects_next_two_weeks(tmp_path: Path) -> None:
+async def test_manual_tournament_prompt_collects_next_week(tmp_path: Path) -> None:
     service, session_factory, engine = await create_calendar_service(
         tmp_path / "calendar.db"
     )
@@ -37,6 +41,7 @@ async def test_manual_tournament_prompt_collects_next_two_weeks(tmp_path: Path) 
             session.add(config)
             await session.flush()
             await seed_tournament_types_async(session)
+            await seed_tournament_configs_async(session)
             await seed_weekly_templates_async(session)
             session.add(
                 Season(
@@ -61,11 +66,6 @@ async def test_manual_tournament_prompt_collects_next_two_weeks(tmp_path: Path) 
             "2026-07-17",
             "2026-07-18",
             "2026-07-19",
-            "2026-07-22",
-            "2026-07-23",
-            "2026-07-24",
-            "2026-07-25",
-            "2026-07-26",
         ]
         assert [item["tournament_type_name"] for item in payload["tournaments"]] == [
             "Баунти турнир",
@@ -73,12 +73,15 @@ async def test_manual_tournament_prompt_collects_next_two_weeks(tmp_path: Path) 
             "Фризаут",
             "Double Double",
             "Mystery Bounty",
-            "Баунти турнир",
-            "Классика",
-            "Фризаут",
-            "Double Double",
-            "Boss Bounty",
         ]
+        assert payload["tournaments"][0]["entry_fee"] == 600
+        assert payload["tournaments"][0]["entry_stack"] == 20_000
+        assert payload["tournaments"][0]["addon_fee"] == 800
+        assert payload["tournaments"][0]["addon_stack"] == 125_000
+        assert payload["tournaments"][0]["rebuys"][0] == {
+            "fee": 600,
+            "stack": 30_000,
+        }
     finally:
         await engine.dispose()
 
@@ -93,6 +96,7 @@ async def test_confirming_tournament_prompt_creates_tournaments(tmp_path: Path) 
             session.add(config)
             await session.flush()
             await seed_tournament_types_async(session)
+            await seed_tournament_configs_async(session)
             await seed_weekly_templates_async(session)
             session.add(
                 Season(
@@ -117,7 +121,7 @@ async def test_confirming_tournament_prompt_creates_tournaments(tmp_path: Path) 
         async with session_factory() as session:
             tournaments = list((await session.execute(select(Tournament))).scalars())
 
-        assert len(tournaments) == 10
+        assert len(tournaments) == 5
         assert [
             (tournament.date, tournament.tournament_type_id)
             for tournament in tournaments
@@ -127,11 +131,6 @@ async def test_confirming_tournament_prompt_creates_tournaments(tmp_path: Path) 
             (date(2026, 7, 17), 3),
             (date(2026, 7, 18), 4),
             (date(2026, 7, 19), 5),
-            (date(2026, 7, 22), 1),
-            (date(2026, 7, 23), 2),
-            (date(2026, 7, 24), 3),
-            (date(2026, 7, 25), 4),
-            (date(2026, 7, 26), 6),
         ]
         assert all(tournament.status == TournamentStatus.ACTIVE for tournament in tournaments)
     finally:
@@ -148,6 +147,7 @@ async def test_confirming_season_prompt_creates_upcoming_season(tmp_path: Path) 
             session.add(config)
             await session.flush()
             await seed_tournament_types_async(session)
+            await seed_tournament_configs_async(session)
             await seed_weekly_templates_async(session)
             session.add(
                 Season(
@@ -344,6 +344,7 @@ async def test_manual_tournament_prompt_uses_next_monday(tmp_path: Path) -> None
             session.add(config)
             await session.flush()
             await seed_tournament_types_async(session)
+            await seed_tournament_configs_async(session)
             await seed_weekly_templates_async(session)
             session.add(
                 Season(

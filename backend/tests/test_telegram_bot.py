@@ -677,6 +677,67 @@ async def test_admin_calendar_seasons_callback_sends_manual_prompt(
     assert buttons == ["✅ Создать", "✏️ Изменить", "❌ Отмена"]
 
 
+async def test_admin_calendar_tournaments_callback_sends_detailed_prompt(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    admin = admin_player(1, 100, PlayerRoleView.SUPERADMIN)
+    player_service = SimpleNamespace(require_superadmin=AsyncMock(return_value=admin))
+    calendar_service = SimpleNamespace(
+        get_or_create_manual_tournaments_prompt=AsyncMock(
+            return_value=AdminPromptView(
+                id=8,
+                kind="tournaments_proposal",
+                payload=(
+                    '{"tournaments":[{'
+                    '"date":"2026-07-22",'
+                    '"tournament_type_id":1,'
+                    '"tournament_type_name":"Баунти турнир",'
+                    '"entry_fee":600,'
+                    '"entry_stack":20000,'
+                    '"addon_fee":800,'
+                    '"addon_stack":125000,'
+                    '"rebuys":[{"fee":600,"stack":30000}],'
+                    '"capacity":30'
+                    "}]} "
+                ),
+                status="pending",
+            )
+        )
+    )
+    monkeypatch.setattr(admin_handlers, "player_service", player_service)
+    monkeypatch.setattr(admin_handlers, "calendar_service", calendar_service)
+    message = SimpleNamespace(delete=AsyncMock(), answer=AsyncMock())
+    callback = SimpleNamespace(
+        from_user=SimpleNamespace(id=100),
+        message=message,
+        answer=AsyncMock(),
+    )
+    callback_data = SimpleNamespace(action=keyboards.AdminCalendarAction.TOURNAMENTS)
+
+    await admin_handlers.select_admin_calendar_section(callback, callback_data)
+
+    calendar_service.get_or_create_manual_tournaments_prompt.assert_awaited_once_with()
+    message.delete.assert_awaited_once_with()
+    answer = message.answer.await_args
+    assert answer.args[0] == (
+        "Будут созданы турниры на ближайшую неделю:\n\n"
+        "• Среда, 22 июля — Баунти турнир\n"
+        "Вход:\n"
+        "600 ₽ — 20 000 фишек\n"
+        "Ребаи:\n"
+        "600 ₽\n"
+        "30 000 фишек\n"
+        "Аддон:\n"
+        "800 ₽ — 125 000 фишек"
+    )
+    buttons = [
+        button.text
+        for row in answer.kwargs["reply_markup"].inline_keyboard
+        for button in row
+    ]
+    assert buttons == ["✅ Создать", "✏️ Изменить", "❌ Отмена"]
+
+
 async def test_admin_calendar_denies_regular_admin(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -777,8 +838,23 @@ async def test_season_edit_button_opens_field_menu(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     admin = admin_player(1, 100, PlayerRoleView.SUPERADMIN)
-    service = SimpleNamespace(require_superadmin=AsyncMock(return_value=admin))
-    monkeypatch.setattr(admin_handlers, "player_service", service)
+    player_service = SimpleNamespace(require_superadmin=AsyncMock(return_value=admin))
+    calendar_service = SimpleNamespace(
+        get_prompt=AsyncMock(
+            return_value=AdminPromptView(
+                id=7,
+                kind="season_proposal",
+                payload=(
+                    '{"name":"Осень 2026",'
+                    '"starts_at":"2026-09-01",'
+                    '"ends_at":"2026-11-30"}'
+                ),
+                status="pending",
+            )
+        )
+    )
+    monkeypatch.setattr(admin_handlers, "player_service", player_service)
+    monkeypatch.setattr(admin_handlers, "calendar_service", calendar_service)
     state = SimpleNamespace(clear=AsyncMock())
     message = SimpleNamespace(delete=AsyncMock(), answer=AsyncMock())
     callback = SimpleNamespace(
@@ -793,7 +869,8 @@ async def test_season_edit_button_opens_field_menu(
 
     await admin_handlers.review_calendar_prompt(callback, callback_data, state)
 
-    service.require_superadmin.assert_awaited_once_with(100)
+    player_service.require_superadmin.assert_awaited_once_with(100)
+    calendar_service.get_prompt.assert_awaited_once_with(7)
     state.clear.assert_awaited_once()
     message.delete.assert_awaited_once_with()
     message.answer.assert_awaited_once()
@@ -809,6 +886,60 @@ async def test_season_edit_button_opens_field_menu(
         "🏁 Дата окончания",
         "❌ Отмена",
     ]
+
+
+async def test_tournament_edit_button_opens_day_menu(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    admin = admin_player(1, 100, PlayerRoleView.SUPERADMIN)
+    player_service = SimpleNamespace(require_superadmin=AsyncMock(return_value=admin))
+    calendar_service = SimpleNamespace(
+        get_prompt=AsyncMock(
+            return_value=AdminPromptView(
+                id=8,
+                kind="tournaments_proposal",
+                payload=(
+                    '{"tournaments":[{'
+                    '"date":"2026-07-22",'
+                    '"tournament_type_id":1,'
+                    '"tournament_type_name":"Баунти турнир",'
+                    '"entry_fee":600,'
+                    '"entry_stack":20000,'
+                    '"addon_fee":800,'
+                    '"addon_stack":125000,'
+                    '"rebuys":[],'
+                    '"capacity":30'
+                    "}]} "
+                ),
+                status="pending",
+            )
+        )
+    )
+    monkeypatch.setattr(admin_handlers, "player_service", player_service)
+    monkeypatch.setattr(admin_handlers, "calendar_service", calendar_service)
+    state = SimpleNamespace(clear=AsyncMock())
+    message = SimpleNamespace(delete=AsyncMock(), answer=AsyncMock())
+    callback = SimpleNamespace(
+        from_user=SimpleNamespace(id=100),
+        message=message,
+        answer=AsyncMock(),
+    )
+    callback_data = SimpleNamespace(
+        action=keyboards.CalendarPromptAction.EDIT,
+        prompt_id=8,
+    )
+
+    await admin_handlers.review_calendar_prompt(callback, callback_data, state)
+
+    calendar_service.get_prompt.assert_awaited_once_with(8)
+    message.delete.assert_awaited_once_with()
+    assert message.answer.await_args.args[0] == "Что меняем?"
+    buttons = [
+        button.text
+        for row in message.answer.await_args.kwargs["reply_markup"].inline_keyboard
+        for button in row
+    ]
+    assert buttons == ["Среда, 22.07.2026", "❌ Отмена"]
 
 
 async def test_season_edit_field_prompts_for_value(
