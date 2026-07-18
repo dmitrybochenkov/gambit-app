@@ -22,3 +22,8 @@ class CalendarSeasonEditStates(StatesGroup):
 class CalendarTournamentEditStates(StatesGroup):
     entering_economy = State()
     entering_rebuys = State()
+
+
+class AdminResultStates(StatesGroup):
+    entering_pool = State()
+    entering_player_result = State()

@@ -5,6 +5,7 @@ from app.bot.telegram import texts
 from app.services.dto import (
     AdminPromptView,
     PlayerProfileView,
+    TournamentResultDraftView,
     TournamentView,
 )
 from app.services.pagination import Page
@@ -78,6 +79,52 @@ def format_admin_calendar_prompt(prompt: AdminPromptView) -> str:
     return "\n".join(lines)
 
 
+def format_admin_result_tournament_list(page: Page[TournamentView]) -> str:
+    lines = [texts.admin.ADMIN_RESULTS_TOURNAMENT_LIST_TITLE, ""]
+    for tournament in page.items:
+        lines.append(f"{tournament.id} — {format_tournament_label(tournament)}")
+    if page.total_pages > 1:
+        lines.extend(["", _page_line(page)])
+    return "\n".join(lines)
+
+
+def format_admin_result_menu(draft: TournamentResultDraftView) -> str:
+    pool = (
+        f"{format_decimal(draft.points_pool)} ₽"
+        if draft.points_pool is not None
+        else "не введен"
+    )
+    return "\n".join(
+        [
+            texts.admin.ADMIN_RESULTS_MENU_TITLE,
+            format_tournament_label(draft.tournament),
+            f"Пул: {pool}",
+            f"Игроков: {len(draft.players)}",
+        ]
+    )
+
+
+def format_admin_result_players(
+    draft: TournamentResultDraftView,
+    page: Page,
+) -> str:
+    lines = [
+        texts.admin.ADMIN_RESULTS_PLAYERS_TITLE,
+        format_tournament_label(draft.tournament),
+        "",
+    ]
+    for player in page.items:
+        place = str(player.place) if player.place is not None else "—"
+        lines.append(
+            f"{player.player_id} — {player.display_name}: "
+            f"место {place}, КО {player.knockouts_count}, "
+            f"Босс КО {player.boss_knockouts_count}"
+        )
+    if page.total_pages > 1:
+        lines.extend(["", _page_line(page)])
+    return "\n".join(lines)
+
+
 def format_manual_season_prompt(prompt: AdminPromptView) -> str:
     payload = json.loads(prompt.payload)
     starts_at = date.fromisoformat(payload["starts_at"])
@@ -127,6 +174,19 @@ def format_numeric_date(value: date) -> str:
 
 def format_number(value: int) -> str:
     return f"{value:,}".replace(",", " ")
+
+
+def format_decimal(value: object) -> str:
+    text = f"{value}"
+    if "." in text:
+        text = text.rstrip("0").rstrip(".")
+    return text
+
+
+def _page_line(page: Page) -> str:
+    start = page.page * page.page_size + 1
+    end = start + len(page.items) - 1
+    return f"{start}-{end} из {page.total_items}"
 
 
 def _format_tournament_proposal_item(item: dict[str, object]) -> list[str]:

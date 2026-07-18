@@ -85,6 +85,22 @@ class TournamentView:
 
 
 @dataclass(frozen=True)
+class TournamentResultDraftPlayerView:
+    player_id: int
+    display_name: str
+    place: int | None
+    knockouts_count: int
+    boss_knockouts_count: int
+
+
+@dataclass(frozen=True)
+class TournamentResultDraftView:
+    tournament: TournamentView
+    points_pool: Decimal | None
+    players: list[TournamentResultDraftPlayerView]
+
+
+@dataclass(frozen=True)
 class AdminPromptView:
     id: int
     kind: str

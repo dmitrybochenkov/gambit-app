@@ -6,6 +6,7 @@ from app.db.models.season import Season
 from app.db.models.tournament import Tournament
 from app.db.models.tournament_registration import TournamentRegistration
 from app.db.models.tournament_result import TournamentResult
+from app.db.models.tournament_result_draft import TournamentResultDraft
 from app.db.models.tournament_type import (
     TournamentEconomyConfig,
     TournamentRebuyConfig,
@@ -27,5 +28,6 @@ __all__ = [
     "TournamentTypeRule",
     "WeeklyTournamentTemplate",
     "TournamentRegistration",
+    "TournamentResultDraft",
     "TournamentResult",
 ]
