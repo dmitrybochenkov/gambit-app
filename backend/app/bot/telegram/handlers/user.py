@@ -294,9 +294,14 @@ async def show_tournaments_for_registration(message: Message, state: FSMContext)
         return
 
     await state.update_data(tournament_registration_selection=[])
+    page = pagination_service.paginate(
+        tournaments,
+        page=0,
+        page_size=keyboards.TOURNAMENT_LIST_PAGE_SIZE,
+    )
     await message.answer(
         texts.user.TOURNAMENT_REGISTRATION_PROMPT,
-        reply_markup=keyboards.tournament_registration_keyboard(tournaments),
+        reply_markup=keyboards.tournament_registration_keyboard(page),
     )
 
 
@@ -308,7 +313,9 @@ async def register_for_tournament(
 ) -> None:
     data = await state.get_data()
     selected_tournament_ids = set(data.get("tournament_registration_selection", []))
-    if callback_data.tournament_id in selected_tournament_ids:
+    if callback_data.action == keyboards.TournamentListAction.PAGE:
+        answer = None
+    elif callback_data.tournament_id in selected_tournament_ids:
         selected_tournament_ids.remove(callback_data.tournament_id)
         answer = texts.user.TOURNAMENT_REMOVED_FROM_SELECTION
     else:
@@ -330,15 +337,23 @@ async def register_for_tournament(
     await state.update_data(
         tournament_registration_selection=sorted(selected_tournament_ids)
     )
+    page = pagination_service.paginate(
+        tournaments,
+        page=callback_data.page,
+        page_size=keyboards.TOURNAMENT_LIST_PAGE_SIZE,
+    )
 
     if callback.message is not None:
         await callback.message.edit_reply_markup(
             reply_markup=keyboards.tournament_registration_keyboard(
-                tournaments,
+                page,
                 selected_tournament_ids,
             )
         )
-    await callback.answer(answer)
+    if answer is None:
+        await callback.answer()
+    else:
+        await callback.answer(answer)
 
 
 @router.callback_query(F.data == keyboards.CONFIRM_TOURNAMENT_REGISTRATION_CALLBACK)
@@ -373,7 +388,7 @@ async def confirm_tournament_registration(
     await state.update_data(tournament_registration_selection=[])
     await callback.answer(texts.user.ACTION_DONE)
     if callback.message is not None:
-        await callback.message.edit_reply_markup(reply_markup=None)
+        await _delete_message(callback.message)
         await callback.message.answer(
             texts.user.tournament_registration_success(
                 [format_tournament_label(tournament) for tournament in tournaments]
@@ -387,9 +402,9 @@ async def cancel_tournament_registration_selection(
     state: FSMContext,
 ) -> None:
     await state.update_data(tournament_registration_selection=[])
-    await callback.answer()
+    await callback.answer(texts.user.TOURNAMENT_REGISTRATION_CANCELLED)
     if callback.message is not None:
-        await callback.message.edit_reply_markup(reply_markup=None)
+        await _delete_message(callback.message)
         await callback.message.answer(texts.user.TOURNAMENT_REGISTRATION_CANCELLED)
 
 
@@ -414,9 +429,14 @@ async def show_tournaments_for_cancellation(
         return
 
     await state.update_data(tournament_cancellation_selection=[])
+    page = pagination_service.paginate(
+        tournaments,
+        page=0,
+        page_size=keyboards.TOURNAMENT_LIST_PAGE_SIZE,
+    )
     await message.answer(
         texts.user.TOURNAMENT_CANCELLATION_PROMPT,
-        reply_markup=keyboards.tournament_cancellation_keyboard(tournaments),
+        reply_markup=keyboards.tournament_cancellation_keyboard(page),
     )
 
 
@@ -428,7 +448,9 @@ async def select_tournament_for_cancellation(
 ) -> None:
     data = await state.get_data()
     selected_tournament_ids = set(data.get("tournament_cancellation_selection", []))
-    if callback_data.tournament_id in selected_tournament_ids:
+    if callback_data.action == keyboards.TournamentListAction.PAGE:
+        answer = None
+    elif callback_data.tournament_id in selected_tournament_ids:
         selected_tournament_ids.remove(callback_data.tournament_id)
         answer = texts.user.TOURNAMENT_REMOVED_FROM_SELECTION
     else:
@@ -451,14 +473,22 @@ async def select_tournament_for_cancellation(
     await state.update_data(
         tournament_cancellation_selection=sorted(selected_tournament_ids)
     )
+    page = pagination_service.paginate(
+        tournaments,
+        page=callback_data.page,
+        page_size=keyboards.TOURNAMENT_LIST_PAGE_SIZE,
+    )
     if callback.message is not None:
         await callback.message.edit_reply_markup(
             reply_markup=keyboards.tournament_cancellation_keyboard(
-                tournaments,
+                page,
                 selected_tournament_ids,
             )
         )
-    await callback.answer(answer)
+    if answer is None:
+        await callback.answer()
+    else:
+        await callback.answer(answer)
 
 
 @router.callback_query(F.data == keyboards.CONFIRM_TOURNAMENT_CANCELLATION_CALLBACK)
@@ -493,7 +523,7 @@ async def confirm_tournament_cancellation(
     await state.update_data(tournament_cancellation_selection=[])
     await callback.answer(texts.user.ACTION_DONE)
     if callback.message is not None:
-        await callback.message.edit_reply_markup(reply_markup=None)
+        await _delete_message(callback.message)
         await callback.message.answer(
             texts.user.tournament_cancellation_success(
                 [format_tournament_label(tournament) for tournament in tournaments]
@@ -507,9 +537,9 @@ async def cancel_tournament_cancellation_selection(
     state: FSMContext,
 ) -> None:
     await state.update_data(tournament_cancellation_selection=[])
-    await callback.answer()
+    await callback.answer(texts.user.TOURNAMENT_CANCELLATION_CANCELLED)
     if callback.message is not None:
-        await callback.message.edit_reply_markup(reply_markup=None)
+        await _delete_message(callback.message)
         await callback.message.answer(texts.user.TOURNAMENT_CANCELLATION_CANCELLED)
 
 

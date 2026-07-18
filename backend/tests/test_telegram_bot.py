@@ -369,16 +369,75 @@ async def test_registration_button_shows_upcoming_tournaments(
     await user_handlers.show_tournaments_for_registration(message, state)
 
     answer = message.answer.await_args
-    assert answer.args[0] == (
-        "Выбери даты турниров, на которые хочешь записаться, "
-        "и нажми «Подтвердить»."
-    )
+    assert answer.args[0] == "Выбери турниры, на которые хочешь записаться."
     button = answer.kwargs["reply_markup"].inline_keyboard[0][0]
     assert button.text == "Среда, 8 июля — Турнир 1"
-    assert button.callback_data == "tournament_register:7"
+    assert button.callback_data == "tournament_register:select:0:7"
     controls = answer.kwargs["reply_markup"].inline_keyboard[1]
     assert [button.text for button in controls] == ["✅ Подтвердить", "❌ Отмена"]
     state.update_data.assert_awaited_once_with(tournament_registration_selection=[])
+
+
+async def test_tournament_registration_list_is_paginated(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    message = SimpleNamespace(
+        from_user=SimpleNamespace(id=123),
+        answer=AsyncMock(),
+    )
+    tournaments = [
+        tournament_view(tournament_id, date(2026, 7, tournament_id), 1)
+        for tournament_id in range(1, 8)
+    ]
+    tournament_service = SimpleNamespace(
+        get_registration_options_for_player=AsyncMock(return_value=tournaments)
+    )
+    state = SimpleNamespace(update_data=AsyncMock())
+    monkeypatch.setattr(user_handlers, "tournament_service", tournament_service)
+
+    await user_handlers.show_tournaments_for_registration(message, state)
+
+    rows = message.answer.await_args.kwargs["reply_markup"].inline_keyboard
+    assert len(rows[:6]) == 6
+    assert [button.text for button in rows[6]] == ["1-6 из 7", "➡️"]
+    assert rows[6][1].callback_data == "tournament_register:page:1:0"
+    assert [button.text for button in rows[7]] == ["✅ Подтвердить", "❌ Отмена"]
+
+
+async def test_tournament_registration_page_callback_keeps_selection(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    tournaments = [
+        tournament_view(tournament_id, date(2026, 7, tournament_id), 1)
+        for tournament_id in range(1, 8)
+    ]
+    service = SimpleNamespace(
+        get_registration_options_for_player=AsyncMock(return_value=tournaments)
+    )
+    monkeypatch.setattr(user_handlers, "tournament_service", service)
+    message = SimpleNamespace(edit_reply_markup=AsyncMock())
+    callback = SimpleNamespace(
+        from_user=SimpleNamespace(id=123),
+        message=message,
+        answer=AsyncMock(),
+    )
+    callback_data = SimpleNamespace(
+        action=keyboards.TournamentListAction.PAGE,
+        page=1,
+        tournament_id=0,
+    )
+    state = SimpleNamespace(
+        get_data=AsyncMock(return_value={"tournament_registration_selection": [1]}),
+        update_data=AsyncMock(),
+    )
+
+    await user_handlers.register_for_tournament(callback, callback_data, state)
+
+    state.update_data.assert_awaited_once_with(tournament_registration_selection=[1])
+    callback.answer.assert_awaited_once_with()
+    rows = message.edit_reply_markup.await_args.kwargs["reply_markup"].inline_keyboard
+    assert rows[0][0].text == "Вторник, 7 июля — Турнир 1"
+    assert [button.text for button in rows[1]] == ["⬅️", "7-7 из 7"]
 
 
 async def test_multiple_tournament_registration_sends_confirmation(
@@ -393,7 +452,7 @@ async def test_multiple_tournament_registration_sends_confirmation(
     )
     monkeypatch.setattr(user_handlers, "tournament_service", service)
     message = SimpleNamespace(
-        edit_reply_markup=AsyncMock(),
+        delete=AsyncMock(),
         answer=AsyncMock(),
     )
     callback = SimpleNamespace(
@@ -414,9 +473,9 @@ async def test_multiple_tournament_registration_sends_confirmation(
         telegram_id=123,
         tournament_ids=[7, 8],
     )
-    message.edit_reply_markup.assert_awaited_once_with(reply_markup=None)
+    message.delete.assert_awaited_once_with()
     confirmation = message.answer.await_args.args[0]
-    assert "Вы записались на турниры:" in confirmation
+    assert "Ты записан на турниры:" in confirmation
     assert "Среда, 8 июля — Турнир 1" in confirmation
     assert "Четверг, 9 июля — Турнир 2" in confirmation
     assert "вы отмените запись заранее" in confirmation
@@ -424,7 +483,7 @@ async def test_multiple_tournament_registration_sends_confirmation(
 
 async def test_tournament_registration_selection_can_be_cancelled() -> None:
     message = SimpleNamespace(
-        edit_reply_markup=AsyncMock(),
+        delete=AsyncMock(),
         answer=AsyncMock(),
     )
     callback = SimpleNamespace(message=message, answer=AsyncMock())
@@ -433,8 +492,9 @@ async def test_tournament_registration_selection_can_be_cancelled() -> None:
     await user_handlers.cancel_tournament_registration_selection(callback, state)
 
     state.update_data.assert_awaited_once_with(tournament_registration_selection=[])
-    message.edit_reply_markup.assert_awaited_once_with(reply_markup=None)
-    message.answer.assert_awaited_once_with("Запись на турнир(ы) отменена.")
+    callback.answer.assert_awaited_once_with("Отмена")
+    message.delete.assert_awaited_once_with()
+    message.answer.assert_awaited_once_with("Отмена")
 
 
 async def test_cancellation_button_reports_when_player_has_no_registrations(
@@ -470,7 +530,7 @@ async def test_multiple_tournament_cancellation_sends_confirmation(
     )
     monkeypatch.setattr(user_handlers, "tournament_service", service)
     message = SimpleNamespace(
-        edit_reply_markup=AsyncMock(),
+        delete=AsyncMock(),
         answer=AsyncMock(),
     )
     callback = SimpleNamespace(
@@ -491,6 +551,7 @@ async def test_multiple_tournament_cancellation_sends_confirmation(
         telegram_id=123,
         tournament_ids=[7, 8],
     )
+    message.delete.assert_awaited_once_with()
     confirmation = message.answer.await_args.args[0]
     assert "Ты отменил запись на турниры:" in confirmation
     assert "Среда, 8 июля — Турнир 1" in confirmation
@@ -499,7 +560,7 @@ async def test_multiple_tournament_cancellation_sends_confirmation(
 
 async def test_tournament_cancellation_selection_can_be_cancelled() -> None:
     message = SimpleNamespace(
-        edit_reply_markup=AsyncMock(),
+        delete=AsyncMock(),
         answer=AsyncMock(),
     )
     callback = SimpleNamespace(message=message, answer=AsyncMock())
@@ -508,8 +569,9 @@ async def test_tournament_cancellation_selection_can_be_cancelled() -> None:
     await user_handlers.cancel_tournament_cancellation_selection(callback, state)
 
     state.update_data.assert_awaited_once_with(tournament_cancellation_selection=[])
-    message.edit_reply_markup.assert_awaited_once_with(reply_markup=None)
-    message.answer.assert_awaited_once_with("Отмена записи на турниры отменена.")
+    callback.answer.assert_awaited_once_with("Отмена")
+    message.delete.assert_awaited_once_with()
+    message.answer.assert_awaited_once_with("Отмена")
 
 
 async def test_pending_registration_notifies_admins(monkeypatch: pytest.MonkeyPatch) -> None:

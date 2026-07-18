@@ -64,7 +64,7 @@ TOURNAMENT_REGISTRATION_UNAVAILABLE = (
 TOURNAMENT_REGISTRATION_ACTIVE_ONLY = "Запись доступна только активным игрокам."
 TOURNAMENT_REGISTRATION_EMPTY = "Ближайших турниров для записи пока нет."
 TOURNAMENT_REGISTRATION_PROMPT = (
-    "Выбери даты турниров, на которые хочешь записаться, и нажми «Подтвердить»."
+    "Выбери турниры, на которые хочешь записаться."
 )
 TOURNAMENT_REMOVED_FROM_SELECTION = "Турнир убран из выбранных."
 TOURNAMENT_ADDED_TO_SELECTION = "Турнир добавлен."
@@ -72,9 +72,9 @@ TOURNAMENT_SELECTION_EMPTY = "Сначала выбери хотя бы один
 TOURNAMENT_UNAVAILABLE = "Этот турнир уже недоступен для записи."
 TOURNAMENT_FULL = "К сожалению, свободных мест уже нет."
 ACTION_DONE = "Готово!"
-TOURNAMENT_REGISTRATION_CANCELLED = "Запись на турнир(ы) отменена."
-TOURNAMENT_REGISTRATION_SINGLE_HEADING = "Вы записались на турнир:"
-TOURNAMENT_REGISTRATION_MULTIPLE_HEADING = "Вы записались на турниры:"
+TOURNAMENT_REGISTRATION_CANCELLED = "Отмена"
+TOURNAMENT_REGISTRATION_SINGLE_HEADING = "Ты записан на турнир:"
+TOURNAMENT_REGISTRATION_MULTIPLE_HEADING = "Ты записан на турниры:"
 TOURNAMENT_REGISTRATION_GRATITUDE = (
     "Будем благодарны, если при изменении планов, вы отмените запись заранее."
 )
@@ -87,12 +87,12 @@ TOURNAMENT_CANCELLATION_ACTIVE_ONLY = (
 )
 TOURNAMENT_CANCELLATION_EMPTY = "Ты не записан ни на один турнир."
 TOURNAMENT_CANCELLATION_PROMPT = (
-    "Выбери турниры, на которые хочешь отменить запись, и нажми «Подтвердить»."
+    "Выбери турниры, с которых хочешь снять запись."
 )
 TOURNAMENT_CANCELLATION_UNAVAILABLE_ITEM = (
     "Одна из записей уже недоступна для отмены."
 )
-TOURNAMENT_CANCELLATION_CANCELLED = "Отмена записи на турниры отменена."
+TOURNAMENT_CANCELLATION_CANCELLED = "Отмена"
 TOURNAMENT_CANCELLATION_SINGLE_HEADING = "Ты отменил запись на турнир:"
 TOURNAMENT_CANCELLATION_MULTIPLE_HEADING = "Ты отменил запись на турниры:"
 
