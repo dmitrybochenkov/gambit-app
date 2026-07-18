@@ -370,3 +370,52 @@ async def test_regular_player_cannot_review_registration(tmp_path: Path) -> None
             )
     finally:
         await engine.dispose()
+
+
+async def test_superadmin_can_promote_active_player_to_admin(tmp_path: Path) -> None:
+    service, engine = await create_player_service(tmp_path / "players.db")
+    try:
+        superadmin = await service.submit_registration(
+            telegram_id=100,
+            full_name="Админ Первый",
+            nickname=None,
+        )
+        player = await service.submit_registration(
+            telegram_id=200,
+            full_name="Игрок Второй",
+            nickname=None,
+        )
+
+        session_factory = async_sessionmaker(engine, expire_on_commit=False)
+        async with session_factory() as session:
+            stored_superadmin = await session.get(Player, superadmin.id)
+            stored_player = await session.get(Player, player.id)
+            assert stored_superadmin is not None
+            assert stored_player is not None
+            stored_superadmin.status = PlayerStatus.ACTIVE
+            stored_superadmin.role = PlayerRole.SUPERADMIN
+            stored_player.status = PlayerStatus.ACTIVE
+            session.add(
+                Player(
+                    telegram_id=-1,
+                    full_name="Исторический Игрок",
+                    status=PlayerStatus.ACTIVE,
+                    role=PlayerRole.USER,
+                )
+            )
+            await session.commit()
+
+        candidates = await service.list_admin_candidates_for_superadmin(100)
+        assert [candidate.id for candidate in candidates] == [player.id]
+
+        promoted = await service.add_admin(
+            superadmin_telegram_id=100,
+            player_id=player.id,
+        )
+
+        assert promoted.role.value == PlayerRole.ADMIN.value
+        assert promoted.telegram_id == 200
+        candidates = await service.list_admin_candidates_for_superadmin(100)
+        assert candidates == []
+    finally:
+        await engine.dispose()

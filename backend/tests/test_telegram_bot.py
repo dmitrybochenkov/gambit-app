@@ -685,6 +685,87 @@ async def test_admin_calendar_button_shows_inline_menu(
     ]
 
 
+async def test_add_admin_button_shows_candidates(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    candidate = active_player()
+    service = SimpleNamespace(
+        list_admin_candidates_for_superadmin=AsyncMock(return_value=[candidate])
+    )
+    monkeypatch.setattr(admin_handlers, "player_service", service)
+    message = SimpleNamespace(
+        from_user=SimpleNamespace(id=100),
+        answer=AsyncMock(),
+    )
+
+    await admin_handlers.show_admin_candidates(message)
+
+    service.list_admin_candidates_for_superadmin.assert_awaited_once_with(100)
+    answer = message.answer.await_args
+    assert answer.args[0] == "Кого назначаем админом?\n\n1 — Игрок Первый"
+    buttons = [
+        button.text
+        for row in answer.kwargs["reply_markup"].inline_keyboard
+        for button in row
+    ]
+    assert buttons == ["1. Игрок Первый", "❌ Отмена"]
+
+
+async def test_add_admin_button_denies_regular_admin(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    service = SimpleNamespace(
+        list_admin_candidates_for_superadmin=AsyncMock(
+            side_effect=AdminAccessDeniedError
+        )
+    )
+    monkeypatch.setattr(admin_handlers, "player_service", service)
+    message = SimpleNamespace(
+        from_user=SimpleNamespace(id=100),
+        answer=AsyncMock(),
+    )
+
+    await admin_handlers.show_admin_candidates(message)
+
+    message.answer.assert_awaited_once_with("Недостаточно прав.")
+
+
+async def test_confirm_add_admin_promotes_player_and_notifies(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    promoted = admin_player(2, 200, PlayerRoleView.ADMIN)
+    service = SimpleNamespace(add_admin=AsyncMock(return_value=promoted))
+    monkeypatch.setattr(admin_handlers, "player_service", service)
+    bot = SimpleNamespace(send_message=AsyncMock())
+    message = SimpleNamespace(delete=AsyncMock(), answer=AsyncMock())
+    callback = SimpleNamespace(
+        from_user=SimpleNamespace(id=100),
+        message=message,
+        answer=AsyncMock(),
+        bot=bot,
+    )
+    callback_data = SimpleNamespace(
+        action=keyboards.AdminAddAction.CONFIRM,
+        player_id=2,
+    )
+
+    await admin_handlers.confirm_add_admin(callback, callback_data)
+
+    service.add_admin.assert_awaited_once_with(
+        superadmin_telegram_id=100,
+        player_id=2,
+    )
+    callback.answer.assert_awaited_once_with("Админ добавлен.")
+    message.delete.assert_awaited_once_with()
+    message.answer.assert_awaited_once_with("Админ добавлен.")
+    bot.send_message.assert_awaited_once()
+    assert bot.send_message.await_args.kwargs["chat_id"] == 200
+    assert bot.send_message.await_args.kwargs["text"] == "Тебе назначена роль админа."
+    assert "🛠 Админ-панель" in keyboard_texts(
+        bot.send_message.await_args.kwargs["reply_markup"]
+    )
+
+
 async def test_admin_calendar_seasons_callback_sends_manual_prompt(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

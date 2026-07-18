@@ -7,6 +7,12 @@ ACCESS_DENIED = "У тебя нет доступа в админ-панель!"
 INSUFFICIENT_RIGHTS = "Недостаточно прав."
 ADMIN_PANEL_WELCOME = "Добро пожаловать в админ-панель."
 ADMIN_PANEL_EXITED = "Главное меню."
+ADMIN_ADD_NO_CANDIDATES = "Некого назначать админом."
+ADMIN_ADD_LIST_TITLE = "Кого назначаем админом?"
+ADMIN_ADD_CONFIRMATION = "Сделать админом: {display_name}?"
+ADMIN_ADDED = "Админ добавлен."
+ADMIN_ADDED_FOR_PLAYER = "Тебе назначена роль админа."
+ADMIN_ALREADY_ASSIGNED = "Игрок уже админ."
 NO_PENDING_REGISTRATIONS = "Новых заявок нет."
 PENDING_REGISTRATIONS_COUNT = "Заявок на проверке: {count}"
 REGISTRATION_LIST_TITLE = "Заявки на регистрацию"
@@ -69,6 +75,17 @@ REGISTRATION_MATCH_KNOCKOUTS_LABEL = "КО"
 
 def pending_registrations_count(count: int) -> str:
     return PENDING_REGISTRATIONS_COUNT.format(count=count)
+
+
+def admin_candidate_list(page: Page) -> str:
+    lines = [ADMIN_ADD_LIST_TITLE, ""]
+    for player in page.items:
+        lines.append(f"{player.id} — {player.display_name}")
+    return "\n".join(lines)
+
+
+def admin_add_confirmation(display_name: str) -> str:
+    return ADMIN_ADD_CONFIRMATION.format(display_name=display_name)
 
 
 def registration_list(page: Page) -> str:

@@ -46,6 +46,10 @@ class RegistrationMatchNotFoundError(ValueError):
     pass
 
 
+class PlayerRoleAlreadyAssignedError(ValueError):
+    pass
+
+
 class PlayerService:
     def __init__(self, session_factory: async_sessionmaker[AsyncSession]) -> None:
         self.session_factory = session_factory
@@ -112,6 +116,35 @@ class PlayerService:
             repository = PlayerRepository(session)
             admin = await self._require_superadmin(repository, telegram_id)
             return required_player_view(admin)
+
+    async def list_admin_candidates_for_superadmin(
+        self,
+        superadmin_telegram_id: int,
+    ) -> list[PlayerView]:
+        async with self.session_factory() as session:
+            repository = PlayerRepository(session)
+            await self._require_superadmin(repository, superadmin_telegram_id)
+            players = await repository.list_active_non_admins()
+            return [required_player_view(player) for player in players]
+
+    async def add_admin(
+        self,
+        superadmin_telegram_id: int,
+        player_id: int,
+    ) -> PlayerView:
+        async with self.session_factory() as session:
+            repository = PlayerRepository(session)
+            await self._require_superadmin(repository, superadmin_telegram_id)
+            player = await repository.get_by_id(player_id)
+            if player is None or player.status != PlayerStatus.ACTIVE:
+                raise PlayerNotFoundError
+            if player.role != PlayerRole.USER:
+                raise PlayerRoleAlreadyAssignedError
+
+            player.role = PlayerRole.ADMIN
+            await session.commit()
+            await session.refresh(player)
+            return required_player_view(player)
 
     async def get_registration_matches_for_admin(
         self,
