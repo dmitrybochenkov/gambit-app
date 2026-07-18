@@ -4,6 +4,7 @@ from app.services.dto import PlayerView, RegistrationMatchView
 from app.services.pagination import Page
 
 ACCESS_DENIED = "У тебя нет доступа в админ-панель!"
+INSUFFICIENT_RIGHTS = "Недостаточно прав."
 ADMIN_PANEL_WELCOME = "Добро пожаловать в админ-панель."
 ADMIN_PANEL_EXITED = "Главное меню."
 NO_PENDING_REGISTRATIONS = "Новых заявок нет."

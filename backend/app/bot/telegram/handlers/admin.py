@@ -173,7 +173,7 @@ async def open_admin_calendar(message: Message) -> None:
     try:
         await player_service.require_superadmin(message.from_user.id)
     except AdminAccessDeniedError:
-        await message.answer(texts.admin.ACCESS_DENIED)
+        await message.answer(texts.admin.INSUFFICIENT_RIGHTS)
         return
 
     await message.answer(
@@ -366,7 +366,7 @@ async def review_calendar_prompt(
             action=action,
         )
     except AdminAccessDeniedError:
-        await callback.answer(texts.admin.ACCESS_DENIED, show_alert=True)
+        await callback.answer(texts.admin.INSUFFICIENT_RIGHTS, show_alert=True)
         return
     except CalendarPromptNotFoundError:
         await callback.answer(texts.admin.CALENDAR_PROMPT_NOT_FOUND, show_alert=True)
@@ -412,7 +412,7 @@ async def select_admin_calendar_section(
     try:
         await player_service.require_superadmin(callback.from_user.id)
     except AdminAccessDeniedError:
-        await callback.answer(texts.admin.ACCESS_DENIED, show_alert=True)
+        await callback.answer(texts.admin.INSUFFICIENT_RIGHTS, show_alert=True)
         return
 
     await _delete_callback_message(callback)
@@ -465,7 +465,7 @@ async def select_season_edit_field(
     try:
         await player_service.require_superadmin(callback.from_user.id)
     except AdminAccessDeniedError:
-        await callback.answer(texts.admin.ACCESS_DENIED, show_alert=True)
+        await callback.answer(texts.admin.INSUFFICIENT_RIGHTS, show_alert=True)
         return
 
     await _delete_callback_message(callback)
@@ -495,7 +495,7 @@ async def enter_season_edit_value(message: Message, state: FSMContext) -> None:
         await player_service.require_superadmin(message.from_user.id)
     except AdminAccessDeniedError:
         await state.clear()
-        await message.answer(texts.admin.ACCESS_DENIED)
+        await message.answer(texts.admin.INSUFFICIENT_RIGHTS)
         return
 
     data = await state.get_data()

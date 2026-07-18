@@ -691,7 +691,31 @@ async def test_admin_calendar_denies_regular_admin(
     await admin_handlers.open_admin_calendar(message)
 
     service.require_superadmin.assert_awaited_once_with(100)
-    message.answer.assert_awaited_once_with("У тебя нет доступа в админ-панель!")
+    message.answer.assert_awaited_once_with("Недостаточно прав.")
+
+
+async def test_admin_calendar_prompt_denies_regular_admin(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    service = SimpleNamespace(
+        require_superadmin=AsyncMock(side_effect=AdminAccessDeniedError)
+    )
+    monkeypatch.setattr(admin_handlers, "player_service", service)
+    callback = SimpleNamespace(
+        from_user=SimpleNamespace(id=100),
+        answer=AsyncMock(),
+    )
+    callback_data = SimpleNamespace(
+        action=keyboards.CalendarPromptAction.CONFIRM,
+        prompt_id=7,
+    )
+    state = SimpleNamespace(clear=AsyncMock())
+
+    await admin_handlers.review_calendar_prompt(callback, callback_data, state)
+
+    service.require_superadmin.assert_awaited_once_with(100)
+    state.clear.assert_not_awaited()
+    callback.answer.assert_awaited_once_with("Недостаточно прав.", show_alert=True)
 
 
 async def test_season_edit_button_opens_field_menu(
