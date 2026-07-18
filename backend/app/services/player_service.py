@@ -8,6 +8,16 @@ from app.db.models import Player, RegistrationMatch
 from app.db.models.enums import PlayerRole, PlayerStatus
 from app.db.repositories.player_repository import PlayerRepository
 from app.db.session import SessionFactory
+from app.services.dto import (
+    AdminPanelView,
+    PlayerRoleView,
+    PlayerStatusView,
+    PlayerView,
+    RegistrationMatchView,
+    RegistrationNotificationView,
+    RegistrationReviewResultView,
+    RegistrationReviewView,
+)
 
 
 class IdentityAlreadyExistsError(ValueError):
@@ -32,13 +42,18 @@ class RegistrationAlreadyReviewedError(ValueError):
     pass
 
 
+class RegistrationMatchNotFoundError(ValueError):
+    pass
+
+
 class PlayerService:
     def __init__(self, session_factory: async_sessionmaker[AsyncSession]) -> None:
         self.session_factory = session_factory
 
-    async def get_by_telegram_id(self, telegram_id: int) -> Player | None:
+    async def get_by_telegram_id(self, telegram_id: int) -> PlayerView | None:
         async with self.session_factory() as session:
-            return await PlayerRepository(session).get_by_telegram_id(telegram_id)
+            player = await PlayerRepository(session).get_by_telegram_id(telegram_id)
+            return player_view(player)
 
     async def validate_unique_identity(
         self,
@@ -63,23 +78,70 @@ class PlayerService:
             ):
                 raise IdentityAlreadyExistsError("nickname")
 
-    async def get_active_admins(self) -> list[Player]:
+    async def get_active_admins(self) -> list[PlayerView]:
         async with self.session_factory() as session:
-            return await PlayerRepository(session).list_active_admins()
+            players = await PlayerRepository(session).list_active_admins()
+            return [required_player_view(player) for player in players]
 
-    async def get_pending_for_admin(self, admin_telegram_id: int) -> list[Player]:
+    async def get_pending_reviews_for_admin(
+        self,
+        admin_telegram_id: int,
+    ) -> list[RegistrationReviewView]:
+        admin_panel = await self.get_admin_panel_for_admin(admin_telegram_id)
+        return admin_panel.reviews
+
+    async def get_admin_panel_for_admin(
+        self,
+        admin_telegram_id: int,
+    ) -> AdminPanelView:
+        async with self.session_factory() as session:
+            repository = PlayerRepository(session)
+            admin = await self._require_admin(repository, admin_telegram_id)
+            reviews: list[RegistrationReviewView] = []
+            for player in await repository.list_pending():
+                matches = await repository.list_registration_matches(player.id)
+                reviews.append(
+                    RegistrationReviewView(
+                        player=required_player_view(player),
+                        matches=[
+                            registration_match_view(match, historical_player)
+                            for match, historical_player in matches
+                        ],
+                    )
+                )
+            return AdminPanelView(
+                admin=required_player_view(admin),
+                reviews=reviews,
+            )
+
+    async def get_registration_matches_for_admin(
+        self,
+        admin_telegram_id: int,
+        pending_player_id: int,
+    ) -> list[RegistrationMatchView]:
         async with self.session_factory() as session:
             repository = PlayerRepository(session)
             await self._require_admin(repository, admin_telegram_id)
-            return await repository.list_pending()
+            await self._require_pending_player(repository, pending_player_id)
+            matches = await repository.list_registration_matches(pending_player_id)
+            return [registration_match_view(match, player) for match, player in matches]
 
-    async def get_registration_matches(
+    async def get_registration_review_for_admin(
         self,
+        admin_telegram_id: int,
         pending_player_id: int,
-    ) -> list[tuple[RegistrationMatch, Player]]:
+    ) -> RegistrationReviewView:
         async with self.session_factory() as session:
-            return await PlayerRepository(session).list_registration_matches(
-                pending_player_id
+            repository = PlayerRepository(session)
+            await self._require_admin(repository, admin_telegram_id)
+            player = await self._require_pending_player(repository, pending_player_id)
+            matches = await repository.list_registration_matches(player.id)
+            return RegistrationReviewView(
+                player=required_player_view(player),
+                matches=[
+                    registration_match_view(match, historical_player)
+                    for match, historical_player in matches
+                ],
             )
 
     async def approve_registration(
@@ -87,15 +149,20 @@ class PlayerService:
         admin_telegram_id: int,
         player_id: int,
         use_registration_match: bool = True,
-    ) -> Player:
+        historical_player_id: int | None = None,
+    ) -> RegistrationReviewResultView:
         async with self.session_factory() as session:
             repository = PlayerRepository(session)
             admin = await self._require_admin(repository, admin_telegram_id)
             player = await self._require_pending_player(repository, player_id)
             registration_matches = await repository.list_registration_matches(player.id)
+            admins = await repository.list_active_admins()
 
             if use_registration_match and registration_matches:
-                historical_player = registration_matches[0][1]
+                historical_player = _select_registration_match(
+                    registration_matches=registration_matches,
+                    historical_player_id=historical_player_id,
+                )
                 await session.delete(player)
                 await session.flush()
                 self._approve_player(
@@ -109,40 +176,64 @@ class PlayerService:
                 )
                 await session.commit()
                 await session.refresh(historical_player)
-                return historical_player
+                return RegistrationReviewResultView(
+                    player=required_player_view(historical_player),
+                    admins=[required_player_view(admin) for admin in admins],
+                )
 
             self._approve_player(player=player, admin=admin)
             await session.commit()
             await session.refresh(player)
-            return player
+            return RegistrationReviewResultView(
+                player=required_player_view(player),
+                admins=[required_player_view(admin) for admin in admins],
+            )
+
+    async def get_registration_notification(
+        self,
+        player_id: int,
+    ) -> RegistrationNotificationView:
+        async with self.session_factory() as session:
+            repository = PlayerRepository(session)
+            player = await repository.get_by_id(player_id)
+            if player is None:
+                raise PlayerNotFoundError
+            matches = await repository.list_registration_matches(player.id)
+            admins = await repository.list_active_admins()
+            return RegistrationNotificationView(
+                player=required_player_view(player),
+                admins=[required_player_view(admin) for admin in admins],
+                matches=[
+                    registration_match_view(match, historical_player)
+                    for match, historical_player in matches
+                ],
+            )
 
     async def reject_registration(
         self,
         admin_telegram_id: int,
         player_id: int,
-        reason: str = "Отклонено администратором",
-    ) -> Player:
+    ) -> RegistrationReviewResultView:
         async with self.session_factory() as session:
             repository = PlayerRepository(session)
-            admin = await self._require_admin(repository, admin_telegram_id)
+            await self._require_admin(repository, admin_telegram_id)
             player = await self._require_pending_player(repository, player_id)
-
-            player.status = PlayerStatus.REJECTED
-            player.approved_at = None
-            player.approved_by_admin_id = None
-            player.rejected_at = datetime.now(UTC)
-            player.rejected_by_admin_id = admin.id
-            player.rejection_reason = reason
+            player_result = required_player_view(player)
+            admins = await repository.list_active_admins()
+            await repository.delete_registration_matches(player.id)
+            await session.delete(player)
             await session.commit()
-            await session.refresh(player)
-            return player
+            return RegistrationReviewResultView(
+                player=player_result,
+                admins=[required_player_view(admin) for admin in admins],
+            )
 
     async def submit_registration(
         self,
         telegram_id: int,
         full_name: str | None,
         nickname: str | None,
-    ) -> Player:
+    ) -> PlayerView:
         full_name_normalized = normalize_full_name(full_name)
         nickname_normalized = normalize_nickname(nickname)
         async with self.session_factory() as session:
@@ -182,7 +273,7 @@ class PlayerService:
             await repository.replace_registration_matches(player.id, match_candidates)
             await session.commit()
             await session.refresh(player)
-            return player
+            return required_player_view(player)
 
     @staticmethod
     def _approve_player(
@@ -209,9 +300,6 @@ class PlayerService:
         player.status = PlayerStatus.ACTIVE
         player.approved_at = datetime.now(UTC)
         player.approved_by_admin_id = admin.id
-        player.rejected_at = None
-        player.rejected_by_admin_id = None
-        player.rejection_reason = None
 
     @staticmethod
     async def _find_registration_match_candidates(
@@ -254,6 +342,35 @@ class PlayerService:
 
 
 player_service = PlayerService(SessionFactory)
+
+
+def player_view(player: Player | None) -> PlayerView | None:
+    if player is None:
+        return None
+    return required_player_view(player)
+
+
+def required_player_view(player: Player) -> PlayerView:
+    return PlayerView(
+        id=player.id,
+        telegram_id=player.telegram_id,
+        display_name=player.display_name,
+        full_name=player.full_name,
+        nickname=player.nickname,
+        status=PlayerStatusView(player.status.value),
+        role=PlayerRoleView(player.role.value),
+    )
+
+
+def registration_match_view(
+    registration_match: RegistrationMatch,
+    historical_player: Player,
+) -> RegistrationMatchView:
+    return RegistrationMatchView(
+        score=registration_match.score,
+        reason=registration_match.reason,
+        historical_player=required_player_view(historical_player),
+    )
 
 
 def normalize_full_name(value: str | None) -> str | None:
@@ -313,6 +430,19 @@ def _score_registration_match(
     score = max(item[0] for item in scores)
     reason = ", ".join(item[1] for item in sorted(scores, reverse=True))
     return score, reason
+
+
+def _select_registration_match(
+    registration_matches: list[tuple[RegistrationMatch, Player]],
+    historical_player_id: int | None,
+) -> Player:
+    if historical_player_id is None:
+        return registration_matches[0][1]
+
+    for _, historical_player in registration_matches:
+        if historical_player.id == historical_player_id:
+            return historical_player
+    raise RegistrationMatchNotFoundError
 
 
 def _similarity_score(left: str, right: str) -> int:

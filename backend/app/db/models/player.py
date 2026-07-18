@@ -42,13 +42,6 @@ class Player(TimestampMixin, Base):
         ForeignKey("players.id", ondelete="SET NULL"),
         nullable=True,
     )
-    rejected_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
-    rejected_by_admin_id: Mapped[int | None] = mapped_column(
-        ForeignKey("players.id", ondelete="SET NULL"),
-        nullable=True,
-    )
-    rejection_reason: Mapped[str | None] = mapped_column(String(500), nullable=True)
-
     __table_args__ = (
         CheckConstraint(
             "full_name IS NOT NULL OR nickname IS NOT NULL",

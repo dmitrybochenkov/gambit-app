@@ -10,6 +10,7 @@ from app.db.models.enums import SeasonStatus
 
 @dataclass(frozen=True)
 class PointsRatingRow:
+    player_id: int
     display_name: str
     total_points: Decimal
     tournaments_count: int
@@ -17,6 +18,7 @@ class PointsRatingRow:
 
 @dataclass(frozen=True)
 class KnockoutsRatingRow:
+    player_id: int
     display_name: str
     knockouts_count: int
     boss_knockouts_count: int
@@ -41,6 +43,7 @@ class RatingRepository:
         )
         statement = (
             select(
+                Player.id.label("player_id"),
                 Player.full_name,
                 Player.nickname,
                 total_points.label("total_points"),
@@ -49,6 +52,7 @@ class RatingRepository:
             .join(TournamentResult, TournamentResult.player_id == Player.id)
             .join(Tournament, Tournament.id == TournamentResult.tournament_id)
             .group_by(Player.id, Player.full_name, Player.nickname)
+            .having(total_points > 0)
         )
         if current_season:
             statement = statement.join(
@@ -61,6 +65,7 @@ class RatingRepository:
         )
         return [
             PointsRatingRow(
+                player_id=row.player_id,
                 display_name=self._display_name(row.full_name, row.nickname),
                 total_points=Decimal(row.total_points),
                 tournaments_count=row.tournaments_count,
@@ -77,6 +82,7 @@ class RatingRepository:
         total_knockouts = knockouts + boss_knockouts
         statement = (
             select(
+                Player.id.label("player_id"),
                 Player.full_name,
                 Player.nickname,
                 knockouts.label("knockouts_count"),
@@ -85,6 +91,7 @@ class RatingRepository:
             .join(TournamentResult, TournamentResult.player_id == Player.id)
             .join(Tournament, Tournament.id == TournamentResult.tournament_id)
             .group_by(Player.id, Player.full_name, Player.nickname)
+            .having(total_knockouts > 0)
         )
         if current_season:
             statement = statement.join(
@@ -101,6 +108,7 @@ class RatingRepository:
         )
         return [
             KnockoutsRatingRow(
+                player_id=row.player_id,
                 display_name=self._display_name(row.full_name, row.nickname),
                 knockouts_count=row.knockouts_count,
                 boss_knockouts_count=row.boss_knockouts_count,

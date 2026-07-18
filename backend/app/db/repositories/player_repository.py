@@ -1,4 +1,4 @@
-from sqlalchemy import or_, select
+from sqlalchemy import delete, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.models import Player, RegistrationMatch
@@ -16,13 +16,15 @@ class PlayerRepository:
     async def get_by_id(self, player_id: int) -> Player | None:
         return await self.session.get(Player, player_id)
 
-    async def list_pending(self, limit: int = 20) -> list[Player]:
-        result = await self.session.execute(
+    async def list_pending(self, limit: int | None = None) -> list[Player]:
+        query = (
             select(Player)
             .where(Player.status == PlayerStatus.PENDING)
             .order_by(Player.created_at)
-            .limit(limit)
         )
+        if limit is not None:
+            query = query.limit(limit)
+        result = await self.session.execute(query)
         return list(result.scalars())
 
     async def list_active_admins(self) -> list[Player]:
@@ -137,9 +139,6 @@ class PlayerRepository:
         player.status = PlayerStatus.PENDING
         player.approved_at = None
         player.approved_by_admin_id = None
-        player.rejected_at = None
-        player.rejected_by_admin_id = None
-        player.rejection_reason = None
         return player
 
     async def replace_registration_matches(
@@ -165,3 +164,10 @@ class PlayerRepository:
                     status=RegistrationMatchStatus.CANDIDATE,
                 )
             )
+
+    async def delete_registration_matches(self, pending_player_id: int) -> None:
+        await self.session.execute(
+            delete(RegistrationMatch).where(
+                RegistrationMatch.pending_player_id == pending_player_id
+            )
+        )

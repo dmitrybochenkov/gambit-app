@@ -10,9 +10,14 @@ from app.db.repositories.tournament_registration_repository import (
 )
 from app.db.repositories.tournament_repository import TournamentRepository
 from app.db.session import SessionFactory
+from app.services.dto import TournamentView
 
 
 class TournamentRegistrationNotAllowedError(ValueError):
+    pass
+
+
+class TournamentScheduleNotAllowedError(ValueError):
     pass
 
 
@@ -35,34 +40,64 @@ class TournamentService:
     async def get_upcoming_schedule(
         self,
         from_date: date | None = None,
-    ) -> list[Tournament]:
+    ) -> list[TournamentView]:
         async with self.session_factory() as session:
-            return await TournamentRepository(session).list_upcoming_active(
+            tournaments = await TournamentRepository(session).list_upcoming_active(
                 from_date=from_date or date.today()
             )
+            return [tournament_view(tournament) for tournament in tournaments]
+
+    async def get_schedule_for_player(
+        self,
+        telegram_id: int,
+        from_date: date | None = None,
+    ) -> list[TournamentView]:
+        async with self.session_factory() as session:
+            player = await PlayerRepository(session).get_by_telegram_id(telegram_id)
+            if player is None or player.status != PlayerStatus.ACTIVE:
+                raise TournamentScheduleNotAllowedError
+            tournaments = await TournamentRepository(session).list_upcoming_active(
+                from_date=from_date or date.today()
+            )
+            return [tournament_view(tournament) for tournament in tournaments]
+
+    async def get_registration_options_for_player(
+        self,
+        telegram_id: int,
+        from_date: date | None = None,
+    ) -> list[TournamentView]:
+        async with self.session_factory() as session:
+            player = await PlayerRepository(session).get_by_telegram_id(telegram_id)
+            if player is None or player.status != PlayerStatus.ACTIVE:
+                raise TournamentRegistrationNotAllowedError
+            tournaments = await TournamentRepository(session).list_upcoming_active(
+                from_date=from_date or date.today()
+            )
+            return [tournament_view(tournament) for tournament in tournaments]
 
     async def get_player_upcoming_registrations(
         self,
         telegram_id: int,
         from_date: date | None = None,
-    ) -> list[Tournament]:
+    ) -> list[TournamentView]:
         async with self.session_factory() as session:
             player = await PlayerRepository(session).get_by_telegram_id(telegram_id)
             if player is None or player.status != PlayerStatus.ACTIVE:
                 raise TournamentRegistrationNotAllowedError
-            return await TournamentRegistrationRepository(
+            tournaments = await TournamentRegistrationRepository(
                 session
             ).list_registered_upcoming(
                 player_id=player.id,
                 from_date=from_date or date.today(),
             )
+            return [tournament_view(tournament) for tournament in tournaments]
 
     async def register_player_for_tournaments(
         self,
         telegram_id: int,
         tournament_ids: list[int],
         from_date: date | None = None,
-    ) -> list[Tournament]:
+    ) -> list[TournamentView]:
         unique_tournament_ids = list(dict.fromkeys(tournament_ids))
         if not unique_tournament_ids:
             return []
@@ -117,14 +152,14 @@ class TournamentService:
                     registration.cancelled_at = None
 
             await session.commit()
-            return [tournament for tournament, _ in selected]
+            return [tournament_view(tournament) for tournament, _ in selected]
 
     async def cancel_player_tournament_registrations(
         self,
         telegram_id: int,
         tournament_ids: list[int],
         from_date: date | None = None,
-    ) -> list[Tournament]:
+    ) -> list[TournamentView]:
         unique_tournament_ids = list(dict.fromkeys(tournament_ids))
         if not unique_tournament_ids:
             return []
@@ -166,9 +201,20 @@ class TournamentService:
 
             await session.commit()
             return [
-                tournaments_by_id[tournament_id]
+                tournament_view(tournaments_by_id[tournament_id])
                 for tournament_id in unique_tournament_ids
             ]
 
 
 tournament_service = TournamentService(SessionFactory)
+
+
+def tournament_view(tournament: Tournament) -> TournamentView:
+    tournament_type = tournament.__dict__.get("tournament_type")
+    return TournamentView(
+        id=tournament.id,
+        date=tournament.date,
+        capacity=tournament.capacity,
+        tournament_type_id=tournament.tournament_type_id,
+        tournament_type_name=tournament_type.name if tournament_type is not None else None,
+    )

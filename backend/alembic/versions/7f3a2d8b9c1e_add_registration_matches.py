@@ -46,8 +46,6 @@ def upgrade() -> None:
             "status",
             sa.Enum(
                 "candidate",
-                "accepted",
-                "ignored",
                 name="registration_match_status",
                 native_enum=False,
             ),

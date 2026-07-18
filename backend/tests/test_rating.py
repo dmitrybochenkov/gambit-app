@@ -15,6 +15,7 @@ from app.db.models import (
     TournamentResult,
 )
 from app.db.models.enums import PlayerStatus, SeasonStatus, TournamentStatus
+from app.services.pagination import pagination_service
 from app.services.rating_service import RatingKind, RatingService
 
 
@@ -54,12 +55,18 @@ async def test_rating_filters_current_season_and_all_time(tmp_path: Path) -> Non
             nickname="King",
             status=PlayerStatus.ACTIVE,
         )
+        zero_player = Player(
+            telegram_id=300,
+            nickname="Zero",
+            status=PlayerStatus.ACTIVE,
+        )
         session.add_all(
             [
                 current_season,
                 previous_season,
                 first_player,
                 second_player,
+                zero_player,
             ]
         )
         await session.flush()
@@ -111,24 +118,44 @@ async def test_rating_filters_current_season_and_all_time(tmp_path: Path) -> Non
                     knockout_points=Decimal("0"),
                     bonus_points=Decimal("0"),
                 ),
+                TournamentResult(
+                    tournament_id=current_tournament.id,
+                    player_id=zero_player.id,
+                    place=3,
+                    knockouts_count=0,
+                    boss_knockouts_count=0,
+                    tournament_points=Decimal("0"),
+                    knockout_points=Decimal("0"),
+                    bonus_points=Decimal("0"),
+                ),
             ]
         )
         await session.commit()
 
     service = RatingService(session_factory)
     try:
-        current_title, current_points = await service.get_rating(
-            RatingKind.CURRENT_SEASON
+        current_rating = await service.get_rating_for_player(
+            telegram_id=second_player.telegram_id,
+            kind=RatingKind.CURRENT_SEASON,
         )
-        all_time_title, all_time_points = await service.get_rating(
-            RatingKind.ALL_TIME
+        all_time_rating = await service.get_rating_for_player(
+            telegram_id=second_player.telegram_id,
+            kind=RatingKind.ALL_TIME,
         )
-        _, current_knockouts = await service.get_rating(
-            RatingKind.KNOCKOUTS_CURRENT_SEASON
+        current_knockouts_rating = await service.get_rating_for_player(
+            telegram_id=second_player.telegram_id,
+            kind=RatingKind.KNOCKOUTS_CURRENT_SEASON,
         )
-        knockout_title, all_time_knockouts = await service.get_rating(
-            RatingKind.KNOCKOUTS_ALL_TIME
+        all_time_knockouts_rating = await service.get_rating_for_player(
+            telegram_id=first_player.telegram_id,
+            kind=RatingKind.KNOCKOUTS_ALL_TIME,
         )
+        current_title = current_rating.title
+        current_points = current_rating.rows
+        all_time_points = all_time_rating.rows
+        current_knockouts = current_knockouts_rating.rows
+        knockout_title = all_time_knockouts_rating.title
+        all_time_knockouts = all_time_knockouts_rating.rows
 
         assert [row.display_name for row in current_points] == [
             "King",
@@ -150,17 +177,30 @@ async def test_rating_filters_current_season_and_all_time(tmp_path: Path) -> Non
             "King",
             "Игрок Первый (Ace)",
         ]
+        assert "Zero" not in [row.display_name for row in current_points]
+        assert "Zero" not in [row.display_name for row in current_knockouts]
         assert [row.display_name for row in all_time_knockouts] == [
             "Игрок Первый (Ace)",
             "King",
         ]
         assert all_time_knockouts[0].total_knockouts_count == 6
-        assert format_rating(current_title, current_points).startswith(
-            "Рейтинг — текущий сезон\n\n1. King — 120 очков"
+        current_page = pagination_service.paginate(current_points, page=0, page_size=10)
+        all_time_knockouts_page = pagination_service.paginate(
+            all_time_knockouts,
+            page=0,
+            page_size=10,
+        )
+        assert format_rating(
+            current_title,
+            current_page,
+            current_player_id=second_player.id,
+        ).startswith(
+            "Рейтинг — текущий сезон\n\n🥇 *King* — 120 очков"
         )
         assert "всего КО: 6, Босс КО: 1" in format_rating(
             knockout_title,
-            all_time_knockouts,
+            all_time_knockouts_page,
+            current_player_id=first_player.id,
         )
     finally:
         await engine.dispose()

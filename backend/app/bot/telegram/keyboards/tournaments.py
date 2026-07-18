@@ -4,7 +4,7 @@ from aiogram.utils.keyboard import InlineKeyboardBuilder
 
 from app.bot.telegram.formatters import format_tournament_label
 from app.bot.telegram.keyboards import buttons
-from app.db.models import Tournament
+from app.services.dto import TournamentView
 
 
 class TournamentRegistrationCallback(CallbackData, prefix="tournament_register"):
@@ -22,7 +22,7 @@ CANCEL_TOURNAMENT_CANCELLATION_CALLBACK = "tournament_cancellation:cancel"
 
 
 def tournament_registration_keyboard(
-    tournaments: list[Tournament],
+    tournaments: list[TournamentView],
     selected_tournament_ids: set[int] | None = None,
 ) -> InlineKeyboardMarkup:
     selected_tournament_ids = selected_tournament_ids or set()
@@ -46,7 +46,7 @@ def tournament_registration_keyboard(
 
 
 def tournament_cancellation_keyboard(
-    tournaments: list[Tournament],
+    tournaments: list[TournamentView],
     selected_tournament_ids: set[int] | None = None,
 ) -> InlineKeyboardMarkup:
     selected_tournament_ids = selected_tournament_ids or set()

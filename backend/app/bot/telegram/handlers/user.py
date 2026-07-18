@@ -13,18 +13,19 @@ from app.bot.telegram.formatters import (
 )
 from app.bot.telegram.notifications import notify_admins_about_registration
 from app.bot.telegram.states import RegistrationMode, RegistrationStates
-from app.db.models.enums import PlayerRole, PlayerStatus
+from app.services.pagination import pagination_service
 from app.services.player_service import (
     IdentityAlreadyExistsError,
     RegistrationNotAllowedError,
     player_service,
 )
-from app.services.profile_service import profile_service
-from app.services.rating_service import rating_service
+from app.services.profile_service import ProfileNotAllowedError, profile_service
+from app.services.rating_service import RatingNotAllowedError, rating_service
 from app.services.tournament_service import (
     TournamentCancellationUnavailableError,
     TournamentFullError,
     TournamentRegistrationNotAllowedError,
+    TournamentScheduleNotAllowedError,
     TournamentUnavailableError,
     tournament_service,
 )
@@ -107,18 +108,18 @@ async def start_command(message: Message, state: FSMContext) -> None:
         return
 
     player = await player_service.get_by_telegram_id(message.from_user.id)
-    if player is None or player.status == PlayerStatus.REJECTED:
+    if player is None:
         await _send_registration_intro(message)
         return
 
-    if player.status == PlayerStatus.PENDING:
+    if player.is_pending:
         await message.answer(
             texts.user.REGISTRATION_PENDING,
             reply_markup=ReplyKeyboardRemove(),
         )
         return
 
-    if player.status == PlayerStatus.BLOCKED:
+    if player.is_blocked:
         await message.answer(
             texts.user.BOT_ACCESS_BLOCKED,
             reply_markup=ReplyKeyboardRemove(),
@@ -127,9 +128,7 @@ async def start_command(message: Message, state: FSMContext) -> None:
 
     await message.answer(
         texts.user.welcome_back(player.display_name),
-        reply_markup=keyboards.main_keyboard(
-            is_admin=player.role in {PlayerRole.ADMIN, PlayerRole.SUPERADMIN}
-        ),
+        reply_markup=keyboards.main_keyboard_for_player(player),
     )
 
 
@@ -138,12 +137,12 @@ async def show_tournament_schedule(message: Message) -> None:
     if message.from_user is None:
         return
 
-    player = await player_service.get_by_telegram_id(message.from_user.id)
-    if player is None or player.status != PlayerStatus.ACTIVE:
+    try:
+        tournaments = await tournament_service.get_schedule_for_player(message.from_user.id)
+    except TournamentScheduleNotAllowedError:
         await message.answer(texts.user.SCHEDULE_UNAVAILABLE)
         return
 
-    tournaments = await tournament_service.get_upcoming_schedule()
     await message.answer(format_tournament_schedule(tournaments))
 
 
@@ -153,7 +152,7 @@ async def show_club_address(message: Message) -> None:
         return
 
     player = await player_service.get_by_telegram_id(message.from_user.id)
-    if player is None or player.status != PlayerStatus.ACTIVE:
+    if player is None or not player.is_active:
         await message.answer(texts.user.ADDRESS_UNAVAILABLE)
         return
 
@@ -166,7 +165,7 @@ async def show_rating_menu(message: Message) -> None:
         return
 
     player = await player_service.get_by_telegram_id(message.from_user.id)
-    if player is None or player.status != PlayerStatus.ACTIVE:
+    if player is None or not player.is_active:
         await message.answer(texts.user.RATING_UNAVAILABLE)
         return
 
@@ -181,18 +180,51 @@ async def show_rating(
     callback: CallbackQuery,
     callback_data: keyboards.RatingCallback,
 ) -> None:
-    player = await player_service.get_by_telegram_id(callback.from_user.id)
-    if player is None or player.status != PlayerStatus.ACTIVE:
+    try:
+        rating = await rating_service.get_rating_for_player(
+            telegram_id=callback.from_user.id,
+            kind=callback_data.kind,
+        )
+    except RatingNotAllowedError:
         await callback.answer(
             texts.user.RATING_ACTIVE_ONLY,
             show_alert=True,
         )
         return
 
-    title, rows = await rating_service.get_rating(callback_data.kind)
+    page = pagination_service.paginate(
+        rating.rows,
+        page=callback_data.page,
+        page_size=keyboards.RATING_PAGE_SIZE,
+    )
     await callback.answer()
     if callback.message is not None:
-        await callback.message.answer(format_rating(title, rows))
+        try:
+            await callback.message.edit_text(
+                format_rating(rating.title, page, rating.current_player_id),
+                reply_markup=keyboards.rating_page_keyboard(callback_data.kind, page),
+                parse_mode="Markdown",
+            )
+        except TelegramBadRequest:
+            pass
+
+
+@router.callback_query(keyboards.RatingCancelCallback.filter())
+async def cancel_rating(
+    callback: CallbackQuery,
+    callback_data: keyboards.RatingCancelCallback,
+) -> None:
+    answer = (
+        "Рейтинг закрыт"
+        if callback_data.action == keyboards.RatingCancelAction.CLOSE
+        else "Отмена"
+    )
+    await callback.answer(answer)
+    if callback.message is None:
+        return
+
+    await _delete_message(callback.message)
+    await callback.message.answer(answer)
 
 
 @router.message(F.text == keyboards.MAIN_PROFILE)
@@ -201,7 +233,7 @@ async def show_profile_menu(message: Message) -> None:
         return
 
     player = await player_service.get_by_telegram_id(message.from_user.id)
-    if player is None or player.status != PlayerStatus.ACTIVE:
+    if player is None or not player.is_active:
         await message.answer(texts.user.PROFILE_UNAVAILABLE)
         return
 
@@ -216,21 +248,32 @@ async def show_profile(
     callback: CallbackQuery,
     callback_data: keyboards.ProfileCallback,
 ) -> None:
-    player = await player_service.get_by_telegram_id(callback.from_user.id)
-    if player is None or player.status != PlayerStatus.ACTIVE:
+    try:
+        title, stats = await profile_service.get_profile_for_player(
+            telegram_id=callback.from_user.id,
+            kind=callback_data.kind,
+        )
+    except ProfileNotAllowedError:
         await callback.answer(
             texts.user.PROFILE_ACTIVE_ONLY,
             show_alert=True,
         )
         return
 
-    title, stats = await profile_service.get_profile(
-        telegram_id=callback.from_user.id,
-        kind=callback_data.kind,
-    )
     await callback.answer()
     if callback.message is not None:
+        await _delete_message(callback.message)
         await callback.message.answer(format_profile(title, stats))
+
+
+@router.callback_query(keyboards.ProfileCancelCallback.filter())
+async def cancel_profile(callback: CallbackQuery) -> None:
+    await callback.answer("Отмена")
+    if callback.message is None:
+        return
+
+    await _delete_message(callback.message)
+    await callback.message.answer("Отмена")
 
 
 @router.message(F.text == keyboards.MAIN_REGISTER)
@@ -238,12 +281,14 @@ async def show_tournaments_for_registration(message: Message, state: FSMContext)
     if message.from_user is None:
         return
 
-    player = await player_service.get_by_telegram_id(message.from_user.id)
-    if player is None or player.status != PlayerStatus.ACTIVE:
+    try:
+        tournaments = await tournament_service.get_registration_options_for_player(
+            message.from_user.id
+        )
+    except TournamentRegistrationNotAllowedError:
         await message.answer(texts.user.TOURNAMENT_REGISTRATION_UNAVAILABLE)
         return
 
-    tournaments = await tournament_service.get_upcoming_schedule()
     if not tournaments:
         await message.answer(texts.user.TOURNAMENT_REGISTRATION_EMPTY)
         return
@@ -270,7 +315,16 @@ async def register_for_tournament(
         selected_tournament_ids.add(callback_data.tournament_id)
         answer = texts.user.TOURNAMENT_ADDED_TO_SELECTION
 
-    tournaments = await tournament_service.get_upcoming_schedule()
+    try:
+        tournaments = await tournament_service.get_registration_options_for_player(
+            callback.from_user.id
+        )
+    except TournamentRegistrationNotAllowedError:
+        await callback.answer(
+            texts.user.TOURNAMENT_REGISTRATION_ACTIVE_ONLY,
+            show_alert=True,
+        )
+        return
     available_ids = {tournament.id for tournament in tournaments}
     selected_tournament_ids &= available_ids
     await state.update_data(

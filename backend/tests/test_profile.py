@@ -15,7 +15,38 @@ from app.db.models import (
     TournamentResult,
 )
 from app.db.models.enums import PlayerStatus, SeasonStatus, TournamentStatus
+from app.services.dto import PlayerProfileView
 from app.services.profile_service import ProfileKind, ProfileService
+
+
+def test_profile_formats_only_non_zero_prize_places() -> None:
+    message = format_profile(
+        "Твой профиль — за всё время",
+        PlayerProfileView(
+            display_name="Дима Боченков",
+            total_points=Decimal("0"),
+            knockouts_count=0,
+            boss_knockouts_count=0,
+            tournaments_count=0,
+            first_places_count=3,
+            second_places_count=0,
+            third_places_count=5,
+            fourth_places_count=0,
+            fifth_places_count=4,
+        ),
+    )
+
+    assert message == (
+        "Твой профиль — за всё время\n\n"
+        "Дима Боченков\n"
+        "Рейтинг: 0 очков\n"
+        "Количество КО: 0\n"
+        "Количество турниров: 0\n\n"
+        "Количество призовых мест:\n"
+        "🥇 x3\n"
+        "🥉 x5\n"
+        "5️⃣ x4"
+    )
 
 
 async def test_profile_filters_current_season_and_all_time(tmp_path: Path) -> None:
@@ -141,9 +172,17 @@ async def test_profile_filters_current_season_and_all_time(tmp_path: Path) -> No
         assert empty_stats.display_name == "King"
         assert empty_stats.total_points == Decimal("0")
         assert empty_stats.tournaments_count == 0
-        assert "Количество призовых мест:" in format_profile(
+        all_time_message = format_profile(
             all_time_title,
             all_time_stats,
         )
+        empty_message = format_profile("Твой профиль — текущий сезон", empty_stats)
+        assert "Количество призовых мест:" in all_time_message
+        assert "🥇 x1" in all_time_message
+        assert "🥈 x1" in all_time_message
+        assert "🥉" not in all_time_message
+        assert "4️⃣" not in all_time_message
+        assert "5️⃣" not in all_time_message
+        assert "Количество призовых мест:" not in empty_message
     finally:
         await engine.dispose()

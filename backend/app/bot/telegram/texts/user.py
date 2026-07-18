@@ -1,10 +1,11 @@
 from decimal import Decimal
 
-from app.db.repositories.profile_repository import PlayerProfileStats
-from app.db.repositories.rating_repository import (
-    KnockoutsRatingRow,
-    PointsRatingRow,
+from app.services.dto import (
+    KnockoutsRatingView,
+    PlayerProfileView,
+    PointsRatingView,
 )
+from app.services.pagination import Page
 
 REGISTRATION_GREETING = (
     "🤚 Добро пожаловать в покерный клуб Гамбит. Я бот, который поможет тебе "
@@ -39,7 +40,10 @@ CLUB_ADDRESS = (
     "🏆 Играем исключительно на рейтинг и спортивный интерес."
 )
 
-RATING_UNAVAILABLE = "Рейтинг доступен зарегистрированным игрокам. Нажми /start."
+RATING_UNAVAILABLE = (
+    "Рейтинг доступен зарегистрированным игрокам. "
+    "Нажми /start, чтобы зарегистрироваться!"
+)
 RATING_MENU_PROMPT = "Какой рейтинг ты хочешь посмотреть?"
 RATING_ACTIVE_ONLY = "Рейтинг доступен только активным игрокам."
 RATING_EMPTY = "В рейтинге пока нет данных."
@@ -138,49 +142,89 @@ def tournament_cancellation_success(tournament_labels: list[str]) -> str:
 
 def rating_message(
     title: str,
-    rows: list[PointsRatingRow] | list[KnockoutsRatingRow],
+    page: Page,
+    current_player_id: int,
 ) -> str:
-    if not rows:
+    if not page.items:
         return f"{title}\n\n{RATING_EMPTY}"
 
     lines = [title, ""]
-    for position, row in enumerate(rows, start=1):
-        if isinstance(row, PointsRatingRow):
+    start_position = page.page * page.page_size + 1
+    for position, row in enumerate(page.items, start=start_position):
+        position_label = _rating_position_label(position)
+        display_name = _rating_display_name(row, current_player_id)
+        if isinstance(row, PointsRatingView):
             points = _format_decimal(row.total_points)
             lines.append(
-                f"{position}. {row.display_name} — {points} очков "
+                f"{position_label} {display_name} — {points} очков "
                 f"(турниров: {row.tournaments_count})"
             )
         else:
             lines.append(
-                f"{position}. {row.display_name} — "
+                f"{position_label} {display_name} — "
                 f"всего КО: {row.total_knockouts_count}, "
                 f"Босс КО: {row.boss_knockouts_count}"
             )
     return "\n".join(lines)
 
 
-def profile_message(title: str, stats: PlayerProfileStats | None) -> str:
+def _rating_position_label(position: int) -> str:
+    medals = {
+        1: "🥇",
+        2: "🥈",
+        3: "🥉",
+    }
+    return medals.get(position, f"{position}.")
+
+
+def _rating_display_name(
+    row: PointsRatingView | KnockoutsRatingView,
+    current_player_id: int,
+) -> str:
+    display_name = _escape_markdown(row.display_name)
+    if row.player_id == current_player_id:
+        return f"*{display_name}*"
+    return display_name
+
+
+def _escape_markdown(value: str) -> str:
+    return (
+        value.replace("\\", "\\\\")
+        .replace("*", "\\*")
+        .replace("_", "\\_")
+        .replace("`", "\\`")
+        .replace("[", "\\[")
+    )
+
+
+def profile_message(title: str, stats: PlayerProfileView | None) -> str:
     if stats is None:
         return f"{title}\n\n{PROFILE_NOT_FOUND}"
 
     points = _format_decimal(stats.total_points)
-    return "\n".join(
-        [
-            title,
-            "",
-            stats.display_name,
-            f"{PROFILE_RATING_LABEL}: {points} очков",
-            f"{PROFILE_KNOCKOUTS_LABEL}: {stats.total_knockouts_count}",
-            f"{PROFILE_TOURNAMENTS_LABEL}: {stats.tournaments_count}",
-            PROFILE_PRIZE_PLACES_LABEL,
-            f"1 место: {stats.first_places_count}",
-            f"2 место: {stats.second_places_count}",
-            f"3 место: {stats.third_places_count}",
-            f"4 место: {stats.fourth_places_count}",
-            f"5 место: {stats.fifth_places_count}",
-        ]
-    )
+    lines = [
+        title,
+        "",
+        stats.display_name,
+        f"{PROFILE_RATING_LABEL}: {points} очков",
+        f"{PROFILE_KNOCKOUTS_LABEL}: {stats.total_knockouts_count}",
+        f"{PROFILE_TOURNAMENTS_LABEL}: {stats.tournaments_count}",
+    ]
+    prize_place_lines = _profile_prize_place_lines(stats)
+    if prize_place_lines:
+        lines.extend(["", PROFILE_PRIZE_PLACES_LABEL, *prize_place_lines])
+    return "\n".join(lines)
+
+
+def _profile_prize_place_lines(stats: PlayerProfileView) -> list[str]:
+    prize_places = [
+        ("🥇", stats.first_places_count),
+        ("🥈", stats.second_places_count),
+        ("🥉", stats.third_places_count),
+        ("4️⃣", stats.fourth_places_count),
+        ("5️⃣", stats.fifth_places_count),
+    ]
+    return [f"{label} x{count}" for label, count in prize_places if count > 0]
 
 
 def _tournament_list_message(

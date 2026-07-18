@@ -28,7 +28,7 @@ def upgrade() -> None:
         sa.Column(
             "status",
             sa.Enum(
-                "pending", "active", "rejected", "blocked", name="player_status", native_enum=False
+                "pending", "active", "blocked", name="player_status", native_enum=False
             ),
             nullable=False,
         ),
@@ -39,9 +39,6 @@ def upgrade() -> None:
         ),
         sa.Column("approved_at", sa.DateTime(timezone=True), nullable=True),
         sa.Column("approved_by_admin_id", sa.Integer(), nullable=True),
-        sa.Column("rejected_at", sa.DateTime(timezone=True), nullable=True),
-        sa.Column("rejected_by_admin_id", sa.Integer(), nullable=True),
-        sa.Column("rejection_reason", sa.String(length=500), nullable=True),
         sa.Column("created_at", sa.DateTime(timezone=True), nullable=False),
         sa.Column("updated_at", sa.DateTime(timezone=True), nullable=False),
         sa.CheckConstraint(
@@ -52,12 +49,6 @@ def upgrade() -> None:
             ["approved_by_admin_id"],
             ["players.id"],
             name=op.f("fk_players_approved_by_admin_id_players"),
-            ondelete="SET NULL",
-        ),
-        sa.ForeignKeyConstraint(
-            ["rejected_by_admin_id"],
-            ["players.id"],
-            name=op.f("fk_players_rejected_by_admin_id_players"),
             ondelete="SET NULL",
         ),
         sa.PrimaryKeyConstraint("id", name=op.f("pk_players")),

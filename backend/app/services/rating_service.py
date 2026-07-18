@@ -2,12 +2,13 @@ from enum import StrEnum
 
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
+from app.db.models.enums import PlayerStatus
+from app.db.repositories.player_repository import PlayerRepository
 from app.db.repositories.rating_repository import (
-    KnockoutsRatingRow,
-    PointsRatingRow,
     RatingRepository,
 )
 from app.db.session import SessionFactory
+from app.services.dto import KnockoutsRatingView, PointsRatingView, RatingResultView
 
 
 class RatingKind(StrEnum):
@@ -17,35 +18,66 @@ class RatingKind(StrEnum):
     KNOCKOUTS_ALL_TIME = "knockouts_all_time"
 
 
+class RatingNotAllowedError(ValueError):
+    pass
+
+
 class RatingService:
     def __init__(self, session_factory: async_sessionmaker[AsyncSession]) -> None:
         self.session_factory = session_factory
 
-    async def get_rating(
+    async def get_rating_for_player(
         self,
+        telegram_id: int,
         kind: RatingKind,
-    ) -> tuple[str, list[PointsRatingRow] | list[KnockoutsRatingRow]]:
+    ) -> RatingResultView:
         async with self.session_factory() as session:
-            repository = RatingRepository(session)
-            if kind == RatingKind.CURRENT_SEASON:
-                return (
-                    "Рейтинг — текущий сезон",
-                    await repository.get_points_rating(current_season=True),
-                )
-            if kind == RatingKind.ALL_TIME:
-                return (
-                    "Рейтинг — за всё время",
-                    await repository.get_points_rating(current_season=False),
-                )
-            if kind == RatingKind.KNOCKOUTS_CURRENT_SEASON:
-                return (
-                    "Рейтинг по нокаутам — текущий сезон",
-                    await repository.get_knockouts_rating(current_season=True),
-                )
-            return (
-                "Рейтинг по нокаутам — за всё время",
-                await repository.get_knockouts_rating(current_season=False),
+            player = await PlayerRepository(session).get_by_telegram_id(telegram_id)
+            if player is None or player.status != PlayerStatus.ACTIVE:
+                raise RatingNotAllowedError
+            title, rows = await self._get_rating(RatingRepository(session), kind)
+            return RatingResultView(
+                title=title,
+                rows=rows,
+                current_player_id=player.id,
             )
+
+    @staticmethod
+    async def _get_rating(
+        repository: RatingRepository,
+        kind: RatingKind,
+    ) -> tuple[str, list[PointsRatingView] | list[KnockoutsRatingView]]:
+        if kind == RatingKind.CURRENT_SEASON:
+            return (
+                "Рейтинг — текущий сезон",
+                [
+                    PointsRatingView(**row.__dict__)
+                    for row in await repository.get_points_rating(current_season=True)
+                ],
+            )
+        if kind == RatingKind.ALL_TIME:
+            return (
+                "Рейтинг — за всё время",
+                [
+                    PointsRatingView(**row.__dict__)
+                    for row in await repository.get_points_rating(current_season=False)
+                ],
+            )
+        if kind == RatingKind.KNOCKOUTS_CURRENT_SEASON:
+            return (
+                "Рейтинг по нокаутам — текущий сезон",
+                [
+                    KnockoutsRatingView(**row.__dict__)
+                    for row in await repository.get_knockouts_rating(current_season=True)
+                ],
+            )
+        return (
+            "Рейтинг по нокаутам — за всё время",
+            [
+                KnockoutsRatingView(**row.__dict__)
+                for row in await repository.get_knockouts_rating(current_season=False)
+            ],
+        )
 
 
 rating_service = RatingService(SessionFactory)

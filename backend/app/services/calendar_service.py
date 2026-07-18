@@ -5,6 +5,7 @@ from dataclasses import dataclass
 from datetime import UTC, date, datetime, timedelta
 from enum import StrEnum
 
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from app.db.models import AdminPrompt, Season, Tournament
@@ -13,8 +14,8 @@ from app.db.repositories.admin_prompt_repository import AdminPromptRepository
 from app.db.repositories.season_repository import SeasonRepository
 from app.db.repositories.tournament_repository import TournamentRepository
 from app.db.session import SessionFactory
+from app.services.dto import AdminPromptView
 
-SEASON_NOTICE_DAYS = 7
 DEFAULT_TOURNAMENT_CAPACITY = 30
 
 
@@ -41,6 +42,10 @@ class CalendarPromptUnsupportedError(ValueError):
     pass
 
 
+class CalendarPromptEmptyError(ValueError):
+    pass
+
+
 @dataclass(frozen=True)
 class ProposedTournament:
     date: date
@@ -53,43 +58,44 @@ class CalendarService:
     def __init__(self, session_factory: async_sessionmaker[AsyncSession]) -> None:
         self.session_factory = session_factory
 
-    async def collect_due_prompts(
+    async def get_or_create_manual_season_prompt(
         self,
         today: date | None = None,
-    ) -> list[AdminPrompt]:
+    ) -> AdminPromptView:
         today = today or date.today()
-        prompts: list[AdminPrompt] = []
         async with self.session_factory() as session:
-            season_prompt = await self._get_or_create_season_prompt(session, today)
-            if (
-                season_prompt is not None
-                and season_prompt.status == AdminPromptStatus.PENDING
-                and season_prompt.notified_at is None
-            ):
-                prompts.append(season_prompt)
-
-            tournament_prompt = await self._get_or_create_tournaments_prompt(
+            await self._sync_season_statuses(session, today)
+            prompt = await self._get_or_create_season_prompt(
                 session,
                 today,
             )
-            if (
-                tournament_prompt is not None
-                and tournament_prompt.status == AdminPromptStatus.PENDING
-                and tournament_prompt.notified_at is None
-            ):
-                prompts.append(tournament_prompt)
-
-            await session.commit()
-            for prompt in prompts:
-                await session.refresh(prompt)
-            return prompts
-
-    async def mark_prompt_notified(self, prompt_id: int) -> None:
-        async with self.session_factory() as session:
-            prompt = await AdminPromptRepository(session).get_by_id(prompt_id)
             if prompt is None:
-                return
-            prompt.notified_at = datetime.now(UTC)
+                raise CalendarPromptEmptyError
+            await session.commit()
+            await session.refresh(prompt)
+            return admin_prompt_view(prompt)
+
+    async def get_or_create_manual_tournaments_prompt(
+        self,
+        today: date | None = None,
+    ) -> AdminPromptView:
+        today = today or date.today()
+        async with self.session_factory() as session:
+            await self._sync_season_statuses(session, today)
+            prompt = await self._get_or_create_tournaments_prompt(
+                session,
+                today,
+            )
+            if prompt is None:
+                raise CalendarPromptEmptyError
+            await session.commit()
+            await session.refresh(prompt)
+            return admin_prompt_view(prompt)
+
+    async def sync_season_statuses(self, today: date | None = None) -> None:
+        today = today or date.today()
+        async with self.session_factory() as session:
+            await self._sync_season_statuses(session, today)
             await session.commit()
 
     async def resolve_prompt(
@@ -97,7 +103,7 @@ class CalendarService:
         prompt_id: int,
         admin_telegram_id: int,
         action: CalendarPromptAction,
-    ) -> AdminPrompt:
+    ) -> AdminPromptView:
         async with self.session_factory() as session:
             repository = AdminPromptRepository(session)
             prompt = await repository.get_by_id(prompt_id)
@@ -118,7 +124,7 @@ class CalendarService:
             prompt.resolved_by_admin_id = admin_telegram_id
             await session.commit()
             await session.refresh(prompt)
-            return prompt
+            return admin_prompt_view(prompt)
 
     async def _get_or_create_season_prompt(
         self,
@@ -126,12 +132,11 @@ class CalendarService:
         today: date,
     ) -> AdminPrompt | None:
         active_season = await SeasonRepository(session).get_active()
-        if active_season is None:
-            return None
-        if today < active_season.ends_at - timedelta(days=SEASON_NOTICE_DAYS):
-            return None
+        if active_season is not None:
+            next_start = active_season.ends_at + timedelta(days=1)
+        else:
+            next_start = today
 
-        next_start = active_season.ends_at + timedelta(days=1)
         next_season = seasonal_season_for(next_start)
         existing_next = await SeasonRepository(session).get_by_name(next_season["name"])
         if existing_next is not None:
@@ -139,7 +144,7 @@ class CalendarService:
 
         payload = json.dumps(
             {
-                "current_season_id": active_season.id,
+                "current_season_id": active_season.id if active_season is not None else None,
                 "name": next_season["name"],
                 "starts_at": next_season["starts_at"].isoformat(),
                 "ends_at": next_season["ends_at"].isoformat(),
@@ -157,9 +162,6 @@ class CalendarService:
         session: AsyncSession,
         today: date,
     ) -> AdminPrompt | None:
-        if today.weekday() != 6:
-            return None
-
         proposed_tournaments = await self._missing_tournaments_for_next_two_weeks(
             session,
             today,
@@ -194,7 +196,7 @@ class CalendarService:
         session: AsyncSession,
         today: date,
     ) -> list[ProposedTournament]:
-        first_monday = today + timedelta(days=1)
+        first_monday = next_monday_after(today)
         last_day = first_monday + timedelta(days=13)
         repository = TournamentRepository(session)
         templates_by_weekday = await self._templates_by_weekday(repository)
@@ -270,6 +272,7 @@ class CalendarService:
         season_repository = SeasonRepository(session)
         existing = await season_repository.get_by_name(payload["name"])
         if existing is not None:
+            await self._sync_season_statuses(session, date.today())
             return
 
         active_season = await season_repository.get_active()
@@ -283,6 +286,7 @@ class CalendarService:
                 status=SeasonStatus.UPCOMING,
             )
         )
+        await self._sync_season_statuses(session, date.today())
 
     async def _apply_tournaments_prompt(
         self,
@@ -315,13 +319,28 @@ class CalendarService:
                 )
             )
 
+    async def _sync_season_statuses(
+        self,
+        session: AsyncSession,
+        today: date,
+    ) -> None:
+        result = await session.execute(select(Season).order_by(Season.starts_at))
+        seasons = list(result.scalars())
+        for season in seasons:
+            if season.ends_at < today:
+                season.status = SeasonStatus.CLOSED
+            elif season.starts_at <= today <= season.ends_at:
+                season.status = SeasonStatus.ACTIVE
+            else:
+                season.status = SeasonStatus.UPCOMING
+
 
 def seasonal_season_for(target_date: date) -> dict[str, date | str]:
     year = target_date.year
     if target_date.month in {12, 1, 2}:
         winter_year = year if target_date.month == 12 else year - 1
         return {
-            "name": f"Зима {winter_year}-{winter_year + 1}",
+            "name": f"Зима {winter_year}",
             "starts_at": date(winter_year, 12, 1),
             "ends_at": date(winter_year + 1, 2, 29 if is_leap_year(winter_year + 1) else 28),
         }
@@ -344,8 +363,24 @@ def seasonal_season_for(target_date: date) -> dict[str, date | str]:
     }
 
 
+def next_monday_after(target_date: date) -> date:
+    days_until_monday = (7 - target_date.weekday()) % 7
+    if days_until_monday == 0:
+        days_until_monday = 7
+    return target_date + timedelta(days=days_until_monday)
+
+
 def is_leap_year(year: int) -> bool:
     return year % 4 == 0 and (year % 100 != 0 or year % 400 == 0)
 
 
 calendar_service = CalendarService(SessionFactory)
+
+
+def admin_prompt_view(prompt: AdminPrompt) -> AdminPromptView:
+    return AdminPromptView(
+        id=prompt.id,
+        kind=prompt.kind,
+        payload=prompt.payload,
+        status=prompt.status.value,
+    )

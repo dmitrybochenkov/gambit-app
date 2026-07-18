@@ -14,6 +14,7 @@ from pathlib import Path
 from typing import Any
 
 DEFAULT_SHEET_NAME = "Данные за все время"
+DEFAULT_MAPPING_SHEET_NAME = "Лист12"
 DEFAULT_TOURNAMENT_TYPE_CODE = "legacy_unknown"
 HISTORICAL_TELEGRAM_ID_START = -1
 
@@ -34,7 +35,10 @@ SEASON_NAMES = {
 class HistoryRow:
     source_row: int
     tournament_date: date
+    raw_player_name: str
     player_name: str
+    full_name: str | None
+    nickname: str | None
     place: int | None
     knockouts_count: int
     boss_knockouts_count: int
@@ -56,6 +60,16 @@ def main() -> None:
     )
     parser.add_argument("--sheet", default=DEFAULT_SHEET_NAME, help="Excel sheet name")
     parser.add_argument(
+        "--mapping-sheet",
+        default=DEFAULT_MAPPING_SHEET_NAME,
+        help="Excel sheet with raw player names and Очист_меппинг",
+    )
+    parser.add_argument(
+        "--allow-unmapped",
+        action="store_true",
+        help="Import players missing from the mapping sheet using their raw result names.",
+    )
+    parser.add_argument(
         "--tournament-type-code",
         default=DEFAULT_TOURNAMENT_TYPE_CODE,
         help="Tournament type code for all imported historical tournaments",
@@ -72,7 +86,12 @@ def main() -> None:
     )
     args = parser.parse_args()
 
-    rows, skipped_rows = load_rows(args.source, args.sheet)
+    rows, skipped_rows = load_rows(
+        args.source,
+        args.sheet,
+        args.mapping_sheet,
+        args.allow_unmapped,
+    )
     if args.export_csv:
         export_csv(args.export_csv, rows)
 
@@ -91,17 +110,36 @@ def main() -> None:
     print(f"Imported {len(rows)} rows into {args.db}")
 
 
-def load_rows(source: Path, sheet_name: str) -> tuple[list[HistoryRow], list[int]]:
+def load_rows(
+    source: Path,
+    sheet_name: str,
+    mapping_sheet_name: str,
+    allow_unmapped: bool,
+) -> tuple[list[HistoryRow], list[int]]:
     if not source.exists():
         raise SystemExit(f"Source file not found: {source}")
     if source.suffix.lower() == ".csv":
         return load_csv(source)
     if source.suffix.lower() in {".xlsx", ".xlsm", ".xls"}:
-        return load_excel(source, sheet_name)
+        return load_excel(source, sheet_name, mapping_sheet_name, allow_unmapped)
     raise SystemExit(f"Unsupported source format: {source.suffix}")
 
 
-def load_excel(source: Path, sheet_name: str) -> tuple[list[HistoryRow], list[int]]:
+@dataclass(frozen=True)
+class PlayerMapping:
+    source_row: int
+    raw_name: str
+    mapped_name: str
+    full_name: str | None
+    nickname: str | None
+
+
+def load_excel(
+    source: Path,
+    sheet_name: str,
+    mapping_sheet_name: str,
+    allow_unmapped: bool,
+) -> tuple[list[HistoryRow], list[int]]:
     try:
         import pandas as pd
     except ImportError as error:
@@ -109,25 +147,41 @@ def load_excel(source: Path, sheet_name: str) -> tuple[list[HistoryRow], list[in
             "Reading Excel requires pandas/openpyxl. Export normalized CSV locally first."
         ) from error
 
+    mappings = load_player_mappings(source, mapping_sheet_name, pd)
     dataframe = pd.read_excel(source, sheet_name=sheet_name)
     rows: list[HistoryRow] = []
     skipped_rows: list[int] = []
+    unmapped_players: dict[str, list[int]] = defaultdict(list)
     for index, record in dataframe.iterrows():
         source_row = index + 2
         raw_date = record.get("Дата")
         if pd.isna(raw_date):
             continue
 
-        player_name = clean_text(record.get("Игрок"))
-        if not player_name:
+        raw_player_name = clean_text(record.get("Игрок"))
+        if not raw_player_name:
             skipped_rows.append(source_row)
+            continue
+        mapping = mappings.get(raw_player_name)
+        if mapping:
+            player_name = mapping.mapped_name
+            full_name = mapping.full_name
+            nickname = mapping.nickname
+        elif allow_unmapped:
+            player_name = raw_player_name
+            full_name, nickname = split_identity(player_name)
+        else:
+            unmapped_players[raw_player_name].append(source_row)
             continue
 
         rows.append(
             HistoryRow(
                 source_row=source_row,
                 tournament_date=pd.Timestamp(raw_date).date(),
+                raw_player_name=raw_player_name,
                 player_name=player_name,
+                full_name=full_name,
+                nickname=nickname,
                 place=optional_int(record.get("Место в турнире")),
                 knockouts_count=required_int(record.get("КО")),
                 boss_knockouts_count=required_int(record.get("Босс КО")),
@@ -138,7 +192,100 @@ def load_excel(source: Path, sheet_name: str) -> tuple[list[HistoryRow], list[in
                 knockout_points=required_decimal(record.get("Количество очков за КО")),
             )
         )
+    if unmapped_players:
+        details = ", ".join(
+            f"{name} (rows {rows[:5]})" for name, rows in sorted(unmapped_players.items())
+        )
+        raise SystemExit(
+            "Missing player mappings on "
+            f"{mapping_sheet_name!r}: {details}. Use --allow-unmapped to import raw names."
+        )
+    validate_unique_results(rows)
     return rows, skipped_rows
+
+
+def load_player_mappings(source: Path, sheet_name: str, pd: Any) -> dict[str, PlayerMapping]:
+    dataframe = pd.read_excel(source, sheet_name=sheet_name)
+    required_columns = {"Игрок", "Очист_меппинг", "ф", "н"}
+    missing_columns = required_columns - set(dataframe.columns)
+    if missing_columns:
+        raise SystemExit(
+            f"Mapping sheet {sheet_name!r} is missing columns: {sorted(missing_columns)}"
+        )
+
+    mappings: dict[str, PlayerMapping] = {}
+    identities_by_mapped_name: dict[str, tuple[str | None, str | None]] = {}
+    for index, record in dataframe.iterrows():
+        source_row = index + 2
+        raw_name = clean_text(record.get("Игрок"))
+        if not raw_name:
+            continue
+        mapped_name = clean_text(record.get("Очист_меппинг"))
+        if not mapped_name:
+            raise SystemExit(f"Empty Очист_меппинг on {sheet_name!r} row {source_row}")
+
+        has_full_name = bool(clean_text(record.get("ф")))
+        has_nickname = bool(clean_text(record.get("н")))
+        if has_full_name and has_nickname:
+            raise SystemExit(f"Both ф and н are set on {sheet_name!r} row {source_row}")
+        if has_full_name:
+            full_name, nickname = mapped_name, None
+        elif has_nickname:
+            full_name, nickname = None, mapped_name
+        else:
+            full_name, nickname = split_identity(mapped_name)
+
+        mapping = PlayerMapping(
+            source_row=source_row,
+            raw_name=raw_name,
+            mapped_name=mapped_name,
+            full_name=full_name,
+            nickname=nickname,
+        )
+        existing = mappings.get(raw_name)
+        if existing and (
+            existing.mapped_name,
+            existing.full_name,
+            existing.nickname,
+        ) != (
+            mapping.mapped_name,
+            mapping.full_name,
+            mapping.nickname,
+        ):
+            raise SystemExit(
+                f"Conflicting mappings for {raw_name!r}: rows "
+                f"{existing.source_row} and {source_row}"
+            )
+        mappings[raw_name] = mapping
+
+        identity = (full_name, nickname)
+        existing_identity = identities_by_mapped_name.get(mapped_name)
+        if existing_identity and existing_identity != identity:
+            raise SystemExit(
+                f"Conflicting ф/н markers for {mapped_name!r} "
+                f"on {sheet_name!r} row {source_row}"
+            )
+        identities_by_mapped_name[mapped_name] = identity
+    return mappings
+
+
+def validate_unique_results(rows: list[HistoryRow]) -> None:
+    seen: dict[tuple[date, str], int] = {}
+    duplicates: list[str] = []
+    for row in rows:
+        key = (row.tournament_date, row.player_name)
+        previous_row = seen.get(key)
+        if previous_row is not None:
+            duplicates.append(
+                f"{row.tournament_date.isoformat()} {row.player_name!r} "
+                f"(rows {previous_row}, {row.source_row})"
+            )
+        else:
+            seen[key] = row.source_row
+    if duplicates:
+        raise SystemExit(
+            "Duplicate results after player mapping: " + "; ".join(duplicates[:20])
+        )
 
 
 def load_csv(source: Path) -> tuple[list[HistoryRow], list[int]]:
@@ -150,7 +297,11 @@ def load_csv(source: Path) -> tuple[list[HistoryRow], list[int]]:
                 HistoryRow(
                     source_row=int(record["source_row"]),
                     tournament_date=date.fromisoformat(record["date"]),
+                    raw_player_name=record.get("raw_player_name")
+                    or record["player_name"],
                     player_name=record["player_name"],
+                    full_name=record.get("full_name") or None,
+                    nickname=record.get("nickname") or None,
                     place=int(record["place"]) if record["place"] else None,
                     knockouts_count=int(record["knockouts_count"]),
                     boss_knockouts_count=int(record["boss_knockouts_count"]),
@@ -170,7 +321,10 @@ def export_csv(path: Path, rows: list[HistoryRow]) -> None:
             fieldnames=[
                 "source_row",
                 "date",
+                "raw_player_name",
                 "player_name",
+                "full_name",
+                "nickname",
                 "place",
                 "knockouts_count",
                 "boss_knockouts_count",
@@ -185,7 +339,10 @@ def export_csv(path: Path, rows: list[HistoryRow]) -> None:
                 {
                     "source_row": row.source_row,
                     "date": row.tournament_date.isoformat(),
+                    "raw_player_name": row.raw_player_name,
                     "player_name": row.player_name,
+                    "full_name": row.full_name or "",
+                    "nickname": row.nickname or "",
                     "place": row.place or "",
                     "knockouts_count": row.knockouts_count,
                     "boss_knockouts_count": row.boss_knockouts_count,
@@ -470,7 +627,7 @@ def ensure_players(
     next_historical_telegram_id = next_negative_telegram_id(connection)
 
     for player_name in sorted({row.player_name for row in rows}):
-        full_name, nickname = split_identity(player_name)
+        full_name, nickname = identity_for_player_name(player_name, rows)
         full_name_normalized = normalize_full_name(full_name)
         nickname_normalized = normalize_nickname(nickname)
         existing = find_existing_player(
@@ -522,6 +679,21 @@ def ensure_players(
         player_ids[player_name] = int(cursor.lastrowid)
         next_historical_telegram_id -= 1
     return player_ids
+
+
+def identity_for_player_name(
+    player_name: str,
+    rows: list[HistoryRow],
+) -> tuple[str | None, str | None]:
+    identities = {
+        (row.full_name, row.nickname) for row in rows if row.player_name == player_name
+    }
+    if len(identities) > 1:
+        raise ValueError(f"Conflicting identities for mapped player {player_name!r}")
+    identity = next(iter(identities), (None, None))
+    if identity != (None, None):
+        return identity
+    return split_identity(player_name)
 
 
 def find_existing_player(
@@ -630,6 +802,7 @@ def build_summary(rows: list[HistoryRow], skipped_rows: list[int]) -> dict[str, 
         "rows": len(rows),
         "skipped_blank_player_rows": len(skipped_rows),
         "first_skipped_blank_player_rows": skipped_rows[:20],
+        "raw_players": len({row.raw_player_name for row in rows}),
         "players": len({row.player_name for row in rows}),
         "dates": len({row.tournament_date for row in rows}),
         "tournaments_by_season": dict(sorted(season_counts.items())),

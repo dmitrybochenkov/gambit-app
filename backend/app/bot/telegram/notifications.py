@@ -2,41 +2,26 @@ from aiogram import Bot
 from aiogram.exceptions import TelegramBadRequest, TelegramForbiddenError
 
 from app.bot.telegram import keyboards, texts
-from app.bot.telegram.formatters import format_admin_calendar_prompt
-from app.db.models import AdminPrompt, Player, RegistrationMatch
+from app.services.dto import PlayerView, RegistrationMatchView
 from app.services.player_service import player_service
 
 
 def format_registration_review(
-    player: Player,
-    matches: list[tuple[RegistrationMatch, Player]] | None = None,
+    player: PlayerView,
+    matches: list[RegistrationMatchView] | None = None,
 ) -> str:
     return texts.admin.registration_review(player, matches or [])
 
 
-async def notify_admins_about_registration(bot: Bot, player: Player) -> None:
-    admins = await player_service.get_active_admins()
-    matches = await player_service.get_registration_matches(player.id)
-    text = format_registration_review(player, matches)
-    keyboard = keyboards.registration_review_keyboard(player.id, has_matches=bool(matches))
+async def notify_admins_about_registration(bot: Bot, player: PlayerView) -> None:
+    notification = await player_service.get_registration_notification(player.id)
+    text = format_registration_review(notification.player, notification.matches)
+    keyboard = keyboards.registration_review_keyboard(
+        notification.player.id,
+        has_matches=bool(notification.matches),
+    )
 
-    for admin in admins:
-        try:
-            await bot.send_message(
-                chat_id=admin.telegram_id,
-                text=text,
-                reply_markup=keyboard,
-            )
-        except (TelegramBadRequest, TelegramForbiddenError):
-            continue
-
-
-async def notify_admins_about_calendar_prompt(bot: Bot, prompt: AdminPrompt) -> None:
-    admins = await player_service.get_active_admins()
-    text = format_admin_calendar_prompt(prompt)
-    keyboard = keyboards.calendar_prompt_keyboard(prompt.id)
-
-    for admin in admins:
+    for admin in notification.admins:
         try:
             await bot.send_message(
                 chat_id=admin.telegram_id,

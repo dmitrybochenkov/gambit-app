@@ -1,6 +1,7 @@
 from aiogram.types import KeyboardButton, ReplyKeyboardMarkup
 
 from app.bot.telegram.keyboards import buttons
+from app.services.dto import PlayerView
 
 
 def main_keyboard(is_admin: bool = False) -> ReplyKeyboardMarkup:
@@ -19,3 +20,15 @@ def main_keyboard(is_admin: bool = False) -> ReplyKeyboardMarkup:
         rows.append([KeyboardButton(text=buttons.MAIN_ADMIN)])
 
     return ReplyKeyboardMarkup(keyboard=rows, resize_keyboard=True)
+
+
+def main_keyboard_for_player(player: PlayerView) -> ReplyKeyboardMarkup:
+    return main_keyboard(is_admin=player.is_admin)
+
+
+def main_keyboard_after_registration() -> ReplyKeyboardMarkup:
+    return main_keyboard(is_admin=False)
+
+
+def main_keyboard_after_role_update(player: PlayerView) -> ReplyKeyboardMarkup:
+    return main_keyboard_for_player(player)

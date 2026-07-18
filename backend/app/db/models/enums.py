@@ -6,7 +6,6 @@ from sqlalchemy import Enum as SqlEnum
 class PlayerStatus(StrEnum):
     PENDING = "pending"
     ACTIVE = "active"
-    REJECTED = "rejected"
     BLOCKED = "blocked"
 
 
@@ -47,8 +46,6 @@ class TournamentTypeStatus(StrEnum):
 
 class RegistrationMatchStatus(StrEnum):
     CANDIDATE = "candidate"
-    ACCEPTED = "accepted"
-    IGNORED = "ignored"
 
 
 class KnockoutMode(StrEnum):

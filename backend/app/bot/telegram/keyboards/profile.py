@@ -10,6 +10,10 @@ class ProfileCallback(CallbackData, prefix="profile"):
     kind: ProfileKind
 
 
+class ProfileCancelCallback(CallbackData, prefix="profile_cancel"):
+    action: str = "cancel"
+
+
 def profile_keyboard() -> InlineKeyboardMarkup:
     builder = InlineKeyboardBuilder()
     builder.button(
@@ -19,6 +23,10 @@ def profile_keyboard() -> InlineKeyboardMarkup:
     builder.button(
         text=buttons.PROFILE_ALL_TIME,
         callback_data=ProfileCallback(kind=ProfileKind.ALL_TIME),
+    )
+    builder.button(
+        text=buttons.CANCEL,
+        callback_data=ProfileCancelCallback(),
     )
     builder.adjust(1)
     return builder.as_markup()
