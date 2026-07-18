@@ -37,7 +37,9 @@ ADMIN_CALENDAR_ENTER_SEASON_NAME = "Введи новое название се�
 ADMIN_CALENDAR_ENTER_SEASON_START = "Введи дату начала в формате 1.09.2026."
 ADMIN_CALENDAR_ENTER_SEASON_END = "Введи дату окончания в формате 30.11.2026."
 ADMIN_CALENDAR_INVALID_DATE = "Дата должна быть в формате 1.09.2026."
-ADMIN_CALENDAR_INVALID_PERIOD = "Дата начала не может быть позже даты окончания."
+ADMIN_CALENDAR_INVALID_PERIOD = (
+    "Дата начала не может быть позже даты окончания. {retry_prompt}"
+)
 
 CALENDAR_PROMPT_NOT_FOUND = "Предложение не найдено."
 CALENDAR_PROMPT_ALREADY_RESOLVED = "Предложение уже обработано."
@@ -117,3 +119,7 @@ def calendar_reviewed_by_admin(
     admin_name: str,
 ) -> str:
     return f"{prompt_text}\n\n{result_text}: {admin_name}"
+
+
+def invalid_calendar_period(retry_prompt: str) -> str:
+    return ADMIN_CALENDAR_INVALID_PERIOD.format(retry_prompt=retry_prompt)

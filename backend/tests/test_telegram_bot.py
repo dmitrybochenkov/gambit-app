@@ -10,6 +10,7 @@ from app.api import telegram_webhook as webhook_module
 from app.bot.telegram import keyboards, notifications, runtime
 from app.bot.telegram.handlers import admin as admin_handlers
 from app.bot.telegram.handlers import user as user_handlers
+from app.services.calendar_service import CalendarPromptInvalidPayloadError
 from app.services.dto import (
     AdminPanelView,
     AdminPromptView,
@@ -863,6 +864,44 @@ async def test_season_edit_value_rejects_invalid_date(
     calendar_service.update_season_prompt.assert_not_awaited()
     state.clear.assert_not_awaited()
     message.answer.assert_awaited_once_with("Дата должна быть в формате 1.09.2026.")
+
+
+async def test_season_edit_value_rejects_invalid_period(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    admin = admin_player(1, 100, PlayerRoleView.SUPERADMIN)
+    player_service = SimpleNamespace(require_superadmin=AsyncMock(return_value=admin))
+    calendar_service = SimpleNamespace(
+        update_season_prompt=AsyncMock(side_effect=CalendarPromptInvalidPayloadError)
+    )
+    monkeypatch.setattr(admin_handlers, "player_service", player_service)
+    monkeypatch.setattr(admin_handlers, "calendar_service", calendar_service)
+    state = SimpleNamespace(
+        get_data=AsyncMock(
+            return_value={
+                "season_prompt_id": 7,
+                "season_edit_field": keyboards.SeasonEditAction.STARTS_AT.value,
+            }
+        ),
+        clear=AsyncMock(),
+    )
+    message = SimpleNamespace(
+        from_user=SimpleNamespace(id=100),
+        text="1.12.2026",
+        answer=AsyncMock(),
+    )
+
+    await admin_handlers.enter_season_edit_value(message, state)
+
+    calendar_service.update_season_prompt.assert_awaited_once_with(
+        prompt_id=7,
+        starts_at=date(2026, 12, 1),
+    )
+    state.clear.assert_not_awaited()
+    message.answer.assert_awaited_once_with(
+        "Дата начала не может быть позже даты окончания. "
+        "Введи дату начала в формате 1.09.2026."
+    )
 
 
 async def test_admin_panel_registration_requests_button_shows_pending(

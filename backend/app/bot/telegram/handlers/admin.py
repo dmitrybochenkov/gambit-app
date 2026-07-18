@@ -523,7 +523,9 @@ async def enter_season_edit_value(message: Message, state: FSMContext) -> None:
                 ends_at=parse_admin_date(value),
             )
     except CalendarPromptInvalidPayloadError:
-        await message.answer(texts.admin.ADMIN_CALENDAR_INVALID_PERIOD)
+        await message.answer(
+            texts.admin.invalid_calendar_period(SEASON_EDIT_PROMPTS[field])
+        )
         return
     except ValueError:
         await message.answer(texts.admin.ADMIN_CALENDAR_INVALID_DATE)
