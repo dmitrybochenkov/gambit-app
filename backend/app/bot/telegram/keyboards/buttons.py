@@ -25,7 +25,7 @@ ADMIN_PANEL_CALENDAR = "🗓 Календарь"
 ADMIN_PANEL_EXIT = "⬅️ Выход"
 ADMIN_CALENDAR_SEASONS = "⏳ Сезоны"
 ADMIN_CALENDAR_TOURNAMENTS = "🏆 Турниры"
-ADMIN_CALENDAR_OPEN = "✅ Открыть"
+ADMIN_CALENDAR_OPEN = "✅ Создать"
 ADMIN_CALENDAR_EDIT = "✏️ Изменить"
 ADMIN_CALENDAR_CANCEL = "❌ Отмена"
 

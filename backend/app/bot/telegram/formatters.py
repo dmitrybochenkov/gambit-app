@@ -85,16 +85,24 @@ def format_admin_calendar_prompt(prompt: AdminPromptView) -> str:
 
 def format_manual_season_prompt(prompt: AdminPromptView) -> str:
     payload = json.loads(prompt.payload)
+    starts_at = date.fromisoformat(payload["starts_at"])
+    ends_at = date.fromisoformat(payload["ends_at"])
     return "\n".join(
         [
             texts.admin.SEASON_MANUAL_PROPOSAL_TITLE,
             payload["name"],
+            f"{texts.admin.SEASON_PERIOD_LABEL}: "
+            f"{format_numeric_date(starts_at)} — {format_numeric_date(ends_at)}",
         ]
     )
 
 
 def format_date(value: date) -> str:
     return f"{value.day} {texts.common.MONTHS[value.month]} {value.year}"
+
+
+def format_numeric_date(value: date) -> str:
+    return f"{value.day}.{value.month:02d}.{value.year}"
 
 
 def _fallback_tournament_type_name(tournament: TournamentView) -> str:

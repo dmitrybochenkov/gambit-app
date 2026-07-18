@@ -667,13 +667,17 @@ async def test_admin_calendar_seasons_callback_sends_manual_prompt(
     message.delete.assert_awaited_once_with()
     message.answer.assert_awaited_once()
     answer = message.answer.await_args
-    assert answer.args[0] == "Будет создан новый сезон:\nОсень 2026"
+    assert answer.args[0] == (
+        "Будет создан новый сезон:\n"
+        "Осень 2026\n"
+        "Период: 1.09.2026 — 30.11.2026"
+    )
     buttons = [
         button.text
         for row in answer.kwargs["reply_markup"].inline_keyboard
         for button in row
     ]
-    assert buttons == ["✅ Открыть", "✏️ Изменить", "❌ Отмена"]
+    assert buttons == ["✅ Создать", "✏️ Изменить", "❌ Отмена"]
 
 
 async def test_admin_panel_registration_requests_button_shows_pending(
