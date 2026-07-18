@@ -46,6 +46,10 @@ class CalendarPromptEmptyError(ValueError):
     pass
 
 
+class CalendarPromptInvalidPayloadError(ValueError):
+    pass
+
+
 @dataclass(frozen=True)
 class ProposedTournament:
     date: date
@@ -122,6 +126,40 @@ class CalendarService:
 
             prompt.resolved_at = datetime.now(UTC)
             prompt.resolved_by_admin_id = admin_telegram_id
+            await session.commit()
+            await session.refresh(prompt)
+            return admin_prompt_view(prompt)
+
+    async def update_season_prompt(
+        self,
+        prompt_id: int,
+        name: str | None = None,
+        starts_at: date | None = None,
+        ends_at: date | None = None,
+    ) -> AdminPromptView:
+        async with self.session_factory() as session:
+            repository = AdminPromptRepository(session)
+            prompt = await repository.get_by_id(prompt_id)
+            if prompt is None:
+                raise CalendarPromptNotFoundError
+            if prompt.status != AdminPromptStatus.PENDING:
+                raise CalendarPromptAlreadyResolvedError
+            if prompt.kind != AdminPromptKind.SEASON_PROPOSAL:
+                raise CalendarPromptUnsupportedError(prompt.kind)
+
+            payload = json.loads(prompt.payload)
+            if name is not None:
+                payload["name"] = name
+            if starts_at is not None:
+                payload["starts_at"] = starts_at.isoformat()
+            if ends_at is not None:
+                payload["ends_at"] = ends_at.isoformat()
+            if date.fromisoformat(payload["starts_at"]) > date.fromisoformat(
+                payload["ends_at"]
+            ):
+                raise CalendarPromptInvalidPayloadError
+
+            prompt.payload = json.dumps(payload, ensure_ascii=False)
             await session.commit()
             await session.refresh(prompt)
             return admin_prompt_view(prompt)

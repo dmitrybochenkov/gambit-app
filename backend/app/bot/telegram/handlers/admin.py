@@ -1,6 +1,10 @@
+import re
+from datetime import date
+
 from aiogram import F, Router
 from aiogram.exceptions import TelegramBadRequest, TelegramForbiddenError
 from aiogram.filters import Command
+from aiogram.fsm.context import FSMContext
 from aiogram.types import CallbackQuery, Message, ReplyKeyboardRemove
 
 from app.bot.telegram import keyboards, texts
@@ -9,10 +13,12 @@ from app.bot.telegram.formatters import (
     format_manual_season_prompt,
 )
 from app.bot.telegram.notifications import format_registration_review
+from app.bot.telegram.states import CalendarSeasonEditStates
 from app.services.calendar_service import (
     CalendarPromptAction,
     CalendarPromptAlreadyResolvedError,
     CalendarPromptEmptyError,
+    CalendarPromptInvalidPayloadError,
     CalendarPromptNotFoundError,
     calendar_service,
 )
@@ -27,6 +33,11 @@ from app.services.player_service import (
 )
 
 router = Router(name="admin")
+SEASON_EDIT_PROMPTS = {
+    keyboards.SeasonEditAction.NAME: texts.admin.ADMIN_CALENDAR_ENTER_SEASON_NAME,
+    keyboards.SeasonEditAction.STARTS_AT: texts.admin.ADMIN_CALENDAR_ENTER_SEASON_START,
+    keyboards.SeasonEditAction.ENDS_AT: texts.admin.ADMIN_CALENDAR_ENTER_SEASON_END,
+}
 
 
 @router.message(Command("admin"))
@@ -160,7 +171,7 @@ async def open_admin_calendar(message: Message) -> None:
         return
 
     try:
-        await player_service.get_admin_panel_for_admin(message.from_user.id)
+        await player_service.require_superadmin(message.from_user.id)
     except AdminAccessDeniedError:
         await message.answer(texts.admin.ACCESS_DENIED)
         return
@@ -332,10 +343,23 @@ async def _send_registration_review_result(
 async def review_calendar_prompt(
     callback: CallbackQuery,
     callback_data: keyboards.CalendarPromptCallback,
+    state: FSMContext,
 ) -> None:
     action = CalendarPromptAction(callback_data.action.value)
     try:
-        await player_service.get_admin_panel_for_admin(callback.from_user.id)
+        await player_service.require_superadmin(callback.from_user.id)
+        if callback_data.action == keyboards.CalendarPromptAction.EDIT:
+            await state.clear()
+            if callback.message is not None:
+                await _delete_callback_message(callback)
+                await callback.message.answer(
+                    texts.admin.ADMIN_CALENDAR_EDIT_MENU,
+                    reply_markup=keyboards.season_edit_keyboard(callback_data.prompt_id),
+                )
+            await callback.answer()
+            return
+
+        await state.clear()
         resolved_prompt = await calendar_service.resolve_prompt(
             prompt_id=callback_data.prompt_id,
             admin_telegram_id=callback.from_user.id,
@@ -363,11 +387,7 @@ async def review_calendar_prompt(
     elif callback_data.action == keyboards.CalendarPromptAction.CANCEL:
         result_text = texts.admin.CALENDAR_PROMPT_CANCELLED
     else:
-        result_text = (
-            texts.admin.ADMIN_CALENDAR_EDIT_SEASON
-            if resolved_prompt.kind == "season_proposal"
-            else texts.admin.CALENDAR_PROMPT_NEEDS_CHANGES
-        )
+        result_text = texts.admin.CALENDAR_PROMPT_NEEDS_CHANGES
 
     await callback.answer(result_text)
     if callback.message is not None:
@@ -390,7 +410,7 @@ async def select_admin_calendar_section(
     callback_data: keyboards.AdminCalendarCallback,
 ) -> None:
     try:
-        await player_service.get_admin_panel_for_admin(callback.from_user.id)
+        await player_service.require_superadmin(callback.from_user.id)
     except AdminAccessDeniedError:
         await callback.answer(texts.admin.ACCESS_DENIED, show_alert=True)
         return
@@ -436,6 +456,90 @@ async def select_admin_calendar_section(
         )
 
 
+@router.callback_query(keyboards.SeasonEditCallback.filter())
+async def select_season_edit_field(
+    callback: CallbackQuery,
+    callback_data: keyboards.SeasonEditCallback,
+    state: FSMContext,
+) -> None:
+    try:
+        await player_service.require_superadmin(callback.from_user.id)
+    except AdminAccessDeniedError:
+        await callback.answer(texts.admin.ACCESS_DENIED, show_alert=True)
+        return
+
+    await _delete_callback_message(callback)
+    if callback_data.action == keyboards.SeasonEditAction.CANCEL:
+        await state.clear()
+        await callback.answer(texts.admin.ADMIN_CALENDAR_CANCELLED)
+        if callback.message is not None:
+            await callback.message.answer(texts.admin.ADMIN_CALENDAR_CANCELLED)
+        return
+
+    await state.set_state(CalendarSeasonEditStates.entering_value)
+    await state.update_data(
+        season_prompt_id=callback_data.prompt_id,
+        season_edit_field=callback_data.action.value,
+    )
+    await callback.answer()
+    if callback.message is not None:
+        await callback.message.answer(SEASON_EDIT_PROMPTS[callback_data.action])
+
+
+@router.message(CalendarSeasonEditStates.entering_value)
+async def enter_season_edit_value(message: Message, state: FSMContext) -> None:
+    if message.from_user is None:
+        return
+
+    try:
+        await player_service.require_superadmin(message.from_user.id)
+    except AdminAccessDeniedError:
+        await state.clear()
+        await message.answer(texts.admin.ACCESS_DENIED)
+        return
+
+    data = await state.get_data()
+    prompt_id = int(data["season_prompt_id"])
+    field = keyboards.SeasonEditAction(data["season_edit_field"])
+    value = " ".join((message.text or "").split())
+    if not value:
+        await message.answer(SEASON_EDIT_PROMPTS[field])
+        return
+
+    try:
+        if field == keyboards.SeasonEditAction.NAME:
+            prompt = await calendar_service.update_season_prompt(
+                prompt_id=prompt_id,
+                name=value,
+            )
+        elif field == keyboards.SeasonEditAction.STARTS_AT:
+            prompt = await calendar_service.update_season_prompt(
+                prompt_id=prompt_id,
+                starts_at=parse_admin_date(value),
+            )
+        else:
+            prompt = await calendar_service.update_season_prompt(
+                prompt_id=prompt_id,
+                ends_at=parse_admin_date(value),
+            )
+    except CalendarPromptInvalidPayloadError:
+        await message.answer(texts.admin.ADMIN_CALENDAR_INVALID_PERIOD)
+        return
+    except ValueError:
+        await message.answer(texts.admin.ADMIN_CALENDAR_INVALID_DATE)
+        return
+    except (CalendarPromptNotFoundError, CalendarPromptAlreadyResolvedError):
+        await state.clear()
+        await message.answer(texts.admin.CALENDAR_PROMPT_ALREADY_RESOLVED)
+        return
+
+    await state.clear()
+    await message.answer(
+        format_manual_season_prompt(prompt),
+        reply_markup=keyboards.manual_season_prompt_keyboard(prompt.id),
+    )
+
+
 async def _delete_callback_message(callback: CallbackQuery) -> None:
     if callback.message is None:
         return
@@ -446,3 +550,11 @@ async def _delete_callback_message(callback: CallbackQuery) -> None:
             await callback.message.edit_reply_markup(reply_markup=None)
         except TelegramBadRequest:
             pass
+
+
+def parse_admin_date(value: str) -> date:
+    match = re.fullmatch(r"(\d{1,2})\.(\d{2})\.(\d{4})", value.strip())
+    if match is None:
+        raise ValueError
+    day, month, year = (int(part) for part in match.groups())
+    return date(year, month, day)

@@ -26,6 +26,12 @@ class AdminPromptRepository:
     ) -> AdminPrompt:
         prompt = await self.get_by_key(key)
         if prompt is not None:
+            prompt.kind = kind
+            prompt.payload = payload
+            prompt.status = AdminPromptStatus.PENDING
+            prompt.resolved_at = None
+            prompt.resolved_by_admin_id = None
+            prompt.notified_at = None
             return prompt
 
         prompt = AdminPrompt(

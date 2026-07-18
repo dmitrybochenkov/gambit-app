@@ -61,6 +61,18 @@ class AdminCalendarCallback(CallbackData, prefix="admin_calendar"):
     action: AdminCalendarAction
 
 
+class SeasonEditAction(StrEnum):
+    NAME = "name"
+    STARTS_AT = "starts_at"
+    ENDS_AT = "ends_at"
+    CANCEL = "cancel"
+
+
+class SeasonEditCallback(CallbackData, prefix="season_edit"):
+    action: SeasonEditAction
+    prompt_id: int
+
+
 def registration_review_keyboard(
     player_id: int,
     has_matches: bool = False,
@@ -213,14 +225,7 @@ def calendar_prompt_keyboard(prompt_id: int) -> InlineKeyboardMarkup:
             prompt_id=prompt_id,
         ),
     )
-    builder.button(
-        text=buttons.EDIT,
-        callback_data=CalendarPromptCallback(
-            action=CalendarPromptAction.EDIT,
-            prompt_id=prompt_id,
-        ),
-    )
-    builder.adjust(2, 1)
+    builder.adjust(2)
     return builder.as_markup()
 
 
@@ -266,4 +271,38 @@ def manual_season_prompt_keyboard(prompt_id: int) -> InlineKeyboardMarkup:
         ),
     )
     builder.adjust(2, 1)
+    return builder.as_markup()
+
+
+def season_edit_keyboard(prompt_id: int) -> InlineKeyboardMarkup:
+    builder = InlineKeyboardBuilder()
+    builder.button(
+        text=buttons.ADMIN_SEASON_EDIT_NAME,
+        callback_data=SeasonEditCallback(
+            action=SeasonEditAction.NAME,
+            prompt_id=prompt_id,
+        ),
+    )
+    builder.button(
+        text=buttons.ADMIN_SEASON_EDIT_START,
+        callback_data=SeasonEditCallback(
+            action=SeasonEditAction.STARTS_AT,
+            prompt_id=prompt_id,
+        ),
+    )
+    builder.button(
+        text=buttons.ADMIN_SEASON_EDIT_END,
+        callback_data=SeasonEditCallback(
+            action=SeasonEditAction.ENDS_AT,
+            prompt_id=prompt_id,
+        ),
+    )
+    builder.button(
+        text=buttons.ADMIN_CALENDAR_CANCEL,
+        callback_data=SeasonEditCallback(
+            action=SeasonEditAction.CANCEL,
+            prompt_id=prompt_id,
+        ),
+    )
+    builder.adjust(1)
     return builder.as_markup()

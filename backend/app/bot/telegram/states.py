@@ -13,3 +13,7 @@ class RegistrationStates(StatesGroup):
     entering_full_name = State()
     entering_nickname = State()
     confirming = State()
+
+
+class CalendarSeasonEditStates(StatesGroup):
+    entering_value = State()

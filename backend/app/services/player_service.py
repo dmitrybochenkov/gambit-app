@@ -114,6 +114,12 @@ class PlayerService:
                 reviews=reviews,
             )
 
+    async def require_superadmin(self, telegram_id: int) -> PlayerView:
+        async with self.session_factory() as session:
+            repository = PlayerRepository(session)
+            admin = await self._require_superadmin(repository, telegram_id)
+            return required_player_view(admin)
+
     async def get_registration_matches_for_admin(
         self,
         admin_telegram_id: int,
@@ -324,6 +330,20 @@ class PlayerService:
             admin is None
             or admin.status != PlayerStatus.ACTIVE
             or admin.role not in {PlayerRole.ADMIN, PlayerRole.SUPERADMIN}
+        ):
+            raise AdminAccessDeniedError
+        return admin
+
+    @staticmethod
+    async def _require_superadmin(
+        repository: PlayerRepository,
+        telegram_id: int,
+    ) -> Player:
+        admin = await repository.get_by_telegram_id(telegram_id)
+        if (
+            admin is None
+            or admin.status != PlayerStatus.ACTIVE
+            or admin.role != PlayerRole.SUPERADMIN
         ):
             raise AdminAccessDeniedError
         return admin

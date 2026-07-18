@@ -9,6 +9,8 @@ from app.bot.telegram.keyboards.admin import (
     RegistrationMatchSelectionCallback,
     RegistrationReviewAction,
     RegistrationReviewCallback,
+    SeasonEditAction,
+    SeasonEditCallback,
     admin_calendar_keyboard,
     admin_panel_keyboard,
     calendar_prompt_keyboard,
@@ -16,6 +18,7 @@ from app.bot.telegram.keyboards.admin import (
     registration_list_keyboard,
     registration_match_selection_keyboard,
     registration_review_keyboard,
+    season_edit_keyboard,
 )
 from app.bot.telegram.keyboards.buttons import (
     ADMIN_PANEL_ADD_ADMIN,
@@ -102,6 +105,8 @@ __all__ = [
     "RegistrationModeCallback",
     "RegistrationReviewAction",
     "RegistrationReviewCallback",
+    "SeasonEditAction",
+    "SeasonEditCallback",
     "TournamentCancellationCallback",
     "TournamentRegistrationCallback",
     "admin_calendar_keyboard",
@@ -120,6 +125,7 @@ __all__ = [
     "registration_match_selection_keyboard",
     "registration_mode_keyboard",
     "registration_review_keyboard",
+    "season_edit_keyboard",
     "tournament_cancellation_keyboard",
     "tournament_registration_keyboard",
 ]

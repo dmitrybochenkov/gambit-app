@@ -31,6 +31,12 @@ ADMIN_CALENDAR_EMPTY_TOURNAMENTS = "Турниры на ближайшие дв�
 ADMIN_CALENDAR_SEASON_CREATED = "Сезон создан."
 ADMIN_CALENDAR_TOURNAMENTS_CREATED = "Турниры созданы."
 ADMIN_CALENDAR_EDIT_SEASON = "Ок, не открываю сезон. Пришли правки отдельным сообщением."
+ADMIN_CALENDAR_EDIT_MENU = "Что меняем?"
+ADMIN_CALENDAR_ENTER_SEASON_NAME = "Введи новое название сезона."
+ADMIN_CALENDAR_ENTER_SEASON_START = "Введи дату начала в формате 1.09.2026."
+ADMIN_CALENDAR_ENTER_SEASON_END = "Введи дату окончания в формате 30.11.2026."
+ADMIN_CALENDAR_INVALID_DATE = "Дата должна быть в формате 1.09.2026."
+ADMIN_CALENDAR_INVALID_PERIOD = "Дата начала не может быть позже даты окончания."
 
 CALENDAR_PROMPT_NOT_FOUND = "Предложение не найдено."
 CALENDAR_PROMPT_ALREADY_RESOLVED = "Предложение уже обработано."
