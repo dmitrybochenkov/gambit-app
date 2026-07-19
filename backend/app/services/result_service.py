@@ -114,9 +114,9 @@ class ResultService:
         player_id: int,
         place: int | None,
         knockouts_count: int,
-        boss_knockouts_count: int,
+        big_knockouts_count: int,
     ) -> TournamentResultDraftView:
-        if knockouts_count < 0 or boss_knockouts_count < 0:
+        if knockouts_count < 0 or big_knockouts_count < 0:
             raise ResultInvalidPlayerDataError
         if place is not None and place <= 0:
             raise ResultInvalidPlayerDataError
@@ -129,7 +129,7 @@ class ResultService:
                 raise ResultPlayerNotFoundError
             draft.place = place
             draft.knockouts_count = knockouts_count
-            draft.boss_knockouts_count = boss_knockouts_count
+            draft.big_knockouts_count = big_knockouts_count
             await session.commit()
             return await self._draft_view(session, tournament.id)
 
@@ -163,7 +163,7 @@ class ResultService:
                 )
                 knockout_points = self._knockout_points(
                     knockouts_count=item.knockouts_count,
-                    boss_knockouts_count=item.boss_knockouts_count,
+                    big_knockouts_count=item.big_knockouts_count,
                     scoring_config=scoring_config,
                     rule=rule,
                 )
@@ -173,7 +173,7 @@ class ResultService:
                         player_id=item.player_id,
                         place=item.place,
                         knockouts_count=item.knockouts_count,
-                        boss_knockouts_count=item.boss_knockouts_count,
+                        big_knockouts_count=item.big_knockouts_count,
                         tournament_points=tournament_points,
                         knockout_points=knockout_points,
                         bonus_points=Decimal("0"),
@@ -247,7 +247,7 @@ class ResultService:
                         player_id=player_id,
                         place=None,
                         knockouts_count=0,
-                        boss_knockouts_count=0,
+                        big_knockouts_count=0,
                     )
                 )
         await session.flush()
@@ -286,7 +286,7 @@ class ResultService:
                 display_name=player.display_name,
                 place=draft.place,
                 knockouts_count=draft.knockouts_count,
-                boss_knockouts_count=draft.boss_knockouts_count,
+                big_knockouts_count=draft.big_knockouts_count,
             )
             for draft, player in result.all()
         ]
@@ -362,7 +362,7 @@ class ResultService:
     @staticmethod
     def _knockout_points(
         knockouts_count: int,
-        boss_knockouts_count: int,
+        big_knockouts_count: int,
         scoring_config: ScoringConfig,
         rule: TournamentTypeRule | None,
     ) -> Decimal:
@@ -373,7 +373,7 @@ class ResultService:
         else:
             points = (
                 knockouts_count * scoring_config.knockout_small_points
-                + boss_knockouts_count * scoring_config.knockout_big_points
+                + big_knockouts_count * scoring_config.knockout_big_points
             )
         return Decimal(points).quantize(Decimal("0.01"))
 

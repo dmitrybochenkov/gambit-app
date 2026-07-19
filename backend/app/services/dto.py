@@ -89,7 +89,7 @@ class TournamentResultDraftPlayerView:
     display_name: str
     place: int | None
     knockouts_count: int
-    boss_knockouts_count: int
+    big_knockouts_count: int
 
 
 @dataclass(frozen=True)
@@ -127,11 +127,11 @@ class KnockoutsRatingView:
     player_id: int
     display_name: str
     knockouts_count: int
-    boss_knockouts_count: int
+    big_knockouts_count: int
 
     @property
     def total_knockouts_count(self) -> int:
-        return self.knockouts_count + self.boss_knockouts_count
+        return self.knockouts_count + self.big_knockouts_count
 
 
 @dataclass(frozen=True)
@@ -146,7 +146,7 @@ class PlayerProfileView:
     display_name: str
     total_points: Decimal
     knockouts_count: int
-    boss_knockouts_count: int
+    big_knockouts_count: int
     tournaments_count: int
     first_places_count: int
     second_places_count: int
@@ -156,4 +156,4 @@ class PlayerProfileView:
 
     @property
     def total_knockouts_count(self) -> int:
-        return self.knockouts_count + self.boss_knockouts_count
+        return self.knockouts_count + self.big_knockouts_count

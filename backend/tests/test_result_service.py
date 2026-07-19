@@ -119,7 +119,7 @@ async def test_result_draft_closes_tournament(tmp_path: Path) -> None:
         first_player_id,
         place=1,
         knockouts_count=2,
-        boss_knockouts_count=1,
+        big_knockouts_count=1,
     )
     await service.update_player_result(
         100,
@@ -127,7 +127,7 @@ async def test_result_draft_closes_tournament(tmp_path: Path) -> None:
         second_player_id,
         place=None,
         knockouts_count=1,
-        boss_knockouts_count=0,
+        big_knockouts_count=0,
     )
     closed = await service.close_tournament(100, tournament_id)
 
@@ -213,7 +213,7 @@ async def test_result_draft_rejects_duplicate_places(tmp_path: Path) -> None:
             player_id,
             place=1,
             knockouts_count=0,
-            boss_knockouts_count=0,
+            big_knockouts_count=0,
         )
 
     try:

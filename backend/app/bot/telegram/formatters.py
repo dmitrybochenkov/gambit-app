@@ -113,7 +113,7 @@ def format_admin_result_players(
         result_parts = _admin_result_player_parts(
             knockout_mode=draft.knockout_mode,
             knockouts_count=player.knockouts_count,
-            boss_knockouts_count=player.boss_knockouts_count,
+            big_knockouts_count=player.big_knockouts_count,
             place=player.place,
         )
         line = player.display_name
@@ -129,14 +129,14 @@ def _admin_result_player_parts(
     *,
     knockout_mode: str,
     knockouts_count: int,
-    boss_knockouts_count: int,
+    big_knockouts_count: int,
     place: int | None,
 ) -> list[str]:
     place_part = [f"место {place}"] if place is not None else []
     if knockout_mode == "small_big":
         return [
-            f"КО {knockouts_count}",
-            f"Босс КО {boss_knockouts_count}",
+            f"Малые КО {knockouts_count}",
+            f"Большие КО {big_knockouts_count}",
             *place_part,
         ]
     if knockout_mode == "small":
@@ -153,9 +153,10 @@ def format_admin_result_player_detail(
         player.display_name,
     ]
     if draft.knockout_mode in {"small", "small_big"}:
-        lines.append(f"КО: {player.knockouts_count}")
+        label = "Малые КО" if draft.knockout_mode == "small_big" else "КО"
+        lines.append(f"{label}: {player.knockouts_count}")
     if draft.knockout_mode == "small_big":
-        lines.append(f"Босс КО: {player.boss_knockouts_count}")
+        lines.append(f"Большие КО: {player.big_knockouts_count}")
     if player.place is not None:
         lines.append(f"Место: {player.place}")
     return "\n".join(lines)

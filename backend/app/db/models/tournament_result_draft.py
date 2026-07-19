@@ -21,7 +21,7 @@ class TournamentResultDraft(TimestampMixin, Base):
     )
     place: Mapped[int | None] = mapped_column(Integer, nullable=True)
     knockouts_count: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
-    boss_knockouts_count: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    big_knockouts_count: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
 
     __table_args__ = (
         UniqueConstraint(
@@ -32,7 +32,7 @@ class TournamentResultDraft(TimestampMixin, Base):
         CheckConstraint("place IS NULL OR place > 0", name="place_positive"),
         CheckConstraint("knockouts_count >= 0", name="knockouts_count_nonnegative"),
         CheckConstraint(
-            "boss_knockouts_count >= 0",
-            name="boss_knockouts_count_nonnegative",
+            "big_knockouts_count >= 0",
+            name="big_knockouts_count_nonnegative",
         ),
     )

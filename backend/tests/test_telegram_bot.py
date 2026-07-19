@@ -53,7 +53,7 @@ def test_parse_result_manual_value() -> None:
     ) == 17
     assert admin_handlers.parse_result_manual_value(
         "10",
-        field=keyboards.AdminResultField.BOSS_KNOCKOUTS,
+        field=keyboards.AdminResultField.BIG_KNOCKOUTS,
     ) == 10
     assert admin_handlers.parse_result_manual_value(
         "5",
@@ -77,14 +77,14 @@ def test_admin_result_players_hide_ids_and_empty_places() -> None:
             display_name="Тест Игрок",
             place=None,
             knockouts_count=0,
-            boss_knockouts_count=0,
+            big_knockouts_count=0,
         ),
         TournamentResultDraftPlayerView(
             player_id=108,
             display_name="Илларионов Александр",
             place=2,
             knockouts_count=0,
-            boss_knockouts_count=0,
+            big_knockouts_count=0,
         ),
     ]
     draft = TournamentResultDraftView(
@@ -116,7 +116,7 @@ def test_admin_result_player_field_and_value_keyboards() -> None:
         display_name="Илларионов Александр",
         place=None,
         knockouts_count=0,
-        boss_knockouts_count=0,
+        big_knockouts_count=0,
     )
     draft = TournamentResultDraftView(
         tournament=tournament,
@@ -135,8 +135,8 @@ def test_admin_result_player_field_and_value_keyboards() -> None:
         for button in row
     ]
     assert field_buttons == [
-        "💥 КО",
-        "👑💥 Босс КО",
+        "💥 Малые КО",
+        "💥 Большие КО",
         "🏁 Место",
         "✅ Готово",
         "❌ Отмена",

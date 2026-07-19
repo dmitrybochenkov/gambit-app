@@ -151,7 +151,7 @@ class AdminResultPlayerCallback(CallbackData, prefix="res_player"):
 
 class AdminResultField(StrEnum):
     KNOCKOUTS = "ko"
-    BOSS_KNOCKOUTS = "boss"
+    BIG_KNOCKOUTS = "big"
     PLACE = "place"
 
 
@@ -553,7 +553,7 @@ def admin_result_player_fields_keyboard(
     builder = InlineKeyboardBuilder()
     if draft.knockout_mode in {"small", "small_big"}:
         builder.button(
-            text="💥 КО",
+            text="💥 Малые КО" if draft.knockout_mode == "small_big" else "💥 КО",
             callback_data=AdminResultFieldCallback(
                 action=AdminResultFieldAction.OPEN,
                 tournament_id=draft.tournament.id,
@@ -564,13 +564,13 @@ def admin_result_player_fields_keyboard(
         )
     if draft.knockout_mode == "small_big":
         builder.button(
-            text="👑💥 Босс КО",
+            text="💥 Большие КО",
             callback_data=AdminResultFieldCallback(
                 action=AdminResultFieldAction.OPEN,
                 tournament_id=draft.tournament.id,
                 page=page,
                 player_id=player.player_id,
-                field=AdminResultField.BOSS_KNOCKOUTS,
+                field=AdminResultField.BIG_KNOCKOUTS,
             ),
         )
     builder.button(

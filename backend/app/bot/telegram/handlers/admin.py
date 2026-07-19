@@ -1842,7 +1842,7 @@ def result_field_is_allowed(
 ) -> bool:
     if field == keyboards.AdminResultField.KNOCKOUTS:
         return knockout_mode in {"small", "small_big"}
-    if field == keyboards.AdminResultField.BOSS_KNOCKOUTS:
+    if field == keyboards.AdminResultField.BIG_KNOCKOUTS:
         return knockout_mode == "small_big"
     return field == keyboards.AdminResultField.PLACE
 
@@ -1850,7 +1850,7 @@ def result_field_is_allowed(
 def result_field_name(field: keyboards.AdminResultField) -> str:
     return {
         keyboards.AdminResultField.KNOCKOUTS: "КО",
-        keyboards.AdminResultField.BOSS_KNOCKOUTS: "Босс КО",
+        keyboards.AdminResultField.BIG_KNOCKOUTS: "Большие КО",
         keyboards.AdminResultField.PLACE: "место",
     }[field]
 
@@ -1875,13 +1875,13 @@ async def update_result_field(
 
     place = player.place
     knockouts_count = player.knockouts_count
-    boss_knockouts_count = player.boss_knockouts_count
+    big_knockouts_count = player.big_knockouts_count
     if field == keyboards.AdminResultField.PLACE:
         place = value
     elif field == keyboards.AdminResultField.KNOCKOUTS:
         knockouts_count = value
-    elif field == keyboards.AdminResultField.BOSS_KNOCKOUTS:
-        boss_knockouts_count = value
+    elif field == keyboards.AdminResultField.BIG_KNOCKOUTS:
+        big_knockouts_count = value
 
     return await result_service.update_player_result(
         admin_telegram_id=admin_telegram_id,
@@ -1889,7 +1889,7 @@ async def update_result_field(
         player_id=player_id,
         place=place,
         knockouts_count=knockouts_count,
-        boss_knockouts_count=boss_knockouts_count,
+        big_knockouts_count=big_knockouts_count,
     )
 
 

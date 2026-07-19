@@ -21,11 +21,11 @@ class KnockoutsRatingRow:
     player_id: int
     display_name: str
     knockouts_count: int
-    boss_knockouts_count: int
+    big_knockouts_count: int
 
     @property
     def total_knockouts_count(self) -> int:
-        return self.knockouts_count + self.boss_knockouts_count
+        return self.knockouts_count + self.big_knockouts_count
 
 
 class RatingRepository:
@@ -78,15 +78,15 @@ class RatingRepository:
         current_season: bool,
     ) -> list[KnockoutsRatingRow]:
         knockouts = func.sum(TournamentResult.knockouts_count)
-        boss_knockouts = func.sum(TournamentResult.boss_knockouts_count)
-        total_knockouts = knockouts + boss_knockouts
+        big_knockouts = func.sum(TournamentResult.big_knockouts_count)
+        total_knockouts = knockouts + big_knockouts
         statement = (
             select(
                 Player.id.label("player_id"),
                 Player.full_name,
                 Player.nickname,
                 knockouts.label("knockouts_count"),
-                boss_knockouts.label("boss_knockouts_count"),
+                big_knockouts.label("big_knockouts_count"),
             )
             .join(TournamentResult, TournamentResult.player_id == Player.id)
             .join(Tournament, Tournament.id == TournamentResult.tournament_id)
@@ -102,7 +102,7 @@ class RatingRepository:
         result = await self.session.execute(
             statement.order_by(
                 total_knockouts.desc(),
-                boss_knockouts.desc(),
+                big_knockouts.desc(),
                 Player.id,
             )
         )
@@ -111,7 +111,7 @@ class RatingRepository:
                 player_id=row.player_id,
                 display_name=self._display_name(row.full_name, row.nickname),
                 knockouts_count=row.knockouts_count,
-                boss_knockouts_count=row.boss_knockouts_count,
+                big_knockouts_count=row.big_knockouts_count,
             )
             for row in result
         ]

@@ -91,7 +91,7 @@ async def test_rating_filters_current_season_and_all_time(tmp_path: Path) -> Non
                     player_id=first_player.id,
                     place=2,
                     knockouts_count=2,
-                    boss_knockouts_count=1,
+                    big_knockouts_count=1,
                     tournament_points=Decimal("70"),
                     knockout_points=Decimal("20"),
                     bonus_points=Decimal("10"),
@@ -101,7 +101,7 @@ async def test_rating_filters_current_season_and_all_time(tmp_path: Path) -> Non
                     player_id=second_player.id,
                     place=1,
                     knockouts_count=4,
-                    boss_knockouts_count=0,
+                    big_knockouts_count=0,
                     tournament_points=Decimal("100"),
                     knockout_points=Decimal("20"),
                     bonus_points=Decimal("0"),
@@ -111,7 +111,7 @@ async def test_rating_filters_current_season_and_all_time(tmp_path: Path) -> Non
                     player_id=first_player.id,
                     place=1,
                     knockouts_count=3,
-                    boss_knockouts_count=0,
+                    big_knockouts_count=0,
                     tournament_points=Decimal("50"),
                     knockout_points=Decimal("0"),
                     bonus_points=Decimal("0"),
@@ -121,7 +121,7 @@ async def test_rating_filters_current_season_and_all_time(tmp_path: Path) -> Non
                     player_id=zero_player.id,
                     place=3,
                     knockouts_count=0,
-                    boss_knockouts_count=0,
+                    big_knockouts_count=0,
                     tournament_points=Decimal("0"),
                     knockout_points=Decimal("0"),
                     bonus_points=Decimal("0"),
@@ -195,7 +195,7 @@ async def test_rating_filters_current_season_and_all_time(tmp_path: Path) -> Non
         ).startswith(
             "Рейтинг — текущий сезон\n\n🥇 *King* — 120 очков"
         )
-        assert "всего КО: 6, Босс КО: 1" in format_rating(
+        assert "всего КО: 6, Большие КО: 1" in format_rating(
             knockout_title,
             all_time_knockouts_page,
             current_player_id=first_player.id,

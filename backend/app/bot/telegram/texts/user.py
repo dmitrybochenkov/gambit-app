@@ -161,7 +161,7 @@ def rating_message(
             lines.append(
                 f"{position_label} {display_name} — "
                 f"всего КО: {row.total_knockouts_count}, "
-                f"Босс КО: {row.boss_knockouts_count}"
+                f"Большие КО: {row.big_knockouts_count}"
             )
     return "\n".join(lines)
 

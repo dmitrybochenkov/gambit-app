@@ -112,7 +112,7 @@ def test_tournament_result_bonus_points_must_be_nonnegative(
             player_id=player.id,
             place=1,
             knockouts_count=0,
-            boss_knockouts_count=0,
+            big_knockouts_count=0,
             tournament_points=Decimal("0"),
             knockout_points=Decimal("0"),
             bonus_points=Decimal("-1"),
