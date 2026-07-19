@@ -34,6 +34,17 @@ ADMIN_RESULTS_CHECK_FAILED = "Нужно поправить:\n{errors}"
 ADMIN_RESULTS_CHECK_FAILED_SHORT = "Нужно поправить ошибки."
 ADMIN_RESULTS_CANCELLED = "Отмена."
 ADMIN_RESULTS_NOT_FOUND = "Турнир не найден или уже закрыт."
+ADMIN_TOURNAMENT_REGISTRATION_NO_TOURNAMENTS = "Нет активных турниров для записи."
+ADMIN_TOURNAMENT_REGISTRATION_TOURNAMENT_LIST_TITLE = (
+    "Выбери турнир для регистрации игрока:"
+)
+ADMIN_TOURNAMENT_REGISTRATION_NO_PLAYERS = "Нет активных игроков для регистрации."
+ADMIN_TOURNAMENT_REGISTRATION_PLAYER_LIST_TITLE = "Кого регистрируем?"
+ADMIN_TOURNAMENT_REGISTRATION_SUCCESS = (
+    "Игрок зарегистрирован на турнир:\n{player}\n{tournament}"
+)
+ADMIN_TOURNAMENT_REGISTRATION_CANCELLED = "Отмена."
+ADMIN_TOURNAMENT_REGISTRATION_NOT_FOUND = "Турнир или игрок уже недоступен."
 NO_PENDING_REGISTRATIONS = "Новых заявок нет."
 PENDING_REGISTRATIONS_COUNT = "Заявок на проверке: {count}"
 REGISTRATION_LIST_TITLE = "Заявки на регистрацию"
@@ -112,6 +123,13 @@ def admin_add_confirmation(display_name: str) -> str:
 def admin_result_check_failed(errors: list[str]) -> str:
     return ADMIN_RESULTS_CHECK_FAILED.format(
         errors="\n".join(f"• {error}" for error in errors)
+    )
+
+
+def admin_tournament_registration_success(player: str, tournament: str) -> str:
+    return ADMIN_TOURNAMENT_REGISTRATION_SUCCESS.format(
+        player=player,
+        tournament=tournament,
     )
 
 

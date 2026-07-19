@@ -5,6 +5,7 @@ from app.bot.telegram import texts
 from app.services.dto import (
     AdminPromptView,
     PlayerProfileView,
+    PlayerView,
     TournamentResultDraftView,
     TournamentView,
 )
@@ -114,6 +115,33 @@ def format_admin_result_players(
             f"место {place}, КО {player.knockouts_count}, "
             f"Босс КО {player.boss_knockouts_count}"
         )
+    if page.total_pages > 1:
+        lines.extend(["", _page_line(page)])
+    return "\n".join(lines)
+
+
+def format_admin_tournament_registration_tournament_list(
+    page: Page[TournamentView],
+) -> str:
+    lines = [texts.admin.ADMIN_TOURNAMENT_REGISTRATION_TOURNAMENT_LIST_TITLE, ""]
+    for tournament in page.items:
+        lines.append(f"{tournament.id} — {format_tournament_label(tournament)}")
+    if page.total_pages > 1:
+        lines.extend(["", _page_line(page)])
+    return "\n".join(lines)
+
+
+def format_admin_tournament_registration_player_list(
+    tournament: TournamentView,
+    page: Page[PlayerView],
+) -> str:
+    lines = [
+        texts.admin.ADMIN_TOURNAMENT_REGISTRATION_PLAYER_LIST_TITLE,
+        format_tournament_label(tournament),
+        "",
+    ]
+    for player in page.items:
+        lines.append(f"{player.id} — {player.display_name}")
     if page.total_pages > 1:
         lines.extend(["", _page_line(page)])
     return "\n".join(lines)

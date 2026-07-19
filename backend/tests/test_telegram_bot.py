@@ -679,7 +679,7 @@ async def test_admin_panel_entry_sends_admin_keyboard(
         "🗓 Календарь",
         "➕ Добавить админа",
         "🏁 Внести результат",
-        "📝 Зарегать игрока на турнир — НЕТ ОБР!",
+        "📝 Зарегать игрока на турнир",
         "⬅️ Выход",
     ]
 
@@ -739,6 +739,115 @@ async def test_add_admin_button_shows_candidates(
         for button in row
     ]
     assert buttons == ["1. Игрок Первый", "❌ Отмена"]
+
+
+async def test_admin_registration_button_shows_tournaments(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    tournament = tournament_view(125, date(2026, 7, 19), 2, "Классика")
+    service = SimpleNamespace(
+        list_registration_tournaments_for_admin=AsyncMock(return_value=[tournament])
+    )
+    monkeypatch.setattr(admin_handlers, "tournament_service", service)
+    message = SimpleNamespace(
+        from_user=SimpleNamespace(id=100),
+        answer=AsyncMock(),
+    )
+
+    await admin_handlers.show_admin_registration_tournaments(message)
+
+    service.list_registration_tournaments_for_admin.assert_awaited_once_with(100)
+    answer = message.answer.await_args
+    assert answer.args[0] == (
+        "Выбери турнир для регистрации игрока:\n\n"
+        "125 — Воскресенье, 19 июля — Классика"
+    )
+    buttons = [
+        button.text
+        for row in answer.kwargs["reply_markup"].inline_keyboard
+        for button in row
+    ]
+    assert buttons == ["125", "❌ Отмена"]
+
+
+async def test_admin_registration_tournament_selection_shows_players(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    tournament = tournament_view(125, date(2026, 7, 19), 2, "Классика")
+    player = active_player()
+    service = SimpleNamespace(
+        list_registration_tournaments_for_admin=AsyncMock(return_value=[tournament]),
+        list_players_for_admin_registration=AsyncMock(return_value=[player]),
+    )
+    monkeypatch.setattr(admin_handlers, "tournament_service", service)
+    message = SimpleNamespace(delete=AsyncMock(), answer=AsyncMock())
+    callback = SimpleNamespace(
+        from_user=SimpleNamespace(id=100),
+        message=message,
+        answer=AsyncMock(),
+    )
+    callback_data = SimpleNamespace(
+        action=keyboards.AdminTournamentRegistrationTournamentAction.OPEN,
+        page=0,
+        tournament_id=125,
+    )
+
+    await admin_handlers.select_admin_registration_tournament(callback, callback_data)
+
+    message.delete.assert_awaited_once_with()
+    answer = message.answer.await_args
+    assert answer.args[0] == (
+        "Кого регистрируем?\n"
+        "Воскресенье, 19 июля — Классика\n\n"
+        "1 — Игрок Первый"
+    )
+    buttons = [
+        button.text
+        for row in answer.kwargs["reply_markup"].inline_keyboard
+        for button in row
+    ]
+    assert buttons == ["1. Игрок Первый", "⬅️ Назад", "❌ Отмена"]
+
+
+async def test_admin_registration_player_selection_registers_player(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    tournament = tournament_view(125, date(2026, 7, 19), 2, "Классика")
+    player = active_player()
+    service = SimpleNamespace(
+        list_registration_tournaments_for_admin=AsyncMock(return_value=[tournament]),
+        list_players_for_admin_registration=AsyncMock(return_value=[player]),
+        register_player_for_tournament_by_admin=AsyncMock(
+            return_value=(tournament, player)
+        ),
+    )
+    monkeypatch.setattr(admin_handlers, "tournament_service", service)
+    message = SimpleNamespace(delete=AsyncMock(), answer=AsyncMock())
+    callback = SimpleNamespace(
+        from_user=SimpleNamespace(id=100),
+        message=message,
+        answer=AsyncMock(),
+    )
+    callback_data = SimpleNamespace(
+        action=keyboards.AdminTournamentRegistrationPlayerAction.OPEN,
+        tournament_id=125,
+        page=0,
+        player_id=1,
+    )
+
+    await admin_handlers.select_admin_registration_player(callback, callback_data)
+
+    service.register_player_for_tournament_by_admin.assert_awaited_once_with(
+        admin_telegram_id=100,
+        tournament_id=125,
+        player_id=1,
+    )
+    message.delete.assert_awaited_once_with()
+    assert message.answer.await_args.args[0] == (
+        "Игрок зарегистрирован на турнир:\n"
+        "Игрок Первый\n"
+        "Воскресенье, 19 июля — Классика"
+    )
 
 
 async def test_add_admin_button_denies_regular_admin(

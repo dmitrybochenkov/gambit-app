@@ -15,6 +15,7 @@ from app.db.models import (
     TournamentRegistration,
 )
 from app.db.models.enums import (
+    PlayerRole,
     PlayerStatus,
     RegistrationStatus,
     SeasonStatus,
@@ -221,5 +222,84 @@ async def test_active_player_can_register_for_multiple_tournaments(tmp_path: Pat
             )
             == []
         )
+    finally:
+        await engine.dispose()
+
+
+async def test_admin_can_register_player_for_tournament(tmp_path: Path) -> None:
+    engine = create_async_engine(f"sqlite+aiosqlite:///{tmp_path / 'admin_registration.db'}")
+    async with engine.begin() as connection:
+        await connection.run_sync(Base.metadata.create_all)
+
+    session_factory = async_sessionmaker(engine, expire_on_commit=False)
+    async with session_factory() as session:
+        config = ScoringConfig()
+        session.add(config)
+        await session.flush()
+        await seed_tournament_types_async(session)
+        season = Season(
+            name="Test season",
+            scoring_config_id=config.id,
+            starts_at=date(2026, 7, 1),
+            ends_at=date(2026, 12, 31),
+            status=SeasonStatus.ACTIVE,
+        )
+        admin = Player(
+            telegram_id=100,
+            full_name="Админ Первый",
+            status=PlayerStatus.ACTIVE,
+            role=PlayerRole.ADMIN,
+        )
+        player = Player(
+            telegram_id=101,
+            full_name="Игрок Первый",
+            status=PlayerStatus.ACTIVE,
+        )
+        session.add_all([season, admin, player])
+        await session.flush()
+        tournament = Tournament(
+            season_id=season.id,
+            tournament_type_id=tournament_type_id("classic"),
+            date=date(2026, 7, 9),
+            status=TournamentStatus.ACTIVE,
+        )
+        session.add(tournament)
+        await session.commit()
+        tournament_id = tournament.id
+        player_id = player.id
+
+    service = TournamentService(session_factory)
+    try:
+        tournament_view, player_view = (
+            await service.register_player_for_tournament_by_admin(
+                admin_telegram_id=100,
+                tournament_id=tournament_id,
+                player_id=player_id,
+                from_date=date(2026, 7, 6),
+            )
+        )
+        await service.register_player_for_tournament_by_admin(
+            admin_telegram_id=100,
+            tournament_id=tournament_id,
+            player_id=player_id,
+            from_date=date(2026, 7, 6),
+        )
+
+        assert tournament_view.id == tournament_id
+        assert tournament_view.tournament_type_name == "Классика"
+        assert player_view.id == player_id
+        async with session_factory() as session:
+            registrations = list(
+                (
+                    await session.execute(
+                        select(TournamentRegistration).where(
+                            TournamentRegistration.tournament_id == tournament_id,
+                            TournamentRegistration.player_id == player_id,
+                        )
+                    )
+                ).scalars()
+            )
+        assert len(registrations) == 1
+        assert registrations[0].status == RegistrationStatus.REGISTERED
     finally:
         await engine.dispose()

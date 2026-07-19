@@ -23,6 +23,7 @@ from app.services.pagination import Page
 REGISTRATION_LIST_PAGE_SIZE = 6
 ADMIN_CANDIDATE_PAGE_SIZE = 6
 ADMIN_RESULT_PAGE_SIZE = 6
+ADMIN_TOURNAMENT_REGISTRATION_PAGE_SIZE = 6
 
 
 class RegistrationReviewAction(StrEnum):
@@ -148,6 +149,32 @@ class AdminResultPlayerCallback(CallbackData, prefix="res_player"):
     player_id: int
 
 
+class AdminTournamentRegistrationTournamentAction(StrEnum):
+    OPEN = "open"
+    PAGE = "page"
+    CANCEL = "cancel"
+
+
+class AdminTournamentRegistrationTournamentCallback(CallbackData, prefix="admin_reg_t"):
+    action: AdminTournamentRegistrationTournamentAction
+    page: int
+    tournament_id: int
+
+
+class AdminTournamentRegistrationPlayerAction(StrEnum):
+    OPEN = "open"
+    PAGE = "page"
+    BACK = "back"
+    CANCEL = "cancel"
+
+
+class AdminTournamentRegistrationPlayerCallback(CallbackData, prefix="admin_reg_p"):
+    action: AdminTournamentRegistrationPlayerAction
+    tournament_id: int
+    page: int
+    player_id: int
+
+
 class TournamentEditAction(StrEnum):
     TYPE = "type"
     ECONOMY = "economy"
@@ -223,7 +250,7 @@ def admin_panel_keyboard() -> ReplyKeyboardMarkup:
             [KeyboardButton(text=buttons.ADMIN_PANEL_CALENDAR)],
             [KeyboardButton(text=buttons.ADMIN_PANEL_ADD_ADMIN)],
             [KeyboardButton(text=buttons.ADMIN_PANEL_RESULTS)],
-            [KeyboardButton(text=buttons.ADMIN_PANEL_REGISTER_PLAYER_TODO)],
+            [KeyboardButton(text=buttons.ADMIN_PANEL_REGISTER_PLAYER)],
             [KeyboardButton(text=buttons.ADMIN_PANEL_EXIT)],
         ],
         resize_keyboard=True,
@@ -481,10 +508,154 @@ def admin_result_cancel_keyboard(tournament_id: int) -> InlineKeyboardMarkup:
     return builder.as_markup()
 
 
+def admin_tournament_registration_tournament_keyboard(
+    page: Page[TournamentView],
+) -> InlineKeyboardMarkup:
+    builder = InlineKeyboardBuilder()
+    for tournament in page.items:
+        builder.button(
+            text=str(tournament.id),
+            callback_data=AdminTournamentRegistrationTournamentCallback(
+                action=AdminTournamentRegistrationTournamentAction.OPEN,
+                page=page.page,
+                tournament_id=tournament.id,
+            ),
+        )
+    _add_admin_registration_tournament_page_buttons(builder, page)
+    builder.button(
+        text=buttons.ADMIN_CANCEL,
+        callback_data=AdminTournamentRegistrationTournamentCallback(
+            action=AdminTournamentRegistrationTournamentAction.CANCEL,
+            page=page.page,
+            tournament_id=0,
+        ),
+    )
+    item_rows = [3] * (len(page.items) // 3)
+    if len(page.items) % 3:
+        item_rows.append(len(page.items) % 3)
+    _adjust_paged_keyboard(builder, page, item_rows=item_rows)
+    return builder.as_markup()
+
+
+def admin_tournament_registration_player_keyboard(
+    tournament_id: int,
+    page: Page[PlayerView],
+) -> InlineKeyboardMarkup:
+    builder = InlineKeyboardBuilder()
+    for player in page.items:
+        builder.button(
+            text=f"{player.id}. {player.display_name}",
+            callback_data=AdminTournamentRegistrationPlayerCallback(
+                action=AdminTournamentRegistrationPlayerAction.OPEN,
+                tournament_id=tournament_id,
+                page=page.page,
+                player_id=player.id,
+            ),
+        )
+    _add_admin_registration_player_page_buttons(builder, page, tournament_id)
+    builder.button(
+        text="⬅️ Назад",
+        callback_data=AdminTournamentRegistrationPlayerCallback(
+            action=AdminTournamentRegistrationPlayerAction.BACK,
+            tournament_id=tournament_id,
+            page=page.page,
+            player_id=0,
+        ),
+    )
+    builder.button(
+        text=buttons.ADMIN_CANCEL,
+        callback_data=AdminTournamentRegistrationPlayerCallback(
+            action=AdminTournamentRegistrationPlayerAction.CANCEL,
+            tournament_id=tournament_id,
+            page=page.page,
+            player_id=0,
+        ),
+    )
+    _adjust_paged_keyboard(
+        builder,
+        page,
+        item_rows=[1] * len(page.items),
+        footer_rows=[1, 1],
+    )
+    return builder.as_markup()
+
+
 def _admin_candidate_page_label(page: Page[PlayerView]) -> str:
     start = page.page * page.page_size + 1
     end = start + len(page.items) - 1
     return f"{start}-{end} из {page.total_items}"
+
+
+def _add_admin_registration_tournament_page_buttons(
+    builder: InlineKeyboardBuilder,
+    page: Page[TournamentView],
+) -> None:
+    if page.total_pages <= 1:
+        return
+    if page.has_previous:
+        builder.button(
+            text="⬅️",
+            callback_data=AdminTournamentRegistrationTournamentCallback(
+                action=AdminTournamentRegistrationTournamentAction.PAGE,
+                page=page.previous_page,
+                tournament_id=0,
+            ),
+        )
+    builder.button(
+        text=_admin_candidate_page_label(page),
+        callback_data=AdminTournamentRegistrationTournamentCallback(
+            action=AdminTournamentRegistrationTournamentAction.PAGE,
+            page=page.page,
+            tournament_id=0,
+        ),
+    )
+    if page.has_next:
+        builder.button(
+            text="➡️",
+            callback_data=AdminTournamentRegistrationTournamentCallback(
+                action=AdminTournamentRegistrationTournamentAction.PAGE,
+                page=page.next_page,
+                tournament_id=0,
+            ),
+        )
+
+
+def _add_admin_registration_player_page_buttons(
+    builder: InlineKeyboardBuilder,
+    page: Page[PlayerView],
+    tournament_id: int,
+) -> None:
+    if page.total_pages <= 1:
+        return
+    if page.has_previous:
+        builder.button(
+            text="⬅️",
+            callback_data=AdminTournamentRegistrationPlayerCallback(
+                action=AdminTournamentRegistrationPlayerAction.PAGE,
+                tournament_id=tournament_id,
+                page=page.previous_page,
+                player_id=0,
+            ),
+        )
+    builder.button(
+        text=_admin_candidate_page_label(page),
+        callback_data=AdminTournamentRegistrationPlayerCallback(
+            action=AdminTournamentRegistrationPlayerAction.PAGE,
+            tournament_id=tournament_id,
+            page=page.page,
+            player_id=0,
+        ),
+    )
+    if page.has_next:
+        builder.button(
+            text="➡️",
+            callback_data=AdminTournamentRegistrationPlayerCallback(
+                action=AdminTournamentRegistrationPlayerAction.PAGE,
+                tournament_id=tournament_id,
+                page=page.next_page,
+                player_id=0,
+            ),
+        )
 
 
 def _add_result_tournament_page_buttons(

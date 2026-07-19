@@ -50,6 +50,17 @@ class PlayerRepository:
         )
         return list(result.scalars())
 
+    async def list_active_players(self) -> list[Player]:
+        result = await self.session.execute(
+            select(Player)
+            .where(
+                Player.status == PlayerStatus.ACTIVE,
+                Player.telegram_id > 0,
+            )
+            .order_by(Player.id)
+        )
+        return list(result.scalars())
+
     async def full_name_exists(
         self,
         full_name: str,
