@@ -785,6 +785,7 @@ async def test_admin_registration_tournament_selection_shows_players(
         from_user=SimpleNamespace(id=100),
         message=message,
         answer=AsyncMock(),
+        bot=SimpleNamespace(send_message=AsyncMock()),
     )
     callback_data = SimpleNamespace(
         action=keyboards.AdminTournamentRegistrationTournamentAction.OPEN,
@@ -827,6 +828,7 @@ async def test_admin_registration_player_selection_registers_player(
         from_user=SimpleNamespace(id=100),
         message=message,
         answer=AsyncMock(),
+        bot=SimpleNamespace(send_message=AsyncMock()),
     )
     callback_data = SimpleNamespace(
         action=keyboards.AdminTournamentRegistrationPlayerAction.OPEN,
@@ -847,6 +849,12 @@ async def test_admin_registration_player_selection_registers_player(
     assert message.answer.await_args.args[0] == (
         "Игрок зарегистрирован на турнир:\n"
         "Игрок Первый\n"
+        "Воскресенье, 19 июля — Классика"
+    )
+    callback.bot.send_message.assert_awaited_once()
+    assert callback.bot.send_message.await_args.kwargs["chat_id"] == 123
+    assert callback.bot.send_message.await_args.kwargs["text"] == (
+        "Ты зарегистрирован на турнир:\n"
         "Воскресенье, 19 июля — Классика"
     )
     state.clear.assert_awaited_once_with()

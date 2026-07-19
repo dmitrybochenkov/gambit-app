@@ -407,14 +407,26 @@ async def select_admin_registration_player(
 
     await callback.answer(texts.user.ACTION_DONE)
     await state.clear()
+    tournament_label = format_tournament_label(tournament)
     if callback.message is not None:
         await _delete_callback_message(callback)
         await callback.message.answer(
             texts.admin.admin_tournament_registration_success(
                 player=player.display_name,
-                tournament=format_tournament_label(tournament),
+                tournament=tournament_label,
             )
         )
+
+    try:
+        await callback.bot.send_message(
+            chat_id=player.telegram_id,
+            text=texts.admin.admin_tournament_registration_player_notification(
+                tournament_label
+            ),
+            reply_markup=keyboards.main_keyboard_for_player(player),
+        )
+    except (TelegramBadRequest, TelegramForbiddenError):
+        pass
 
 
 @router.callback_query(keyboards.AdminResultTournamentCallback.filter())

@@ -46,6 +46,9 @@ ADMIN_TOURNAMENT_REGISTRATION_SEARCH_EMPTY = "Игроки не найдены."
 ADMIN_TOURNAMENT_REGISTRATION_SUCCESS = (
     "Игрок зарегистрирован на турнир:\n{player}\n{tournament}"
 )
+ADMIN_TOURNAMENT_REGISTRATION_PLAYER_NOTIFICATION = (
+    "Ты зарегистрирован на турнир:\n{tournament}"
+)
 ADMIN_TOURNAMENT_REGISTRATION_CANCELLED = "Отмена."
 ADMIN_TOURNAMENT_REGISTRATION_NOT_FOUND = "Турнир или игрок уже недоступен."
 NO_PENDING_REGISTRATIONS = "Новых заявок нет."
@@ -132,6 +135,12 @@ def admin_result_check_failed(errors: list[str]) -> str:
 def admin_tournament_registration_success(player: str, tournament: str) -> str:
     return ADMIN_TOURNAMENT_REGISTRATION_SUCCESS.format(
         player=player,
+        tournament=tournament,
+    )
+
+
+def admin_tournament_registration_player_notification(tournament: str) -> str:
+    return ADMIN_TOURNAMENT_REGISTRATION_PLAYER_NOTIFICATION.format(
         tournament=tournament,
     )
 
