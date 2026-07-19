@@ -17,6 +17,7 @@ ADMIN_RESULTS_NO_TOURNAMENTS = "Сегодня нет активных турн�
 ADMIN_RESULTS_TOURNAMENT_LIST_TITLE = "Выбери турнир для внесения результатов:"
 ADMIN_RESULTS_MENU_TITLE = "Внесение результатов"
 ADMIN_RESULTS_PLAYERS_TITLE = "Игроки турнира"
+ADMIN_RESULTS_PLAYERS_EMPTY = "Результаты еще не внесены."
 ADMIN_RESULTS_POOL_PROMPT = "Введи пул турнира."
 ADMIN_RESULTS_INVALID_POOL = "Пул должен быть положительным числом."
 ADMIN_RESULTS_MANUAL_VALUE_PROMPTS = {

@@ -101,7 +101,6 @@ def test_admin_result_players_hide_ids_and_empty_places() -> None:
     assert format_admin_result_players(draft, page) == (
         "Игроки турнира\n"
         "Воскресенье, 19 июля — Классика\n\n"
-        "Тест Игрок\n"
         "Илларионов Александр: место 2"
     )
     buttons = [
@@ -110,6 +109,32 @@ def test_admin_result_players_hide_ids_and_empty_places() -> None:
         for button in row
     ]
     assert buttons == ["Тест Игрок", "Илларионов Александр", "⬅️ Назад", "❌ Отмена"]
+
+
+def test_admin_result_players_show_empty_state_without_entered_results() -> None:
+    tournament = tournament_view(125, date(2026, 7, 19), 2, "Классика")
+    players = [
+        TournamentResultDraftPlayerView(
+            player_id=252,
+            display_name="Тест Игрок",
+            place=None,
+            knockouts_count=0,
+            big_knockouts_count=0,
+        )
+    ]
+    draft = TournamentResultDraftView(
+        tournament=tournament,
+        points_pool=Decimal("1800"),
+        players=players,
+        knockout_mode="none",
+    )
+    page = Page(items=players, page=0, page_size=6, total_items=1)
+
+    assert format_admin_result_players(draft, page) == (
+        "Игроки турнира\n"
+        "Воскресенье, 19 июля — Классика\n\n"
+        "Результаты еще не внесены."
+    )
 
 
 def test_admin_result_menu_has_close_without_check() -> None:

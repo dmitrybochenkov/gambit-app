@@ -120,14 +120,18 @@ def format_admin_result_close_confirmation(draft: TournamentResultDraftView) -> 
 
 def format_admin_result_players(
     draft: TournamentResultDraftView,
-    page: Page,
+    _page: Page,
 ) -> str:
     lines = [
         texts.admin.ADMIN_RESULTS_PLAYERS_TITLE,
         format_tournament_label(draft.tournament),
         "",
     ]
-    for player in page.items:
+    has_results = False
+    for player in draft.players:
+        if not _admin_result_player_has_value(player):
+            continue
+        has_results = True
         result_parts = _admin_result_player_parts(
             knockout_mode=draft.knockout_mode,
             knockouts_count=player.knockouts_count,
@@ -138,9 +142,17 @@ def format_admin_result_players(
         if result_parts:
             line += ": " + ", ".join(result_parts)
         lines.append(line)
-    if page.total_pages > 1:
-        lines.extend(["", _page_line(page)])
+    if not has_results:
+        lines.append(texts.admin.ADMIN_RESULTS_PLAYERS_EMPTY)
     return "\n".join(lines)
+
+
+def _admin_result_player_has_value(player: TournamentResultDraftPlayerView) -> bool:
+    return (
+        player.place is not None
+        or player.knockouts_count > 0
+        or player.big_knockouts_count > 0
+    )
 
 
 def _admin_result_player_parts(
