@@ -648,12 +648,17 @@ async def select_result_player(
         result_tournament_id=callback_data.tournament_id,
         result_player_id=callback_data.player_id,
         result_page=callback_data.page,
+        result_knockout_mode=draft.knockout_mode,
     )
     await callback.answer()
     if callback.message is not None:
         await _delete_callback_message(callback)
+        prompt = texts.admin.ADMIN_RESULTS_PLAYER_PROMPTS.get(
+            draft.knockout_mode,
+            texts.admin.ADMIN_RESULTS_PLAYER_PROMPTS["none"],
+        )
         await callback.message.answer(
-            f"{player.display_name}\n\n{texts.admin.ADMIN_RESULTS_PLAYER_PROMPT}",
+            f"{player.display_name}\n\n{prompt}",
             reply_markup=keyboards.admin_result_cancel_keyboard(callback_data.tournament_id),
         )
 
@@ -1376,9 +1381,11 @@ async def enter_player_result(message: Message, state: FSMContext) -> None:
     tournament_id = int(data["result_tournament_id"])
     player_id = int(data["result_player_id"])
     page_number = int(data.get("result_page", 0))
+    knockout_mode = str(data.get("result_knockout_mode", "none"))
     try:
         place, knockouts_count, boss_knockouts_count = parse_player_result(
-            message.text or ""
+            message.text or "",
+            knockout_mode=knockout_mode,
         )
         draft = await result_service.update_player_result(
             admin_telegram_id=message.from_user.id,
@@ -1397,7 +1404,11 @@ async def enter_player_result(message: Message, state: FSMContext) -> None:
         await message.answer(texts.admin.ADMIN_RESULTS_NOT_FOUND)
         return
     except (ResultInvalidPlayerDataError, ResultPlayerNotFoundError, ValueError):
-        await message.answer(texts.admin.ADMIN_RESULTS_INVALID_PLAYER_DATA)
+        invalid_text = texts.admin.ADMIN_RESULTS_INVALID_PLAYER_DATA.get(
+            knockout_mode,
+            texts.admin.ADMIN_RESULTS_INVALID_PLAYER_DATA["none"],
+        )
+        await message.answer(invalid_text)
         return
 
     await state.clear()
@@ -1628,14 +1639,30 @@ def parse_positive_decimal(value: str) -> Decimal:
     return result
 
 
-def parse_player_result(value: str) -> tuple[int | None, int, int]:
+def parse_player_result(value: str, *, knockout_mode: str) -> tuple[int | None, int, int]:
     parts = [part.strip() for part in re.split(r"\s*-\s*", value.strip())]
-    if len(parts) != 3:
+    if knockout_mode == "none":
+        if len(parts) != 1:
+            raise ValueError
+        return parse_optional_place(parts[0]), 0, 0
+
+    if knockout_mode == "small":
+        if len(parts) not in {1, 2}:
+            raise ValueError
+        knockouts_count = parse_nonnegative_int(parts[0])
+        place = parse_optional_place(parts[1]) if len(parts) == 2 else None
+        return place, knockouts_count, 0
+
+    if knockout_mode != "small_big" or len(parts) not in {1, 2, 3}:
         raise ValueError
-    place = None if parts[0] in {"", "0", "—"} else parse_positive_int(parts[0])
-    knockouts_count = parse_nonnegative_int(parts[1])
-    boss_knockouts_count = parse_nonnegative_int(parts[2])
+    knockouts_count = parse_nonnegative_int(parts[0])
+    boss_knockouts_count = parse_nonnegative_int(parts[1]) if len(parts) >= 2 else 0
+    place = parse_optional_place(parts[2]) if len(parts) == 3 else None
     return place, knockouts_count, boss_knockouts_count
+
+
+def parse_optional_place(value: str) -> int | None:
+    return None if value in {"", "0", "—"} else parse_positive_int(value)
 
 
 def parse_nonnegative_int(value: str) -> int:

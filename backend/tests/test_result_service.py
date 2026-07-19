@@ -105,6 +105,7 @@ async def test_result_draft_closes_tournament(tmp_path: Path) -> None:
     service = ResultService(session_factory)
     draft = await service.get_or_create_draft(100, tournament_id)
 
+    assert draft.knockout_mode == KnockoutMode.SMALL_BIG.value
     assert [player.player_id for player in draft.players] == [
         first_player_id,
         second_player_id,

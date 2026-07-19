@@ -97,6 +97,7 @@ class TournamentResultDraftView:
     tournament: TournamentView
     points_pool: Decimal | None
     players: list[TournamentResultDraftPlayerView]
+    knockout_mode: str = "none"
 
 
 @dataclass(frozen=True)

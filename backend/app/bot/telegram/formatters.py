@@ -85,7 +85,7 @@ def format_admin_result_tournament_list(page: Page[TournamentView]) -> str:
 
 def format_admin_result_menu(draft: TournamentResultDraftView) -> str:
     pool = (
-        f"{format_decimal(draft.points_pool)} ₽"
+        format_decimal(draft.points_pool)
         if draft.points_pool is not None
         else "не введен"
     )
@@ -110,14 +110,37 @@ def format_admin_result_players(
     ]
     for player in page.items:
         place = str(player.place) if player.place is not None else "—"
+        result_parts = _admin_result_player_parts(
+            knockout_mode=draft.knockout_mode,
+            knockouts_count=player.knockouts_count,
+            boss_knockouts_count=player.boss_knockouts_count,
+            place=place,
+        )
         lines.append(
             f"{player.player_id} — {player.display_name}: "
-            f"место {place}, КО {player.knockouts_count}, "
-            f"Босс КО {player.boss_knockouts_count}"
+            + ", ".join(result_parts)
         )
     if page.total_pages > 1:
         lines.extend(["", _page_line(page)])
     return "\n".join(lines)
+
+
+def _admin_result_player_parts(
+    *,
+    knockout_mode: str,
+    knockouts_count: int,
+    boss_knockouts_count: int,
+    place: str,
+) -> list[str]:
+    if knockout_mode == "small_big":
+        return [
+            f"КО {knockouts_count}",
+            f"Босс КО {boss_knockouts_count}",
+            f"место {place}",
+        ]
+    if knockout_mode == "small":
+        return [f"КО {knockouts_count}", f"место {place}"]
+    return [f"место {place}"]
 
 
 def format_admin_tournament_registration_tournament_list(

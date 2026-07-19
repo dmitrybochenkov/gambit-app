@@ -290,10 +290,17 @@ class ResultService:
             )
             for draft, player in result.all()
         ]
+        rule_result = await session.execute(
+            select(TournamentTypeRule.knockout_mode).where(
+                TournamentTypeRule.tournament_type_id == tournament.tournament_type_id
+            )
+        )
+        knockout_mode = rule_result.scalar_one_or_none() or KnockoutMode.NONE
         return TournamentResultDraftView(
             tournament=tournament_view(tournament),
             points_pool=tournament.points_pool,
             players=players,
+            knockout_mode=knockout_mode.value,
         )
 
     @staticmethod

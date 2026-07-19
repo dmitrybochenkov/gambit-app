@@ -42,6 +42,45 @@ def active_player() -> PlayerView:
     )
 
 
+def test_parse_player_result_without_knockouts() -> None:
+    assert admin_handlers.parse_player_result("2", knockout_mode="none") == (2, 0, 0)
+    assert admin_handlers.parse_player_result("0", knockout_mode="none") == (
+        None,
+        0,
+        0,
+    )
+
+
+def test_parse_player_result_with_small_knockouts() -> None:
+    assert admin_handlers.parse_player_result("3", knockout_mode="small") == (
+        None,
+        3,
+        0,
+    )
+    assert admin_handlers.parse_player_result("3 - 2", knockout_mode="small") == (
+        2,
+        3,
+        0,
+    )
+
+
+def test_parse_player_result_with_small_and_boss_knockouts() -> None:
+    assert admin_handlers.parse_player_result("3", knockout_mode="small_big") == (
+        None,
+        3,
+        0,
+    )
+    assert admin_handlers.parse_player_result("3 - 1", knockout_mode="small_big") == (
+        None,
+        3,
+        1,
+    )
+    assert admin_handlers.parse_player_result(
+        "3 - 1 - 2",
+        knockout_mode="small_big",
+    ) == (2, 3, 1)
+
+
 def admin_player(
     player_id: int,
     telegram_id: int,
