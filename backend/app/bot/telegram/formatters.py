@@ -90,14 +90,15 @@ def format_admin_result_menu(draft: TournamentResultDraftView) -> str:
         if draft.points_pool is not None
         else "не введен"
     )
-    return "\n".join(
-        [
-            texts.admin.ADMIN_RESULTS_MENU_TITLE,
-            format_tournament_label(draft.tournament),
-            f"Пул: {pool}",
-            f"Игроков: {len(draft.players)}",
-        ]
-    )
+    lines = [
+        texts.admin.ADMIN_RESULTS_MENU_TITLE,
+        format_tournament_label(draft.tournament),
+        f"Пул: {pool}",
+    ]
+    result_lines = _admin_result_entered_lines(draft)
+    lines.extend(result_lines or [texts.admin.ADMIN_RESULTS_PLAYERS_EMPTY])
+    lines.extend(["", f"Игроков: {len(draft.players)}"])
+    return "\n".join(lines)
 
 
 def format_admin_result_close_confirmation(draft: TournamentResultDraftView) -> str:
@@ -153,6 +154,14 @@ def _admin_result_player_has_value(player: TournamentResultDraftPlayerView) -> b
         or player.knockouts_count > 0
         or player.big_knockouts_count > 0
     )
+
+
+def _admin_result_entered_lines(draft: TournamentResultDraftView) -> list[str]:
+    return [
+        f"{player.display_name}: {_admin_result_confirmation(player, draft)}"
+        for player in draft.players
+        if _admin_result_player_has_value(player)
+    ]
 
 
 def _admin_result_player_parts(

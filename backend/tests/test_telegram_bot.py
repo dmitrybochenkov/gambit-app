@@ -10,6 +10,7 @@ from app.api import telegram_webhook as webhook_module
 from app.bot.telegram import keyboards, notifications, runtime
 from app.bot.telegram.formatters import (
     format_admin_result_close_confirmation,
+    format_admin_result_menu,
     format_admin_result_players,
 )
 from app.bot.telegram.handlers import admin as admin_handlers
@@ -134,6 +135,73 @@ def test_admin_result_players_show_empty_state_without_entered_results() -> None
         "Игроки турнира\n"
         "Воскресенье, 19 июля — Классика\n\n"
         "Результаты еще не внесены."
+    )
+
+
+def test_admin_result_menu_shows_entered_results_under_pool() -> None:
+    tournament = tournament_view(125, date(2026, 7, 19), 2, "Классика")
+    draft = TournamentResultDraftView(
+        tournament=tournament,
+        points_pool=Decimal("2200"),
+        players=[
+            TournamentResultDraftPlayerView(
+                player_id=1,
+                display_name="Дима Боченков",
+                place=4,
+                knockouts_count=0,
+                big_knockouts_count=0,
+            ),
+            TournamentResultDraftPlayerView(
+                player_id=255,
+                display_name="Тест Игрок 4",
+                place=5,
+                knockouts_count=0,
+                big_knockouts_count=0,
+            ),
+            TournamentResultDraftPlayerView(
+                player_id=108,
+                display_name="Илларионов Александр",
+                place=None,
+                knockouts_count=0,
+                big_knockouts_count=0,
+            ),
+        ],
+        knockout_mode="none",
+    )
+
+    assert format_admin_result_menu(draft) == (
+        "Внесение результатов\n"
+        "Воскресенье, 19 июля — Классика\n"
+        "Пул: 2200\n"
+        "Дима Боченков: место 4\n"
+        "Тест Игрок 4: место 5\n\n"
+        "Игроков: 3"
+    )
+
+
+def test_admin_result_menu_shows_empty_results_state() -> None:
+    tournament = tournament_view(125, date(2026, 7, 19), 2, "Классика")
+    draft = TournamentResultDraftView(
+        tournament=tournament,
+        points_pool=Decimal("2200"),
+        players=[
+            TournamentResultDraftPlayerView(
+                player_id=108,
+                display_name="Илларионов Александр",
+                place=None,
+                knockouts_count=0,
+                big_knockouts_count=0,
+            )
+        ],
+        knockout_mode="none",
+    )
+
+    assert format_admin_result_menu(draft) == (
+        "Внесение результатов\n"
+        "Воскресенье, 19 июля — Классика\n"
+        "Пул: 2200\n"
+        "Результаты еще не внесены.\n\n"
+        "Игроков: 1"
     )
 
 
