@@ -290,6 +290,7 @@ class ResultService:
             )
             for draft, player in result.all()
         ]
+        players.sort(key=lambda player: player.display_name.casefold())
         rule_result = await session.execute(
             select(TournamentTypeRule.knockout_mode).where(
                 TournamentTypeRule.tournament_type_id == tournament.tournament_type_id

@@ -109,17 +109,16 @@ def format_admin_result_players(
         "",
     ]
     for player in page.items:
-        place = str(player.place) if player.place is not None else "—"
         result_parts = _admin_result_player_parts(
             knockout_mode=draft.knockout_mode,
             knockouts_count=player.knockouts_count,
             boss_knockouts_count=player.boss_knockouts_count,
-            place=place,
+            place=player.place,
         )
-        lines.append(
-            f"{player.player_id} — {player.display_name}: "
-            + ", ".join(result_parts)
-        )
+        line = player.display_name
+        if result_parts:
+            line += ": " + ", ".join(result_parts)
+        lines.append(line)
     if page.total_pages > 1:
         lines.extend(["", _page_line(page)])
     return "\n".join(lines)
@@ -130,17 +129,18 @@ def _admin_result_player_parts(
     knockout_mode: str,
     knockouts_count: int,
     boss_knockouts_count: int,
-    place: str,
+    place: int | None,
 ) -> list[str]:
+    place_part = [f"место {place}"] if place is not None else []
     if knockout_mode == "small_big":
         return [
             f"КО {knockouts_count}",
             f"Босс КО {boss_knockouts_count}",
-            f"место {place}",
+            *place_part,
         ]
     if knockout_mode == "small":
-        return [f"КО {knockouts_count}", f"место {place}"]
-    return [f"место {place}"]
+        return [f"КО {knockouts_count}", *place_part]
+    return place_part
 
 
 def format_admin_tournament_registration_tournament_list(

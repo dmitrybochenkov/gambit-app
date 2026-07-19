@@ -8,6 +8,7 @@ from fastapi import HTTPException
 
 from app.api import telegram_webhook as webhook_module
 from app.bot.telegram import keyboards, notifications, runtime
+from app.bot.telegram.formatters import format_admin_result_players
 from app.bot.telegram.handlers import admin as admin_handlers
 from app.bot.telegram.handlers import user as user_handlers
 from app.services.calendar_service import CalendarPromptInvalidPayloadError
@@ -23,8 +24,11 @@ from app.services.dto import (
     RegistrationNotificationView,
     RegistrationReviewResultView,
     RegistrationReviewView,
+    TournamentResultDraftPlayerView,
+    TournamentResultDraftView,
     TournamentView,
 )
+from app.services.pagination import Page
 from app.services.player_service import AdminAccessDeniedError
 from app.services.profile_service import ProfileKind
 from app.services.rating_service import RatingKind
@@ -79,6 +83,46 @@ def test_parse_player_result_with_small_and_boss_knockouts() -> None:
         "3 - 1 - 2",
         knockout_mode="small_big",
     ) == (2, 3, 1)
+
+
+def test_admin_result_players_hide_ids_and_empty_places() -> None:
+    tournament = tournament_view(125, date(2026, 7, 19), 2, "Классика")
+    players = [
+        TournamentResultDraftPlayerView(
+            player_id=252,
+            display_name="Тест Игрок",
+            place=None,
+            knockouts_count=0,
+            boss_knockouts_count=0,
+        ),
+        TournamentResultDraftPlayerView(
+            player_id=108,
+            display_name="Илларионов Александр",
+            place=2,
+            knockouts_count=0,
+            boss_knockouts_count=0,
+        ),
+    ]
+    draft = TournamentResultDraftView(
+        tournament=tournament,
+        points_pool=Decimal("1800"),
+        players=players,
+        knockout_mode="none",
+    )
+    page = Page(items=players, page=0, page_size=6, total_items=2)
+
+    assert format_admin_result_players(draft, page) == (
+        "Игроки турнира\n"
+        "Воскресенье, 19 июля — Классика\n\n"
+        "Тест Игрок\n"
+        "Илларионов Александр: место 2"
+    )
+    buttons = [
+        button.text
+        for row in keyboards.admin_result_players_keyboard(draft, page).inline_keyboard
+        for button in row
+    ]
+    assert buttons == ["Тест Игрок", "Илларионов Александр", "⬅️ Назад", "❌ Отмена"]
 
 
 def admin_player(

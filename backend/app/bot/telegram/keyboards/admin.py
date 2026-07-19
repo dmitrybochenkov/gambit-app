@@ -465,7 +465,7 @@ def admin_result_players_keyboard(
     builder = InlineKeyboardBuilder()
     for player in page.items:
         builder.button(
-            text=f"{player.player_id}. {player.display_name}",
+            text=player.display_name,
             callback_data=AdminResultPlayerCallback(
                 action=AdminResultPlayerAction.OPEN,
                 tournament_id=draft.tournament.id,
