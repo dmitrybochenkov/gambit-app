@@ -442,6 +442,7 @@ async def select_result_tournament(
     callback_data: keyboards.AdminResultTournamentCallback,
     state: FSMContext,
 ) -> None:
+    callback_answered = False
     try:
         if callback_data.action == keyboards.AdminResultTournamentAction.CANCEL:
             await state.clear()
@@ -451,16 +452,17 @@ async def select_result_tournament(
                 await callback.message.answer(texts.admin.ADMIN_RESULTS_CANCELLED)
             return
 
-        tournaments = await result_service.list_todays_tournaments_for_admin(
-            callback.from_user.id
-        )
         if callback_data.action == keyboards.AdminResultTournamentAction.PAGE:
+            await callback.answer()
+            callback_answered = True
+            tournaments = await result_service.list_todays_tournaments_for_admin(
+                callback.from_user.id
+            )
             page = pagination_service.paginate(
                 tournaments,
                 page=callback_data.page,
                 page_size=keyboards.ADMIN_RESULT_PAGE_SIZE,
             )
-            await callback.answer()
             if callback.message is not None:
                 await callback.message.edit_text(
                     format_admin_result_tournament_list(page),
@@ -468,19 +470,26 @@ async def select_result_tournament(
                 )
             return
 
+        await callback.answer()
+        callback_answered = True
         draft = await result_service.get_or_create_draft(
             admin_telegram_id=callback.from_user.id,
             tournament_id=callback_data.tournament_id,
         )
     except AdminAccessDeniedError:
-        await callback.answer(texts.admin.ACCESS_DENIED, show_alert=True)
+        if callback_answered and callback.message is not None:
+            await callback.message.answer(texts.admin.ACCESS_DENIED)
+        else:
+            await callback.answer(texts.admin.ACCESS_DENIED, show_alert=True)
         return
     except ResultTournamentNotFoundError:
-        await callback.answer(texts.admin.ADMIN_RESULTS_NOT_FOUND, show_alert=True)
+        if callback_answered and callback.message is not None:
+            await callback.message.answer(texts.admin.ADMIN_RESULTS_NOT_FOUND)
+        else:
+            await callback.answer(texts.admin.ADMIN_RESULTS_NOT_FOUND, show_alert=True)
         return
 
     await state.clear()
-    await callback.answer()
     if callback.message is not None:
         await _delete_callback_message(callback)
         await callback.message.answer(
