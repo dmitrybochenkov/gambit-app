@@ -299,7 +299,7 @@ class CalendarService:
         session: AsyncSession,
         today: date,
     ) -> AdminPrompt | None:
-        proposed_tournaments = await self._missing_tournaments_for_next_two_weeks(
+        proposed_tournaments = await self._missing_tournaments_for_next_week(
             session,
             today,
         )
@@ -333,7 +333,7 @@ class CalendarService:
             payload=payload,
         )
 
-    async def _missing_tournaments_for_next_two_weeks(
+    async def _missing_tournaments_for_next_week(
         self,
         session: AsyncSession,
         today: date,

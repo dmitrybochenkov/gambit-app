@@ -62,13 +62,14 @@ def tournament_view(
     tournament_id: int,
     tournament_date: date,
     tournament_type_id: int,
+    tournament_type_name: str | None = None,
 ) -> TournamentView:
     return TournamentView(
         id=tournament_id,
         date=tournament_date,
         capacity=30,
         tournament_type_id=tournament_type_id,
-        tournament_type_name=None,
+        tournament_type_name=tournament_type_name,
     )
 
 
@@ -361,7 +362,8 @@ async def test_registration_button_shows_upcoming_tournaments(
     )
     tournament = tournament_view(7, date(2026, 7, 8), 1)
     tournament_service = SimpleNamespace(
-        get_registration_options_for_player=AsyncMock(return_value=[tournament])
+        get_registration_options_for_player=AsyncMock(return_value=[tournament]),
+        get_player_upcoming_registrations=AsyncMock(return_value=[]),
     )
     state = SimpleNamespace(update_data=AsyncMock())
     monkeypatch.setattr(user_handlers, "tournament_service", tournament_service)
@@ -378,6 +380,32 @@ async def test_registration_button_shows_upcoming_tournaments(
     state.update_data.assert_awaited_once_with(tournament_registration_selection=[])
 
 
+async def test_registration_button_marks_existing_registrations(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    message = SimpleNamespace(
+        from_user=SimpleNamespace(id=123),
+        answer=AsyncMock(),
+    )
+    tournaments = [
+        tournament_view(7, date(2026, 7, 8), 1, "Баунти турнир"),
+        tournament_view(8, date(2026, 7, 9), 2, "Классика"),
+    ]
+    tournament_service = SimpleNamespace(
+        get_registration_options_for_player=AsyncMock(return_value=tournaments),
+        get_player_upcoming_registrations=AsyncMock(return_value=[tournaments[1]]),
+    )
+    state = SimpleNamespace(update_data=AsyncMock())
+    monkeypatch.setattr(user_handlers, "tournament_service", tournament_service)
+
+    await user_handlers.show_tournaments_for_registration(message, state)
+
+    rows = message.answer.await_args.kwargs["reply_markup"].inline_keyboard
+    assert rows[0][0].text == "Среда, 8 июля — Баунти турнир"
+    assert rows[1][0].text == "✔️ Четверг, 9 июля — Классика"
+    state.update_data.assert_awaited_once_with(tournament_registration_selection=[8])
+
+
 async def test_tournament_registration_list_is_paginated(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -390,7 +418,8 @@ async def test_tournament_registration_list_is_paginated(
         for tournament_id in range(1, 8)
     ]
     tournament_service = SimpleNamespace(
-        get_registration_options_for_player=AsyncMock(return_value=tournaments)
+        get_registration_options_for_player=AsyncMock(return_value=tournaments),
+        get_player_upcoming_registrations=AsyncMock(return_value=[]),
     )
     state = SimpleNamespace(update_data=AsyncMock())
     monkeypatch.setattr(user_handlers, "tournament_service", tournament_service)
@@ -444,8 +473,8 @@ async def test_multiple_tournament_registration_sends_confirmation(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     tournaments = [
-        tournament_view(7, date(2026, 7, 8), 1),
-        tournament_view(8, date(2026, 7, 9), 2),
+        tournament_view(7, date(2026, 7, 8), 1, "Баунти турнир"),
+        tournament_view(8, date(2026, 7, 9), 2, "Классика"),
     ]
     service = SimpleNamespace(
         register_player_for_tournaments=AsyncMock(return_value=tournaments)
@@ -476,8 +505,8 @@ async def test_multiple_tournament_registration_sends_confirmation(
     message.delete.assert_awaited_once_with()
     confirmation = message.answer.await_args.args[0]
     assert "Ты записан на турниры:" in confirmation
-    assert "Среда, 8 июля — Турнир 1" in confirmation
-    assert "Четверг, 9 июля — Турнир 2" in confirmation
+    assert "Среда, 8 июля — Баунти турнир" in confirmation
+    assert "Четверг, 9 июля — Классика" in confirmation
     assert "вы отмените запись заранее" in confirmation
 
 
@@ -520,8 +549,8 @@ async def test_multiple_tournament_cancellation_sends_confirmation(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     tournaments = [
-        tournament_view(7, date(2026, 7, 8), 1),
-        tournament_view(8, date(2026, 7, 9), 2),
+        tournament_view(7, date(2026, 7, 8), 1, "Баунти турнир"),
+        tournament_view(8, date(2026, 7, 9), 2, "Классика"),
     ]
     service = SimpleNamespace(
         cancel_player_tournament_registrations=AsyncMock(
@@ -554,8 +583,8 @@ async def test_multiple_tournament_cancellation_sends_confirmation(
     message.delete.assert_awaited_once_with()
     confirmation = message.answer.await_args.args[0]
     assert "Ты отменил запись на турниры:" in confirmation
-    assert "Среда, 8 июля — Турнир 1" in confirmation
-    assert "Четверг, 9 июля — Турнир 2" in confirmation
+    assert "Среда, 8 июля — Баунти турнир" in confirmation
+    assert "Четверг, 9 июля — Классика" in confirmation
 
 
 async def test_tournament_cancellation_selection_can_be_cancelled() -> None:

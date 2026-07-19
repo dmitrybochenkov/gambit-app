@@ -31,13 +31,7 @@ def format_tournament_schedule(tournaments: list[TournamentView]) -> str:
 
     lines = [texts.user.TOURNAMENT_SCHEDULE_TITLE, ""]
     for tournament in tournaments:
-        capacity_text = texts.user.TOURNAMENT_CAPACITY_LABEL.format(
-            capacity=tournament.capacity
-        )
-        lines.append(
-            f"{format_tournament_label(tournament)} "
-            f"({capacity_text})"
-        )
+        lines.append(f"• {format_tournament_label(tournament)}")
     return "\n".join(lines)
 
 

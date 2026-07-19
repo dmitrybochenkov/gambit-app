@@ -97,7 +97,6 @@ TOURNAMENT_CANCELLATION_SINGLE_HEADING = "Ты отменил запись на 
 TOURNAMENT_CANCELLATION_MULTIPLE_HEADING = "Ты отменил запись на турниры:"
 
 TOURNAMENT_SCHEDULE_TITLE = "Расписание турниров"
-TOURNAMENT_CAPACITY_LABEL = "до {capacity} игроков"
 TOURNAMENT_TYPE_FALLBACK = "Турнир {type_id}"
 
 

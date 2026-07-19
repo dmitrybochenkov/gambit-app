@@ -293,7 +293,16 @@ async def show_tournaments_for_registration(message: Message, state: FSMContext)
         await message.answer(texts.user.TOURNAMENT_REGISTRATION_EMPTY)
         return
 
-    await state.update_data(tournament_registration_selection=[])
+    registered_tournaments = await tournament_service.get_player_upcoming_registrations(
+        message.from_user.id
+    )
+    registered_tournament_ids = {tournament.id for tournament in registered_tournaments}
+    selected_tournament_ids = [
+        tournament.id
+        for tournament in tournaments
+        if tournament.id in registered_tournament_ids
+    ]
+    await state.update_data(tournament_registration_selection=selected_tournament_ids)
     page = pagination_service.paginate(
         tournaments,
         page=0,
@@ -301,7 +310,10 @@ async def show_tournaments_for_registration(message: Message, state: FSMContext)
     )
     await message.answer(
         texts.user.TOURNAMENT_REGISTRATION_PROMPT,
-        reply_markup=keyboards.tournament_registration_keyboard(page),
+        reply_markup=keyboards.tournament_registration_keyboard(
+            page,
+            set(selected_tournament_ids),
+        ),
     )
 
 

@@ -52,4 +52,4 @@ RATING_CLOSE = "❌ Закрыть рейтинг"
 PROFILE_CURRENT_SEASON = "🏆 За текущий сезон"
 PROFILE_ALL_TIME = "⏳ За все время"
 
-SELECTED_PREFIX = "✅ "
+SELECTED_PREFIX = "✔️ "

@@ -2,6 +2,7 @@ from datetime import date
 
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import selectinload
 
 from app.db.models import Tournament, TournamentRegistration
 from app.db.models.enums import RegistrationStatus, TournamentStatus
@@ -40,6 +41,7 @@ class TournamentRegistrationRepository:
     ) -> list[Tournament]:
         result = await self.session.execute(
             select(Tournament)
+            .options(selectinload(Tournament.tournament_type))
             .join(
                 TournamentRegistration,
                 TournamentRegistration.tournament_id == Tournament.id,

@@ -87,9 +87,9 @@ async def test_upcoming_schedule_uses_active_tournaments(tmp_path: Path) -> None
     ]
     assert format_tournament_schedule(tournaments) == (
         "Расписание турниров\n\n"
-        "Среда, 8 июля — Баунти турнир (до 30 игроков)\n"
-        "Четверг, 9 июля — Классика (до 30 игроков)\n"
-        "Пятница, 10 июля — Фризаут (до 30 игроков)"
+        "• Среда, 8 июля — Баунти турнир\n"
+        "• Четверг, 9 июля — Классика\n"
+        "• Пятница, 10 июля — Фризаут"
     )
     await engine.dispose()
 
@@ -184,6 +184,9 @@ async def test_active_player_can_register_for_multiple_tournaments(tmp_path: Pat
         assert [
             tournament.id for tournament in upcoming_registrations
         ] == tournament_ids
+        assert [
+            tournament.tournament_type_name for tournament in upcoming_registrations
+        ] == ["Баунти турнир", "Классика"]
 
         cancelled_tournaments = (
             await service.cancel_player_tournament_registrations(
@@ -195,6 +198,9 @@ async def test_active_player_can_register_for_multiple_tournaments(tmp_path: Pat
         assert [
             tournament.id for tournament in cancelled_tournaments
         ] == tournament_ids
+        assert [
+            tournament.tournament_type_name for tournament in cancelled_tournaments
+        ] == ["Баунти турнир", "Классика"]
 
         async with session_factory() as session:
             cancelled_registrations = list(
