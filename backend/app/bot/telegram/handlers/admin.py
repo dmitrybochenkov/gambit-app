@@ -11,6 +11,7 @@ from aiogram.types import CallbackQuery, Message, ReplyKeyboardRemove
 from app.bot.telegram import keyboards, texts
 from app.bot.telegram.formatters import (
     format_admin_calendar_prompt,
+    format_admin_result_close_confirmation,
     format_admin_result_field_prompt,
     format_admin_result_menu,
     format_admin_result_player_detail,
@@ -536,19 +537,76 @@ async def select_result_menu_action(
                 )
             return
 
-        if callback_data.action == keyboards.AdminResultMenuAction.CHECK:
-            errors = await result_service.validate_draft(
+        errors = await result_service.validate_draft(
+            admin_telegram_id=callback.from_user.id,
+            tournament_id=callback_data.tournament_id,
+        )
+        if errors:
+            await callback.answer(
+                texts.admin.ADMIN_RESULTS_CHECK_FAILED_SHORT,
+                show_alert=True,
+            )
+            if callback.message is not None:
+                await callback.message.answer(texts.admin.admin_result_check_failed(errors))
+            return
+
+        draft = await result_service.get_or_create_draft(
+            admin_telegram_id=callback.from_user.id,
+            tournament_id=callback_data.tournament_id,
+        )
+        await callback.answer()
+        if callback.message is not None:
+            await _delete_callback_message(callback)
+            await callback.message.answer(
+                format_admin_result_close_confirmation(draft),
+                reply_markup=keyboards.admin_result_close_confirmation_keyboard(
+                    draft.tournament.id
+                ),
+            )
+        return
+    except AdminAccessDeniedError:
+        await callback.answer(texts.admin.ACCESS_DENIED, show_alert=True)
+        return
+    except ResultTournamentNotFoundError:
+        await callback.answer(texts.admin.ADMIN_RESULTS_NOT_FOUND, show_alert=True)
+        return
+
+
+@router.callback_query(keyboards.AdminResultCloseCallback.filter())
+async def confirm_result_close(
+    callback: CallbackQuery,
+    callback_data: keyboards.AdminResultCloseCallback,
+    state: FSMContext,
+) -> None:
+    try:
+        if callback_data.action == keyboards.AdminResultCloseAction.CANCEL:
+            await state.clear()
+            draft = await result_service.get_or_create_draft(
                 admin_telegram_id=callback.from_user.id,
                 tournament_id=callback_data.tournament_id,
             )
-            await callback.answer()
+            await callback.answer(texts.admin.ADMIN_RESULTS_CANCELLED)
             if callback.message is not None:
                 await _delete_callback_message(callback)
                 await callback.message.answer(
-                    texts.admin.admin_result_check_failed(errors)
-                    if errors
-                    else texts.admin.ADMIN_RESULTS_CHECK_OK
+                    format_admin_result_menu(draft),
+                    reply_markup=keyboards.admin_result_menu_keyboard(
+                        draft.tournament.id
+                    ),
                 )
+            return
+
+        errors = await result_service.validate_draft(
+            admin_telegram_id=callback.from_user.id,
+            tournament_id=callback_data.tournament_id,
+        )
+        if errors:
+            await callback.answer(
+                texts.admin.ADMIN_RESULTS_CHECK_FAILED_SHORT,
+                show_alert=True,
+            )
+            if callback.message is not None:
+                await callback.message.answer(texts.admin.admin_result_check_failed(errors))
             return
 
         draft = await result_service.close_tournament(

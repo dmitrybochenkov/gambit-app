@@ -125,13 +125,22 @@ class AdminResultTournamentCallback(CallbackData, prefix="res_tour"):
 class AdminResultMenuAction(StrEnum):
     POOL = "pool"
     PLAYERS = "players"
-    CHECK = "check"
     CLOSE = "close"
     CANCEL = "cancel"
 
 
 class AdminResultMenuCallback(CallbackData, prefix="res_menu"):
     action: AdminResultMenuAction
+    tournament_id: int
+
+
+class AdminResultCloseAction(StrEnum):
+    CONFIRM = "confirm"
+    CANCEL = "cancel"
+
+
+class AdminResultCloseCallback(CallbackData, prefix="res_close"):
+    action: AdminResultCloseAction
     tournament_id: int
 
 
@@ -470,13 +479,6 @@ def admin_result_menu_keyboard(tournament_id: int) -> InlineKeyboardMarkup:
         ),
     )
     builder.button(
-        text=buttons.ADMIN_RESULTS_CHECK,
-        callback_data=AdminResultMenuCallback(
-            action=AdminResultMenuAction.CHECK,
-            tournament_id=tournament_id,
-        ),
-    )
-    builder.button(
         text=buttons.ADMIN_RESULTS_CLOSE,
         callback_data=AdminResultMenuCallback(
             action=AdminResultMenuAction.CLOSE,
@@ -487,6 +489,26 @@ def admin_result_menu_keyboard(tournament_id: int) -> InlineKeyboardMarkup:
         text=buttons.ADMIN_CANCEL,
         callback_data=AdminResultMenuCallback(
             action=AdminResultMenuAction.CANCEL,
+            tournament_id=tournament_id,
+        ),
+    )
+    builder.adjust(1)
+    return builder.as_markup()
+
+
+def admin_result_close_confirmation_keyboard(tournament_id: int) -> InlineKeyboardMarkup:
+    builder = InlineKeyboardBuilder()
+    builder.button(
+        text="✅ Подтвердить",
+        callback_data=AdminResultCloseCallback(
+            action=AdminResultCloseAction.CONFIRM,
+            tournament_id=tournament_id,
+        ),
+    )
+    builder.button(
+        text=buttons.ADMIN_CANCEL,
+        callback_data=AdminResultCloseCallback(
+            action=AdminResultCloseAction.CANCEL,
             tournament_id=tournament_id,
         ),
     )

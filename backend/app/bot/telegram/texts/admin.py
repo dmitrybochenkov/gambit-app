@@ -31,7 +31,6 @@ ADMIN_RESULTS_INVALID_MANUAL_VALUE = {
 }
 ADMIN_RESULTS_SAVED = "Результат сохранен."
 ADMIN_RESULTS_CLOSED = "Турнир закрыт."
-ADMIN_RESULTS_CHECK_OK = "Ошибок нет. Можно закрывать турнир."
 ADMIN_RESULTS_CHECK_FAILED = "Нужно поправить:\n{errors}"
 ADMIN_RESULTS_CHECK_FAILED_SHORT = "Нужно поправить ошибки."
 ADMIN_RESULTS_CANCELLED = "Отмена."

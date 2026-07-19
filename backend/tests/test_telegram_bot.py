@@ -8,7 +8,10 @@ from fastapi import HTTPException
 
 from app.api import telegram_webhook as webhook_module
 from app.bot.telegram import keyboards, notifications, runtime
-from app.bot.telegram.formatters import format_admin_result_players
+from app.bot.telegram.formatters import (
+    format_admin_result_close_confirmation,
+    format_admin_result_players,
+)
 from app.bot.telegram.handlers import admin as admin_handlers
 from app.bot.telegram.handlers import user as user_handlers
 from app.services.calendar_service import CalendarPromptInvalidPayloadError
@@ -107,6 +110,55 @@ def test_admin_result_players_hide_ids_and_empty_places() -> None:
         for button in row
     ]
     assert buttons == ["Тест Игрок", "Илларионов Александр", "⬅️ Назад", "❌ Отмена"]
+
+
+def test_admin_result_menu_has_close_without_check() -> None:
+    buttons = [
+        button.text
+        for row in keyboards.admin_result_menu_keyboard(125).inline_keyboard
+        for button in row
+    ]
+
+    assert buttons == [
+        "💰 Пул",
+        "👥 Игроки",
+        "✅ Закрыть турнир",
+        "❌ Отмена",
+    ]
+
+
+def test_admin_result_close_confirmation_shows_pool_and_results() -> None:
+    tournament = tournament_view(125, date(2026, 7, 19), 6, "Boss Bounty")
+    draft = TournamentResultDraftView(
+        tournament=tournament,
+        points_pool=Decimal("1800"),
+        players=[
+            TournamentResultDraftPlayerView(
+                player_id=108,
+                display_name="Илларионов Александр",
+                place=2,
+                knockouts_count=3,
+                big_knockouts_count=1,
+            ),
+            TournamentResultDraftPlayerView(
+                player_id=252,
+                display_name="Тест Игрок",
+                place=None,
+                knockouts_count=0,
+                big_knockouts_count=0,
+            ),
+        ],
+        knockout_mode="small_big",
+    )
+
+    assert format_admin_result_close_confirmation(draft) == (
+        "Подтверди закрытие турнира\n"
+        "Воскресенье, 19 июля — Boss Bounty\n"
+        "Пул: 1800\n\n"
+        "Результаты:\n"
+        "• Илларионов Александр: Малые КО 3, Большие КО 1, место 2\n"
+        "• Тест Игрок: Малые КО 0, Большие КО 0, место не введено"
+    )
 
 
 def test_admin_result_player_field_and_value_keyboards() -> None:

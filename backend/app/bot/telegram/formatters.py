@@ -100,6 +100,24 @@ def format_admin_result_menu(draft: TournamentResultDraftView) -> str:
     )
 
 
+def format_admin_result_close_confirmation(draft: TournamentResultDraftView) -> str:
+    pool = (
+        format_decimal(draft.points_pool)
+        if draft.points_pool is not None
+        else "не введен"
+    )
+    lines = [
+        "Подтверди закрытие турнира",
+        format_tournament_label(draft.tournament),
+        f"Пул: {pool}",
+        "",
+        "Результаты:",
+    ]
+    for player in draft.players:
+        lines.append(f"• {player.display_name}: {_admin_result_confirmation(player, draft)}")
+    return "\n".join(lines)
+
+
 def format_admin_result_players(
     draft: TournamentResultDraftView,
     page: Page,
@@ -142,6 +160,22 @@ def _admin_result_player_parts(
     if knockout_mode == "small":
         return [f"КО {knockouts_count}", *place_part]
     return place_part
+
+
+def _admin_result_confirmation(
+    player: TournamentResultDraftPlayerView,
+    draft: TournamentResultDraftView,
+) -> str:
+    place = f"место {player.place}" if player.place is not None else "место не введено"
+    if draft.knockout_mode == "small_big":
+        return (
+            f"Малые КО {player.knockouts_count}, "
+            f"Большие КО {player.big_knockouts_count}, "
+            f"{place}"
+        )
+    if draft.knockout_mode == "small":
+        return f"КО {player.knockouts_count}, {place}"
+    return place
 
 
 def format_admin_result_player_detail(
