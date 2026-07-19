@@ -46,43 +46,27 @@ def active_player() -> PlayerView:
     )
 
 
-def test_parse_player_result_without_knockouts() -> None:
-    assert admin_handlers.parse_player_result("2", knockout_mode="none") == (2, 0, 0)
-    assert admin_handlers.parse_player_result("0", knockout_mode="none") == (
-        None,
-        0,
-        0,
-    )
+def test_parse_result_manual_value() -> None:
+    assert admin_handlers.parse_result_manual_value(
+        "17",
+        field=keyboards.AdminResultField.KNOCKOUTS,
+    ) == 17
+    assert admin_handlers.parse_result_manual_value(
+        "10",
+        field=keyboards.AdminResultField.BOSS_KNOCKOUTS,
+    ) == 10
+    assert admin_handlers.parse_result_manual_value(
+        "5",
+        field=keyboards.AdminResultField.PLACE,
+    ) == 5
 
 
-def test_parse_player_result_with_small_knockouts() -> None:
-    assert admin_handlers.parse_player_result("3", knockout_mode="small") == (
-        None,
-        3,
-        0,
-    )
-    assert admin_handlers.parse_player_result("3 - 2", knockout_mode="small") == (
-        2,
-        3,
-        0,
-    )
-
-
-def test_parse_player_result_with_small_and_boss_knockouts() -> None:
-    assert admin_handlers.parse_player_result("3", knockout_mode="small_big") == (
-        None,
-        3,
-        0,
-    )
-    assert admin_handlers.parse_player_result("3 - 1", knockout_mode="small_big") == (
-        None,
-        3,
-        1,
-    )
-    assert admin_handlers.parse_player_result(
-        "3 - 1 - 2",
-        knockout_mode="small_big",
-    ) == (2, 3, 1)
+def test_parse_result_manual_value_rejects_place_outside_top_five() -> None:
+    with pytest.raises(ValueError):
+        admin_handlers.parse_result_manual_value(
+            "6",
+            field=keyboards.AdminResultField.PLACE,
+        )
 
 
 def test_admin_result_players_hide_ids_and_empty_places() -> None:
@@ -123,6 +107,55 @@ def test_admin_result_players_hide_ids_and_empty_places() -> None:
         for button in row
     ]
     assert buttons == ["Тест Игрок", "Илларионов Александр", "⬅️ Назад", "❌ Отмена"]
+
+
+def test_admin_result_player_field_and_value_keyboards() -> None:
+    tournament = tournament_view(125, date(2026, 7, 19), 6, "Boss Bounty")
+    player = TournamentResultDraftPlayerView(
+        player_id=108,
+        display_name="Илларионов Александр",
+        place=None,
+        knockouts_count=0,
+        boss_knockouts_count=0,
+    )
+    draft = TournamentResultDraftView(
+        tournament=tournament,
+        points_pool=Decimal("1800"),
+        players=[player],
+        knockout_mode="small_big",
+    )
+
+    field_buttons = [
+        button.text
+        for row in keyboards.admin_result_player_fields_keyboard(
+            draft,
+            player,
+            page=0,
+        ).inline_keyboard
+        for button in row
+    ]
+    assert field_buttons == [
+        "💥 КО",
+        "👑💥 Босс КО",
+        "🏁 Место",
+        "✅ Готово",
+        "❌ Отмена",
+    ]
+
+    value_rows = keyboards.admin_result_value_keyboard(
+        tournament_id=125,
+        page=0,
+        player_id=108,
+        field=keyboards.AdminResultField.KNOCKOUTS,
+    ).inline_keyboard
+    assert [[button.text for button in row] for row in value_rows] == [
+        ["1", "2", "3", "4", "5"],
+        ["6", "7", "8", "9", "10"],
+        ["11", "12", "13", "14", "15"],
+        ["⌨️ Ввести руками"],
+        ["⬅️ Назад"],
+        ["❌ Отмена"],
+    ]
 
 
 def admin_player(

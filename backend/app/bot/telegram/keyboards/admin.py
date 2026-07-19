@@ -149,6 +149,42 @@ class AdminResultPlayerCallback(CallbackData, prefix="res_player"):
     player_id: int
 
 
+class AdminResultField(StrEnum):
+    KNOCKOUTS = "ko"
+    BOSS_KNOCKOUTS = "boss"
+    PLACE = "place"
+
+
+class AdminResultFieldAction(StrEnum):
+    OPEN = "open"
+    DONE = "done"
+    CANCEL = "cancel"
+
+
+class AdminResultFieldCallback(CallbackData, prefix="res_field"):
+    action: AdminResultFieldAction
+    tournament_id: int
+    page: int
+    player_id: int
+    field: AdminResultField
+
+
+class AdminResultValueAction(StrEnum):
+    SET = "set"
+    MANUAL = "manual"
+    BACK = "back"
+    CANCEL = "cancel"
+
+
+class AdminResultValueCallback(CallbackData, prefix="res_value"):
+    action: AdminResultValueAction
+    tournament_id: int
+    page: int
+    player_id: int
+    field: AdminResultField
+    value: int
+
+
 class AdminTournamentRegistrationTournamentAction(StrEnum):
     OPEN = "open"
     PAGE = "page"
@@ -506,6 +542,161 @@ def admin_result_cancel_keyboard(tournament_id: int) -> InlineKeyboardMarkup:
             tournament_id=tournament_id,
         ),
     )
+    return builder.as_markup()
+
+
+def admin_result_player_fields_keyboard(
+    draft: TournamentResultDraftView,
+    player: TournamentResultDraftPlayerView,
+    page: int,
+) -> InlineKeyboardMarkup:
+    builder = InlineKeyboardBuilder()
+    if draft.knockout_mode in {"small", "small_big"}:
+        builder.button(
+            text="💥 КО",
+            callback_data=AdminResultFieldCallback(
+                action=AdminResultFieldAction.OPEN,
+                tournament_id=draft.tournament.id,
+                page=page,
+                player_id=player.player_id,
+                field=AdminResultField.KNOCKOUTS,
+            ),
+        )
+    if draft.knockout_mode == "small_big":
+        builder.button(
+            text="👑💥 Босс КО",
+            callback_data=AdminResultFieldCallback(
+                action=AdminResultFieldAction.OPEN,
+                tournament_id=draft.tournament.id,
+                page=page,
+                player_id=player.player_id,
+                field=AdminResultField.BOSS_KNOCKOUTS,
+            ),
+        )
+    builder.button(
+        text="🏁 Место",
+        callback_data=AdminResultFieldCallback(
+            action=AdminResultFieldAction.OPEN,
+            tournament_id=draft.tournament.id,
+            page=page,
+            player_id=player.player_id,
+            field=AdminResultField.PLACE,
+        ),
+    )
+    builder.button(
+        text="✅ Готово",
+        callback_data=AdminResultFieldCallback(
+            action=AdminResultFieldAction.DONE,
+            tournament_id=draft.tournament.id,
+            page=page,
+            player_id=player.player_id,
+            field=AdminResultField.PLACE,
+        ),
+    )
+    builder.button(
+        text=buttons.ADMIN_CANCEL,
+        callback_data=AdminResultFieldCallback(
+            action=AdminResultFieldAction.CANCEL,
+            tournament_id=draft.tournament.id,
+            page=page,
+            player_id=player.player_id,
+            field=AdminResultField.PLACE,
+        ),
+    )
+    builder.adjust(1)
+    return builder.as_markup()
+
+
+def admin_result_value_keyboard(
+    *,
+    tournament_id: int,
+    page: int,
+    player_id: int,
+    field: AdminResultField,
+) -> InlineKeyboardMarkup:
+    builder = InlineKeyboardBuilder()
+    max_value = 5 if field == AdminResultField.PLACE else 15
+    for value in range(1, max_value + 1):
+        builder.button(
+            text=str(value),
+            callback_data=AdminResultValueCallback(
+                action=AdminResultValueAction.SET,
+                tournament_id=tournament_id,
+                page=page,
+                player_id=player_id,
+                field=field,
+                value=value,
+            ),
+        )
+    builder.button(
+        text="⌨️ Ввести руками",
+        callback_data=AdminResultValueCallback(
+            action=AdminResultValueAction.MANUAL,
+            tournament_id=tournament_id,
+            page=page,
+            player_id=player_id,
+            field=field,
+            value=0,
+        ),
+    )
+    builder.button(
+        text="⬅️ Назад",
+        callback_data=AdminResultValueCallback(
+            action=AdminResultValueAction.BACK,
+            tournament_id=tournament_id,
+            page=page,
+            player_id=player_id,
+            field=field,
+            value=0,
+        ),
+    )
+    builder.button(
+        text=buttons.ADMIN_CANCEL,
+        callback_data=AdminResultValueCallback(
+            action=AdminResultValueAction.CANCEL,
+            tournament_id=tournament_id,
+            page=page,
+            player_id=player_id,
+            field=field,
+            value=0,
+        ),
+    )
+    value_rows = [5] if field == AdminResultField.PLACE else [5, 5, 5]
+    builder.adjust(*value_rows, 1, 1, 1)
+    return builder.as_markup()
+
+
+def admin_result_manual_value_keyboard(
+    *,
+    tournament_id: int,
+    page: int,
+    player_id: int,
+    field: AdminResultField,
+) -> InlineKeyboardMarkup:
+    builder = InlineKeyboardBuilder()
+    builder.button(
+        text="⬅️ Назад",
+        callback_data=AdminResultValueCallback(
+            action=AdminResultValueAction.BACK,
+            tournament_id=tournament_id,
+            page=page,
+            player_id=player_id,
+            field=field,
+            value=0,
+        ),
+    )
+    builder.button(
+        text=buttons.ADMIN_CANCEL,
+        callback_data=AdminResultValueCallback(
+            action=AdminResultValueAction.CANCEL,
+            tournament_id=tournament_id,
+            page=page,
+            player_id=player_id,
+            field=field,
+            value=0,
+        ),
+    )
+    builder.adjust(1)
     return builder.as_markup()
 
 

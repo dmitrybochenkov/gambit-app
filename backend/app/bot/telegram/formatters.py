@@ -6,6 +6,7 @@ from app.services.dto import (
     AdminPromptView,
     PlayerProfileView,
     PlayerView,
+    TournamentResultDraftPlayerView,
     TournamentResultDraftView,
     TournamentView,
 )
@@ -141,6 +142,30 @@ def _admin_result_player_parts(
     if knockout_mode == "small":
         return [f"КО {knockouts_count}", *place_part]
     return place_part
+
+
+def format_admin_result_player_detail(
+    draft: TournamentResultDraftView,
+    player: TournamentResultDraftPlayerView,
+) -> str:
+    lines = [
+        "Результат игрока",
+        player.display_name,
+    ]
+    if draft.knockout_mode in {"small", "small_big"}:
+        lines.append(f"КО: {player.knockouts_count}")
+    if draft.knockout_mode == "small_big":
+        lines.append(f"Босс КО: {player.boss_knockouts_count}")
+    if player.place is not None:
+        lines.append(f"Место: {player.place}")
+    return "\n".join(lines)
+
+
+def format_admin_result_field_prompt(
+    player: TournamentResultDraftPlayerView,
+    field_name: str,
+) -> str:
+    return f"{player.display_name}\n\nВыбери {field_name}:"
 
 
 def format_admin_tournament_registration_tournament_list(

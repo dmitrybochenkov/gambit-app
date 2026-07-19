@@ -11,7 +11,9 @@ from aiogram.types import CallbackQuery, Message, ReplyKeyboardRemove
 from app.bot.telegram import keyboards, texts
 from app.bot.telegram.formatters import (
     format_admin_calendar_prompt,
+    format_admin_result_field_prompt,
     format_admin_result_menu,
+    format_admin_result_player_detail,
     format_admin_result_players,
     format_admin_result_tournament_list,
     format_admin_tournament_registration_player_list,
@@ -36,7 +38,11 @@ from app.services.calendar_service import (
     CalendarPromptNotFoundError,
     calendar_service,
 )
-from app.services.dto import RegistrationReviewResultView
+from app.services.dto import (
+    RegistrationReviewResultView,
+    TournamentResultDraftPlayerView,
+    TournamentResultDraftView,
+)
 from app.services.pagination import pagination_service
 from app.services.player_service import (
     AdminAccessDeniedError,
@@ -643,23 +649,183 @@ async def select_result_player(
         await callback.answer(texts.admin.ADMIN_RESULTS_NOT_FOUND, show_alert=True)
         return
 
-    await state.set_state(AdminResultStates.entering_player_result)
-    await state.update_data(
-        result_tournament_id=callback_data.tournament_id,
-        result_player_id=callback_data.player_id,
-        result_page=callback_data.page,
-        result_knockout_mode=draft.knockout_mode,
-    )
+    await state.clear()
     await callback.answer()
     if callback.message is not None:
         await _delete_callback_message(callback)
-        prompt = texts.admin.ADMIN_RESULTS_PLAYER_PROMPTS.get(
-            draft.knockout_mode,
-            texts.admin.ADMIN_RESULTS_PLAYER_PROMPTS["none"],
-        )
         await callback.message.answer(
-            f"{player.display_name}\n\n{prompt}",
-            reply_markup=keyboards.admin_result_cancel_keyboard(callback_data.tournament_id),
+            format_admin_result_player_detail(draft, player),
+            reply_markup=keyboards.admin_result_player_fields_keyboard(
+                draft,
+                player,
+                callback_data.page,
+            ),
+        )
+
+
+@router.callback_query(keyboards.AdminResultFieldCallback.filter())
+async def select_result_field(
+    callback: CallbackQuery,
+    callback_data: keyboards.AdminResultFieldCallback,
+    state: FSMContext,
+) -> None:
+    try:
+        draft = await result_service.get_or_create_draft(
+            admin_telegram_id=callback.from_user.id,
+            tournament_id=callback_data.tournament_id,
+        )
+        player = find_result_player(draft, callback_data.player_id)
+        if player is None:
+            await callback.answer(texts.admin.PLAYER_NOT_FOUND, show_alert=True)
+            return
+
+        if callback_data.action == keyboards.AdminResultFieldAction.CANCEL:
+            await state.clear()
+            await callback.answer(texts.admin.ADMIN_RESULTS_CANCELLED)
+            if callback.message is not None:
+                await _delete_callback_message(callback)
+                await callback.message.answer(texts.admin.ADMIN_RESULTS_CANCELLED)
+            return
+
+        if callback_data.action == keyboards.AdminResultFieldAction.DONE:
+            await state.clear()
+            page = pagination_service.paginate(
+                draft.players,
+                page=callback_data.page,
+                page_size=keyboards.ADMIN_RESULT_PAGE_SIZE,
+            )
+            await callback.answer()
+            if callback.message is not None:
+                await _delete_callback_message(callback)
+                await callback.message.answer(
+                    format_admin_result_players(draft, page),
+                    reply_markup=keyboards.admin_result_players_keyboard(draft, page),
+                )
+            return
+
+        if not result_field_is_allowed(draft.knockout_mode, callback_data.field):
+            await callback.answer(texts.admin.ADMIN_RESULTS_NOT_FOUND, show_alert=True)
+            return
+
+        await state.clear()
+        await callback.answer()
+        if callback.message is not None:
+            await callback.message.edit_text(
+                format_admin_result_field_prompt(
+                    player,
+                    result_field_name(callback_data.field),
+                ),
+                reply_markup=keyboards.admin_result_value_keyboard(
+                    tournament_id=callback_data.tournament_id,
+                    page=callback_data.page,
+                    player_id=callback_data.player_id,
+                    field=callback_data.field,
+                ),
+            )
+    except AdminAccessDeniedError:
+        await callback.answer(texts.admin.ACCESS_DENIED, show_alert=True)
+    except ResultTournamentNotFoundError:
+        await callback.answer(texts.admin.ADMIN_RESULTS_NOT_FOUND, show_alert=True)
+
+
+@router.callback_query(keyboards.AdminResultValueCallback.filter())
+async def select_result_value(
+    callback: CallbackQuery,
+    callback_data: keyboards.AdminResultValueCallback,
+    state: FSMContext,
+) -> None:
+    try:
+        draft = await result_service.get_or_create_draft(
+            admin_telegram_id=callback.from_user.id,
+            tournament_id=callback_data.tournament_id,
+        )
+        player = find_result_player(draft, callback_data.player_id)
+        if player is None:
+            await callback.answer(texts.admin.PLAYER_NOT_FOUND, show_alert=True)
+            return
+
+        if callback_data.action == keyboards.AdminResultValueAction.CANCEL:
+            await state.clear()
+            await callback.answer(texts.admin.ADMIN_RESULTS_CANCELLED)
+            if callback.message is not None:
+                await _delete_callback_message(callback)
+                await callback.message.answer(texts.admin.ADMIN_RESULTS_CANCELLED)
+            return
+
+        if callback_data.action == keyboards.AdminResultValueAction.BACK:
+            await state.clear()
+            await callback.answer()
+            if callback.message is not None:
+                await callback.message.edit_text(
+                    format_admin_result_player_detail(draft, player),
+                    reply_markup=keyboards.admin_result_player_fields_keyboard(
+                        draft,
+                        player,
+                        callback_data.page,
+                    ),
+                )
+            return
+
+        if not result_field_is_allowed(draft.knockout_mode, callback_data.field):
+            await callback.answer(texts.admin.ADMIN_RESULTS_NOT_FOUND, show_alert=True)
+            return
+
+        if callback_data.action == keyboards.AdminResultValueAction.MANUAL:
+            await state.set_state(AdminResultStates.entering_manual_value)
+            await state.update_data(
+                result_tournament_id=callback_data.tournament_id,
+                result_player_id=callback_data.player_id,
+                result_page=callback_data.page,
+                result_field=callback_data.field.value,
+                result_prompt_message_id=callback.message.message_id
+                if callback.message is not None
+                else 0,
+            )
+            await callback.answer()
+            if callback.message is not None:
+                await callback.message.edit_text(
+                    texts.admin.ADMIN_RESULTS_MANUAL_VALUE_PROMPTS[
+                        callback_data.field.value
+                    ],
+                    reply_markup=keyboards.admin_result_manual_value_keyboard(
+                        tournament_id=callback_data.tournament_id,
+                        page=callback_data.page,
+                        player_id=callback_data.player_id,
+                        field=callback_data.field,
+                    ),
+                )
+            return
+
+        draft = await update_result_field(
+            admin_telegram_id=callback.from_user.id,
+            tournament_id=callback_data.tournament_id,
+            player_id=callback_data.player_id,
+            field=callback_data.field,
+            value=callback_data.value,
+        )
+        player = find_result_player(draft, callback_data.player_id)
+        if player is None:
+            await callback.answer(texts.admin.PLAYER_NOT_FOUND, show_alert=True)
+            return
+        await state.clear()
+        await callback.answer(texts.admin.ADMIN_RESULTS_SAVED)
+        if callback.message is not None:
+            await callback.message.edit_text(
+                format_admin_result_player_detail(draft, player),
+                reply_markup=keyboards.admin_result_player_fields_keyboard(
+                    draft,
+                    player,
+                    callback_data.page,
+                ),
+            )
+    except AdminAccessDeniedError:
+        await callback.answer(texts.admin.ACCESS_DENIED, show_alert=True)
+    except ResultTournamentNotFoundError:
+        await callback.answer(texts.admin.ADMIN_RESULTS_NOT_FOUND, show_alert=True)
+    except (ResultInvalidPlayerDataError, ResultPlayerNotFoundError, ValueError):
+        await callback.answer(
+            texts.admin.ADMIN_RESULTS_INVALID_MANUAL_VALUE[callback_data.field.value],
+            show_alert=True,
         )
 
 
@@ -1372,8 +1538,8 @@ async def enter_result_pool(message: Message, state: FSMContext) -> None:
     )
 
 
-@router.message(AdminResultStates.entering_player_result)
-async def enter_player_result(message: Message, state: FSMContext) -> None:
+@router.message(AdminResultStates.entering_manual_value)
+async def enter_result_manual_value(message: Message, state: FSMContext) -> None:
     if message.from_user is None:
         return
 
@@ -1381,19 +1547,18 @@ async def enter_player_result(message: Message, state: FSMContext) -> None:
     tournament_id = int(data["result_tournament_id"])
     player_id = int(data["result_player_id"])
     page_number = int(data.get("result_page", 0))
-    knockout_mode = str(data.get("result_knockout_mode", "none"))
+    field = keyboards.AdminResultField(str(data["result_field"]))
     try:
-        place, knockouts_count, boss_knockouts_count = parse_player_result(
+        value = parse_result_manual_value(
             message.text or "",
-            knockout_mode=knockout_mode,
+            field=field,
         )
-        draft = await result_service.update_player_result(
+        draft = await update_result_field(
             admin_telegram_id=message.from_user.id,
             tournament_id=tournament_id,
             player_id=player_id,
-            place=place,
-            knockouts_count=knockouts_count,
-            boss_knockouts_count=boss_knockouts_count,
+            field=field,
+            value=value,
         )
     except AdminAccessDeniedError:
         await state.clear()
@@ -1404,23 +1569,26 @@ async def enter_player_result(message: Message, state: FSMContext) -> None:
         await message.answer(texts.admin.ADMIN_RESULTS_NOT_FOUND)
         return
     except (ResultInvalidPlayerDataError, ResultPlayerNotFoundError, ValueError):
-        invalid_text = texts.admin.ADMIN_RESULTS_INVALID_PLAYER_DATA.get(
-            knockout_mode,
-            texts.admin.ADMIN_RESULTS_INVALID_PLAYER_DATA["none"],
-        )
-        await message.answer(invalid_text)
+        await message.answer(texts.admin.ADMIN_RESULTS_INVALID_MANUAL_VALUE[field.value])
         return
 
     await state.clear()
-    page = pagination_service.paginate(
-        draft.players,
-        page=page_number,
-        page_size=keyboards.ADMIN_RESULT_PAGE_SIZE,
+    player = find_result_player(draft, player_id)
+    if player is None:
+        await message.answer(texts.admin.PLAYER_NOT_FOUND)
+        return
+    await _delete_message_by_id(
+        message,
+        int(data.get("result_prompt_message_id", 0)),
     )
     await message.answer(texts.admin.ADMIN_RESULTS_SAVED)
     await message.answer(
-        format_admin_result_players(draft, page),
-        reply_markup=keyboards.admin_result_players_keyboard(draft, page),
+        format_admin_result_player_detail(draft, player),
+        reply_markup=keyboards.admin_result_player_fields_keyboard(
+            draft,
+            player,
+            page_number,
+        ),
     )
 
 
@@ -1596,6 +1764,18 @@ async def _delete_callback_message(callback: CallbackQuery) -> None:
             pass
 
 
+async def _delete_message_by_id(message: Message, message_id: int) -> None:
+    if message_id <= 0:
+        return
+    try:
+        await message.bot.delete_message(
+            chat_id=message.chat.id,
+            message_id=message_id,
+        )
+    except TelegramBadRequest:
+        pass
+
+
 def parse_admin_date(value: str) -> date:
     match = re.fullmatch(r"(\d{1,2})\.(\d{2})\.(\d{4})", value.strip())
     if match is None:
@@ -1639,30 +1819,78 @@ def parse_positive_decimal(value: str) -> Decimal:
     return result
 
 
-def parse_player_result(value: str, *, knockout_mode: str) -> tuple[int | None, int, int]:
-    parts = [part.strip() for part in re.split(r"\s*-\s*", value.strip())]
-    if knockout_mode == "none":
-        if len(parts) != 1:
-            raise ValueError
-        return parse_optional_place(parts[0]), 0, 0
-
-    if knockout_mode == "small":
-        if len(parts) not in {1, 2}:
-            raise ValueError
-        knockouts_count = parse_nonnegative_int(parts[0])
-        place = parse_optional_place(parts[1]) if len(parts) == 2 else None
-        return place, knockouts_count, 0
-
-    if knockout_mode != "small_big" or len(parts) not in {1, 2, 3}:
+def parse_result_manual_value(value: str, *, field: keyboards.AdminResultField) -> int:
+    result = parse_nonnegative_int(value)
+    if field == keyboards.AdminResultField.PLACE and result not in {1, 2, 3, 4, 5}:
         raise ValueError
-    knockouts_count = parse_nonnegative_int(parts[0])
-    boss_knockouts_count = parse_nonnegative_int(parts[1]) if len(parts) >= 2 else 0
-    place = parse_optional_place(parts[2]) if len(parts) == 3 else None
-    return place, knockouts_count, boss_knockouts_count
+    return result
 
 
-def parse_optional_place(value: str) -> int | None:
-    return None if value in {"", "0", "—"} else parse_positive_int(value)
+def find_result_player(
+    draft: TournamentResultDraftView,
+    player_id: int,
+) -> TournamentResultDraftPlayerView | None:
+    return next(
+        (player for player in draft.players if player.player_id == player_id),
+        None,
+    )
+
+
+def result_field_is_allowed(
+    knockout_mode: str,
+    field: keyboards.AdminResultField,
+) -> bool:
+    if field == keyboards.AdminResultField.KNOCKOUTS:
+        return knockout_mode in {"small", "small_big"}
+    if field == keyboards.AdminResultField.BOSS_KNOCKOUTS:
+        return knockout_mode == "small_big"
+    return field == keyboards.AdminResultField.PLACE
+
+
+def result_field_name(field: keyboards.AdminResultField) -> str:
+    return {
+        keyboards.AdminResultField.KNOCKOUTS: "КО",
+        keyboards.AdminResultField.BOSS_KNOCKOUTS: "Босс КО",
+        keyboards.AdminResultField.PLACE: "место",
+    }[field]
+
+
+async def update_result_field(
+    *,
+    admin_telegram_id: int,
+    tournament_id: int,
+    player_id: int,
+    field: keyboards.AdminResultField,
+    value: int,
+) -> TournamentResultDraftView:
+    draft = await result_service.get_or_create_draft(
+        admin_telegram_id=admin_telegram_id,
+        tournament_id=tournament_id,
+    )
+    if not result_field_is_allowed(draft.knockout_mode, field):
+        raise ValueError
+    player = find_result_player(draft, player_id)
+    if player is None:
+        raise ResultPlayerNotFoundError
+
+    place = player.place
+    knockouts_count = player.knockouts_count
+    boss_knockouts_count = player.boss_knockouts_count
+    if field == keyboards.AdminResultField.PLACE:
+        place = value
+    elif field == keyboards.AdminResultField.KNOCKOUTS:
+        knockouts_count = value
+    elif field == keyboards.AdminResultField.BOSS_KNOCKOUTS:
+        boss_knockouts_count = value
+
+    return await result_service.update_player_result(
+        admin_telegram_id=admin_telegram_id,
+        tournament_id=tournament_id,
+        player_id=player_id,
+        place=place,
+        knockouts_count=knockouts_count,
+        boss_knockouts_count=boss_knockouts_count,
+    )
 
 
 def parse_nonnegative_int(value: str) -> int:
