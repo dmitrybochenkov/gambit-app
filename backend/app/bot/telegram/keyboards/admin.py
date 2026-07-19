@@ -635,12 +635,19 @@ def admin_result_value_keyboard(
     page: int,
     player_id: int,
     field: AdminResultField,
+    occupied_places: set[int] | None = None,
 ) -> InlineKeyboardMarkup:
     builder = InlineKeyboardBuilder()
     max_value = 5 if field == AdminResultField.PLACE else 15
+    occupied_places = occupied_places or set()
     for value in range(1, max_value + 1):
+        text = (
+            f"✔️ {value}"
+            if field == AdminResultField.PLACE and value in occupied_places
+            else str(value)
+        )
         builder.button(
-            text=str(value),
+            text=text,
             callback_data=AdminResultValueCallback(
                 action=AdminResultValueAction.SET,
                 tournament_id=tournament_id,

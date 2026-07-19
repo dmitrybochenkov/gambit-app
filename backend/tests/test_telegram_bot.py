@@ -234,6 +234,20 @@ def test_admin_result_player_field_and_value_keyboards() -> None:
         ["❌ Отмена"],
     ]
 
+    place_rows = keyboards.admin_result_value_keyboard(
+        tournament_id=125,
+        page=0,
+        player_id=108,
+        field=keyboards.AdminResultField.PLACE,
+        occupied_places={2, 5},
+    ).inline_keyboard
+    assert [[button.text for button in row] for row in place_rows] == [
+        ["1", "✔️ 2", "3", "4", "✔️ 5"],
+        ["⌨️ Ввести руками"],
+        ["⬅️ Назад"],
+        ["❌ Отмена"],
+    ]
+
 
 def admin_player(
     player_id: int,

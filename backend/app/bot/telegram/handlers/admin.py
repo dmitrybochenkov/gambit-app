@@ -778,6 +778,11 @@ async def select_result_field(
                     page=callback_data.page,
                     player_id=callback_data.player_id,
                     field=callback_data.field,
+                    occupied_places={
+                        player.place
+                        for player in draft.players
+                        if player.place is not None
+                    },
                 ),
             )
     except AdminAccessDeniedError:
