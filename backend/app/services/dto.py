@@ -79,7 +79,6 @@ class RegistrationReviewResultView:
 class TournamentView:
     id: int
     date: date
-    capacity: int
     tournament_type_id: int
     tournament_type_name: str | None
 

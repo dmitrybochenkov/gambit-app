@@ -25,10 +25,6 @@ class TournamentUnavailableError(ValueError):
     pass
 
 
-class TournamentFullError(ValueError):
-    pass
-
-
 class TournamentCancellationUnavailableError(ValueError):
     pass
 
@@ -125,14 +121,6 @@ class TournamentService:
                     tournament.id,
                     player.id,
                 )
-                if (
-                    registration is None
-                    or registration.status != RegistrationStatus.REGISTERED
-                ) and (
-                    await registration_repository.count_registered(tournament.id)
-                    >= tournament.capacity
-                ):
-                    raise TournamentFullError
                 selected.append((tournament, registration))
 
             now = datetime.now(UTC)
@@ -214,7 +202,6 @@ def tournament_view(tournament: Tournament) -> TournamentView:
     return TournamentView(
         id=tournament.id,
         date=tournament.date,
-        capacity=tournament.capacity,
         tournament_type_id=tournament.tournament_type_id,
         tournament_type_name=tournament_type.name if tournament_type is not None else None,
     )

@@ -67,7 +67,6 @@ def tournament_view(
     return TournamentView(
         id=tournament_id,
         date=tournament_date,
-        capacity=30,
         tournament_type_id=tournament_type_id,
         tournament_type_name=tournament_type_name,
     )
@@ -870,8 +869,7 @@ async def test_admin_calendar_tournaments_callback_sends_detailed_prompt(
                     '"entry_stack":20000,'
                     '"addon_fee":800,'
                     '"addon_stack":125000,'
-                    '"rebuys":[{"fee":600,"stack":30000}],'
-                    '"capacity":30'
+                    '"rebuys":[{"fee":600,"stack":30000}]'
                     "}]} "
                 ),
                 status="pending",
@@ -1081,8 +1079,7 @@ async def test_tournament_edit_button_opens_day_menu(
                     '"entry_stack":20000,'
                     '"addon_fee":800,'
                     '"addon_stack":125000,'
-                    '"rebuys":[],'
-                    '"capacity":30'
+                    '"rebuys":[]'
                     "}]} "
                 ),
                 status="pending",

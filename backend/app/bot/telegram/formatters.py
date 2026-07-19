@@ -188,7 +188,6 @@ def _format_tournament_proposal_item(item: dict[str, object]) -> list[str]:
         id=0,
         tournament_type_id=int(item["tournament_type_id"]),
         date=date.fromisoformat(str(item["date"])),
-        capacity=int(item["capacity"]),
         tournament_type_name=str(item["tournament_type_name"]),
     )
     rebuys = item.get("rebuys", [])

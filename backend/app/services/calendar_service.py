@@ -28,8 +28,6 @@ from app.db.repositories.tournament_repository import TournamentRepository
 from app.db.session import SessionFactory
 from app.services.dto import AdminPromptView, TournamentTypeOptionView
 
-DEFAULT_TOURNAMENT_CAPACITY = 30
-
 
 class AdminPromptKind(StrEnum):
     SEASON_PROPOSAL = "season_proposal"
@@ -72,7 +70,6 @@ class ProposedTournament:
     addon_fee: int
     addon_stack: int
     rebuys: list[dict[str, int]]
-    capacity: int = DEFAULT_TOURNAMENT_CAPACITY
 
 
 class CalendarService:
@@ -320,7 +317,6 @@ class CalendarService:
                         "addon_fee": tournament.addon_fee,
                         "addon_stack": tournament.addon_stack,
                         "rebuys": tournament.rebuys,
-                        "capacity": tournament.capacity,
                     }
                     for tournament in proposed_tournaments
                 ]
@@ -542,7 +538,6 @@ class CalendarService:
                     season_id=season.id,
                     tournament_type_id=tournament_type_id,
                     date=tournament_date,
-                    capacity=int(item["capacity"]),
                     status=TournamentStatus.ACTIVE,
                 )
             )

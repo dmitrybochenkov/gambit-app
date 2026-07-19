@@ -23,7 +23,6 @@ from app.services.profile_service import ProfileNotAllowedError, profile_service
 from app.services.rating_service import RatingNotAllowedError, rating_service
 from app.services.tournament_service import (
     TournamentCancellationUnavailableError,
-    TournamentFullError,
     TournamentRegistrationNotAllowedError,
     TournamentScheduleNotAllowedError,
     TournamentUnavailableError,
@@ -393,10 +392,6 @@ async def confirm_tournament_registration(
     except TournamentUnavailableError:
         await callback.answer(texts.user.TOURNAMENT_UNAVAILABLE, show_alert=True)
         return
-    except TournamentFullError:
-        await callback.answer(texts.user.TOURNAMENT_FULL, show_alert=True)
-        return
-
     await state.update_data(tournament_registration_selection=[])
     await callback.answer(texts.user.ACTION_DONE)
     if callback.message is not None:

@@ -49,28 +49,24 @@ async def test_upcoming_schedule_uses_active_tournaments(tmp_path: Path) -> None
                     season_id=season.id,
                     tournament_type_id=tournament_type_id("freezeout"),
                     date=date(2026, 7, 10),
-                    capacity=30,
                     status=TournamentStatus.ACTIVE,
                 ),
                 Tournament(
                     season_id=season.id,
                     tournament_type_id=tournament_type_id("bounty"),
                     date=date(2026, 7, 8),
-                    capacity=30,
                     status=TournamentStatus.ACTIVE,
                 ),
                 Tournament(
                     season_id=season.id,
                     tournament_type_id=tournament_type_id("classic"),
                     date=date(2026, 7, 9),
-                    capacity=30,
                     status=TournamentStatus.ACTIVE,
                 ),
                 Tournament(
                     season_id=season.id,
                     tournament_type_id=tournament_type_id("bounty"),
                     date=date(2026, 7, 7),
-                    capacity=30,
                     status=TournamentStatus.CANCELLED,
                 ),
             ]
@@ -128,14 +124,12 @@ async def test_active_player_can_register_for_multiple_tournaments(tmp_path: Pat
                 season_id=season.id,
                 tournament_type_id=tournament_type_id("bounty"),
                 date=date(2026, 7, 8),
-                capacity=30,
                 status=TournamentStatus.ACTIVE,
             ),
             Tournament(
                 season_id=season.id,
                 tournament_type_id=tournament_type_id("classic"),
                 date=date(2026, 7, 9),
-                capacity=30,
                 status=TournamentStatus.ACTIVE,
             ),
         ]

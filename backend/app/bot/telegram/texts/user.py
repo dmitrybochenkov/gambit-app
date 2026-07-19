@@ -70,7 +70,6 @@ TOURNAMENT_REMOVED_FROM_SELECTION = "Турнир убран из выбранн
 TOURNAMENT_ADDED_TO_SELECTION = "Турнир добавлен."
 TOURNAMENT_SELECTION_EMPTY = "Сначала выбери хотя бы один турнир."
 TOURNAMENT_UNAVAILABLE = "Этот турнир уже недоступен для записи."
-TOURNAMENT_FULL = "К сожалению, свободных мест уже нет."
 ACTION_DONE = "Готово!"
 TOURNAMENT_REGISTRATION_CANCELLED = "Отмена"
 TOURNAMENT_REGISTRATION_SINGLE_HEADING = "Ты записан на турнир:"

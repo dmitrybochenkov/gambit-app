@@ -74,14 +74,12 @@ async def test_rating_filters_current_season_and_all_time(tmp_path: Path) -> Non
             season_id=current_season.id,
             tournament_type_id=tournament_type_id("bounty"),
             date=date(2026, 7, 8),
-            capacity=30,
             status=TournamentStatus.ACTIVE,
         )
         previous_tournament = Tournament(
             season_id=previous_season.id,
             tournament_type_id=tournament_type_id("classic"),
             date=date(2026, 6, 20),
-            capacity=30,
             status=TournamentStatus.ACTIVE,
         )
         session.add_all([current_tournament, previous_tournament])

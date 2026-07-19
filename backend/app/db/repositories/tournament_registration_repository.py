@@ -1,6 +1,6 @@
 from datetime import date
 
-from sqlalchemy import func, select
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
@@ -24,15 +24,6 @@ class TournamentRegistrationRepository:
             )
         )
         return result.scalar_one_or_none()
-
-    async def count_registered(self, tournament_id: int) -> int:
-        result = await self.session.execute(
-            select(func.count(TournamentRegistration.id)).where(
-                TournamentRegistration.tournament_id == tournament_id,
-                TournamentRegistration.status == RegistrationStatus.REGISTERED,
-            )
-        )
-        return result.scalar_one()
 
     async def list_registered_upcoming(
         self,

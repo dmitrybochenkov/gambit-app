@@ -79,7 +79,6 @@ async def test_result_draft_closes_tournament(tmp_path: Path) -> None:
             season_id=season.id,
             tournament_type_id=tournament_type_id("boss_bounty"),
             date=date(2026, 7, 18),
-            capacity=30,
             status=TournamentStatus.ACTIVE,
         )
         session.add(tournament)
@@ -188,7 +187,6 @@ async def test_result_draft_rejects_duplicate_places(tmp_path: Path) -> None:
             season_id=season.id,
             tournament_type_id=tournament_type_id("classic"),
             date=date(2026, 7, 18),
-            capacity=30,
             status=TournamentStatus.ACTIVE,
             points_pool=Decimal("1000"),
         )

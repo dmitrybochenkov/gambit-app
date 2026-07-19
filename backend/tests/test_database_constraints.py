@@ -51,7 +51,6 @@ def test_closed_tournament_requires_points_pool(session: Session) -> None:
             season_id=season.id,
             tournament_type_id=tournament_type_id("bounty"),
             date=date(2026, 7, 4),
-            capacity=30,
             points_pool=None,
             status=TournamentStatus.CLOSED,
         )
@@ -102,7 +101,6 @@ def test_tournament_result_bonus_points_must_be_nonnegative(
         season_id=season.id,
         tournament_type_id=tournament_type_id("bounty"),
         date=date(2026, 7, 4),
-        capacity=30,
         status=TournamentStatus.ACTIVE,
     )
     session.add(tournament)

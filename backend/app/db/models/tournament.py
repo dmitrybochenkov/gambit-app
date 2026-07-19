@@ -30,7 +30,6 @@ class Tournament(TimestampMixin, Base):
         index=True,
     )
     date: Mapped[date] = mapped_column(Date, nullable=False, index=True)
-    capacity: Mapped[int] = mapped_column(Integer, nullable=False)
     points_pool: Mapped[Decimal | None] = mapped_column(Numeric(12, 2), nullable=True)
     status: Mapped[TournamentStatus] = mapped_column(
         database_enum(TournamentStatus, "tournament_status"),
@@ -41,7 +40,6 @@ class Tournament(TimestampMixin, Base):
     tournament_type: Mapped[TournamentType] = relationship()
 
     __table_args__ = (
-        CheckConstraint("capacity > 0", name="capacity_positive"),
         CheckConstraint(
             "points_pool IS NULL OR points_pool >= 0",
             name="points_pool_nonnegative",
