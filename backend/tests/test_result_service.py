@@ -63,17 +63,15 @@ async def test_result_draft_closes_tournament(tmp_path: Path) -> None:
             status=PlayerStatus.ACTIVE,
             role=PlayerRole.ADMIN,
         )
-        first_player = Player(
-            telegram_id=101,
-            full_name="First",
-            status=PlayerStatus.ACTIVE,
-        )
-        second_player = Player(
-            telegram_id=102,
-            full_name="Second",
-            status=PlayerStatus.ACTIVE,
-        )
-        session.add_all([season, admin, first_player, second_player])
+        players = [
+            Player(
+                telegram_id=telegram_id,
+                full_name=f"Player {telegram_id}",
+                status=PlayerStatus.ACTIVE,
+            )
+            for telegram_id in range(101, 106)
+        ]
+        session.add_all([season, admin, *players])
         await session.flush()
         tournament = Tournament(
             season_id=season.id,
@@ -87,36 +85,31 @@ async def test_result_draft_closes_tournament(tmp_path: Path) -> None:
             [
                 TournamentRegistration(
                     tournament_id=tournament.id,
-                    player_id=first_player.id,
+                    player_id=player.id,
                     status=RegistrationStatus.REGISTERED,
-                ),
-                TournamentRegistration(
-                    tournament_id=tournament.id,
-                    player_id=second_player.id,
-                    status=RegistrationStatus.REGISTERED,
-                ),
+                )
+                for player in players
             ]
         )
         await session.commit()
         tournament_id = tournament.id
-        first_player_id = first_player.id
-        second_player_id = second_player.id
+        player_ids = [player.id for player in players]
 
     service = ResultService(session_factory)
     draft = await service.get_or_create_draft(100, tournament_id)
 
     assert draft.knockout_mode == KnockoutMode.SMALL_BIG.value
-    assert [player.player_id for player in draft.players] == [
-        first_player_id,
-        second_player_id,
+    assert [player.player_id for player in draft.players] == player_ids
+    assert await service.validate_draft(100, tournament_id) == [
+        "Введи пул турнира.",
+        "Введи места: 1, 2, 3, 4, 5.",
     ]
-    assert await service.validate_draft(100, tournament_id) == ["Введи пул турнира."]
 
     await service.set_points_pool(100, tournament_id, Decimal("1000"))
     await service.update_player_result(
         100,
         tournament_id,
-        first_player_id,
+        player_ids[0],
         place=1,
         knockouts_count=2,
         big_knockouts_count=1,
@@ -124,11 +117,20 @@ async def test_result_draft_closes_tournament(tmp_path: Path) -> None:
     await service.update_player_result(
         100,
         tournament_id,
-        second_player_id,
-        place=None,
+        player_ids[1],
+        place=2,
         knockouts_count=1,
         big_knockouts_count=0,
     )
+    for place, player_id in zip(range(3, 6), player_ids[2:], strict=True):
+        await service.update_player_result(
+            100,
+            tournament_id,
+            player_id,
+            place=place,
+            knockouts_count=0,
+            big_knockouts_count=0,
+        )
     closed = await service.close_tournament(100, tournament_id)
 
     assert closed.points_pool == Decimal("1000.00")
@@ -146,10 +148,10 @@ async def test_result_draft_closes_tournament(tmp_path: Path) -> None:
     assert drafts == []
     assert tournament is not None
     assert tournament.status == TournamentStatus.CLOSED
-    assert len(results) == 2
+    assert len(results) == 5
     assert results[0].tournament_points == Decimal("400.00")
     assert results[0].knockout_points == Decimal("70.00")
-    assert results[1].tournament_points == Decimal("0.00")
+    assert results[1].tournament_points == Decimal("250.00")
     assert results[1].knockout_points == Decimal("10.00")
     await engine.dispose()
 
@@ -223,6 +225,9 @@ async def test_result_draft_moves_duplicate_place_to_latest_player(
     assert [(player.player_id, player.place) for player in draft.players] == [
         (player_ids[0], None),
         (player_ids[1], 1),
+    ]
+    assert await service.validate_draft(100, tournament_id) == [
+        "Введи места: 2, 3, 4, 5."
     ]
 
     try:

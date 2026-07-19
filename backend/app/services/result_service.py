@@ -322,6 +322,13 @@ class ResultService:
         if not draft.players:
             errors.append("Нет зарегистрированных игроков.")
         places = [player.place for player in draft.players if player.place is not None]
+        missing_places = sorted({1, 2, 3, 4, 5} - set(places))
+        if missing_places:
+            errors.append(
+                "Введи места: "
+                + ", ".join(str(place) for place in missing_places)
+                + "."
+            )
         duplicates = sorted({place for place in places if places.count(place) > 1})
         if duplicates:
             errors.append(
