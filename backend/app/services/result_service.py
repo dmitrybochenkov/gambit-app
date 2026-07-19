@@ -118,7 +118,7 @@ class ResultService:
     ) -> TournamentResultDraftView:
         if knockouts_count < 0 or big_knockouts_count < 0:
             raise ResultInvalidPlayerDataError
-        if place is not None and place <= 0:
+        if place is not None and place not in {1, 2, 3, 4, 5}:
             raise ResultInvalidPlayerDataError
         async with self.session_factory() as session:
             await self._require_admin(session, admin_telegram_id)
@@ -127,6 +127,16 @@ class ResultService:
             draft = await self._get_draft(session, tournament.id, player_id)
             if draft is None:
                 raise ResultPlayerNotFoundError
+            if place is not None:
+                result = await session.execute(
+                    select(TournamentResultDraft).where(
+                        TournamentResultDraft.tournament_id == tournament.id,
+                        TournamentResultDraft.place == place,
+                        TournamentResultDraft.id != draft.id,
+                    )
+                )
+                for other_draft in result.scalars():
+                    other_draft.place = None
             draft.place = place
             draft.knockouts_count = knockouts_count
             draft.big_knockouts_count = big_knockouts_count

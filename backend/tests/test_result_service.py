@@ -25,7 +25,7 @@ from app.db.models.enums import (
     SeasonStatus,
     TournamentStatus,
 )
-from app.services.result_service import ResultService, ResultValidationError
+from app.services.result_service import ResultInvalidPlayerDataError, ResultService
 
 
 async def test_result_draft_closes_tournament(tmp_path: Path) -> None:
@@ -154,7 +154,9 @@ async def test_result_draft_closes_tournament(tmp_path: Path) -> None:
     await engine.dispose()
 
 
-async def test_result_draft_rejects_duplicate_places(tmp_path: Path) -> None:
+async def test_result_draft_moves_duplicate_place_to_latest_player(
+    tmp_path: Path,
+) -> None:
     engine = create_async_engine(f"sqlite+aiosqlite:///{tmp_path / 'duplicates.db'}")
     async with engine.begin() as connection:
         await connection.run_sync(Base.metadata.create_all)
@@ -216,10 +218,24 @@ async def test_result_draft_rejects_duplicate_places(tmp_path: Path) -> None:
             big_knockouts_count=0,
         )
 
+    draft = await service.get_or_create_draft(100, tournament_id)
+
+    assert [(player.player_id, player.place) for player in draft.players] == [
+        (player_ids[0], None),
+        (player_ids[1], 1),
+    ]
+
     try:
-        await service.close_tournament(100, tournament_id)
-    except ResultValidationError as error:
-        assert error.errors == ["Дублируются места: 1."]
+        await service.update_player_result(
+            100,
+            tournament_id,
+            player_ids[0],
+            place=7,
+            knockouts_count=0,
+            big_knockouts_count=0,
+        )
+    except ResultInvalidPlayerDataError:
+        pass
     else:
-        raise AssertionError("Expected ResultValidationError")
+        raise AssertionError("Expected ResultInvalidPlayerDataError")
     await engine.dispose()

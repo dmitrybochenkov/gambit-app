@@ -551,10 +551,7 @@ async def select_result_menu_action(
             tournament_id=callback_data.tournament_id,
         )
         if errors:
-            await callback.answer(
-                texts.admin.ADMIN_RESULTS_CHECK_FAILED_SHORT,
-                show_alert=True,
-            )
+            await callback.answer()
             if callback.message is not None:
                 await callback.message.answer(texts.admin.admin_result_check_failed(errors))
             return
@@ -610,10 +607,7 @@ async def confirm_result_close(
             tournament_id=callback_data.tournament_id,
         )
         if errors:
-            await callback.answer(
-                texts.admin.ADMIN_RESULTS_CHECK_FAILED_SHORT,
-                show_alert=True,
-            )
+            await callback.answer()
             if callback.message is not None:
                 await callback.message.answer(texts.admin.admin_result_check_failed(errors))
             return
@@ -629,10 +623,7 @@ async def confirm_result_close(
         await callback.answer(texts.admin.ADMIN_RESULTS_NOT_FOUND, show_alert=True)
         return
     except ResultValidationError as error:
-        await callback.answer(
-            texts.admin.ADMIN_RESULTS_CHECK_FAILED_SHORT,
-            show_alert=True,
-        )
+        await callback.answer()
         if callback.message is not None:
             await callback.message.answer(texts.admin.admin_result_check_failed(error.errors))
         return
