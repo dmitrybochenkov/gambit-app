@@ -303,3 +303,64 @@ async def test_admin_can_register_player_for_tournament(tmp_path: Path) -> None:
         assert registrations[0].status == RegistrationStatus.REGISTERED
     finally:
         await engine.dispose()
+
+
+async def test_admin_player_registration_list_is_sorted_and_searchable(
+    tmp_path: Path,
+) -> None:
+    engine = create_async_engine(f"sqlite+aiosqlite:///{tmp_path / 'player_search.db'}")
+    async with engine.begin() as connection:
+        await connection.run_sync(Base.metadata.create_all)
+
+    session_factory = async_sessionmaker(engine, expire_on_commit=False)
+    async with session_factory() as session:
+        admin = Player(
+            telegram_id=100,
+            full_name="Админ Первый",
+            status=PlayerStatus.ACTIVE,
+            role=PlayerRole.ADMIN,
+        )
+        session.add_all(
+            [
+                admin,
+                Player(
+                    telegram_id=101,
+                    full_name="Яков Третий",
+                    nickname="yakov",
+                    status=PlayerStatus.ACTIVE,
+                ),
+                Player(
+                    telegram_id=102,
+                    full_name="Анна Первая",
+                    nickname="anna_one",
+                    status=PlayerStatus.ACTIVE,
+                ),
+                Player(
+                    telegram_id=103,
+                    full_name="Борис Второй",
+                    nickname="boris_two",
+                    status=PlayerStatus.ACTIVE,
+                ),
+            ]
+        )
+        await session.commit()
+
+    service = TournamentService(session_factory)
+    try:
+        players = await service.list_players_for_admin_registration(100)
+        search_results = await service.search_players_for_admin_registration(
+            admin_telegram_id=100,
+            query="anna",
+        )
+
+        assert [player.display_name for player in players] == [
+            "Админ Первый",
+            "Анна Первая (anna_one)",
+            "Борис Второй (boris_two)",
+            "Яков Третий (yakov)",
+        ]
+        assert [player.display_name for player in search_results] == [
+            "Анна Первая (anna_one)"
+        ]
+    finally:
+        await engine.dispose()

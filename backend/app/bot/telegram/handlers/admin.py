@@ -24,6 +24,7 @@ from app.bot.telegram.formatters import (
 from app.bot.telegram.notifications import format_registration_review
 from app.bot.telegram.states import (
     AdminResultStates,
+    AdminTournamentRegistrationStates,
     CalendarSeasonEditStates,
     CalendarTournamentEditStates,
 )
@@ -296,9 +297,11 @@ async def select_admin_registration_tournament(
 async def select_admin_registration_player(
     callback: CallbackQuery,
     callback_data: keyboards.AdminTournamentRegistrationPlayerCallback,
+    state: FSMContext,
 ) -> None:
     try:
         if callback_data.action == keyboards.AdminTournamentRegistrationPlayerAction.CANCEL:
+            await state.clear()
             await callback.answer(texts.admin.ADMIN_TOURNAMENT_REGISTRATION_CANCELLED)
             if callback.message is not None:
                 await _delete_callback_message(callback)
@@ -308,6 +311,7 @@ async def select_admin_registration_player(
             return
 
         if callback_data.action == keyboards.AdminTournamentRegistrationPlayerAction.BACK:
+            await state.clear()
             tournaments = await tournament_service.list_registration_tournaments_for_admin(
                 callback.from_user.id
             )
@@ -348,6 +352,23 @@ async def select_admin_registration_player(
         players = await tournament_service.list_players_for_admin_registration(
             callback.from_user.id
         )
+        if callback_data.action == keyboards.AdminTournamentRegistrationPlayerAction.SEARCH:
+            await state.set_state(
+                AdminTournamentRegistrationStates.entering_player_search
+            )
+            await state.update_data(
+                admin_registration_tournament_id=callback_data.tournament_id
+            )
+            await callback.answer()
+            if callback.message is not None:
+                await _delete_callback_message(callback)
+                await callback.message.answer(
+                    texts.admin.ADMIN_TOURNAMENT_REGISTRATION_SEARCH_PROMPT,
+                    reply_markup=keyboards.admin_tournament_registration_search_cancel_keyboard(
+                        callback_data.tournament_id
+                    ),
+                )
+            return
         if callback_data.action == keyboards.AdminTournamentRegistrationPlayerAction.PAGE:
             page = pagination_service.paginate(
                 players,
@@ -373,9 +394,11 @@ async def select_admin_registration_player(
             )
         )
     except AdminAccessDeniedError:
+        await state.clear()
         await callback.answer(texts.admin.ACCESS_DENIED, show_alert=True)
         return
     except (TournamentUnavailableError, TournamentPlayerNotFoundError):
+        await state.clear()
         await callback.answer(
             texts.admin.ADMIN_TOURNAMENT_REGISTRATION_NOT_FOUND,
             show_alert=True,
@@ -383,6 +406,7 @@ async def select_admin_registration_player(
         return
 
     await callback.answer(texts.user.ACTION_DONE)
+    await state.clear()
     if callback.message is not None:
         await _delete_callback_message(callback)
         await callback.message.answer(
@@ -1233,6 +1257,70 @@ async def select_tournament_type(
             format_admin_calendar_prompt(prompt),
             reply_markup=keyboards.manual_tournaments_prompt_keyboard(prompt.id),
         )
+
+
+@router.message(AdminTournamentRegistrationStates.entering_player_search)
+async def enter_admin_registration_player_search(
+    message: Message,
+    state: FSMContext,
+) -> None:
+    if message.from_user is None:
+        return
+
+    data = await state.get_data()
+    tournament_id = int(data["admin_registration_tournament_id"])
+    query = " ".join((message.text or "").split())
+    if not query:
+        await message.answer(texts.admin.ADMIN_TOURNAMENT_REGISTRATION_SEARCH_PROMPT)
+        return
+
+    try:
+        tournaments = await tournament_service.list_registration_tournaments_for_admin(
+            message.from_user.id
+        )
+        tournament = next(
+            (tournament for tournament in tournaments if tournament.id == tournament_id),
+            None,
+        )
+        if tournament is None:
+            raise TournamentUnavailableError
+
+        players = await tournament_service.search_players_for_admin_registration(
+            admin_telegram_id=message.from_user.id,
+            query=query,
+        )
+    except AdminAccessDeniedError:
+        await state.clear()
+        await message.answer(texts.admin.ACCESS_DENIED)
+        return
+    except TournamentUnavailableError:
+        await state.clear()
+        await message.answer(texts.admin.ADMIN_TOURNAMENT_REGISTRATION_NOT_FOUND)
+        return
+
+    await state.clear()
+    page = pagination_service.paginate(
+        players,
+        page=0,
+        page_size=keyboards.ADMIN_TOURNAMENT_REGISTRATION_PAGE_SIZE,
+    )
+    title = (
+        texts.admin.ADMIN_TOURNAMENT_REGISTRATION_SEARCH_RESULTS_TITLE
+        if players
+        else texts.admin.ADMIN_TOURNAMENT_REGISTRATION_SEARCH_EMPTY
+    )
+    await message.answer(
+        format_admin_tournament_registration_player_list(
+            tournament,
+            page,
+            title=title,
+        ),
+        reply_markup=keyboards.admin_tournament_registration_player_keyboard(
+            tournament.id,
+            page,
+            search_again=True,
+        ),
+    )
 
 
 @router.message(AdminResultStates.entering_pool)

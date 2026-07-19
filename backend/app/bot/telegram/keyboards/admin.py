@@ -164,6 +164,7 @@ class AdminTournamentRegistrationTournamentCallback(CallbackData, prefix="admin_
 class AdminTournamentRegistrationPlayerAction(StrEnum):
     OPEN = "open"
     PAGE = "page"
+    SEARCH = "search"
     BACK = "back"
     CANCEL = "cancel"
 
@@ -540,8 +541,22 @@ def admin_tournament_registration_tournament_keyboard(
 def admin_tournament_registration_player_keyboard(
     tournament_id: int,
     page: Page[PlayerView],
+    search_again: bool = False,
 ) -> InlineKeyboardMarkup:
     builder = InlineKeyboardBuilder()
+    builder.button(
+        text=(
+            buttons.ADMIN_TOURNAMENT_REGISTRATION_SEARCH_AGAIN
+            if search_again
+            else buttons.ADMIN_TOURNAMENT_REGISTRATION_SEARCH
+        ),
+        callback_data=AdminTournamentRegistrationPlayerCallback(
+            action=AdminTournamentRegistrationPlayerAction.SEARCH,
+            tournament_id=tournament_id,
+            page=page.page,
+            player_id=0,
+        ),
+    )
     for player in page.items:
         builder.button(
             text=f"{player.id}. {player.display_name}",
@@ -574,8 +589,24 @@ def admin_tournament_registration_player_keyboard(
     _adjust_paged_keyboard(
         builder,
         page,
-        item_rows=[1] * len(page.items),
+        item_rows=[1] + [1] * len(page.items),
         footer_rows=[1, 1],
+    )
+    return builder.as_markup()
+
+
+def admin_tournament_registration_search_cancel_keyboard(
+    tournament_id: int,
+) -> InlineKeyboardMarkup:
+    builder = InlineKeyboardBuilder()
+    builder.button(
+        text=buttons.ADMIN_CANCEL,
+        callback_data=AdminTournamentRegistrationPlayerCallback(
+            action=AdminTournamentRegistrationPlayerAction.CANCEL,
+            tournament_id=tournament_id,
+            page=0,
+            player_id=0,
+        ),
     )
     return builder.as_markup()
 

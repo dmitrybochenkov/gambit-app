@@ -27,3 +27,7 @@ class CalendarTournamentEditStates(StatesGroup):
 class AdminResultStates(StatesGroup):
     entering_pool = State()
     entering_player_result = State()
+
+
+class AdminTournamentRegistrationStates(StatesGroup):
+    entering_player_search = State()

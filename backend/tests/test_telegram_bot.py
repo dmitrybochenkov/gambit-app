@@ -806,7 +806,7 @@ async def test_admin_registration_tournament_selection_shows_players(
         for row in answer.kwargs["reply_markup"].inline_keyboard
         for button in row
     ]
-    assert buttons == ["1. Игрок Первый", "⬅️ Назад", "❌ Отмена"]
+    assert buttons == ["🔎 Найти игрока", "1. Игрок Первый", "⬅️ Назад", "❌ Отмена"]
 
 
 async def test_admin_registration_player_selection_registers_player(
@@ -834,8 +834,9 @@ async def test_admin_registration_player_selection_registers_player(
         page=0,
         player_id=1,
     )
+    state = SimpleNamespace(clear=AsyncMock())
 
-    await admin_handlers.select_admin_registration_player(callback, callback_data)
+    await admin_handlers.select_admin_registration_player(callback, callback_data, state)
 
     service.register_player_for_tournament_by_admin.assert_awaited_once_with(
         admin_telegram_id=100,
@@ -848,6 +849,84 @@ async def test_admin_registration_player_selection_registers_player(
         "Игрок Первый\n"
         "Воскресенье, 19 июля — Классика"
     )
+    state.clear.assert_awaited_once_with()
+
+
+async def test_admin_registration_search_prompts_for_query(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    tournament = tournament_view(125, date(2026, 7, 19), 2, "Классика")
+    service = SimpleNamespace(
+        list_registration_tournaments_for_admin=AsyncMock(return_value=[tournament]),
+        list_players_for_admin_registration=AsyncMock(return_value=[active_player()]),
+    )
+    monkeypatch.setattr(admin_handlers, "tournament_service", service)
+    message = SimpleNamespace(delete=AsyncMock(), answer=AsyncMock())
+    callback = SimpleNamespace(
+        from_user=SimpleNamespace(id=100),
+        message=message,
+        answer=AsyncMock(),
+    )
+    callback_data = SimpleNamespace(
+        action=keyboards.AdminTournamentRegistrationPlayerAction.SEARCH,
+        tournament_id=125,
+        page=0,
+        player_id=0,
+    )
+    state = SimpleNamespace(set_state=AsyncMock(), update_data=AsyncMock())
+
+    await admin_handlers.select_admin_registration_player(callback, callback_data, state)
+
+    state.set_state.assert_awaited_once()
+    state.update_data.assert_awaited_once_with(admin_registration_tournament_id=125)
+    message.delete.assert_awaited_once_with()
+    answer = message.answer.await_args
+    assert answer.args[0] == "Введи имя или ник игрока."
+    assert [
+        button.text
+        for row in answer.kwargs["reply_markup"].inline_keyboard
+        for button in row
+    ] == ["❌ Отмена"]
+
+
+async def test_admin_registration_search_shows_matches(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    tournament = tournament_view(125, date(2026, 7, 19), 2, "Классика")
+    player = active_player()
+    service = SimpleNamespace(
+        list_registration_tournaments_for_admin=AsyncMock(return_value=[tournament]),
+        search_players_for_admin_registration=AsyncMock(return_value=[player]),
+    )
+    monkeypatch.setattr(admin_handlers, "tournament_service", service)
+    message = SimpleNamespace(
+        from_user=SimpleNamespace(id=100),
+        text="игрок",
+        answer=AsyncMock(),
+    )
+    state = SimpleNamespace(
+        get_data=AsyncMock(return_value={"admin_registration_tournament_id": 125}),
+        clear=AsyncMock(),
+    )
+
+    await admin_handlers.enter_admin_registration_player_search(message, state)
+
+    service.search_players_for_admin_registration.assert_awaited_once_with(
+        admin_telegram_id=100,
+        query="игрок",
+    )
+    state.clear.assert_awaited_once_with()
+    answer = message.answer.await_args
+    assert answer.args[0] == (
+        "Нашел похожих игроков:\n"
+        "Воскресенье, 19 июля — Классика\n\n"
+        "1 — Игрок Первый"
+    )
+    assert [
+        button.text
+        for row in answer.kwargs["reply_markup"].inline_keyboard
+        for button in row
+    ] == ["🔎 Искать заново", "1. Игрок Первый", "⬅️ Назад", "❌ Отмена"]
 
 
 async def test_add_admin_button_denies_regular_admin(

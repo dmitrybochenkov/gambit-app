@@ -1,4 +1,5 @@
 from datetime import UTC, date, datetime
+from difflib import SequenceMatcher
 
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
@@ -16,7 +17,12 @@ from app.db.repositories.tournament_registration_repository import (
 from app.db.repositories.tournament_repository import TournamentRepository
 from app.db.session import SessionFactory
 from app.services.dto import PlayerView, TournamentView
-from app.services.player_service import AdminAccessDeniedError, required_player_view
+from app.services.player_service import (
+    AdminAccessDeniedError,
+    normalize_full_name,
+    normalize_nickname,
+    required_player_view,
+)
 
 
 class TournamentRegistrationNotAllowedError(ValueError):
@@ -117,7 +123,28 @@ class TournamentService:
         async with self.session_factory() as session:
             await self._require_admin(session, admin_telegram_id)
             players = await PlayerRepository(session).list_active_players()
-            return [required_player_view(player) for player in players]
+            return _sort_players_by_display_name(
+                [required_player_view(player) for player in players]
+            )
+
+    async def search_players_for_admin_registration(
+        self,
+        admin_telegram_id: int,
+        query: str,
+        limit: int = 10,
+    ) -> list[PlayerView]:
+        async with self.session_factory() as session:
+            await self._require_admin(session, admin_telegram_id)
+            players = await PlayerRepository(session).list_active_players()
+            scored_players = [
+                (score, required_player_view(player))
+                for player in players
+                if (score := _player_search_score(player, query)) > 0
+            ]
+            scored_players.sort(
+                key=lambda item: (-item[0], item[1].display_name.casefold(), item[1].id)
+            )
+            return [player for _, player in scored_players[:limit]]
 
     async def register_player_for_tournament_by_admin(
         self,
@@ -295,3 +322,43 @@ def tournament_view(tournament: Tournament) -> TournamentView:
         tournament_type_id=tournament.tournament_type_id,
         tournament_type_name=tournament_type.name if tournament_type is not None else None,
     )
+
+
+def _sort_players_by_display_name(players: list[PlayerView]) -> list[PlayerView]:
+    return sorted(
+        players,
+        key=lambda player: (player.display_name.casefold(), player.id),
+    )
+
+
+def _player_search_score(player: object, query: str) -> int:
+    full_name = getattr(player, "full_name", None)
+    nickname = getattr(player, "nickname", None)
+    normalized_queries = {
+        normalize_full_name(query),
+        normalize_nickname(query),
+    }
+    normalized_queries.discard(None)
+    if not normalized_queries:
+        return 0
+
+    candidates = {
+        normalize_full_name(full_name),
+        normalize_nickname(nickname),
+    }
+    candidates.discard(None)
+    if not candidates:
+        return 0
+
+    score = 0
+    for normalized_query in normalized_queries:
+        for candidate in candidates:
+            if normalized_query == candidate:
+                score = max(score, 300)
+            elif normalized_query in candidate:
+                score = max(score, 200 + len(normalized_query))
+            else:
+                ratio = SequenceMatcher(None, normalized_query, candidate).ratio()
+                if ratio >= 0.55:
+                    score = max(score, int(ratio * 100))
+    return score

@@ -134,9 +134,10 @@ def format_admin_tournament_registration_tournament_list(
 def format_admin_tournament_registration_player_list(
     tournament: TournamentView,
     page: Page[PlayerView],
+    title: str | None = None,
 ) -> str:
     lines = [
-        texts.admin.ADMIN_TOURNAMENT_REGISTRATION_PLAYER_LIST_TITLE,
+        title or texts.admin.ADMIN_TOURNAMENT_REGISTRATION_PLAYER_LIST_TITLE,
         format_tournament_label(tournament),
         "",
     ]
