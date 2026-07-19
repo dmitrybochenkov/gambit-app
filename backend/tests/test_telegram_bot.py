@@ -311,10 +311,70 @@ def test_admin_result_player_field_and_value_keyboards() -> None:
     ).inline_keyboard
     assert [[button.text for button in row] for row in place_rows] == [
         ["1", "✔️ 2", "3", "4", "✔️ 5"],
-        ["⌨️ Ввести руками"],
         ["⬅️ Назад"],
         ["❌ Отмена"],
     ]
+
+
+async def test_place_only_result_player_opens_place_keyboard(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    tournament = tournament_view(125, date(2026, 7, 19), 2, "Классика")
+    target_player = TournamentResultDraftPlayerView(
+        player_id=108,
+        display_name="Илларионов Александр",
+        place=None,
+        knockouts_count=0,
+        big_knockouts_count=0,
+    )
+    draft = TournamentResultDraftView(
+        tournament=tournament,
+        points_pool=Decimal("1800"),
+        players=[
+            target_player,
+            TournamentResultDraftPlayerView(
+                player_id=252,
+                display_name="Тест Игрок",
+                place=2,
+                knockouts_count=0,
+                big_knockouts_count=0,
+            ),
+        ],
+        knockout_mode="none",
+    )
+    service = SimpleNamespace(get_or_create_draft=AsyncMock(return_value=draft))
+    monkeypatch.setattr(admin_handlers, "result_service", service)
+    message = SimpleNamespace(delete=AsyncMock(), answer=AsyncMock())
+    callback = SimpleNamespace(
+        from_user=SimpleNamespace(id=100),
+        message=message,
+        answer=AsyncMock(),
+    )
+    state = SimpleNamespace(clear=AsyncMock())
+
+    await admin_handlers.select_result_player(
+        callback,
+        keyboards.AdminResultPlayerCallback(
+            action=keyboards.AdminResultPlayerAction.OPEN,
+            tournament_id=125,
+            page=0,
+            player_id=108,
+        ),
+        state,
+    )
+
+    state.clear.assert_awaited_once()
+    callback.answer.assert_awaited_once()
+    message.delete.assert_awaited_once()
+    message.answer.assert_awaited_once()
+    assert message.answer.await_args.args[0] == (
+        "Илларионов Александр\n\nВыбери место:"
+    )
+    assert [
+        button.text
+        for row in message.answer.await_args.kwargs["reply_markup"].inline_keyboard
+        for button in row
+    ] == ["1", "✔️ 2", "3", "4", "5", "⬅️ Назад", "❌ Отмена"]
 
 
 def admin_player(

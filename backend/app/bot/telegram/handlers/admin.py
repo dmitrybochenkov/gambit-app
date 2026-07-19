@@ -711,14 +711,33 @@ async def select_result_player(
     await callback.answer()
     if callback.message is not None:
         await _delete_callback_message(callback)
-        await callback.message.answer(
-            format_admin_result_player_detail(draft, player),
-            reply_markup=keyboards.admin_result_player_fields_keyboard(
-                draft,
-                player,
-                callback_data.page,
-            ),
-        )
+        if draft.knockout_mode == "none":
+            await callback.message.answer(
+                format_admin_result_field_prompt(
+                    player,
+                    result_field_name(keyboards.AdminResultField.PLACE),
+                ),
+                reply_markup=keyboards.admin_result_value_keyboard(
+                    tournament_id=callback_data.tournament_id,
+                    page=callback_data.page,
+                    player_id=callback_data.player_id,
+                    field=keyboards.AdminResultField.PLACE,
+                    occupied_places={
+                        player.place
+                        for player in draft.players
+                        if player.place is not None
+                    },
+                ),
+            )
+        else:
+            await callback.message.answer(
+                format_admin_result_player_detail(draft, player),
+                reply_markup=keyboards.admin_result_player_fields_keyboard(
+                    draft,
+                    player,
+                    callback_data.page,
+                ),
+            )
 
 
 @router.callback_query(keyboards.AdminResultFieldCallback.filter())
@@ -819,14 +838,28 @@ async def select_result_value(
             await state.clear()
             await callback.answer()
             if callback.message is not None:
-                await callback.message.edit_text(
-                    format_admin_result_player_detail(draft, player),
-                    reply_markup=keyboards.admin_result_player_fields_keyboard(
-                        draft,
-                        player,
-                        callback_data.page,
-                    ),
-                )
+                if draft.knockout_mode == "none":
+                    page = pagination_service.paginate(
+                        draft.players,
+                        page=callback_data.page,
+                        page_size=keyboards.ADMIN_RESULT_PAGE_SIZE,
+                    )
+                    await callback.message.edit_text(
+                        format_admin_result_players(draft, page),
+                        reply_markup=keyboards.admin_result_players_keyboard(
+                            draft,
+                            page,
+                        ),
+                    )
+                else:
+                    await callback.message.edit_text(
+                        format_admin_result_player_detail(draft, player),
+                        reply_markup=keyboards.admin_result_player_fields_keyboard(
+                            draft,
+                            player,
+                            callback_data.page,
+                        ),
+                    )
             return
 
         if not result_field_is_allowed(draft.knockout_mode, callback_data.field):
@@ -873,14 +906,25 @@ async def select_result_value(
         await state.clear()
         await callback.answer(texts.admin.ADMIN_RESULTS_SAVED)
         if callback.message is not None:
-            await callback.message.edit_text(
-                format_admin_result_player_detail(draft, player),
-                reply_markup=keyboards.admin_result_player_fields_keyboard(
-                    draft,
-                    player,
-                    callback_data.page,
-                ),
-            )
+            if draft.knockout_mode == "none":
+                page = pagination_service.paginate(
+                    draft.players,
+                    page=callback_data.page,
+                    page_size=keyboards.ADMIN_RESULT_PAGE_SIZE,
+                )
+                await callback.message.edit_text(
+                    format_admin_result_players(draft, page),
+                    reply_markup=keyboards.admin_result_players_keyboard(draft, page),
+                )
+            else:
+                await callback.message.edit_text(
+                    format_admin_result_player_detail(draft, player),
+                    reply_markup=keyboards.admin_result_player_fields_keyboard(
+                        draft,
+                        player,
+                        callback_data.page,
+                    ),
+                )
     except AdminAccessDeniedError:
         await callback.answer(texts.admin.ACCESS_DENIED, show_alert=True)
     except ResultTournamentNotFoundError:

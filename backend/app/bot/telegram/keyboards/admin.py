@@ -657,17 +657,20 @@ def admin_result_value_keyboard(
                 value=value,
             ),
         )
-    builder.button(
-        text="⌨️ Ввести руками",
-        callback_data=AdminResultValueCallback(
-            action=AdminResultValueAction.MANUAL,
-            tournament_id=tournament_id,
-            page=page,
-            player_id=player_id,
-            field=field,
-            value=0,
-        ),
-    )
+    footer_rows = []
+    if field != AdminResultField.PLACE:
+        builder.button(
+            text="⌨️ Ввести руками",
+            callback_data=AdminResultValueCallback(
+                action=AdminResultValueAction.MANUAL,
+                tournament_id=tournament_id,
+                page=page,
+                player_id=player_id,
+                field=field,
+                value=0,
+            ),
+        )
+        footer_rows.append(1)
     builder.button(
         text="⬅️ Назад",
         callback_data=AdminResultValueCallback(
@@ -679,6 +682,7 @@ def admin_result_value_keyboard(
             value=0,
         ),
     )
+    footer_rows.append(1)
     builder.button(
         text=buttons.ADMIN_CANCEL,
         callback_data=AdminResultValueCallback(
@@ -690,8 +694,9 @@ def admin_result_value_keyboard(
             value=0,
         ),
     )
+    footer_rows.append(1)
     value_rows = [5] if field == AdminResultField.PLACE else [5, 5, 5]
-    builder.adjust(*value_rows, 1, 1, 1)
+    builder.adjust(*value_rows, *footer_rows)
     return builder.as_markup()
 
 
