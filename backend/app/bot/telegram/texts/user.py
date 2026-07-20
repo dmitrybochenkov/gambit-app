@@ -164,8 +164,9 @@ def rating_message(
         else:
             lines.append(
                 f"{position_label} {display_name} — "
-                f"💥🥊 х{row.big_knockouts_count}, "
-                f"🥊 х{row.total_knockouts_count}"
+                f"💥🥊 {row.big_knockouts_count}, "
+                f"🥊 {row.total_knockouts_count} | "
+                f"🎲 {row.tournaments_count}"
             )
     return "\n".join(lines)
 

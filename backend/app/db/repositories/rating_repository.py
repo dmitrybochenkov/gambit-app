@@ -22,6 +22,7 @@ class KnockoutsRatingRow:
     display_name: str
     knockouts_count: int
     big_knockouts_count: int
+    tournaments_count: int
 
     @property
     def total_knockouts_count(self) -> int:
@@ -87,6 +88,7 @@ class RatingRepository:
                 Player.nickname,
                 knockouts.label("knockouts_count"),
                 big_knockouts.label("big_knockouts_count"),
+                func.count(TournamentResult.id).label("tournaments_count"),
             )
             .join(TournamentResult, TournamentResult.player_id == Player.id)
             .join(Tournament, Tournament.id == TournamentResult.tournament_id)
@@ -112,6 +114,7 @@ class RatingRepository:
                 display_name=self._display_name(row.full_name, row.nickname),
                 knockouts_count=row.knockouts_count,
                 big_knockouts_count=row.big_knockouts_count,
+                tournaments_count=row.tournaments_count,
             )
             for row in result
         ]

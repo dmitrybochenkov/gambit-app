@@ -128,6 +128,7 @@ class KnockoutsRatingView:
     display_name: str
     knockouts_count: int
     big_knockouts_count: int
+    tournaments_count: int
 
     @property
     def total_knockouts_count(self) -> int:
