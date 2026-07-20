@@ -1017,7 +1017,7 @@ async def test_admin_panel_entry_sends_admin_keyboard(
     ]
 
 
-async def test_admin_panel_entry_hides_superadmin_button_for_admin(
+async def test_admin_panel_entry_shows_superadmin_button_for_admin(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     admin = admin_player(1, 100, PlayerRoleView.ADMIN)
@@ -1037,8 +1037,25 @@ async def test_admin_panel_entry_hides_superadmin_button_for_admin(
     assert keyboard_texts(message.answer.await_args.kwargs["reply_markup"]) == [
         "📝 Зарегать игрока на турнир",
         "🏁 Внести результат",
+        "👑 Суперадмин",
         "⬅️ Выход",
     ]
+
+
+async def test_superadmin_panel_denies_admin(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    service = SimpleNamespace(require_superadmin=AsyncMock(side_effect=AdminAccessDeniedError))
+    monkeypatch.setattr(admin_handlers, "player_service", service)
+    message = SimpleNamespace(
+        from_user=SimpleNamespace(id=100),
+        answer=AsyncMock(),
+    )
+
+    await admin_handlers.open_superadmin_panel(message)
+
+    service.require_superadmin.assert_awaited_once_with(100)
+    message.answer.assert_awaited_once_with("Недостаточно прав.")
 
 
 async def test_superadmin_panel_button_opens_superadmin_keyboard(
