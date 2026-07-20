@@ -163,7 +163,7 @@ async def show_result_tournaments(message: Message) -> None:
         return
 
     try:
-        tournaments = await result_service.list_todays_tournaments_for_admin(
+        tournaments = await result_service.list_open_tournaments_for_admin(
             message.from_user.id
         )
     except AdminAccessDeniedError:
@@ -455,7 +455,7 @@ async def select_result_tournament(
         if callback_data.action == keyboards.AdminResultTournamentAction.PAGE:
             await callback.answer()
             callback_answered = True
-            tournaments = await result_service.list_todays_tournaments_for_admin(
+            tournaments = await result_service.list_open_tournaments_for_admin(
                 callback.from_user.id
             )
             page = pagination_service.paginate(

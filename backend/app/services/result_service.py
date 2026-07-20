@@ -61,7 +61,7 @@ class ResultService:
     def __init__(self, session_factory: async_sessionmaker[AsyncSession]) -> None:
         self.session_factory = session_factory
 
-    async def list_todays_tournaments_for_admin(
+    async def list_open_tournaments_for_admin(
         self,
         admin_telegram_id: int,
         today: date | None = None,
@@ -73,7 +73,7 @@ class ResultService:
                 .options(selectinload(Tournament.tournament_type))
                 .where(
                     Tournament.status == TournamentStatus.ACTIVE,
-                    Tournament.date == (today or date.today()),
+                    Tournament.date <= (today or date.today()),
                 )
                 .order_by(Tournament.date, Tournament.tournament_type_id)
             )

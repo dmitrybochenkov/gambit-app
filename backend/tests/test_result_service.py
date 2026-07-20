@@ -28,6 +28,78 @@ from app.db.models.enums import (
 from app.services.result_service import ResultInvalidPlayerDataError, ResultService
 
 
+async def test_result_tournament_list_includes_open_past_tournaments(
+    tmp_path: Path,
+) -> None:
+    engine = create_async_engine(f"sqlite+aiosqlite:///{tmp_path / 'open_results.db'}")
+    async with engine.begin() as connection:
+        await connection.run_sync(Base.metadata.create_all)
+
+    session_factory = async_sessionmaker(engine, expire_on_commit=False)
+    async with session_factory() as session:
+        config = ScoringConfig()
+        session.add(config)
+        await session.flush()
+        await seed_tournament_types_async(session)
+        season = Season(
+            name="Test season",
+            scoring_config_id=config.id,
+            starts_at=date(2026, 7, 1),
+            ends_at=date(2026, 12, 31),
+            status=SeasonStatus.ACTIVE,
+        )
+        admin = Player(
+            telegram_id=100,
+            full_name="Admin",
+            status=PlayerStatus.ACTIVE,
+            role=PlayerRole.ADMIN,
+        )
+        session.add_all([season, admin])
+        await session.flush()
+        session.add_all(
+            [
+                Tournament(
+                    season_id=season.id,
+                    tournament_type_id=tournament_type_id("classic"),
+                    date=date(2026, 7, 19),
+                    status=TournamentStatus.ACTIVE,
+                ),
+                Tournament(
+                    season_id=season.id,
+                    tournament_type_id=tournament_type_id("freezeout"),
+                    date=date(2026, 7, 20),
+                    status=TournamentStatus.ACTIVE,
+                ),
+                Tournament(
+                    season_id=season.id,
+                    tournament_type_id=tournament_type_id("bounty"),
+                    date=date(2026, 7, 21),
+                    status=TournamentStatus.ACTIVE,
+                ),
+                Tournament(
+                    season_id=season.id,
+                    tournament_type_id=tournament_type_id("double_double"),
+                    date=date(2026, 7, 18),
+                    points_pool=Decimal("1000"),
+                    status=TournamentStatus.CLOSED,
+                ),
+            ]
+        )
+        await session.commit()
+
+    service = ResultService(session_factory)
+    tournaments = await service.list_open_tournaments_for_admin(
+        100,
+        today=date(2026, 7, 20),
+    )
+
+    assert [(tournament.date, tournament.tournament_type_name) for tournament in tournaments] == [
+        (date(2026, 7, 19), "Классика"),
+        (date(2026, 7, 20), "Фризаут"),
+    ]
+    await engine.dispose()
+
+
 async def test_result_draft_closes_tournament(tmp_path: Path) -> None:
     engine = create_async_engine(f"sqlite+aiosqlite:///{tmp_path / 'results.db'}")
     async with engine.begin() as connection:
