@@ -25,6 +25,7 @@ def test_profile_formats_only_non_zero_prize_places() -> None:
         PlayerProfileView(
             display_name="Дима Боченков",
             total_points=Decimal("0"),
+            knockout_points=Decimal("0"),
             knockouts_count=0,
             big_knockouts_count=0,
             tournaments_count=0,
@@ -40,9 +41,10 @@ def test_profile_formats_only_non_zero_prize_places() -> None:
         "Твой профиль — за всё время\n"
         "⭐ - количество очков\n"
         "🥊 - количество нокаутов\n"
+        "⭐🥊 - количество очков за нокауты\n"
         "🎲 - количество турниров\n\n"
         "Дима Боченков\n"
-        "⭐ 0 | 🥊 0 | 🎲 0\n\n"
+        "⭐ 0 | 🥊 0 | ⭐🥊 0 | 🎲 0\n\n"
         "Количество призовых мест:\n"
         "🥇 x3\n"
         "🥉 x5\n"
@@ -154,6 +156,7 @@ async def test_profile_filters_current_season_and_all_time(tmp_path: Path) -> No
         assert current_stats is not None
         assert current_stats.display_name == "Игрок Первый (Ace)"
         assert current_stats.total_points == Decimal("100")
+        assert current_stats.knockout_points == Decimal("20")
         assert current_stats.total_knockouts_count == 3
         assert current_stats.tournaments_count == 1
         assert current_stats.first_places_count == 0
@@ -162,6 +165,7 @@ async def test_profile_filters_current_season_and_all_time(tmp_path: Path) -> No
         assert all_time_title == "Твой профиль — за всё время"
         assert all_time_stats is not None
         assert all_time_stats.total_points == Decimal("150")
+        assert all_time_stats.knockout_points == Decimal("20")
         assert all_time_stats.total_knockouts_count == 6
         assert all_time_stats.tournaments_count == 2
         assert all_time_stats.first_places_count == 1
@@ -170,6 +174,7 @@ async def test_profile_filters_current_season_and_all_time(tmp_path: Path) -> No
         assert empty_stats is not None
         assert empty_stats.display_name == "King"
         assert empty_stats.total_points == Decimal("0")
+        assert empty_stats.knockout_points == Decimal("0")
         assert empty_stats.tournaments_count == 0
         all_time_message = format_profile(
             all_time_title,

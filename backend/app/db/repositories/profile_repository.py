@@ -12,6 +12,7 @@ from app.db.models.enums import SeasonStatus
 class PlayerProfileStats:
     display_name: str
     total_points: Decimal
+    knockout_points: Decimal
     knockouts_count: int
     big_knockouts_count: int
     tournaments_count: int
@@ -48,12 +49,14 @@ class ProfileRepository:
             func.sum(TournamentResult.big_knockouts_count),
             0,
         )
+        knockout_points = func.coalesce(func.sum(TournamentResult.knockout_points), 0)
 
         statement = (
             select(
                 Player.full_name,
                 Player.nickname,
                 total_points.label("total_points"),
+                knockout_points.label("knockout_points"),
                 func.count(TournamentResult.id).label("tournaments_count"),
                 knockouts.label("knockouts_count"),
                 big_knockouts.label("big_knockouts_count"),
@@ -85,6 +88,7 @@ class ProfileRepository:
             return PlayerProfileStats(
                 display_name=player.display_name,
                 total_points=Decimal("0"),
+                knockout_points=Decimal("0"),
                 knockouts_count=0,
                 big_knockouts_count=0,
                 tournaments_count=0,
@@ -98,6 +102,7 @@ class ProfileRepository:
         return PlayerProfileStats(
             display_name=self._display_name(row.full_name, row.nickname),
             total_points=Decimal(row.total_points),
+            knockout_points=Decimal(row.knockout_points),
             tournaments_count=row.tournaments_count,
             knockouts_count=row.knockouts_count,
             big_knockouts_count=row.big_knockouts_count,

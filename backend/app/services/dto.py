@@ -128,6 +128,7 @@ class KnockoutsRatingView:
     display_name: str
     knockouts_count: int
     big_knockouts_count: int
+    knockout_points: Decimal
     tournaments_count: int
 
     @property
@@ -146,6 +147,7 @@ class RatingResultView:
 class PlayerProfileView:
     display_name: str
     total_points: Decimal
+    knockout_points: Decimal
     knockouts_count: int
     big_knockouts_count: int
     tournaments_count: int

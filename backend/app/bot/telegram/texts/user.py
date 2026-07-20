@@ -159,9 +159,11 @@ def rating_message(
                 f"⭐{points} | 🎲 {row.tournaments_count}"
             )
         else:
+            knockout_points = _format_decimal(row.knockout_points)
             lines.append(
                 f"{position_label} {display_name} — "
                 f"🥊 {row.total_knockouts_count} | "
+                f"⭐🥊 {knockout_points} | "
                 f"🎲 {row.tournaments_count}"
             )
     return "\n".join(lines)
@@ -205,10 +207,12 @@ def profile_message(title: str, stats: PlayerProfileView | None) -> str:
         title,
         "⭐ - количество очков",
         "🥊 - количество нокаутов",
+        "⭐🥊 - количество очков за нокауты",
         "🎲 - количество турниров",
         "",
         stats.display_name,
-        f"⭐ {points} | 🥊 {stats.total_knockouts_count} | 🎲 {stats.tournaments_count}",
+        f"⭐ {points} | 🥊 {stats.total_knockouts_count} | "
+        f"⭐🥊 {_format_decimal(stats.knockout_points)} | 🎲 {stats.tournaments_count}",
     ]
     prize_place_lines = _profile_prize_place_lines(stats)
     if prize_place_lines:
