@@ -12,6 +12,14 @@ from app.services.dto import (
 )
 from app.services.pagination import Page
 
+PLACE_EMOJIS = {
+    1: "1️⃣",
+    2: "2️⃣",
+    3: "3️⃣",
+    4: "4️⃣",
+    5: "5️⃣",
+}
+
 
 def format_tournament_label(tournament: TournamentView) -> str:
     weekday = texts.common.WEEKDAYS[tournament.date.weekday()]
@@ -176,7 +184,7 @@ def _admin_result_knockout_lines(draft: TournamentResultDraftView) -> list[str]:
     if not players:
         return []
 
-    lines = ["КО:"]
+    lines = ["🥊:"]
     for player in players:
         result_parts = _admin_result_player_parts(
             knockout_mode=draft.knockout_mode,
@@ -216,31 +224,35 @@ def _admin_result_player_parts(
     big_knockouts_count: int,
     place: int | None,
 ) -> list[str]:
-    place_part = [f"место {place}"] if place is not None else []
+    place_part = [_place_label(place)] if place is not None else []
     if knockout_mode == "small_big":
         return [
-            f"Малые КО {knockouts_count}",
-            f"Большие КО {big_knockouts_count}",
+            f"💥🥊 х{big_knockouts_count}",
+            f"🥊 х{knockouts_count}",
             *place_part,
         ]
     if knockout_mode == "small":
-        return [f"КО {knockouts_count}", *place_part]
+        return [f"🥊 х{knockouts_count}", *place_part]
     return place_part
+
+
+def _place_label(place: int) -> str:
+    return PLACE_EMOJIS.get(place, str(place))
 
 
 def _admin_result_confirmation(
     player: TournamentResultDraftPlayerView,
     draft: TournamentResultDraftView,
 ) -> str:
-    place = f"место {player.place}" if player.place is not None else "место не введено"
+    place = _place_label(player.place) if player.place is not None else "место не введено"
     if draft.knockout_mode == "small_big":
         return (
-            f"Малые КО {player.knockouts_count}, "
-            f"Большие КО {player.big_knockouts_count}, "
+            f"💥🥊 х{player.big_knockouts_count}, "
+            f"🥊 х{player.knockouts_count}, "
             f"{place}"
         )
     if draft.knockout_mode == "small":
-        return f"КО {player.knockouts_count}, {place}"
+        return f"🥊 х{player.knockouts_count}, {place}"
     return place
 
 
@@ -253,12 +265,12 @@ def format_admin_result_player_detail(
         player.display_name,
     ]
     if draft.knockout_mode in {"small", "small_big"}:
-        label = "Малые КО" if draft.knockout_mode == "small_big" else "КО"
+        label = "🥊"
         lines.append(f"{label}: {player.knockouts_count}")
     if draft.knockout_mode == "small_big":
-        lines.append(f"Большие КО: {player.big_knockouts_count}")
+        lines.append(f"💥🥊: {player.big_knockouts_count}")
     if player.place is not None:
-        lines.append(f"Место: {player.place}")
+        lines.append(f"Место: {_place_label(player.place)}")
     return "\n".join(lines)
 
 

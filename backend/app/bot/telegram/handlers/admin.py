@@ -2003,8 +2003,8 @@ def result_field_is_allowed(
 
 def result_field_name(field: keyboards.AdminResultField) -> str:
     return {
-        keyboards.AdminResultField.KNOCKOUTS: "КО",
-        keyboards.AdminResultField.BIG_KNOCKOUTS: "Большие КО",
+        keyboards.AdminResultField.KNOCKOUTS: "🥊",
+        keyboards.AdminResultField.BIG_KNOCKOUTS: "💥🥊",
         keyboards.AdminResultField.PLACE: "место",
     }[field]
 

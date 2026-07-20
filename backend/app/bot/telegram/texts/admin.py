@@ -22,13 +22,13 @@ ADMIN_RESULTS_PLAYERS_EMPTY = "Результаты еще не внесены."
 ADMIN_RESULTS_POOL_PROMPT = "Введи пул турнира."
 ADMIN_RESULTS_INVALID_POOL = "Пул должен быть положительным числом."
 ADMIN_RESULTS_MANUAL_VALUE_PROMPTS = {
-    "ko": "Введи количество КО числом.",
-    "big": "Введи количество больших КО числом.",
+    "ko": "Введи количество 🥊 числом.",
+    "big": "Введи количество 💥🥊 числом.",
     "place": "Введи место числом от 1 до 5.",
 }
 ADMIN_RESULTS_INVALID_MANUAL_VALUE = {
-    "ko": "КО должно быть неотрицательным числом.",
-    "big": "Большие КО должны быть неотрицательным числом.",
+    "ko": "🥊 должно быть неотрицательным числом.",
+    "big": "💥🥊 должно быть неотрицательным числом.",
     "place": "Место должно быть числом от 1 до 5.",
 }
 ADMIN_RESULTS_SAVED = "Результат сохранен."
@@ -111,7 +111,7 @@ CONFIRM_CREATION_PROMPT = "Подтвердить создание?"
 REGISTRATION_MATCHES_TITLE = "Возможные совпадения с историей:"
 REGISTRATION_MATCH_TOURNAMENTS_LABEL = "турниров"
 REGISTRATION_MATCH_POINTS_LABEL = "очков"
-REGISTRATION_MATCH_KNOCKOUTS_LABEL = "КО"
+REGISTRATION_MATCH_KNOCKOUTS_LABEL = "🥊"
 
 
 def pending_registrations_count(count: int) -> str:

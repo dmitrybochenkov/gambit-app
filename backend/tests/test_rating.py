@@ -195,7 +195,7 @@ async def test_rating_filters_current_season_and_all_time(tmp_path: Path) -> Non
         ).startswith(
             "Рейтинг — текущий сезон\n\n🥇 *King* — 120 очков"
         )
-        assert "всего КО: 6, Большие КО: 1" in format_rating(
+        assert "💥🥊 х1, 🥊 х6" in format_rating(
             knockout_title,
             all_time_knockouts_page,
             current_player_id=first_player.id,

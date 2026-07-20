@@ -48,8 +48,8 @@ ADMIN_TOURNAMENT_EDIT_REBUYS = "🔁 Ребаи"
 
 RATING_CURRENT_SEASON = "🏆 Текущий сезон"
 RATING_ALL_TIME = "🏆⏳ За все время"
-RATING_KNOCKOUTS_CURRENT_SEASON = "💥 Нокауты"
-RATING_KNOCKOUTS_ALL_TIME = "💥⏳ Нокауты за все время"
+RATING_KNOCKOUTS_CURRENT_SEASON = "🥊 Нокауты"
+RATING_KNOCKOUTS_ALL_TIME = "🥊⏳ Нокауты за все время"
 RATING_CLOSE = "❌ Закрыть рейтинг"
 
 PROFILE_CURRENT_SEASON = "🏆 За текущий сезон"

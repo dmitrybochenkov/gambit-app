@@ -53,7 +53,7 @@ PROFILE_MENU_PROMPT = "За какой период ты хочешь посмо
 PROFILE_ACTIVE_ONLY = "Профиль доступен только активным игрокам."
 PROFILE_NOT_FOUND = "Профиль не найден. Нажми /start."
 PROFILE_RATING_LABEL = "Рейтинг"
-PROFILE_KNOCKOUTS_LABEL = "Количество КО"
+PROFILE_KNOCKOUTS_LABEL = "Количество 🥊"
 PROFILE_TOURNAMENTS_LABEL = "Количество турниров"
 PROFILE_PRIZE_PLACES_LABEL = "Количество призовых мест:"
 
@@ -160,8 +160,8 @@ def rating_message(
         else:
             lines.append(
                 f"{position_label} {display_name} — "
-                f"всего КО: {row.total_knockouts_count}, "
-                f"Большие КО: {row.big_knockouts_count}"
+                f"💥🥊 х{row.big_knockouts_count}, "
+                f"🥊 х{row.total_knockouts_count}"
             )
     return "\n".join(lines)
 

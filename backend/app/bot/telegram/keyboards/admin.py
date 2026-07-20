@@ -24,6 +24,13 @@ REGISTRATION_LIST_PAGE_SIZE = 6
 ADMIN_CANDIDATE_PAGE_SIZE = 6
 ADMIN_RESULT_PAGE_SIZE = 6
 ADMIN_TOURNAMENT_REGISTRATION_PAGE_SIZE = 6
+PLACE_EMOJIS = {
+    1: "1️⃣",
+    2: "2️⃣",
+    3: "3️⃣",
+    4: "4️⃣",
+    5: "5️⃣",
+}
 
 
 class RegistrationReviewAction(StrEnum):
@@ -571,15 +578,15 @@ def _admin_result_player_button_text(
     player: TournamentResultDraftPlayerView,
 ) -> str:
     result_parts = []
-    if draft.knockout_mode in {"small", "small_big"} and player.knockouts_count > 0:
-        result_parts.append(f"КО {player.knockouts_count}")
-    if draft.knockout_mode == "small_big" and player.big_knockouts_count > 0:
-        result_parts.append(f"БКО {player.big_knockouts_count}")
     if player.place is not None:
-        result_parts.append(f"место {player.place}")
+        result_parts.append(PLACE_EMOJIS.get(player.place, str(player.place)))
+    if draft.knockout_mode == "small_big" and player.big_knockouts_count > 0:
+        result_parts.append(f"💥🥊 х{player.big_knockouts_count}")
+    if draft.knockout_mode in {"small", "small_big"} and player.knockouts_count > 0:
+        result_parts.append(f"🥊 х{player.knockouts_count}")
     if not result_parts:
         return player.display_name
-    return f"{player.display_name}: {', '.join(result_parts)}"
+    return f"{player.display_name}: {' | '.join(result_parts)}"
 
 
 def admin_result_cancel_keyboard(tournament_id: int) -> InlineKeyboardMarkup:
@@ -602,7 +609,7 @@ def admin_result_player_fields_keyboard(
     builder = InlineKeyboardBuilder()
     if draft.knockout_mode in {"small", "small_big"}:
         builder.button(
-            text="💥 Малые КО" if draft.knockout_mode == "small_big" else "💥 КО",
+            text="🥊 КО",
             callback_data=AdminResultFieldCallback(
                 action=AdminResultFieldAction.OPEN,
                 tournament_id=draft.tournament.id,
@@ -613,7 +620,7 @@ def admin_result_player_fields_keyboard(
         )
     if draft.knockout_mode == "small_big":
         builder.button(
-            text="💥 Большие КО",
+            text="💥🥊 Большие КО",
             callback_data=AdminResultFieldCallback(
                 action=AdminResultFieldAction.OPEN,
                 tournament_id=draft.tournament.id,
