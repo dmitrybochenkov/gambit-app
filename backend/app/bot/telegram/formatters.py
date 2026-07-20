@@ -95,8 +95,7 @@ def format_admin_result_menu(draft: TournamentResultDraftView) -> str:
         format_tournament_label(draft.tournament),
         f"Пул: {pool}",
     ]
-    result_lines = _admin_result_entered_lines(draft)
-    lines.extend(result_lines or [texts.admin.ADMIN_RESULTS_PLAYERS_EMPTY])
+    lines.extend(_admin_result_summary_lines(draft))
     lines.extend(["", f"Игроков: {len(draft.players)}"])
     return "\n".join(lines)
 
@@ -128,20 +127,7 @@ def format_admin_result_players(
         format_tournament_label(draft.tournament),
         "",
     ]
-    players = _admin_result_entered_players(draft)
-    for player in players:
-        result_parts = _admin_result_player_parts(
-            knockout_mode=draft.knockout_mode,
-            knockouts_count=player.knockouts_count,
-            big_knockouts_count=player.big_knockouts_count,
-            place=player.place,
-        )
-        line = player.display_name
-        if result_parts:
-            line += ": " + ", ".join(result_parts)
-        lines.append(line)
-    if not players:
-        lines.append(texts.admin.ADMIN_RESULTS_PLAYERS_EMPTY)
+    lines.extend(_admin_result_summary_lines(draft))
     return "\n".join(lines)
 
 
@@ -153,30 +139,72 @@ def _admin_result_player_has_value(player: TournamentResultDraftPlayerView) -> b
     )
 
 
-def _admin_result_entered_lines(draft: TournamentResultDraftView) -> list[str]:
-    return [
-        f"{player.display_name}: {_admin_result_confirmation(player, draft)}"
-        for player in _admin_result_entered_players(draft)
-    ]
+def _admin_result_summary_lines(draft: TournamentResultDraftView) -> list[str]:
+    lines = _admin_result_places_table_lines(draft)
+    knockout_lines = _admin_result_knockout_lines(draft)
+    if knockout_lines:
+        lines.extend(["", *knockout_lines])
+    return lines
 
 
-def _admin_result_entered_players(
-    draft: TournamentResultDraftView,
-) -> list[TournamentResultDraftPlayerView]:
-    players = [
-        player for player in draft.players if _admin_result_player_has_value(player)
-    ]
-    return sorted(players, key=_admin_result_player_sort_key)
+def _admin_result_places_table_lines(draft: TournamentResultDraftView) -> list[str]:
+    players_by_place = {
+        player.place: player
+        for player in sorted(draft.players, key=lambda player: player.display_name.casefold())
+        if player.place is not None
+    }
+    rows = ["| Место | Игрок", "| ----- | -----"]
+    for place in range(1, 6):
+        player = players_by_place.get(place)
+        display_name = player.display_name if player is not None else "НЕ ВВЕДЕНО"
+        rows.append(f"| {place:>5} | {display_name}")
+    return ["```", *rows, "```"]
+
+
+def _admin_result_knockout_lines(draft: TournamentResultDraftView) -> list[str]:
+    if draft.knockout_mode not in {"small", "small_big"}:
+        return []
+
+    players = sorted(
+        [
+            player
+            for player in draft.players
+            if player.knockouts_count > 0 or player.big_knockouts_count > 0
+        ],
+        key=_admin_result_player_sort_key,
+    )
+    if not players:
+        return []
+
+    lines = ["КО:"]
+    for player in players:
+        result_parts = _admin_result_player_parts(
+            knockout_mode=draft.knockout_mode,
+            knockouts_count=player.knockouts_count,
+            big_knockouts_count=player.big_knockouts_count,
+            place=None,
+        )
+        lines.append(f"{_markdown_escape(player.display_name)}: {', '.join(result_parts)}")
+    return lines
+
+
+def _markdown_escape(value: str) -> str:
+    return (
+        value.replace("\\", "\\\\")
+        .replace("_", "\\_")
+        .replace("*", "\\*")
+        .replace("`", "\\`")
+        .replace("[", "\\[")
+    )
 
 
 def _admin_result_player_sort_key(
     player: TournamentResultDraftPlayerView,
 ) -> tuple[int, int, int, str]:
-    place = player.place if player.place is not None else 99
     return (
-        place,
         -player.big_knockouts_count,
         -player.knockouts_count,
+        player.place if player.place is not None else 99,
         player.display_name.casefold(),
     )
 

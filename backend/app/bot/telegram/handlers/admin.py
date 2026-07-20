@@ -82,6 +82,7 @@ TOURNAMENT_REBUYS_PROMPT = (
     "600 / 800 / 800 / 800 / 1000 / 1000 - "
     "30000 / 50000 / 70000 / 90000 / 100000 / 100000"
 )
+RESULT_SUMMARY_PARSE_MODE = "Markdown"
 
 
 @router.message(Command("admin"))
@@ -531,6 +532,7 @@ async def select_result_tournament(
         await callback.message.answer(
             format_admin_result_menu(draft),
             reply_markup=keyboards.admin_result_menu_keyboard(draft.tournament.id),
+            parse_mode=RESULT_SUMMARY_PARSE_MODE,
         )
 
 
@@ -579,6 +581,7 @@ async def select_result_menu_action(
                 await callback.message.answer(
                     format_admin_result_players(draft, page),
                     reply_markup=keyboards.admin_result_players_keyboard(draft, page),
+                    parse_mode=RESULT_SUMMARY_PARSE_MODE,
                 )
             return
 
@@ -635,6 +638,7 @@ async def confirm_result_close(
                     reply_markup=keyboards.admin_result_menu_keyboard(
                         draft.tournament.id
                     ),
+                    parse_mode=RESULT_SUMMARY_PARSE_MODE,
                 )
             return
 
@@ -675,7 +679,8 @@ async def confirm_result_close(
                     "",
                     format_admin_result_menu(draft),
                 ]
-            )
+            ),
+            parse_mode=RESULT_SUMMARY_PARSE_MODE,
         )
 
 
@@ -708,6 +713,7 @@ async def select_result_player(
                     reply_markup=keyboards.admin_result_menu_keyboard(
                         draft.tournament.id
                     ),
+                    parse_mode=RESULT_SUMMARY_PARSE_MODE,
                 )
             return
 
@@ -722,6 +728,7 @@ async def select_result_player(
                 await callback.message.edit_text(
                     format_admin_result_players(draft, page),
                     reply_markup=keyboards.admin_result_players_keyboard(draft, page),
+                    parse_mode=RESULT_SUMMARY_PARSE_MODE,
                 )
             return
 
@@ -813,6 +820,7 @@ async def select_result_field(
                 await callback.message.answer(
                     format_admin_result_players(draft, page),
                     reply_markup=keyboards.admin_result_players_keyboard(draft, page),
+                    parse_mode=RESULT_SUMMARY_PARSE_MODE,
                 )
             return
 
@@ -886,6 +894,7 @@ async def select_result_value(
                             draft,
                             page,
                         ),
+                        parse_mode=RESULT_SUMMARY_PARSE_MODE,
                     )
                 else:
                     await callback.message.edit_text(
@@ -951,6 +960,7 @@ async def select_result_value(
                 await callback.message.edit_text(
                     format_admin_result_players(draft, page),
                     reply_markup=keyboards.admin_result_players_keyboard(draft, page),
+                    parse_mode=RESULT_SUMMARY_PARSE_MODE,
                 )
             else:
                 await callback.message.edit_text(
@@ -1678,6 +1688,7 @@ async def enter_result_pool(message: Message, state: FSMContext) -> None:
     await message.answer(
         format_admin_result_menu(draft),
         reply_markup=keyboards.admin_result_menu_keyboard(draft.tournament.id),
+        parse_mode=RESULT_SUMMARY_PARSE_MODE,
     )
 
 
