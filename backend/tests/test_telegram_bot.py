@@ -190,6 +190,13 @@ def test_admin_result_menu_shows_entered_results_under_pool() -> None:
         points_pool=Decimal("2200"),
         players=[
             TournamentResultDraftPlayerView(
+                player_id=255,
+                display_name="Тест Игрок 4",
+                place=2,
+                knockouts_count=0,
+                big_knockouts_count=0,
+            ),
+            TournamentResultDraftPlayerView(
                 player_id=1,
                 display_name="Дима Боченков",
                 place=4,
@@ -197,8 +204,15 @@ def test_admin_result_menu_shows_entered_results_under_pool() -> None:
                 big_knockouts_count=0,
             ),
             TournamentResultDraftPlayerView(
-                player_id=255,
-                display_name="Тест Игрок 4",
+                player_id=252,
+                display_name="Тест Игрок 1",
+                place=1,
+                knockouts_count=0,
+                big_knockouts_count=0,
+            ),
+            TournamentResultDraftPlayerView(
+                player_id=258,
+                display_name="Тест Игрок 7",
                 place=5,
                 knockouts_count=0,
                 big_knockouts_count=0,
@@ -218,9 +232,61 @@ def test_admin_result_menu_shows_entered_results_under_pool() -> None:
         "Внесение результатов\n"
         "Воскресенье, 19 июля — Классика\n"
         "Пул: 2200\n"
+        "Тест Игрок 1: место 1\n"
+        "Тест Игрок 4: место 2\n"
         "Дима Боченков: место 4\n"
-        "Тест Игрок 4: место 5\n\n"
-        "Игроков: 3"
+        "Тест Игрок 7: место 5\n\n"
+        "Игроков: 5"
+    )
+
+
+def test_admin_result_menu_sorts_without_places_by_big_and_small_knockouts() -> None:
+    tournament = tournament_view(125, date(2026, 7, 19), 6, "Boss Bounty")
+    draft = TournamentResultDraftView(
+        tournament=tournament,
+        points_pool=Decimal("2200"),
+        players=[
+            TournamentResultDraftPlayerView(
+                player_id=1,
+                display_name="Игрок КО",
+                place=None,
+                knockouts_count=4,
+                big_knockouts_count=1,
+            ),
+            TournamentResultDraftPlayerView(
+                player_id=2,
+                display_name="Игрок БКО",
+                place=None,
+                knockouts_count=1,
+                big_knockouts_count=2,
+            ),
+            TournamentResultDraftPlayerView(
+                player_id=3,
+                display_name="Игрок Место",
+                place=3,
+                knockouts_count=0,
+                big_knockouts_count=0,
+            ),
+            TournamentResultDraftPlayerView(
+                player_id=4,
+                display_name="Игрок Много КО",
+                place=None,
+                knockouts_count=7,
+                big_knockouts_count=1,
+            ),
+        ],
+        knockout_mode="small_big",
+    )
+
+    assert format_admin_result_menu(draft) == (
+        "Внесение результатов\n"
+        "Воскресенье, 19 июля — Boss Bounty\n"
+        "Пул: 2200\n"
+        "Игрок Место: Малые КО 0, Большие КО 0, место 3\n"
+        "Игрок БКО: Малые КО 1, Большие КО 2, место не введено\n"
+        "Игрок Много КО: Малые КО 7, Большие КО 1, место не введено\n"
+        "Игрок КО: Малые КО 4, Большие КО 1, место не введено\n\n"
+        "Игроков: 4"
     )
 
 

@@ -128,11 +128,8 @@ def format_admin_result_players(
         format_tournament_label(draft.tournament),
         "",
     ]
-    has_results = False
-    for player in draft.players:
-        if not _admin_result_player_has_value(player):
-            continue
-        has_results = True
+    players = _admin_result_entered_players(draft)
+    for player in players:
         result_parts = _admin_result_player_parts(
             knockout_mode=draft.knockout_mode,
             knockouts_count=player.knockouts_count,
@@ -143,7 +140,7 @@ def format_admin_result_players(
         if result_parts:
             line += ": " + ", ".join(result_parts)
         lines.append(line)
-    if not has_results:
+    if not players:
         lines.append(texts.admin.ADMIN_RESULTS_PLAYERS_EMPTY)
     return "\n".join(lines)
 
@@ -159,9 +156,29 @@ def _admin_result_player_has_value(player: TournamentResultDraftPlayerView) -> b
 def _admin_result_entered_lines(draft: TournamentResultDraftView) -> list[str]:
     return [
         f"{player.display_name}: {_admin_result_confirmation(player, draft)}"
-        for player in draft.players
-        if _admin_result_player_has_value(player)
+        for player in _admin_result_entered_players(draft)
     ]
+
+
+def _admin_result_entered_players(
+    draft: TournamentResultDraftView,
+) -> list[TournamentResultDraftPlayerView]:
+    players = [
+        player for player in draft.players if _admin_result_player_has_value(player)
+    ]
+    return sorted(players, key=_admin_result_player_sort_key)
+
+
+def _admin_result_player_sort_key(
+    player: TournamentResultDraftPlayerView,
+) -> tuple[int, int, int, str]:
+    place = player.place if player.place is not None else 99
+    return (
+        place,
+        -player.big_knockouts_count,
+        -player.knockouts_count,
+        player.display_name.casefold(),
+    )
 
 
 def _admin_result_player_parts(
