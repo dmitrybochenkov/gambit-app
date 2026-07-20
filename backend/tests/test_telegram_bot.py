@@ -109,7 +109,12 @@ def test_admin_result_players_hide_ids_and_empty_places() -> None:
         for row in keyboards.admin_result_players_keyboard(draft, page).inline_keyboard
         for button in row
     ]
-    assert buttons == ["Тест Игрок", "Илларионов Александр", "⬅️ Назад", "❌ Отмена"]
+    assert buttons == [
+        "Тест Игрок",
+        "Илларионов Александр: место 2",
+        "⬅️ Назад",
+        "❌ Отмена",
+    ]
 
 
 def test_admin_result_players_show_empty_state_without_entered_results() -> None:
@@ -136,6 +141,46 @@ def test_admin_result_players_show_empty_state_without_entered_results() -> None
         "Воскресенье, 19 июля — Классика\n\n"
         "Результаты еще не внесены."
     )
+
+
+def test_admin_result_player_buttons_show_entered_knockouts_and_place() -> None:
+    tournament = tournament_view(125, date(2026, 7, 19), 6, "Boss Bounty")
+    players = [
+        TournamentResultDraftPlayerView(
+            player_id=108,
+            display_name="Илларионов Александр",
+            place=2,
+            knockouts_count=3,
+            big_knockouts_count=1,
+        ),
+        TournamentResultDraftPlayerView(
+            player_id=252,
+            display_name="Тест Игрок",
+            place=None,
+            knockouts_count=0,
+            big_knockouts_count=0,
+        ),
+    ]
+    draft = TournamentResultDraftView(
+        tournament=tournament,
+        points_pool=Decimal("1800"),
+        players=players,
+        knockout_mode="small_big",
+    )
+    page = Page(items=players, page=0, page_size=6, total_items=2)
+
+    buttons = [
+        button.text
+        for row in keyboards.admin_result_players_keyboard(draft, page).inline_keyboard
+        for button in row
+    ]
+
+    assert buttons == [
+        "Илларионов Александр: КО 3, БКО 1, место 2",
+        "Тест Игрок",
+        "⬅️ Назад",
+        "❌ Отмена",
+    ]
 
 
 def test_admin_result_menu_shows_entered_results_under_pool() -> None:

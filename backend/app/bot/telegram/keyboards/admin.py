@@ -534,7 +534,7 @@ def admin_result_players_keyboard(
     builder = InlineKeyboardBuilder()
     for player in page.items:
         builder.button(
-            text=player.display_name,
+            text=_admin_result_player_button_text(draft, player),
             callback_data=AdminResultPlayerCallback(
                 action=AdminResultPlayerAction.OPEN,
                 tournament_id=draft.tournament.id,
@@ -564,6 +564,22 @@ def admin_result_players_keyboard(
     item_rows = [1] * len(page.items)
     _adjust_paged_keyboard(builder, page, item_rows=item_rows, footer_rows=[1, 1])
     return builder.as_markup()
+
+
+def _admin_result_player_button_text(
+    draft: TournamentResultDraftView,
+    player: TournamentResultDraftPlayerView,
+) -> str:
+    result_parts = []
+    if draft.knockout_mode in {"small", "small_big"} and player.knockouts_count > 0:
+        result_parts.append(f"КО {player.knockouts_count}")
+    if draft.knockout_mode == "small_big" and player.big_knockouts_count > 0:
+        result_parts.append(f"БКО {player.big_knockouts_count}")
+    if player.place is not None:
+        result_parts.append(f"место {player.place}")
+    if not result_parts:
+        return player.display_name
+    return f"{player.display_name}: {', '.join(result_parts)}"
 
 
 def admin_result_cancel_keyboard(tournament_id: int) -> InlineKeyboardMarkup:
