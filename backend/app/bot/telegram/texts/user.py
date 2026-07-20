@@ -52,9 +52,6 @@ PROFILE_UNAVAILABLE = "Профиль доступен зарегистриро�
 PROFILE_MENU_PROMPT = "За какой период ты хочешь посмотреть свои достижения?"
 PROFILE_ACTIVE_ONLY = "Профиль доступен только активным игрокам."
 PROFILE_NOT_FOUND = "Профиль не найден. Нажми /start."
-PROFILE_RATING_LABEL = "Рейтинг"
-PROFILE_KNOCKOUTS_LABEL = "Количество 🥊"
-PROFILE_TOURNAMENTS_LABEL = "Количество турниров"
 PROFILE_PRIZE_PLACES_LABEL = "Количество призовых мест:"
 
 TOURNAMENTS_EMPTY = "Ближайших турниров пока нет."
@@ -164,7 +161,6 @@ def rating_message(
         else:
             lines.append(
                 f"{position_label} {display_name} — "
-                f"💥🥊 {row.big_knockouts_count}, "
                 f"🥊 {row.total_knockouts_count} | "
                 f"🎲 {row.tournaments_count}"
             )
@@ -207,11 +203,12 @@ def profile_message(title: str, stats: PlayerProfileView | None) -> str:
     points = _format_decimal(stats.total_points)
     lines = [
         title,
+        "⭐ - количество очков",
+        "🥊 - количество нокаутов",
+        "🎲 - количество турниров",
         "",
         stats.display_name,
-        f"{PROFILE_RATING_LABEL}: {points} очков",
-        f"{PROFILE_KNOCKOUTS_LABEL}: {stats.total_knockouts_count}",
-        f"{PROFILE_TOURNAMENTS_LABEL}: {stats.tournaments_count}",
+        f"⭐ {points} | 🥊 {stats.total_knockouts_count} | 🎲 {stats.tournaments_count}",
     ]
     prize_place_lines = _profile_prize_place_lines(stats)
     if prize_place_lines:

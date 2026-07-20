@@ -199,7 +199,7 @@ async def test_rating_filters_current_season_and_all_time(tmp_path: Path) -> Non
             "🎲 - количество турниров\n\n"
             "🥇 *King* — ⭐120 | 🎲 1"
         )
-        assert "💥🥊 1, 🥊 6 | 🎲 2" in format_rating(
+        assert "🥊 6 | 🎲 2" in format_rating(
             knockout_title,
             all_time_knockouts_page,
             current_player_id=first_player.id,
