@@ -147,6 +147,14 @@ def rating_message(
     lines = [title]
     if has_points_rows:
         lines.extend(["⭐ - количество очков", "🎲 - количество турниров"])
+    else:
+        lines.extend(
+            [
+                "🥊 - количество нокаутов",
+                "⭐🥊 - количество очков за нокауты",
+                "🎲 - количество турниров",
+            ]
+        )
     lines.append("")
     start_position = page.page * page.page_size + 1
     for position, row in enumerate(page.items, start=start_position):

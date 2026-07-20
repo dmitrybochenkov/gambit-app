@@ -200,10 +200,17 @@ async def test_rating_filters_current_season_and_all_time(tmp_path: Path) -> Non
             "🎲 - количество турниров\n\n"
             "🥇 *King* — ⭐120 | 🎲 1"
         )
-        assert "🥊 6 | ⭐🥊 20 | 🎲 2" in format_rating(
+        knockout_message = format_rating(
             knockout_title,
             all_time_knockouts_page,
             current_player_id=first_player.id,
         )
+        assert (
+            "Рейтинг по нокаутам — за всё время\n"
+            "🥊 - количество нокаутов\n"
+            "⭐🥊 - количество очков за нокауты\n"
+            "🎲 - количество турниров\n\n"
+        ) in knockout_message
+        assert "🥊 6 | ⭐🥊 20 | 🎲 2" in knockout_message
     finally:
         await engine.dispose()
