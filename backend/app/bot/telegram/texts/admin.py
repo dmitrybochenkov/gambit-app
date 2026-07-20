@@ -6,6 +6,7 @@ from app.services.pagination import Page
 ACCESS_DENIED = "У тебя нет доступа в админ-панель!"
 INSUFFICIENT_RIGHTS = "Недостаточно прав."
 ADMIN_PANEL_WELCOME = "Добро пожаловать в админ-панель."
+SUPERADMIN_PANEL_WELCOME = "Суперадмин."
 ADMIN_PANEL_EXITED = "Главное меню."
 ADMIN_ADD_NO_CANDIDATES = "Некого назначать админом."
 ADMIN_ADD_LIST_TITLE = "Кого назначаем админом?"

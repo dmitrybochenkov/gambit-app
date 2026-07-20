@@ -10,6 +10,7 @@ from app.bot.telegram import texts
 from app.bot.telegram.keyboards import buttons
 from app.services.dto import (
     AdminPromptView,
+    PlayerRoleView,
     PlayerView,
     RegistrationMatchView,
     RegistrationReviewView,
@@ -289,15 +290,27 @@ def registration_review_keyboard(
     return builder.as_markup()
 
 
-def admin_panel_keyboard() -> ReplyKeyboardMarkup:
+def admin_panel_keyboard(admin: PlayerView) -> ReplyKeyboardMarkup:
+    keyboard = [
+        [KeyboardButton(text=buttons.ADMIN_PANEL_REGISTER_PLAYER)],
+        [KeyboardButton(text=buttons.ADMIN_PANEL_RESULTS)],
+    ]
+    if admin.role == PlayerRoleView.SUPERADMIN:
+        keyboard.append([KeyboardButton(text=buttons.ADMIN_PANEL_SUPERADMIN)])
+    keyboard.append([KeyboardButton(text=buttons.ADMIN_PANEL_EXIT)])
+    return ReplyKeyboardMarkup(
+        keyboard=keyboard,
+        resize_keyboard=True,
+    )
+
+
+def superadmin_panel_keyboard() -> ReplyKeyboardMarkup:
     return ReplyKeyboardMarkup(
         keyboard=[
             [KeyboardButton(text=buttons.ADMIN_PANEL_REGISTRATIONS)],
             [KeyboardButton(text=buttons.ADMIN_PANEL_CALENDAR)],
             [KeyboardButton(text=buttons.ADMIN_PANEL_ADD_ADMIN)],
-            [KeyboardButton(text=buttons.ADMIN_PANEL_RESULTS)],
-            [KeyboardButton(text=buttons.ADMIN_PANEL_REGISTER_PLAYER)],
-            [KeyboardButton(text=buttons.ADMIN_PANEL_EXIT)],
+            [KeyboardButton(text=buttons.ADMIN_PANEL_BACK)],
         ],
         resize_keyboard=True,
     )

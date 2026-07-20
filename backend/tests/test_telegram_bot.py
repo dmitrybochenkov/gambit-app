@@ -1010,11 +1010,83 @@ async def test_admin_panel_entry_sends_admin_keyboard(
     answer = message.answer.await_args
     assert answer.args[0] == "Добро пожаловать в админ-панель."
     assert keyboard_texts(answer.kwargs["reply_markup"]) == [
+        "📝 Зарегать игрока на турнир",
+        "🏁 Внести результат",
+        "👑 Суперадмин",
+        "⬅️ Выход",
+    ]
+
+
+async def test_admin_panel_entry_hides_superadmin_button_for_admin(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    admin = admin_player(1, 100, PlayerRoleView.ADMIN)
+    service = SimpleNamespace(
+        get_admin_panel_for_admin=AsyncMock(
+            return_value=AdminPanelView(admin=admin, reviews=[])
+        )
+    )
+    monkeypatch.setattr(admin_handlers, "player_service", service)
+    message = SimpleNamespace(
+        from_user=SimpleNamespace(id=100),
+        answer=AsyncMock(),
+    )
+
+    await admin_handlers.open_admin_panel(message)
+
+    assert keyboard_texts(message.answer.await_args.kwargs["reply_markup"]) == [
+        "📝 Зарегать игрока на турнир",
+        "🏁 Внести результат",
+        "⬅️ Выход",
+    ]
+
+
+async def test_superadmin_panel_button_opens_superadmin_keyboard(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    admin = admin_player(1, 100, PlayerRoleView.SUPERADMIN)
+    service = SimpleNamespace(require_superadmin=AsyncMock(return_value=admin))
+    monkeypatch.setattr(admin_handlers, "player_service", service)
+    message = SimpleNamespace(
+        from_user=SimpleNamespace(id=100),
+        answer=AsyncMock(),
+    )
+
+    await admin_handlers.open_superadmin_panel(message)
+
+    service.require_superadmin.assert_awaited_once_with(100)
+    assert message.answer.await_args.args[0] == "Суперадмин."
+    assert keyboard_texts(message.answer.await_args.kwargs["reply_markup"]) == [
         "📝 Заявки на регистрацию",
         "🗓 Календарь",
         "➕ Добавить админа",
-        "🏁 Внести результат",
+        "⬅️ Назад",
+    ]
+
+
+async def test_superadmin_panel_back_returns_admin_keyboard(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    admin = admin_player(1, 100, PlayerRoleView.SUPERADMIN)
+    service = SimpleNamespace(
+        get_admin_panel_for_admin=AsyncMock(
+            return_value=AdminPanelView(admin=admin, reviews=[])
+        )
+    )
+    monkeypatch.setattr(admin_handlers, "player_service", service)
+    message = SimpleNamespace(
+        from_user=SimpleNamespace(id=100),
+        answer=AsyncMock(),
+    )
+
+    await admin_handlers.back_to_admin_panel(message)
+
+    service.get_admin_panel_for_admin.assert_awaited_once_with(100)
+    assert message.answer.await_args.args[0] == "Добро пожаловать в админ-панель."
+    assert keyboard_texts(message.answer.await_args.kwargs["reply_markup"]) == [
         "📝 Зарегать игрока на турнир",
+        "🏁 Внести результат",
+        "👑 Суперадмин",
         "⬅️ Выход",
     ]
 

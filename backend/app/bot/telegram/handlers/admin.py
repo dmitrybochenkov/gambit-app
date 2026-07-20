@@ -91,14 +91,50 @@ async def open_admin_panel(message: Message) -> None:
         return
 
     try:
-        await player_service.get_admin_panel_for_admin(message.from_user.id)
+        admin_panel = await player_service.get_admin_panel_for_admin(
+            message.from_user.id
+        )
     except AdminAccessDeniedError:
         await message.answer(texts.admin.ACCESS_DENIED)
         return
 
     await message.answer(
         texts.admin.ADMIN_PANEL_WELCOME,
-        reply_markup=keyboards.admin_panel_keyboard(),
+        reply_markup=keyboards.admin_panel_keyboard(admin_panel.admin),
+    )
+
+
+@router.message(F.text == keyboards.ADMIN_PANEL_SUPERADMIN)
+async def open_superadmin_panel(message: Message) -> None:
+    if message.from_user is None:
+        return
+
+    try:
+        await player_service.require_superadmin(message.from_user.id)
+    except AdminAccessDeniedError:
+        await message.answer(texts.admin.INSUFFICIENT_RIGHTS)
+        return
+
+    await message.answer(
+        texts.admin.SUPERADMIN_PANEL_WELCOME,
+        reply_markup=keyboards.superadmin_panel_keyboard(),
+    )
+
+
+@router.message(F.text == keyboards.ADMIN_PANEL_BACK)
+async def back_to_admin_panel(message: Message) -> None:
+    if message.from_user is None:
+        return
+
+    try:
+        admin_panel = await player_service.get_admin_panel_for_admin(message.from_user.id)
+    except AdminAccessDeniedError:
+        await message.answer(texts.admin.ACCESS_DENIED)
+        return
+
+    await message.answer(
+        texts.admin.ADMIN_PANEL_WELCOME,
+        reply_markup=keyboards.admin_panel_keyboard(admin_panel.admin),
     )
 
 
