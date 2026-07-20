@@ -146,7 +146,11 @@ def rating_message(
     if not page.items:
         return f"{title}\n\n{RATING_EMPTY}"
 
-    lines = [title, ""]
+    has_points_rows = isinstance(page.items[0], PointsRatingView)
+    lines = [title]
+    if has_points_rows:
+        lines.extend(["⭐ - количество очков", "🎲 - количество турниров"])
+    lines.append("")
     start_position = page.page * page.page_size + 1
     for position, row in enumerate(page.items, start=start_position):
         position_label = _rating_position_label(position)
@@ -154,8 +158,8 @@ def rating_message(
         if isinstance(row, PointsRatingView):
             points = _format_decimal(row.total_points)
             lines.append(
-                f"{position_label} {display_name} — {points} очков "
-                f"(турниров: {row.tournaments_count})"
+                f"{position_label} {display_name} — "
+                f"⭐{points} | 🎲 {row.tournaments_count}"
             )
         else:
             lines.append(
