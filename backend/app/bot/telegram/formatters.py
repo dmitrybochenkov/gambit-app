@@ -122,7 +122,11 @@ def format_admin_result_close_confirmation(draft: TournamentResultDraftView) -> 
         "Результаты:",
     ]
     for player in draft.players:
-        lines.append(f"• {player.display_name}: {_admin_result_confirmation(player, draft)}")
+        result = _admin_result_confirmation(player, draft)
+        line = f"• {player.display_name}"
+        if result:
+            line += f": {result}"
+        lines.append(line)
     return "\n".join(lines)
 
 
@@ -244,16 +248,14 @@ def _admin_result_confirmation(
     player: TournamentResultDraftPlayerView,
     draft: TournamentResultDraftView,
 ) -> str:
-    place = _place_label(player.place) if player.place is not None else "место не введено"
-    if draft.knockout_mode == "small_big":
-        return (
-            f"💥🥊 х{player.big_knockouts_count}, "
-            f"🥊 х{player.knockouts_count}, "
-            f"{place}"
-        )
-    if draft.knockout_mode == "small":
-        return f"🥊 х{player.knockouts_count}, {place}"
-    return place
+    result_parts = []
+    if player.place is not None:
+        result_parts.append(_place_label(player.place))
+    if draft.knockout_mode == "small_big" and player.big_knockouts_count > 0:
+        result_parts.append(f"💥🥊 х{player.big_knockouts_count}")
+    if draft.knockout_mode in {"small", "small_big"} and player.knockouts_count > 0:
+        result_parts.append(f"🥊 х{player.knockouts_count}")
+    return " | ".join(result_parts)
 
 
 def format_admin_result_player_detail(
