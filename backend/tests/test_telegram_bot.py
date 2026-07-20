@@ -751,6 +751,48 @@ async def test_rating_callback_edits_selected_rating(
     assert buttons == ["1-1 из 1", "❌ Закрыть рейтинг"]
 
 
+async def test_rating_callback_opens_current_player_page(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    rows = [
+        PointsRatingView(
+            player_id=player_id,
+            display_name=f"Игрок {player_id}",
+            total_points=Decimal(100 - player_id),
+            tournaments_count=1,
+        )
+        for player_id in range(1, 13)
+    ]
+    rating_service = SimpleNamespace(
+        get_rating_for_player=AsyncMock(
+            return_value=RatingResultView(
+                title="Рейтинг — текущий сезон",
+                rows=rows,
+                current_player_id=12,
+            )
+        )
+    )
+    monkeypatch.setattr(user_handlers, "rating_service", rating_service)
+    message = SimpleNamespace(edit_text=AsyncMock())
+    callback = SimpleNamespace(
+        from_user=SimpleNamespace(id=123),
+        message=message,
+        answer=AsyncMock(),
+    )
+    callback_data = SimpleNamespace(kind=RatingKind.CURRENT_SEASON, page=-1)
+
+    await user_handlers.show_rating(callback, callback_data)
+
+    assert "11. Игрок 11" in message.edit_text.await_args.args[0]
+    assert "*Игрок 12*" in message.edit_text.await_args.args[0]
+    buttons = [
+        button.text
+        for row in message.edit_text.await_args.kwargs["reply_markup"].inline_keyboard
+        for button in row
+    ]
+    assert buttons == ["⬅️", "11-12 из 12", "❌ Закрыть рейтинг"]
+
+
 async def test_rating_menu_cancel_deletes_message() -> None:
     message = SimpleNamespace(delete=AsyncMock(), answer=AsyncMock())
     callback = SimpleNamespace(message=message, answer=AsyncMock())

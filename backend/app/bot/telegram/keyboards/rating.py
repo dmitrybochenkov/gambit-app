@@ -29,19 +29,19 @@ def rating_keyboard() -> InlineKeyboardMarkup:
     builder = InlineKeyboardBuilder()
     builder.button(
         text=buttons.RATING_CURRENT_SEASON,
-        callback_data=RatingCallback(kind=RatingKind.CURRENT_SEASON, page=0),
+        callback_data=RatingCallback(kind=RatingKind.CURRENT_SEASON, page=-1),
     )
     builder.button(
         text=buttons.RATING_ALL_TIME,
-        callback_data=RatingCallback(kind=RatingKind.ALL_TIME, page=0),
+        callback_data=RatingCallback(kind=RatingKind.ALL_TIME, page=-1),
     )
     builder.button(
         text=buttons.RATING_KNOCKOUTS_CURRENT_SEASON,
-        callback_data=RatingCallback(kind=RatingKind.KNOCKOUTS_CURRENT_SEASON, page=0),
+        callback_data=RatingCallback(kind=RatingKind.KNOCKOUTS_CURRENT_SEASON, page=-1),
     )
     builder.button(
         text=buttons.RATING_KNOCKOUTS_ALL_TIME,
-        callback_data=RatingCallback(kind=RatingKind.KNOCKOUTS_ALL_TIME, page=0),
+        callback_data=RatingCallback(kind=RatingKind.KNOCKOUTS_ALL_TIME, page=-1),
     )
     builder.button(
         text=buttons.CANCEL,

@@ -191,9 +191,14 @@ async def show_rating(
         )
         return
 
+    page_number = rating_page_for_player(
+        rating.rows,
+        current_player_id=rating.current_player_id,
+        requested_page=callback_data.page,
+    )
     page = pagination_service.paginate(
         rating.rows,
-        page=callback_data.page,
+        page=page_number,
         page_size=keyboards.RATING_PAGE_SIZE,
     )
     await callback.answer()
@@ -206,6 +211,20 @@ async def show_rating(
             )
         except TelegramBadRequest:
             pass
+
+
+def rating_page_for_player(
+    rows: list[object],
+    *,
+    current_player_id: int,
+    requested_page: int,
+) -> int:
+    if requested_page >= 0:
+        return requested_page
+    for index, row in enumerate(rows):
+        if getattr(row, "player_id", None) == current_player_id:
+            return index // keyboards.RATING_PAGE_SIZE
+    return 0
 
 
 @router.callback_query(keyboards.RatingCancelCallback.filter())
