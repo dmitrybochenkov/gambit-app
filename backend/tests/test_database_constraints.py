@@ -8,9 +8,9 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.db.base import Base
-from app.db.factories import create_player
-from app.db.models import Player, ScoringConfig, Season, Tournament, TournamentResult
-from app.db.models.enums import PlayerStatus, SeasonStatus, TournamentStatus
+from app.db.factories import create_user
+from app.db.models import ScoringConfig, Season, Tournament, TournamentResult, User
+from app.db.models.enums import SeasonStatus, TournamentStatus, UserStatus
 
 
 @pytest.fixture
@@ -25,7 +25,7 @@ def session() -> Session:
 
 
 def test_player_requires_display_name(session: Session) -> None:
-    session.add(Player(telegram_id=1))
+    session.add(User(telegram_id=1, display_name_normalized="test"))
 
     with pytest.raises(IntegrityError):
         session.commit()
@@ -80,10 +80,10 @@ def test_tournament_result_bonus_points_must_be_nonnegative(
     session: Session,
 ) -> None:
     scoring_config = ScoringConfig()
-    player = create_player(
+    player = create_user(
         telegram_id=1,
         display_name="Игрок Первый",
-        status=PlayerStatus.ACTIVE,
+        status=UserStatus.ACTIVE,
     )
     session.add_all([scoring_config, player])
     session.flush()

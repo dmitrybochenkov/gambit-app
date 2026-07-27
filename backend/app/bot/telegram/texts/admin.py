@@ -1,6 +1,4 @@
-from collections.abc import Sequence
-
-from app.services.dto import PlayerView, RegistrationMatchView
+from app.services.dto import RegistrationReviewView
 from app.services.pagination import Page
 
 ACCESS_DENIED = "У тебя нет доступа в админ-панель!"
@@ -136,7 +134,8 @@ def admin_tournament_registration_player_notification(tournament: str) -> str:
 def registration_list(page: Page) -> str:
     lines = [REGISTRATION_LIST_TITLE, ""]
     for review in page.items:
-        lines.append(f"{review.player.id} — {review.player.display_name}")
+        name = review.request.requested_display_name or review.request.requested_link_name or "—"
+        lines.append(f"{review.request.id} — {name}")
 
     if page.total_pages > 1:
         lines.extend(
@@ -151,22 +150,28 @@ def registration_list(page: Page) -> str:
     return "\n".join(lines)
 
 
-def registration_review(
-    player: PlayerView,
-    matches: Sequence[RegistrationMatchView] = (),
-) -> str:
+def registration_review(review: RegistrationReviewView) -> str:
     lines = [REGISTRATION_REVIEW_TITLE, ""]
-    lines.append(f"{DISPLAY_NAME_LABEL}: {player.display_name}")
-    if matches:
+    request = review.request
+    if request.request_type == "new_player":
+        lines.extend(
+            [
+                "Тип: новый игрок",
+                f"{DISPLAY_NAME_LABEL}: {request.requested_display_name}",
+            ]
+        )
+    else:
+        lines.extend(["Тип: привязка к истории", f"Искали: {request.requested_link_name}"])
+        if request.candidate_user_id is not None:
+            lines.append(f"Выбран игрок id {request.candidate_user_id}")
+    lines.append(f"Создана: {request.created_at}")
+    if review.candidates:
         lines.extend(["", REGISTRATION_MATCHES_TITLE])
-        for position, registration_match in enumerate(
-            matches,
+        for position, candidate in enumerate(
+            review.candidates,
             start=1,
         ):
-            lines.append(
-                f"{position}. {registration_match.historical_player.display_name} "
-                f"— {registration_match.reason}"
-            )
+            lines.append(f"{position}. {candidate.user.display_name} — {candidate.reason}")
     return "\n".join(lines)
 
 

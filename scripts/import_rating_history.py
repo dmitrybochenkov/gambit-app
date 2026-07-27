@@ -3,8 +3,8 @@ from __future__ import annotations
 
 import argparse
 import csv
-import re
 import sqlite3
+import sys
 import unicodedata
 from collections import defaultdict
 from dataclasses import dataclass
@@ -13,10 +13,15 @@ from decimal import Decimal, InvalidOperation
 from pathlib import Path
 from typing import Any
 
+BACKEND_ROOT = Path(__file__).resolve().parents[1] / "backend"
+if str(BACKEND_ROOT) not in sys.path:
+    sys.path.insert(0, str(BACKEND_ROOT))
+
+from app.common.normalization import normalize_display_name  # noqa: E402
+
 DEFAULT_SHEET_NAME = "Данные за все время"
 DEFAULT_MAPPING_SHEET_NAME = "Лист12"
 DEFAULT_TOURNAMENT_TYPE_CODE = "legacy_unknown"
-HISTORICAL_TELEGRAM_ID_START = -1
 
 KNOWN_SEASONS = [
     ("Сезон 1", date(2025, 10, 16), date(2026, 1, 25), "closed"),
@@ -578,8 +583,6 @@ def ensure_players(
     rows: list[HistoryRow],
 ) -> dict[str, int]:
     player_ids: dict[str, int] = {}
-    next_historical_telegram_id = next_negative_telegram_id(connection)
-
     for player_name in sorted({row.player_name for row in rows}):
         display_name = display_name_for_player_name(player_name, rows)
         display_name_normalized = normalize_display_name(display_name)
@@ -594,35 +597,29 @@ def ensure_players(
 
         cursor = connection.execute(
             """
-            INSERT INTO players (
-                telegram_id,
+            INSERT INTO users (
                 display_name,
                 display_name_normalized,
                 status,
                 role,
-                approved_at,
                 created_at,
                 updated_at
             )
             VALUES (
                 ?,
                 ?,
-                ?,
                 'active',
-                'user',
-                CURRENT_TIMESTAMP,
+                'player',
                 CURRENT_TIMESTAMP,
                 CURRENT_TIMESTAMP
             )
             """,
             (
-                next_historical_telegram_id,
                 display_name,
                 display_name_normalized,
             ),
         )
         player_ids[player_name] = int(cursor.lastrowid)
-        next_historical_telegram_id -= 1
     return player_ids
 
 
@@ -655,9 +652,9 @@ def find_existing_player(
 
     row = connection.execute(
         f"""
-        SELECT id FROM players
+        SELECT id FROM users
         WHERE {" OR ".join(filters)}
-        ORDER BY telegram_id DESC, id
+        ORDER BY id
         LIMIT 1
         """,
         values,
@@ -709,15 +706,6 @@ def upsert_results(
         )
 
 
-def next_negative_telegram_id(connection: sqlite3.Connection) -> int:
-    row = connection.execute(
-        "SELECT MIN(telegram_id) FROM players WHERE telegram_id < 0"
-    ).fetchone()
-    if row and row[0] is not None:
-        return int(row[0]) - 1
-    return HISTORICAL_TELEGRAM_ID_START
-
-
 def build_summary(rows: list[HistoryRow], skipped_rows: list[int]) -> dict[str, Any]:
     season_counts: dict[str, int] = defaultdict(int)
     for tournament_date in {row.tournament_date for row in rows}:
@@ -762,14 +750,6 @@ def clean_text(value: Any) -> str:
         char for char in text if unicodedata.category(char) not in {"Cf", "Cc"}
     )
     return " ".join(text.split()).strip()
-
-
-def normalize_display_name(value: str | None) -> str | None:
-    if value is None:
-        return None
-    normalized = value.strip().casefold().replace("ё", "е")
-    normalized = " ".join(normalized.split())
-    return normalized or None
 
 
 def optional_int(value: Any) -> int | None:

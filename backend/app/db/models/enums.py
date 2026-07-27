@@ -5,14 +5,13 @@ from sqlalchemy import String
 from sqlalchemy.types import TypeDecorator
 
 
-class PlayerStatus(StrEnum):
-    PENDING = "pending"
+class UserStatus(StrEnum):
     ACTIVE = "active"
     BLOCKED = "blocked"
 
 
-class PlayerRole(StrEnum):
-    USER = "user"
+class UserRole(StrEnum):
+    PLAYER = "player"
     ADMIN = "admin"
     SUPERADMIN = "superadmin"
 
@@ -46,8 +45,15 @@ class TournamentTypeStatus(StrEnum):
     ARCHIVED = "archived"
 
 
-class RegistrationMatchStatus(StrEnum):
-    CANDIDATE = "candidate"
+class RegistrationRequestType(StrEnum):
+    NEW_PLAYER = "new_player"
+    LINK_EXISTING_PLAYER = "link_existing_player"
+
+
+class RegistrationRequestStatus(StrEnum):
+    PENDING = "pending"
+    APPROVED = "approved"
+    REJECTED = "rejected"
 
 
 class KnockoutMode(StrEnum):

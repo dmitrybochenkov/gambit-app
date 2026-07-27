@@ -45,26 +45,26 @@ from app.services.dto import (
     TournamentResultDraftView,
 )
 from app.services.pagination import pagination_service
-from app.services.player_service import (
-    AdminAccessDeniedError,
-    PlayerNotFoundError,
-    PlayerRoleAlreadyAssignedError,
-    RegistrationAlreadyReviewedError,
-    RegistrationMatchNotFoundError,
-    player_service,
-)
 from app.services.result_service import (
     ResultInvalidPlayerDataError,
     ResultInvalidPoolError,
-    ResultPlayerNotFoundError,
     ResultTournamentNotFoundError,
+    ResultUserNotFoundError,
     ResultValidationError,
     result_service,
 )
 from app.services.tournament_service import (
-    TournamentPlayerNotFoundError,
     TournamentUnavailableError,
+    TournamentUserNotFoundError,
     tournament_service,
+)
+from app.services.user_service import (
+    AdminAccessDeniedError,
+    RegistrationAlreadyReviewedError,
+    RegistrationCandidateNotFoundError,
+    UserNotFoundError,
+    UserRoleAlreadyAssignedError,
+    user_service,
 )
 
 router = Router(name="admin")
@@ -89,7 +89,7 @@ async def open_admin_panel(message: Message) -> None:
         return
 
     try:
-        admin_panel = await player_service.get_admin_panel_for_admin(message.from_user.id)
+        admin_panel = await user_service.get_admin_panel_for_admin(message.from_user.id)
     except AdminAccessDeniedError:
         await message.answer(texts.admin.ACCESS_DENIED)
         return
@@ -106,7 +106,7 @@ async def open_superadmin_panel(message: Message) -> None:
         return
 
     try:
-        await player_service.require_superadmin(message.from_user.id)
+        await user_service.require_superadmin(message.from_user.id)
     except AdminAccessDeniedError:
         await message.answer(texts.admin.INSUFFICIENT_RIGHTS)
         return
@@ -123,7 +123,7 @@ async def back_to_admin_panel(message: Message) -> None:
         return
 
     try:
-        admin_panel = await player_service.get_admin_panel_for_admin(message.from_user.id)
+        admin_panel = await user_service.get_admin_panel_for_admin(message.from_user.id)
     except AdminAccessDeniedError:
         await message.answer(texts.admin.ACCESS_DENIED)
         return
@@ -140,7 +140,8 @@ async def show_pending_registrations(message: Message) -> None:
         return
 
     try:
-        admin_panel = await player_service.get_admin_panel_for_admin(message.from_user.id)
+        await user_service.require_superadmin(message.from_user.id)
+        admin_panel = await user_service.get_admin_panel_for_admin(message.from_user.id)
     except AdminAccessDeniedError:
         await message.answer(texts.admin.ACCESS_DENIED)
         return
@@ -167,7 +168,7 @@ async def show_admin_candidates(message: Message) -> None:
         return
 
     try:
-        players = await player_service.list_admin_candidates_for_superadmin(message.from_user.id)
+        players = await user_service.list_admin_candidates_for_superadmin(message.from_user.id)
     except AdminAccessDeniedError:
         await message.answer(texts.admin.INSUFFICIENT_RIGHTS)
         return
@@ -412,7 +413,7 @@ async def select_admin_registration_player(
         await state.clear()
         await callback.answer(texts.admin.ACCESS_DENIED, show_alert=True)
         return
-    except (TournamentUnavailableError, TournamentPlayerNotFoundError):
+    except (TournamentUnavailableError, TournamentUserNotFoundError):
         await state.clear()
         await callback.answer(
             texts.admin.ADMIN_TOURNAMENT_REGISTRATION_NOT_FOUND,
@@ -930,7 +931,7 @@ async def select_result_value(
         await callback.answer(texts.admin.ACCESS_DENIED, show_alert=True)
     except ResultTournamentNotFoundError:
         await callback.answer(texts.admin.ADMIN_RESULTS_NOT_FOUND, show_alert=True)
-    except (ResultInvalidPlayerDataError, ResultPlayerNotFoundError, ValueError):
+    except (ResultInvalidPlayerDataError, ResultUserNotFoundError, ValueError):
         await callback.answer(
             texts.admin.ADMIN_RESULTS_INVALID_MANUAL_VALUE[callback_data.field.value],
             show_alert=True,
@@ -950,7 +951,7 @@ async def select_admin_candidate(
                 await callback.message.answer(texts.admin.ADMIN_CALENDAR_CANCELLED)
             return
 
-        players = await player_service.list_admin_candidates_for_superadmin(callback.from_user.id)
+        players = await user_service.list_admin_candidates_for_superadmin(callback.from_user.id)
     except AdminAccessDeniedError:
         await callback.answer(texts.admin.INSUFFICIENT_RIGHTS, show_alert=True)
         return
@@ -999,17 +1000,17 @@ async def confirm_add_admin(
         return
 
     try:
-        player = await player_service.add_admin(
+        player = await user_service.add_admin(
             superadmin_telegram_id=callback.from_user.id,
             player_id=callback_data.player_id,
         )
     except AdminAccessDeniedError:
         await callback.answer(texts.admin.INSUFFICIENT_RIGHTS, show_alert=True)
         return
-    except PlayerNotFoundError:
+    except UserNotFoundError:
         await callback.answer(texts.admin.PLAYER_NOT_FOUND, show_alert=True)
         return
-    except PlayerRoleAlreadyAssignedError:
+    except UserRoleAlreadyAssignedError:
         await callback.answer(texts.admin.ADMIN_ALREADY_ASSIGNED, show_alert=True)
         return
 
@@ -1044,22 +1045,24 @@ async def review_registration_list(
             return
 
         if callback_data.action == keyboards.RegistrationListAction.OPEN:
-            review = await player_service.get_registration_review_for_admin(
+            review = await user_service.get_registration_review_for_admin(
                 admin_telegram_id=callback.from_user.id,
-                pending_player_id=callback_data.player_id,
+                request_id=callback_data.request_id,
             )
             await callback.answer()
             if callback.message is not None:
                 await callback.message.edit_text(
-                    format_registration_review(review.player, review.matches),
+                    format_registration_review(review),
                     reply_markup=keyboards.registration_review_keyboard(
-                        review.player.id,
-                        has_matches=bool(review.matches),
+                        review.request.id,
+                        can_edit_name=review.request.request_type == "new_player",
+                        can_select_candidate=review.request.request_type == "link_existing_player",
                     ),
                 )
             return
 
-        admin_panel = await player_service.get_admin_panel_for_admin(callback.from_user.id)
+        await user_service.require_superadmin(callback.from_user.id)
+        admin_panel = await user_service.get_admin_panel_for_admin(callback.from_user.id)
         reviews = admin_panel.reviews
         if not reviews:
             await callback.answer()
@@ -1084,7 +1087,7 @@ async def review_registration_list(
     except AdminAccessDeniedError:
         await callback.answer(texts.admin.ACCESS_DENIED, show_alert=True)
         return
-    except (PlayerNotFoundError, RegistrationAlreadyReviewedError):
+    except (UserNotFoundError, RegistrationAlreadyReviewedError):
         await callback.answer(
             texts.admin.REGISTRATION_ALREADY_REVIEWED,
             show_alert=True,
@@ -1097,7 +1100,7 @@ async def exit_admin_panel(message: Message) -> None:
         return
 
     try:
-        admin_panel = await player_service.get_admin_panel_for_admin(message.from_user.id)
+        admin_panel = await user_service.get_admin_panel_for_admin(message.from_user.id)
     except AdminAccessDeniedError:
         await message.answer(texts.admin.ACCESS_DENIED)
         return
@@ -1114,7 +1117,7 @@ async def open_admin_calendar(message: Message) -> None:
         return
 
     try:
-        await player_service.require_superadmin(message.from_user.id)
+        await user_service.require_superadmin(message.from_user.id)
     except AdminAccessDeniedError:
         await message.answer(texts.admin.INSUFFICIENT_RIGHTS)
         return
@@ -1131,41 +1134,32 @@ async def review_registration(
     callback_data: keyboards.RegistrationReviewCallback,
 ) -> None:
     try:
-        if callback_data.action in {
-            keyboards.RegistrationReviewAction.APPROVE,
-            keyboards.RegistrationReviewAction.APPROVE_NEW,
-        }:
-            if callback_data.action == keyboards.RegistrationReviewAction.APPROVE:
-                matches = await player_service.get_registration_matches_for_admin(
-                    admin_telegram_id=callback.from_user.id,
-                    pending_player_id=callback_data.player_id,
-                )
-                if len(matches) > 1:
-                    await callback.answer()
-                    if callback.message is not None:
-                        await callback.message.edit_reply_markup(
-                            reply_markup=keyboards.registration_match_selection_keyboard(
-                                callback_data.player_id,
-                                matches,
-                            )
-                        )
-                    return
-
-            review_result = await player_service.approve_registration(
+        if callback_data.action == keyboards.RegistrationReviewAction.SELECT_CANDIDATE:
+            review = await user_service.get_registration_review_for_admin(
                 admin_telegram_id=callback.from_user.id,
-                player_id=callback_data.player_id,
-                use_registration_match=(
-                    callback_data.action == keyboards.RegistrationReviewAction.APPROVE
-                ),
+                request_id=callback_data.request_id,
             )
-            result_text = (
-                texts.admin.REGISTRATION_APPROVED_AS_NEW
-                if callback_data.action == keyboards.RegistrationReviewAction.APPROVE_NEW
-                else texts.admin.REGISTRATION_APPROVED
+            await callback.answer()
+            if callback.message is not None:
+                await callback.message.edit_reply_markup(
+                    reply_markup=keyboards.registration_candidate_selection_keyboard(
+                        callback_data.request_id,
+                        review.candidates,
+                    )
+                )
+            return
+
+        if callback_data.action == keyboards.RegistrationReviewAction.EDIT_NAME:
+            await callback.answer("Редактирование имени добавим следующим шагом.", show_alert=True)
+            return
+
+        if callback_data.action == keyboards.RegistrationReviewAction.APPROVE:
+            review_result = await user_service.approve_registration(
+                superadmin_telegram_id=callback.from_user.id,
+                request_id=callback_data.request_id,
             )
-            player_text = texts.admin.registration_approved_message(
-                review_result.player.display_name
-            )
+            result_text = texts.admin.REGISTRATION_APPROVED
+            player_text = "Ваша заявка одобрена."
             player_keyboard = keyboards.main_keyboard_after_registration()
         elif callback_data.action == keyboards.RegistrationReviewAction.CANCEL:
             await callback.answer(texts.admin.REGISTRATION_CANCELLED)
@@ -1176,17 +1170,17 @@ async def review_registration(
                     pass
             return
         else:
-            review_result = await player_service.reject_registration(
-                admin_telegram_id=callback.from_user.id,
-                player_id=callback_data.player_id,
+            review_result = await user_service.reject_registration(
+                superadmin_telegram_id=callback.from_user.id,
+                request_id=callback_data.request_id,
             )
             result_text = texts.admin.REGISTRATION_REJECTED
-            player_text = texts.admin.REGISTRATION_REJECTION_MESSAGE
+            player_text = "Ваша заявка отклонена."
             player_keyboard = ReplyKeyboardRemove()
     except AdminAccessDeniedError:
         await callback.answer(texts.admin.ACCESS_DENIED, show_alert=True)
         return
-    except PlayerNotFoundError:
+    except UserNotFoundError:
         await callback.answer(texts.admin.PLAYER_NOT_FOUND, show_alert=True)
         return
     except RegistrationAlreadyReviewedError:
@@ -1205,37 +1199,39 @@ async def review_registration(
     )
 
 
-@router.callback_query(keyboards.RegistrationMatchSelectionCallback.filter())
-async def select_registration_match(
+@router.callback_query(keyboards.RegistrationCandidateSelectionCallback.filter())
+async def select_registration_candidate(
     callback: CallbackQuery,
-    callback_data: keyboards.RegistrationMatchSelectionCallback,
+    callback_data: keyboards.RegistrationCandidateSelectionCallback,
 ) -> None:
     try:
-        review_result = await player_service.approve_registration(
-            admin_telegram_id=callback.from_user.id,
-            player_id=callback_data.player_id,
-            historical_player_id=callback_data.historical_player_id,
+        review = await user_service.select_registration_candidate(
+            superadmin_telegram_id=callback.from_user.id,
+            request_id=callback_data.request_id,
+            user_id=callback_data.user_id,
         )
     except AdminAccessDeniedError:
         await callback.answer(texts.admin.ACCESS_DENIED, show_alert=True)
         return
-    except PlayerNotFoundError:
+    except UserNotFoundError:
         await callback.answer(texts.admin.PLAYER_NOT_FOUND, show_alert=True)
         return
-    except (RegistrationAlreadyReviewedError, RegistrationMatchNotFoundError):
+    except (RegistrationAlreadyReviewedError, RegistrationCandidateNotFoundError):
         await callback.answer(
             texts.admin.REGISTRATION_ALREADY_REVIEWED,
             show_alert=True,
         )
         return
 
-    await _send_registration_review_result(
-        callback=callback,
-        review_result=review_result,
-        result_text=texts.admin.REGISTRATION_APPROVED,
-        player_text=texts.admin.registration_approved_message(review_result.player.display_name),
-        player_keyboard=keyboards.main_keyboard_after_registration(),
-    )
+    await callback.answer("Игрок выбран.")
+    if callback.message is not None:
+        await callback.message.edit_text(
+            format_registration_review(review),
+            reply_markup=keyboards.registration_review_keyboard(
+                review.request.id,
+                can_select_candidate=True,
+            ),
+        )
 
 
 async def _send_registration_review_result(
@@ -1246,10 +1242,9 @@ async def _send_registration_review_result(
     player_keyboard: object,
 ) -> None:
     await callback.answer(result_text)
-    player = review_result.player
     admin_review_text = callback.message.text if callback.message is not None else ""
     reviewed_text = texts.admin.reviewed_by_admin(
-        review_text=admin_review_text or format_registration_review(player),
+        review_text=admin_review_text,
         result_text=result_text,
         admin_name=callback.from_user.full_name,
     )
@@ -1260,7 +1255,7 @@ async def _send_registration_review_result(
             pass
 
     for admin in review_result.admins:
-        if admin.telegram_id == callback.from_user.id:
+        if admin.telegram_id is None or admin.telegram_id == callback.from_user.id:
             continue
         try:
             await callback.bot.send_message(
@@ -1272,7 +1267,7 @@ async def _send_registration_review_result(
 
     try:
         await callback.bot.send_message(
-            chat_id=player.telegram_id,
+            chat_id=review_result.request.telegram_id,
             text=player_text,
             reply_markup=player_keyboard,
         )
@@ -1288,7 +1283,7 @@ async def review_calendar_prompt(
 ) -> None:
     action = CalendarPromptAction(callback_data.action.value)
     try:
-        await player_service.require_superadmin(callback.from_user.id)
+        await user_service.require_superadmin(callback.from_user.id)
         if callback_data.action == keyboards.CalendarPromptAction.EDIT:
             await state.clear()
             prompt = await calendar_service.get_prompt(callback_data.prompt_id)
@@ -1375,7 +1370,7 @@ async def select_admin_calendar_section(
     callback_data: keyboards.AdminCalendarCallback,
 ) -> None:
     try:
-        await player_service.require_superadmin(callback.from_user.id)
+        await user_service.require_superadmin(callback.from_user.id)
     except AdminAccessDeniedError:
         await callback.answer(texts.admin.INSUFFICIENT_RIGHTS, show_alert=True)
         return
@@ -1428,7 +1423,7 @@ async def select_tournament_edit_day(
     state: FSMContext,
 ) -> None:
     try:
-        await player_service.require_superadmin(callback.from_user.id)
+        await user_service.require_superadmin(callback.from_user.id)
     except AdminAccessDeniedError:
         await callback.answer(texts.admin.INSUFFICIENT_RIGHTS, show_alert=True)
         return
@@ -1460,7 +1455,7 @@ async def select_tournament_edit_field(
     state: FSMContext,
 ) -> None:
     try:
-        await player_service.require_superadmin(callback.from_user.id)
+        await user_service.require_superadmin(callback.from_user.id)
     except AdminAccessDeniedError:
         await callback.answer(texts.admin.INSUFFICIENT_RIGHTS, show_alert=True)
         return
@@ -1517,7 +1512,7 @@ async def select_tournament_type(
     state: FSMContext,
 ) -> None:
     try:
-        await player_service.require_superadmin(callback.from_user.id)
+        await user_service.require_superadmin(callback.from_user.id)
         prompt = await calendar_service.update_tournament_prompt_type(
             prompt_id=callback_data.prompt_id,
             tournament_index=callback_data.tournament_index,
@@ -1673,7 +1668,7 @@ async def enter_result_manual_value(message: Message, state: FSMContext) -> None
         await state.clear()
         await message.answer(texts.admin.ADMIN_RESULTS_NOT_FOUND)
         return
-    except (ResultInvalidPlayerDataError, ResultPlayerNotFoundError, ValueError):
+    except (ResultInvalidPlayerDataError, ResultUserNotFoundError, ValueError):
         await message.answer(texts.admin.ADMIN_RESULTS_INVALID_MANUAL_VALUE[field.value])
         return
 
@@ -1704,7 +1699,7 @@ async def select_season_edit_field(
     state: FSMContext,
 ) -> None:
     try:
-        await player_service.require_superadmin(callback.from_user.id)
+        await user_service.require_superadmin(callback.from_user.id)
     except AdminAccessDeniedError:
         await callback.answer(texts.admin.INSUFFICIENT_RIGHTS, show_alert=True)
         return
@@ -1733,7 +1728,7 @@ async def enter_tournament_economy(message: Message, state: FSMContext) -> None:
         return
 
     try:
-        await player_service.require_superadmin(message.from_user.id)
+        await user_service.require_superadmin(message.from_user.id)
     except AdminAccessDeniedError:
         await state.clear()
         await message.answer(texts.admin.INSUFFICIENT_RIGHTS)
@@ -1773,7 +1768,7 @@ async def enter_tournament_rebuys(message: Message, state: FSMContext) -> None:
         return
 
     try:
-        await player_service.require_superadmin(message.from_user.id)
+        await user_service.require_superadmin(message.from_user.id)
     except AdminAccessDeniedError:
         await state.clear()
         await message.answer(texts.admin.INSUFFICIENT_RIGHTS)
@@ -1807,7 +1802,7 @@ async def enter_season_edit_value(message: Message, state: FSMContext) -> None:
         return
 
     try:
-        await player_service.require_superadmin(message.from_user.id)
+        await user_service.require_superadmin(message.from_user.id)
     except AdminAccessDeniedError:
         await state.clear()
         await message.answer(texts.admin.INSUFFICIENT_RIGHTS)
@@ -1974,7 +1969,7 @@ async def update_result_field(
         raise ValueError
     player = find_result_player(draft, player_id)
     if player is None:
-        raise ResultPlayerNotFoundError
+        raise ResultUserNotFoundError
 
     place = player.place
     knockouts_count = player.knockouts_count

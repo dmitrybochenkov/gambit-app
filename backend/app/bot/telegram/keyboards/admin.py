@@ -10,13 +10,13 @@ from app.bot.telegram import texts
 from app.bot.telegram.keyboards import buttons
 from app.services.dto import (
     AdminPromptView,
-    PlayerView,
-    RegistrationMatchView,
+    RegistrationCandidateView,
     RegistrationReviewView,
     TournamentResultDraftPlayerView,
     TournamentResultDraftView,
     TournamentTypeOptionView,
     TournamentView,
+    UserView,
 )
 from app.services.pagination import Page
 
@@ -35,19 +35,20 @@ PLACE_EMOJIS = {
 
 class RegistrationReviewAction(StrEnum):
     APPROVE = "approve"
-    APPROVE_NEW = "approve_new"
     REJECT = "reject"
     CANCEL = "cancel"
+    EDIT_NAME = "edit_name"
+    SELECT_CANDIDATE = "select_candidate"
 
 
 class RegistrationReviewCallback(CallbackData, prefix="registration_review"):
     action: RegistrationReviewAction
-    player_id: int
+    request_id: int
 
 
-class RegistrationMatchSelectionCallback(CallbackData, prefix="registration_match"):
-    player_id: int
-    historical_player_id: int
+class RegistrationCandidateSelectionCallback(CallbackData, prefix="registration_candidate"):
+    request_id: int
+    user_id: int
 
 
 class RegistrationListAction(StrEnum):
@@ -59,7 +60,7 @@ class RegistrationListAction(StrEnum):
 class RegistrationListCallback(CallbackData, prefix="registration_list"):
     action: RegistrationListAction
     page: int
-    player_id: int
+    request_id: int
 
 
 class CalendarPromptAction(StrEnum):
@@ -259,44 +260,53 @@ class TournamentTypeEditCallback(CallbackData, prefix="tournament_type_edit"):
 
 
 def registration_review_keyboard(
-    player_id: int,
-    has_matches: bool = False,
+    request_id: int,
+    can_edit_name: bool = False,
+    can_select_candidate: bool = False,
 ) -> InlineKeyboardMarkup:
     builder = InlineKeyboardBuilder()
-    builder.button(
-        text=buttons.ADMIN_APPROVE_WITH_HISTORY if has_matches else buttons.ADMIN_APPROVE,
-        callback_data=RegistrationReviewCallback(
-            action=RegistrationReviewAction.APPROVE,
-            player_id=player_id,
-        ),
-    )
-    if has_matches:
+    if can_select_candidate:
         builder.button(
-            text=buttons.ADMIN_APPROVE_AS_NEW,
+            text="🔗 Выбрать игрока",
             callback_data=RegistrationReviewCallback(
-                action=RegistrationReviewAction.APPROVE_NEW,
-                player_id=player_id,
+                action=RegistrationReviewAction.SELECT_CANDIDATE,
+                request_id=request_id,
             ),
         )
+    if can_edit_name:
+        builder.button(
+            text="✏️ Изменить имя",
+            callback_data=RegistrationReviewCallback(
+                action=RegistrationReviewAction.EDIT_NAME,
+                request_id=request_id,
+            ),
+        )
+    builder.button(
+        text=buttons.ADMIN_APPROVE,
+        callback_data=RegistrationReviewCallback(
+            action=RegistrationReviewAction.APPROVE,
+            request_id=request_id,
+        ),
+    )
     builder.button(
         text=buttons.ADMIN_REJECT,
         callback_data=RegistrationReviewCallback(
             action=RegistrationReviewAction.REJECT,
-            player_id=player_id,
+            request_id=request_id,
         ),
     )
     builder.button(
         text=buttons.ADMIN_CANCEL,
         callback_data=RegistrationReviewCallback(
             action=RegistrationReviewAction.CANCEL,
-            player_id=player_id,
+            request_id=request_id,
         ),
     )
     builder.adjust(1)
     return builder.as_markup()
 
 
-def admin_panel_keyboard(admin: PlayerView) -> ReplyKeyboardMarkup:
+def admin_panel_keyboard(admin: UserView) -> ReplyKeyboardMarkup:
     keyboard = [
         [KeyboardButton(text=buttons.ADMIN_PANEL_REGISTER_PLAYER)],
         [KeyboardButton(text=buttons.ADMIN_PANEL_RESULTS)],
@@ -325,11 +335,11 @@ def registration_list_keyboard(page: Page[RegistrationReviewView]) -> InlineKeyb
     builder = InlineKeyboardBuilder()
     for review in page.items:
         builder.button(
-            text=str(review.player.id),
+            text=str(review.request.id),
             callback_data=RegistrationListCallback(
                 action=RegistrationListAction.OPEN,
                 page=page.page,
-                player_id=review.player.id,
+                request_id=review.request.id,
             ),
         )
 
@@ -340,7 +350,7 @@ def registration_list_keyboard(page: Page[RegistrationReviewView]) -> InlineKeyb
                 callback_data=RegistrationListCallback(
                     action=RegistrationListAction.PAGE,
                     page=page.previous_page,
-                    player_id=0,
+                    request_id=0,
                 ),
             )
         if page.has_next:
@@ -349,7 +359,7 @@ def registration_list_keyboard(page: Page[RegistrationReviewView]) -> InlineKeyb
                 callback_data=RegistrationListCallback(
                     action=RegistrationListAction.PAGE,
                     page=page.next_page,
-                    player_id=0,
+                    request_id=0,
                 ),
             )
 
@@ -358,7 +368,7 @@ def registration_list_keyboard(page: Page[RegistrationReviewView]) -> InlineKeyb
         callback_data=RegistrationListCallback(
             action=RegistrationListAction.CANCEL,
             page=page.page,
-            player_id=0,
+            request_id=0,
         ),
     )
 
@@ -373,7 +383,7 @@ def registration_list_keyboard(page: Page[RegistrationReviewView]) -> InlineKeyb
     return builder.as_markup()
 
 
-def admin_candidate_list_keyboard(page: Page[PlayerView]) -> InlineKeyboardMarkup:
+def admin_candidate_list_keyboard(page: Page[UserView]) -> InlineKeyboardMarkup:
     builder = InlineKeyboardBuilder()
     for player in page.items:
         builder.button(
@@ -799,7 +809,7 @@ def admin_tournament_registration_tournament_keyboard(
 
 def admin_tournament_registration_player_keyboard(
     tournament_id: int,
-    page: Page[PlayerView],
+    page: Page[UserView],
     search_again: bool = False,
 ) -> InlineKeyboardMarkup:
     builder = InlineKeyboardBuilder()
@@ -870,7 +880,7 @@ def admin_tournament_registration_search_cancel_keyboard(
     return builder.as_markup()
 
 
-def _admin_candidate_page_label(page: Page[PlayerView]) -> str:
+def _admin_candidate_page_label(page: Page[UserView]) -> str:
     start = page.page * page.page_size + 1
     end = start + len(page.items) - 1
     return f"{start}-{end} из {page.total_items}"
@@ -912,7 +922,7 @@ def _add_admin_registration_tournament_page_buttons(
 
 def _add_admin_registration_player_page_buttons(
     builder: InlineKeyboardBuilder,
-    page: Page[PlayerView],
+    page: Page[UserView],
     tournament_id: int,
 ) -> None:
     if page.total_pages <= 1:
@@ -1034,34 +1044,38 @@ def _adjust_paged_keyboard(
         builder.adjust(*item_rows, *footer_rows)
 
 
-def registration_match_selection_keyboard(
-    player_id: int,
-    matches: list[RegistrationMatchView],
+def registration_candidate_selection_keyboard(
+    request_id: int,
+    candidates: list[RegistrationCandidateView],
 ) -> InlineKeyboardMarkup:
     builder = InlineKeyboardBuilder()
-    for position, registration_match in enumerate(matches, start=1):
+    for position, candidate in enumerate(candidates, start=1):
         builder.button(
-            text=(
-                f"{position}. {registration_match.historical_player.display_name} "
-                f"({registration_match.score}%)"
-            ),
-            callback_data=RegistrationMatchSelectionCallback(
-                player_id=player_id,
-                historical_player_id=registration_match.historical_player.id,
+            text=(f"{position}. {candidate.user.display_name} ({candidate.score}%)"),
+            callback_data=RegistrationCandidateSelectionCallback(
+                request_id=request_id,
+                user_id=candidate.user.id,
             ),
         )
+    builder.button(
+        text=buttons.ADMIN_APPROVE,
+        callback_data=RegistrationReviewCallback(
+            action=RegistrationReviewAction.APPROVE,
+            request_id=request_id,
+        ),
+    )
     builder.button(
         text=buttons.ADMIN_REJECT,
         callback_data=RegistrationReviewCallback(
             action=RegistrationReviewAction.REJECT,
-            player_id=player_id,
+            request_id=request_id,
         ),
     )
     builder.button(
         text=buttons.ADMIN_CANCEL,
         callback_data=RegistrationReviewCallback(
             action=RegistrationReviewAction.CANCEL,
-            player_id=player_id,
+            request_id=request_id,
         ),
     )
     builder.adjust(1)

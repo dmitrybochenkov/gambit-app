@@ -17,7 +17,7 @@ class TournamentResult(TimestampMixin, Base):
         index=True,
     )
     player_id: Mapped[int] = mapped_column(
-        ForeignKey("players.id", ondelete="RESTRICT"),
+        ForeignKey("users.id", ondelete="RESTRICT"),
         nullable=False,
         index=True,
     )

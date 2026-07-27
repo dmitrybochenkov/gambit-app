@@ -13,7 +13,7 @@ from app.db.models import (
     Tournament,
     TournamentResult,
 )
-from app.db.models.enums import PlayerStatus, SeasonStatus, TournamentStatus
+from app.db.models.enums import SeasonStatus, TournamentStatus, UserStatus
 from app.services.pagination import pagination_service
 from app.services.rating_service import RatingKind, RatingService
 
@@ -46,17 +46,17 @@ async def test_rating_filters_current_season_and_all_time(tmp_path: Path) -> Non
         first_player = build_player(
             telegram_id=100,
             display_name="Игрок Первый",
-            status=PlayerStatus.ACTIVE,
+            status=UserStatus.ACTIVE,
         )
         second_player = build_player(
             telegram_id=200,
             display_name="King",
-            status=PlayerStatus.ACTIVE,
+            status=UserStatus.ACTIVE,
         )
         zero_player = build_player(
             telegram_id=300,
             display_name="Zero",
-            status=PlayerStatus.ACTIVE,
+            status=UserStatus.ACTIVE,
         )
         session.add_all(
             [

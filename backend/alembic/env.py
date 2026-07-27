@@ -7,7 +7,7 @@ from app.config import settings
 from app.db.base import Base
 from app.db.models import (
     AdminPrompt,
-    Player,
+    RegistrationRequest,
     ScoringConfig,
     Season,
     Tournament,
@@ -18,12 +18,13 @@ from app.db.models import (
     TournamentResultDraft,
     TournamentType,
     TournamentTypeRule,
+    User,
     WeeklyTournamentTemplate,
 )
 
 del (
     AdminPrompt,
-    Player,
+    RegistrationRequest,
     ScoringConfig,
     Season,
     Tournament,
@@ -34,6 +35,7 @@ del (
     TournamentResultDraft,
     TournamentType,
     TournamentTypeRule,
+    User,
     WeeklyTournamentTemplate,
 )
 

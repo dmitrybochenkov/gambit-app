@@ -19,32 +19,33 @@ from app.services.calendar_service import CalendarPromptInvalidPayloadError
 from app.services.dto import (
     AdminPanelView,
     AdminPromptView,
-    PlayerRoleView,
-    PlayerStatusView,
-    PlayerView,
     PointsRatingView,
     RatingResultView,
-    RegistrationMatchView,
+    RegistrationCandidateView,
     RegistrationNotificationView,
+    RegistrationRequestView,
     RegistrationReviewResultView,
     RegistrationReviewView,
     TournamentResultDraftPlayerView,
     TournamentResultDraftView,
     TournamentView,
+    UserRoleView,
+    UserStatusView,
+    UserView,
 )
 from app.services.pagination import Page
-from app.services.player_service import AdminAccessDeniedError
 from app.services.profile_service import ProfileKind
 from app.services.rating_service import RatingKind
+from app.services.user_service import AdminAccessDeniedError
 
 
-def active_player() -> PlayerView:
-    return PlayerView(
+def active_player() -> UserView:
+    return UserView(
         id=1,
         telegram_id=123,
         display_name="Игрок Первый",
-        status=PlayerStatusView.ACTIVE,
-        role=PlayerRoleView.USER,
+        status=UserStatusView.ACTIVE,
+        role=UserRoleView.PLAYER,
     )
 
 
@@ -534,13 +535,13 @@ async def test_place_only_result_player_opens_place_keyboard(
 def admin_player(
     player_id: int,
     telegram_id: int,
-    role: PlayerRoleView = PlayerRoleView.ADMIN,
-) -> PlayerView:
-    return PlayerView(
+    role: UserRoleView = UserRoleView.ADMIN,
+) -> UserView:
+    return UserView(
         id=player_id,
         telegram_id=telegram_id,
         display_name=f"Админ {player_id}",
-        status=PlayerStatusView.ACTIVE,
+        status=UserStatusView.ACTIVE,
         role=role,
     )
 
@@ -563,30 +564,33 @@ def keyboard_texts(reply_markup: object) -> list[str]:
     return [button.text for row in reply_markup.keyboard for button in row]
 
 
-def registration_match(player_id: int, score: int) -> RegistrationMatchView:
-    return RegistrationMatchView(
+def registration_match(player_id: int, score: int) -> RegistrationCandidateView:
+    return RegistrationCandidateView(
+        user=UserView(
+            id=player_id,
+            telegram_id=None,
+            display_name=f"Исторический {player_id}",
+            status=UserStatusView.ACTIVE,
+            role=UserRoleView.PLAYER,
+        ),
         score=score,
         reason=f"имя похоже на {score}%",
-        historical_player=PlayerView(
-            id=player_id,
-            telegram_id=-player_id,
-            display_name=f"Исторический {player_id}",
-            status=PlayerStatusView.ACTIVE,
-            role=PlayerRoleView.USER,
-        ),
     )
 
 
 def registration_review(player_id: int) -> RegistrationReviewView:
     return RegistrationReviewView(
-        player=PlayerView(
+        request=RegistrationRequestView(
             id=player_id,
             telegram_id=1000 + player_id,
-            display_name=f"Игрок {player_id}",
-            status=PlayerStatusView.PENDING,
-            role=PlayerRoleView.USER,
+            request_type="new_player",
+            status="pending",
+            requested_display_name=f"Игрок {player_id}",
+            requested_link_name=None,
+            candidate_user_id=None,
+            created_at="27.07.2026 12:00",
         ),
-        matches=[],
+        candidates=[],
     )
 
 
@@ -596,19 +600,23 @@ async def test_start_command_opens_registration(monkeypatch: pytest.MonkeyPatch)
         answer=AsyncMock(),
     )
     state = SimpleNamespace(clear=AsyncMock(), set_state=AsyncMock(), update_data=AsyncMock())
-    service = SimpleNamespace(get_by_telegram_id=AsyncMock(return_value=None))
-    monkeypatch.setattr(user_handlers, "player_service", service)
+    service = SimpleNamespace(
+        get_by_telegram_id=AsyncMock(return_value=None),
+        get_pending_registration_by_telegram_id=AsyncMock(return_value=None),
+    )
+    monkeypatch.setattr(user_handlers, "user_service", service)
 
     await user_handlers.start_command(message, state)
 
     state.clear.assert_awaited_once()
     service.get_by_telegram_id.assert_awaited_once_with(123)
-    assert message.answer.await_count == 2
-    first_answer, second_answer = message.answer.await_args_list
-    assert "Добро пожаловать" in first_answer.args[0]
-    assert first_answer.kwargs["reply_markup"].remove_keyboard is True
-    state.set_state.assert_awaited_once_with(user_handlers.RegistrationStates.entering_display_name)
-    assert second_answer.args[0] == user_handlers.texts.user.REGISTRATION_DISPLAY_NAME_PROMPT
+    message.answer.assert_awaited_once()
+    answer = message.answer.await_args
+    assert answer.args[0] == user_handlers.texts.user.REGISTRATION_GREETING
+    buttons = [
+        button.text for row in answer.kwargs["reply_markup"].inline_keyboard for button in row
+    ]
+    assert buttons == ["🆕 Нет, я новый игрок", "🔗 Да, играл ранее"]
 
 
 async def test_start_command_shows_admin_keyboard_for_admin(
@@ -620,7 +628,7 @@ async def test_start_command_shows_admin_keyboard_for_admin(
     )
     state = SimpleNamespace(clear=AsyncMock())
     service = SimpleNamespace(get_by_telegram_id=AsyncMock(return_value=admin_player(1, 123)))
-    monkeypatch.setattr(user_handlers, "player_service", service)
+    monkeypatch.setattr(user_handlers, "user_service", service)
 
     await user_handlers.start_command(message, state)
 
@@ -659,7 +667,7 @@ async def test_club_address_is_sent_to_active_player(
     )
     player = active_player()
     service = SimpleNamespace(get_by_telegram_id=AsyncMock(return_value=player))
-    monkeypatch.setattr(user_handlers, "player_service", service)
+    monkeypatch.setattr(user_handlers, "user_service", service)
 
     await user_handlers.show_club_address(message)
 
@@ -679,7 +687,7 @@ async def test_rating_button_shows_four_filters(
     )
     player = active_player()
     service = SimpleNamespace(get_by_telegram_id=AsyncMock(return_value=player))
-    monkeypatch.setattr(user_handlers, "player_service", service)
+    monkeypatch.setattr(user_handlers, "user_service", service)
 
     await user_handlers.show_rating_menu(message)
 
@@ -822,7 +830,7 @@ async def test_profile_button_shows_two_filters(
     )
     player = active_player()
     service = SimpleNamespace(get_by_telegram_id=AsyncMock(return_value=player))
-    monkeypatch.setattr(user_handlers, "player_service", service)
+    monkeypatch.setattr(user_handlers, "user_service", service)
 
     await user_handlers.show_profile_menu(message)
 
@@ -1114,41 +1122,44 @@ async def test_tournament_cancellation_selection_can_be_cancelled() -> None:
 
 async def test_pending_registration_notifies_admins(monkeypatch: pytest.MonkeyPatch) -> None:
     bot = SimpleNamespace(send_message=AsyncMock())
-    player = PlayerView(
+    request = RegistrationRequestView(
         id=10,
         telegram_id=200,
-        display_name="Игрок Второй",
-        status=PlayerStatusView.PENDING,
-        role=PlayerRoleView.USER,
+        request_type="new_player",
+        status="pending",
+        requested_display_name="Игрок Второй",
+        requested_link_name=None,
+        candidate_user_id=None,
+        created_at="27.07.2026 12:00",
     )
     admins = [
-        PlayerView(
+        UserView(
             id=1,
             telegram_id=100,
             display_name="Админ Первый",
-            status=PlayerStatusView.ACTIVE,
-            role=PlayerRoleView.SUPERADMIN,
+            status=UserStatusView.ACTIVE,
+            role=UserRoleView.SUPERADMIN,
         ),
-        PlayerView(
+        UserView(
             id=2,
             telegram_id=101,
             display_name="Админ Второй",
-            status=PlayerStatusView.ACTIVE,
-            role=PlayerRoleView.ADMIN,
+            status=UserStatusView.ACTIVE,
+            role=UserRoleView.ADMIN,
         ),
     ]
     service = SimpleNamespace(
         get_registration_notification=AsyncMock(
             return_value=RegistrationNotificationView(
-                player=player,
+                request=request,
                 admins=admins,
-                matches=[],
+                candidates=[],
             )
         ),
     )
-    monkeypatch.setattr(notifications, "player_service", service)
+    monkeypatch.setattr(notifications, "user_service", service)
 
-    await notifications.notify_admins_about_registration(bot, player)
+    await notifications.notify_admins_about_registration(bot, request.id)
 
     service.get_registration_notification.assert_awaited_once_with(10)
     assert bot.send_message.await_count == 2
@@ -1160,11 +1171,11 @@ async def test_pending_registration_notifies_admins(monkeypatch: pytest.MonkeyPa
 async def test_admin_panel_entry_sends_admin_keyboard(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    admin = admin_player(1, 100, PlayerRoleView.SUPERADMIN)
+    admin = admin_player(1, 100, UserRoleView.SUPERADMIN)
     service = SimpleNamespace(
         get_admin_panel_for_admin=AsyncMock(return_value=AdminPanelView(admin=admin, reviews=[]))
     )
-    monkeypatch.setattr(admin_handlers, "player_service", service)
+    monkeypatch.setattr(admin_handlers, "user_service", service)
     message = SimpleNamespace(
         from_user=SimpleNamespace(id=100),
         answer=AsyncMock(),
@@ -1187,11 +1198,11 @@ async def test_admin_panel_entry_sends_admin_keyboard(
 async def test_admin_panel_entry_shows_superadmin_button_for_admin(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    admin = admin_player(1, 100, PlayerRoleView.ADMIN)
+    admin = admin_player(1, 100, UserRoleView.ADMIN)
     service = SimpleNamespace(
         get_admin_panel_for_admin=AsyncMock(return_value=AdminPanelView(admin=admin, reviews=[]))
     )
-    monkeypatch.setattr(admin_handlers, "player_service", service)
+    monkeypatch.setattr(admin_handlers, "user_service", service)
     message = SimpleNamespace(
         from_user=SimpleNamespace(id=100),
         answer=AsyncMock(),
@@ -1211,7 +1222,7 @@ async def test_superadmin_panel_denies_admin(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     service = SimpleNamespace(require_superadmin=AsyncMock(side_effect=AdminAccessDeniedError))
-    monkeypatch.setattr(admin_handlers, "player_service", service)
+    monkeypatch.setattr(admin_handlers, "user_service", service)
     message = SimpleNamespace(
         from_user=SimpleNamespace(id=100),
         answer=AsyncMock(),
@@ -1226,9 +1237,9 @@ async def test_superadmin_panel_denies_admin(
 async def test_superadmin_panel_button_opens_superadmin_keyboard(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    admin = admin_player(1, 100, PlayerRoleView.SUPERADMIN)
+    admin = admin_player(1, 100, UserRoleView.SUPERADMIN)
     service = SimpleNamespace(require_superadmin=AsyncMock(return_value=admin))
-    monkeypatch.setattr(admin_handlers, "player_service", service)
+    monkeypatch.setattr(admin_handlers, "user_service", service)
     message = SimpleNamespace(
         from_user=SimpleNamespace(id=100),
         answer=AsyncMock(),
@@ -1249,11 +1260,11 @@ async def test_superadmin_panel_button_opens_superadmin_keyboard(
 async def test_superadmin_panel_back_returns_admin_keyboard(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    admin = admin_player(1, 100, PlayerRoleView.SUPERADMIN)
+    admin = admin_player(1, 100, UserRoleView.SUPERADMIN)
     service = SimpleNamespace(
         get_admin_panel_for_admin=AsyncMock(return_value=AdminPanelView(admin=admin, reviews=[]))
     )
-    monkeypatch.setattr(admin_handlers, "player_service", service)
+    monkeypatch.setattr(admin_handlers, "user_service", service)
     message = SimpleNamespace(
         from_user=SimpleNamespace(id=100),
         answer=AsyncMock(),
@@ -1274,9 +1285,9 @@ async def test_superadmin_panel_back_returns_admin_keyboard(
 async def test_admin_calendar_button_shows_inline_menu(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    admin = admin_player(1, 100, PlayerRoleView.SUPERADMIN)
+    admin = admin_player(1, 100, UserRoleView.SUPERADMIN)
     service = SimpleNamespace(require_superadmin=AsyncMock(return_value=admin))
-    monkeypatch.setattr(admin_handlers, "player_service", service)
+    monkeypatch.setattr(admin_handlers, "user_service", service)
     message = SimpleNamespace(
         from_user=SimpleNamespace(id=100),
         answer=AsyncMock(),
@@ -1305,7 +1316,7 @@ async def test_add_admin_button_shows_candidates(
     service = SimpleNamespace(
         list_admin_candidates_for_superadmin=AsyncMock(return_value=[candidate])
     )
-    monkeypatch.setattr(admin_handlers, "player_service", service)
+    monkeypatch.setattr(admin_handlers, "user_service", service)
     message = SimpleNamespace(
         from_user=SimpleNamespace(id=100),
         answer=AsyncMock(),
@@ -1506,7 +1517,7 @@ async def test_add_admin_button_denies_regular_admin(
     service = SimpleNamespace(
         list_admin_candidates_for_superadmin=AsyncMock(side_effect=AdminAccessDeniedError)
     )
-    monkeypatch.setattr(admin_handlers, "player_service", service)
+    monkeypatch.setattr(admin_handlers, "user_service", service)
     message = SimpleNamespace(
         from_user=SimpleNamespace(id=100),
         answer=AsyncMock(),
@@ -1520,9 +1531,9 @@ async def test_add_admin_button_denies_regular_admin(
 async def test_confirm_add_admin_promotes_player_and_notifies(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    promoted = admin_player(2, 200, PlayerRoleView.ADMIN)
+    promoted = admin_player(2, 200, UserRoleView.ADMIN)
     service = SimpleNamespace(add_admin=AsyncMock(return_value=promoted))
-    monkeypatch.setattr(admin_handlers, "player_service", service)
+    monkeypatch.setattr(admin_handlers, "user_service", service)
     bot = SimpleNamespace(send_message=AsyncMock())
     message = SimpleNamespace(delete=AsyncMock(), answer=AsyncMock())
     callback = SimpleNamespace(
@@ -1554,8 +1565,8 @@ async def test_confirm_add_admin_promotes_player_and_notifies(
 async def test_admin_calendar_seasons_callback_sends_manual_prompt(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    admin = admin_player(1, 100, PlayerRoleView.SUPERADMIN)
-    player_service = SimpleNamespace(require_superadmin=AsyncMock(return_value=admin))
+    admin = admin_player(1, 100, UserRoleView.SUPERADMIN)
+    user_service = SimpleNamespace(require_superadmin=AsyncMock(return_value=admin))
     calendar_service = SimpleNamespace(
         get_or_create_manual_season_prompt=AsyncMock(
             return_value=AdminPromptView(
@@ -1566,7 +1577,7 @@ async def test_admin_calendar_seasons_callback_sends_manual_prompt(
             )
         )
     )
-    monkeypatch.setattr(admin_handlers, "player_service", player_service)
+    monkeypatch.setattr(admin_handlers, "user_service", user_service)
     monkeypatch.setattr(admin_handlers, "calendar_service", calendar_service)
     message = SimpleNamespace(
         delete=AsyncMock(),
@@ -1581,7 +1592,7 @@ async def test_admin_calendar_seasons_callback_sends_manual_prompt(
 
     await admin_handlers.select_admin_calendar_section(callback, callback_data)
 
-    player_service.require_superadmin.assert_awaited_once_with(100)
+    user_service.require_superadmin.assert_awaited_once_with(100)
     calendar_service.get_or_create_manual_season_prompt.assert_awaited_once_with()
     message.delete.assert_awaited_once_with()
     message.answer.assert_awaited_once()
@@ -1598,8 +1609,8 @@ async def test_admin_calendar_seasons_callback_sends_manual_prompt(
 async def test_admin_calendar_tournaments_callback_sends_detailed_prompt(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    admin = admin_player(1, 100, PlayerRoleView.SUPERADMIN)
-    player_service = SimpleNamespace(require_superadmin=AsyncMock(return_value=admin))
+    admin = admin_player(1, 100, UserRoleView.SUPERADMIN)
+    user_service = SimpleNamespace(require_superadmin=AsyncMock(return_value=admin))
     calendar_service = SimpleNamespace(
         get_or_create_manual_tournaments_prompt=AsyncMock(
             return_value=AdminPromptView(
@@ -1621,7 +1632,7 @@ async def test_admin_calendar_tournaments_callback_sends_detailed_prompt(
             )
         )
     )
-    monkeypatch.setattr(admin_handlers, "player_service", player_service)
+    monkeypatch.setattr(admin_handlers, "user_service", user_service)
     monkeypatch.setattr(admin_handlers, "calendar_service", calendar_service)
     message = SimpleNamespace(delete=AsyncMock(), answer=AsyncMock())
     callback = SimpleNamespace(
@@ -1657,7 +1668,7 @@ async def test_admin_calendar_denies_regular_admin(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     service = SimpleNamespace(require_superadmin=AsyncMock(side_effect=AdminAccessDeniedError))
-    monkeypatch.setattr(admin_handlers, "player_service", service)
+    monkeypatch.setattr(admin_handlers, "user_service", service)
     message = SimpleNamespace(
         from_user=SimpleNamespace(id=100),
         answer=AsyncMock(),
@@ -1673,7 +1684,7 @@ async def test_admin_calendar_prompt_denies_regular_admin(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     service = SimpleNamespace(require_superadmin=AsyncMock(side_effect=AdminAccessDeniedError))
-    monkeypatch.setattr(admin_handlers, "player_service", service)
+    monkeypatch.setattr(admin_handlers, "user_service", service)
     callback = SimpleNamespace(
         from_user=SimpleNamespace(id=100),
         answer=AsyncMock(),
@@ -1694,8 +1705,8 @@ async def test_admin_calendar_prompt_denies_regular_admin(
 async def test_manual_season_confirm_deletes_prompt_and_sends_created_message(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    admin = admin_player(1, 100, PlayerRoleView.SUPERADMIN)
-    player_service = SimpleNamespace(require_superadmin=AsyncMock(return_value=admin))
+    admin = admin_player(1, 100, UserRoleView.SUPERADMIN)
+    user_service = SimpleNamespace(require_superadmin=AsyncMock(return_value=admin))
     calendar_service = SimpleNamespace(
         resolve_prompt=AsyncMock(
             return_value=AdminPromptView(
@@ -1706,7 +1717,7 @@ async def test_manual_season_confirm_deletes_prompt_and_sends_created_message(
             )
         )
     )
-    monkeypatch.setattr(admin_handlers, "player_service", player_service)
+    monkeypatch.setattr(admin_handlers, "user_service", user_service)
     monkeypatch.setattr(admin_handlers, "calendar_service", calendar_service)
     message = SimpleNamespace(
         text=("Будет создан новый сезон:\nОсень 2026\nПериод: 1.09.2026 — 30.11.2026"),
@@ -1738,8 +1749,8 @@ async def test_manual_season_confirm_deletes_prompt_and_sends_created_message(
 async def test_season_edit_button_opens_field_menu(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    admin = admin_player(1, 100, PlayerRoleView.SUPERADMIN)
-    player_service = SimpleNamespace(require_superadmin=AsyncMock(return_value=admin))
+    admin = admin_player(1, 100, UserRoleView.SUPERADMIN)
+    user_service = SimpleNamespace(require_superadmin=AsyncMock(return_value=admin))
     calendar_service = SimpleNamespace(
         get_prompt=AsyncMock(
             return_value=AdminPromptView(
@@ -1750,7 +1761,7 @@ async def test_season_edit_button_opens_field_menu(
             )
         )
     )
-    monkeypatch.setattr(admin_handlers, "player_service", player_service)
+    monkeypatch.setattr(admin_handlers, "user_service", user_service)
     monkeypatch.setattr(admin_handlers, "calendar_service", calendar_service)
     state = SimpleNamespace(clear=AsyncMock())
     message = SimpleNamespace(delete=AsyncMock(), answer=AsyncMock())
@@ -1766,7 +1777,7 @@ async def test_season_edit_button_opens_field_menu(
 
     await admin_handlers.review_calendar_prompt(callback, callback_data, state)
 
-    player_service.require_superadmin.assert_awaited_once_with(100)
+    user_service.require_superadmin.assert_awaited_once_with(100)
     calendar_service.get_prompt.assert_awaited_once_with(7)
     state.clear.assert_awaited_once()
     message.delete.assert_awaited_once_with()
@@ -1788,8 +1799,8 @@ async def test_season_edit_button_opens_field_menu(
 async def test_tournament_edit_button_opens_day_menu(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    admin = admin_player(1, 100, PlayerRoleView.SUPERADMIN)
-    player_service = SimpleNamespace(require_superadmin=AsyncMock(return_value=admin))
+    admin = admin_player(1, 100, UserRoleView.SUPERADMIN)
+    user_service = SimpleNamespace(require_superadmin=AsyncMock(return_value=admin))
     calendar_service = SimpleNamespace(
         get_prompt=AsyncMock(
             return_value=AdminPromptView(
@@ -1811,7 +1822,7 @@ async def test_tournament_edit_button_opens_day_menu(
             )
         )
     )
-    monkeypatch.setattr(admin_handlers, "player_service", player_service)
+    monkeypatch.setattr(admin_handlers, "user_service", user_service)
     monkeypatch.setattr(admin_handlers, "calendar_service", calendar_service)
     state = SimpleNamespace(clear=AsyncMock())
     message = SimpleNamespace(delete=AsyncMock(), answer=AsyncMock())
@@ -1841,9 +1852,9 @@ async def test_tournament_edit_button_opens_day_menu(
 async def test_season_edit_field_prompts_for_value(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    admin = admin_player(1, 100, PlayerRoleView.SUPERADMIN)
+    admin = admin_player(1, 100, UserRoleView.SUPERADMIN)
     service = SimpleNamespace(require_superadmin=AsyncMock(return_value=admin))
-    monkeypatch.setattr(admin_handlers, "player_service", service)
+    monkeypatch.setattr(admin_handlers, "user_service", service)
     state = SimpleNamespace(set_state=AsyncMock(), update_data=AsyncMock())
     message = SimpleNamespace(delete=AsyncMock(), answer=AsyncMock())
     callback = SimpleNamespace(
@@ -1871,8 +1882,8 @@ async def test_season_edit_field_prompts_for_value(
 async def test_season_edit_value_updates_prompt(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    admin = admin_player(1, 100, PlayerRoleView.SUPERADMIN)
-    player_service = SimpleNamespace(require_superadmin=AsyncMock(return_value=admin))
+    admin = admin_player(1, 100, UserRoleView.SUPERADMIN)
+    user_service = SimpleNamespace(require_superadmin=AsyncMock(return_value=admin))
     prompt = AdminPromptView(
         id=7,
         kind="season_proposal",
@@ -1880,7 +1891,7 @@ async def test_season_edit_value_updates_prompt(
         status="pending",
     )
     calendar_service = SimpleNamespace(update_season_prompt=AsyncMock(return_value=prompt))
-    monkeypatch.setattr(admin_handlers, "player_service", player_service)
+    monkeypatch.setattr(admin_handlers, "user_service", user_service)
     monkeypatch.setattr(admin_handlers, "calendar_service", calendar_service)
     state = SimpleNamespace(
         get_data=AsyncMock(
@@ -1912,10 +1923,10 @@ async def test_season_edit_value_updates_prompt(
 async def test_season_edit_value_rejects_invalid_date(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    admin = admin_player(1, 100, PlayerRoleView.SUPERADMIN)
-    player_service = SimpleNamespace(require_superadmin=AsyncMock(return_value=admin))
+    admin = admin_player(1, 100, UserRoleView.SUPERADMIN)
+    user_service = SimpleNamespace(require_superadmin=AsyncMock(return_value=admin))
     calendar_service = SimpleNamespace(update_season_prompt=AsyncMock())
-    monkeypatch.setattr(admin_handlers, "player_service", player_service)
+    monkeypatch.setattr(admin_handlers, "user_service", user_service)
     monkeypatch.setattr(admin_handlers, "calendar_service", calendar_service)
     state = SimpleNamespace(
         get_data=AsyncMock(
@@ -1942,12 +1953,12 @@ async def test_season_edit_value_rejects_invalid_date(
 async def test_season_edit_value_rejects_invalid_period(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    admin = admin_player(1, 100, PlayerRoleView.SUPERADMIN)
-    player_service = SimpleNamespace(require_superadmin=AsyncMock(return_value=admin))
+    admin = admin_player(1, 100, UserRoleView.SUPERADMIN)
+    user_service = SimpleNamespace(require_superadmin=AsyncMock(return_value=admin))
     calendar_service = SimpleNamespace(
         update_season_prompt=AsyncMock(side_effect=CalendarPromptInvalidPayloadError)
     )
-    monkeypatch.setattr(admin_handlers, "player_service", player_service)
+    monkeypatch.setattr(admin_handlers, "user_service", user_service)
     monkeypatch.setattr(admin_handlers, "calendar_service", calendar_service)
     state = SimpleNamespace(
         get_data=AsyncMock(
@@ -1979,11 +1990,12 @@ async def test_season_edit_value_rejects_invalid_period(
 async def test_admin_panel_registration_requests_button_shows_pending(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    admin = admin_player(1, 100, PlayerRoleView.SUPERADMIN)
+    admin = admin_player(1, 100, UserRoleView.SUPERADMIN)
     service = SimpleNamespace(
-        get_admin_panel_for_admin=AsyncMock(return_value=AdminPanelView(admin=admin, reviews=[]))
+        require_superadmin=AsyncMock(),
+        get_admin_panel_for_admin=AsyncMock(return_value=AdminPanelView(admin=admin, reviews=[])),
     )
-    monkeypatch.setattr(admin_handlers, "player_service", service)
+    monkeypatch.setattr(admin_handlers, "user_service", service)
     message = SimpleNamespace(
         from_user=SimpleNamespace(id=100),
         answer=AsyncMock(),
@@ -1991,6 +2003,7 @@ async def test_admin_panel_registration_requests_button_shows_pending(
 
     await admin_handlers.show_pending_registrations(message)
 
+    service.require_superadmin.assert_awaited_once_with(100)
     service.get_admin_panel_for_admin.assert_awaited_once_with(100)
     message.answer.assert_awaited_once_with("Новых заявок нет.")
 
@@ -1998,14 +2011,15 @@ async def test_admin_panel_registration_requests_button_shows_pending(
 async def test_admin_panel_registration_requests_button_shows_paginated_list(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    admin = admin_player(1, 100, PlayerRoleView.SUPERADMIN)
+    admin = admin_player(1, 100, UserRoleView.SUPERADMIN)
     reviews = [registration_review(player_id) for player_id in range(10, 17)]
     service = SimpleNamespace(
+        require_superadmin=AsyncMock(),
         get_admin_panel_for_admin=AsyncMock(
             return_value=AdminPanelView(admin=admin, reviews=reviews)
-        )
+        ),
     )
-    monkeypatch.setattr(admin_handlers, "player_service", service)
+    monkeypatch.setattr(admin_handlers, "user_service", service)
     message = SimpleNamespace(
         from_user=SimpleNamespace(id=100),
         answer=AsyncMock(),
@@ -2035,14 +2049,15 @@ async def test_admin_panel_registration_requests_button_shows_paginated_list(
 async def test_admin_registration_list_page_callback_edits_list(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    admin = admin_player(1, 100, PlayerRoleView.SUPERADMIN)
+    admin = admin_player(1, 100, UserRoleView.SUPERADMIN)
     reviews = [registration_review(player_id) for player_id in range(10, 17)]
     service = SimpleNamespace(
+        require_superadmin=AsyncMock(),
         get_admin_panel_for_admin=AsyncMock(
             return_value=AdminPanelView(admin=admin, reviews=reviews)
-        )
+        ),
     )
-    monkeypatch.setattr(admin_handlers, "player_service", service)
+    monkeypatch.setattr(admin_handlers, "user_service", service)
     message = SimpleNamespace(edit_text=AsyncMock())
     callback = SimpleNamespace(
         from_user=SimpleNamespace(id=100),
@@ -2057,6 +2072,7 @@ async def test_admin_registration_list_page_callback_edits_list(
 
     await admin_handlers.review_registration_list(callback, callback_data)
 
+    service.require_superadmin.assert_awaited_once_with(100)
     service.get_admin_panel_for_admin.assert_awaited_once_with(100)
     callback.answer.assert_awaited_once_with()
     message.edit_text.assert_awaited_once()
@@ -2091,7 +2107,7 @@ async def test_admin_registration_list_open_edits_message_to_review(
 ) -> None:
     review = registration_review(10)
     service = SimpleNamespace(get_registration_review_for_admin=AsyncMock(return_value=review))
-    monkeypatch.setattr(admin_handlers, "player_service", service)
+    monkeypatch.setattr(admin_handlers, "user_service", service)
     message = SimpleNamespace(edit_text=AsyncMock())
     callback = SimpleNamespace(
         from_user=SimpleNamespace(id=100),
@@ -2101,14 +2117,14 @@ async def test_admin_registration_list_open_edits_message_to_review(
     callback_data = SimpleNamespace(
         action=keyboards.RegistrationListAction.OPEN,
         page=0,
-        player_id=10,
+        request_id=10,
     )
 
     await admin_handlers.review_registration_list(callback, callback_data)
 
     service.get_registration_review_for_admin.assert_awaited_once_with(
         admin_telegram_id=100,
-        pending_player_id=10,
+        request_id=10,
     )
     callback.answer.assert_awaited_once_with()
     message.edit_text.assert_awaited_once()
@@ -2118,17 +2134,17 @@ async def test_admin_registration_list_open_edits_message_to_review(
         for row in message.edit_text.await_args.kwargs["reply_markup"].inline_keyboard
         for button in row
     ]
-    assert buttons == ["✅ Одобрить", "🚫 Отклонить", "❌ Отмена"]
+    assert buttons == ["✏️ Изменить имя", "✅ Одобрить", "🚫 Отклонить", "❌ Отмена"]
 
 
 async def test_admin_panel_exit_returns_main_keyboard(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    admin = admin_player(1, 100, PlayerRoleView.SUPERADMIN)
+    admin = admin_player(1, 100, UserRoleView.SUPERADMIN)
     service = SimpleNamespace(
         get_admin_panel_for_admin=AsyncMock(return_value=AdminPanelView(admin=admin, reviews=[]))
     )
-    monkeypatch.setattr(admin_handlers, "player_service", service)
+    monkeypatch.setattr(admin_handlers, "user_service", service)
     message = SimpleNamespace(
         from_user=SimpleNamespace(id=100),
         answer=AsyncMock(),
@@ -2149,7 +2165,7 @@ async def test_admin_panel_denies_regular_player(
     service = SimpleNamespace(
         get_admin_panel_for_admin=AsyncMock(side_effect=AdminAccessDeniedError)
     )
-    monkeypatch.setattr(admin_handlers, "player_service", service)
+    monkeypatch.setattr(admin_handlers, "user_service", service)
     message = SimpleNamespace(
         from_user=SimpleNamespace(id=100),
         answer=AsyncMock(),
@@ -2162,27 +2178,31 @@ async def test_admin_panel_denies_regular_player(
 
 
 async def test_registration_review_keyboard_with_history_has_action_labels() -> None:
-    keyboard = keyboards.registration_review_keyboard(player_id=10, has_matches=True)
+    keyboard = keyboards.registration_review_keyboard(
+        request_id=10,
+        can_edit_name=True,
+        can_select_candidate=True,
+    )
 
     buttons = [button.text for row in keyboard.inline_keyboard for button in row]
     assert buttons == [
-        "🔗 Связать с историей",
-        "🆕 Сохранить нового пользователя",
+        "🔗 Выбрать игрока",
+        "✏️ Изменить имя",
+        "✅ Одобрить",
         "🚫 Отклонить",
         "❌ Отмена",
     ]
-    assert [len(row) for row in keyboard.inline_keyboard] == [1, 1, 1, 1]
+    assert [len(row) for row in keyboard.inline_keyboard] == [1, 1, 1, 1, 1]
 
 
 async def test_registration_review_cancel_deletes_message_without_review(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     service = SimpleNamespace(
-        get_registration_matches_for_admin=AsyncMock(),
         approve_registration=AsyncMock(),
         reject_registration=AsyncMock(),
     )
-    monkeypatch.setattr(admin_handlers, "player_service", service)
+    monkeypatch.setattr(admin_handlers, "user_service", service)
     message = SimpleNamespace(delete=AsyncMock())
     callback = SimpleNamespace(
         from_user=SimpleNamespace(id=100, full_name="Админ 1"),
@@ -2191,14 +2211,13 @@ async def test_registration_review_cancel_deletes_message_without_review(
     )
     callback_data = SimpleNamespace(
         action=keyboards.RegistrationReviewAction.CANCEL,
-        player_id=10,
+        request_id=10,
     )
 
     await admin_handlers.review_registration(callback, callback_data)
 
     callback.answer.assert_awaited_once_with("Заявка скрыта")
     message.delete.assert_awaited_once()
-    service.get_registration_matches_for_admin.assert_not_awaited()
     service.approve_registration.assert_not_awaited()
     service.reject_registration.assert_not_awaited()
 
@@ -2206,24 +2225,28 @@ async def test_registration_review_cancel_deletes_message_without_review(
 async def test_registration_review_reject_deletes_pending_and_notifies(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    player = PlayerView(
+    request = RegistrationRequestView(
         id=10,
         telegram_id=200,
-        display_name="Игрок Второй",
-        status=PlayerStatusView.PENDING,
-        role=PlayerRoleView.USER,
+        request_type="new_player",
+        status="rejected",
+        requested_display_name="Игрок Второй",
+        requested_link_name=None,
+        candidate_user_id=None,
+        created_at="27.07.2026 12:00",
     )
-    reviewer = admin_player(1, 100, PlayerRoleView.SUPERADMIN)
+    reviewer = admin_player(1, 100, UserRoleView.SUPERADMIN)
     other_admin = admin_player(2, 101)
     service = SimpleNamespace(
         reject_registration=AsyncMock(
             return_value=RegistrationReviewResultView(
-                player=player,
+                user=None,
+                request=request,
                 admins=[reviewer, other_admin],
             )
         )
     )
-    monkeypatch.setattr(admin_handlers, "player_service", service)
+    monkeypatch.setattr(admin_handlers, "user_service", service)
     message = SimpleNamespace(
         text="Новая заявка на регистрацию\n\nФамилия и имя: Игрок Второй",
         edit_text=AsyncMock(),
@@ -2237,14 +2260,14 @@ async def test_registration_review_reject_deletes_pending_and_notifies(
     )
     callback_data = SimpleNamespace(
         action=keyboards.RegistrationReviewAction.REJECT,
-        player_id=10,
+        request_id=10,
     )
 
     await admin_handlers.review_registration(callback, callback_data)
 
     service.reject_registration.assert_awaited_once_with(
-        admin_telegram_id=100,
-        player_id=10,
+        superadmin_telegram_id=100,
+        request_id=10,
     )
     message.edit_text.assert_awaited_once()
     assert callback.answer.await_args.args[0] == "Заявка отклонена"
@@ -2259,11 +2282,15 @@ async def test_registration_review_with_multiple_matches_shows_selection(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     matches = [registration_match(20, 100), registration_match(21, 92)]
+    review = RegistrationReviewView(
+        request=registration_review(10).request,
+        candidates=matches,
+    )
     service = SimpleNamespace(
-        get_registration_matches_for_admin=AsyncMock(return_value=matches),
+        get_registration_review_for_admin=AsyncMock(return_value=review),
         approve_registration=AsyncMock(),
     )
-    monkeypatch.setattr(admin_handlers, "player_service", service)
+    monkeypatch.setattr(admin_handlers, "user_service", service)
     message = SimpleNamespace(
         text="Новая заявка на регистрацию\n\nФамилия и имя: Игрок Второй",
         edit_reply_markup=AsyncMock(),
@@ -2274,15 +2301,15 @@ async def test_registration_review_with_multiple_matches_shows_selection(
         answer=AsyncMock(),
     )
     callback_data = SimpleNamespace(
-        action=keyboards.RegistrationReviewAction.APPROVE,
-        player_id=10,
+        action=keyboards.RegistrationReviewAction.SELECT_CANDIDATE,
+        request_id=10,
     )
 
     await admin_handlers.review_registration(callback, callback_data)
 
-    service.get_registration_matches_for_admin.assert_awaited_once_with(
+    service.get_registration_review_for_admin.assert_awaited_once_with(
         admin_telegram_id=100,
-        pending_player_id=10,
+        request_id=10,
     )
     service.approve_registration.assert_not_awaited()
     callback.answer.assert_awaited_once_with()
@@ -2292,83 +2319,83 @@ async def test_registration_review_with_multiple_matches_shows_selection(
     assert buttons == [
         "1. Исторический 20 (100%)",
         "2. Исторический 21 (92%)",
+        "✅ Одобрить",
         "🚫 Отклонить",
         "❌ Отмена",
     ]
 
 
-async def test_selected_registration_match_is_approved_and_sent_to_other_admins(
+async def test_selected_registration_candidate_is_saved(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    player = PlayerView(
-        id=21,
-        telegram_id=200,
-        display_name="Исторический 21",
-        status=PlayerStatusView.ACTIVE,
-        role=PlayerRoleView.USER,
+    review = RegistrationReviewView(
+        request=RegistrationRequestView(
+            id=10,
+            telegram_id=200,
+            request_type="link_existing_player",
+            status="pending",
+            requested_display_name=None,
+            requested_link_name="Исторический",
+            candidate_user_id=21,
+            created_at="27.07.2026 12:00",
+        ),
+        candidates=[registration_match(21, 100)],
     )
-    reviewer = admin_player(1, 100, PlayerRoleView.SUPERADMIN)
-    other_admin = admin_player(2, 101)
-    service = SimpleNamespace(
-        approve_registration=AsyncMock(
-            return_value=RegistrationReviewResultView(
-                player=player,
-                admins=[reviewer, other_admin],
-            )
-        )
-    )
-    monkeypatch.setattr(admin_handlers, "player_service", service)
+    service = SimpleNamespace(select_registration_candidate=AsyncMock(return_value=review))
+    monkeypatch.setattr(admin_handlers, "user_service", service)
     message = SimpleNamespace(
         text="Новая заявка на регистрацию\n\nФамилия и имя: Игрок Второй",
         edit_text=AsyncMock(),
     )
-    bot = SimpleNamespace(send_message=AsyncMock())
     callback = SimpleNamespace(
         from_user=SimpleNamespace(id=100, full_name="Админ 1"),
         message=message,
-        bot=bot,
         answer=AsyncMock(),
     )
-    callback_data = SimpleNamespace(player_id=10, historical_player_id=21)
+    callback_data = SimpleNamespace(request_id=10, user_id=21)
 
-    await admin_handlers.select_registration_match(callback, callback_data)
+    await admin_handlers.select_registration_candidate(callback, callback_data)
 
-    service.approve_registration.assert_awaited_once_with(
-        admin_telegram_id=100,
-        player_id=10,
-        historical_player_id=21,
+    service.select_registration_candidate.assert_awaited_once_with(
+        superadmin_telegram_id=100,
+        request_id=10,
+        user_id=21,
     )
     message.edit_text.assert_awaited_once()
-    assert callback.answer.await_args.args[0] == "Заявка одобрена"
-    assert bot.send_message.await_count == 2
-    admin_call, player_call = bot.send_message.await_args_list
-    assert admin_call.kwargs["chat_id"] == 101
-    assert "Заявка одобрена: Админ 1" in admin_call.kwargs["text"]
-    assert player_call.kwargs["chat_id"] == 200
+    callback.answer.assert_awaited_once_with("Игрок выбран.")
 
 
 async def test_registration_review_result_is_sent_to_other_admins(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    player = PlayerView(
+    player = UserView(
         id=10,
         telegram_id=200,
         display_name="Игрок Второй",
-        status=PlayerStatusView.ACTIVE,
-        role=PlayerRoleView.ADMIN,
+        status=UserStatusView.ACTIVE,
+        role=UserRoleView.ADMIN,
     )
-    reviewer = admin_player(1, 100, PlayerRoleView.SUPERADMIN)
+    reviewer = admin_player(1, 100, UserRoleView.SUPERADMIN)
     other_admin = admin_player(2, 101)
     service = SimpleNamespace(
-        get_registration_matches_for_admin=AsyncMock(return_value=[]),
         approve_registration=AsyncMock(
             return_value=RegistrationReviewResultView(
-                player=player,
+                user=player,
+                request=RegistrationRequestView(
+                    id=10,
+                    telegram_id=200,
+                    request_type="new_player",
+                    status="approved",
+                    requested_display_name="Игрок Второй",
+                    requested_link_name=None,
+                    candidate_user_id=None,
+                    created_at="27.07.2026 12:00",
+                ),
                 admins=[reviewer, other_admin],
             )
         ),
     )
-    monkeypatch.setattr(admin_handlers, "player_service", service)
+    monkeypatch.setattr(admin_handlers, "user_service", service)
     message = SimpleNamespace(
         text="Новая заявка на регистрацию\n\nФамилия и имя: Игрок Второй",
         edit_text=AsyncMock(),
@@ -2382,15 +2409,14 @@ async def test_registration_review_result_is_sent_to_other_admins(
     )
     callback_data = SimpleNamespace(
         action=keyboards.RegistrationReviewAction.APPROVE,
-        player_id=10,
+        request_id=10,
     )
 
     await admin_handlers.review_registration(callback, callback_data)
 
     service.approve_registration.assert_awaited_once_with(
-        admin_telegram_id=100,
-        player_id=10,
-        use_registration_match=True,
+        superadmin_telegram_id=100,
+        request_id=10,
     )
     message.edit_text.assert_awaited_once()
     assert callback.answer.await_args.args[0] == "Заявка одобрена"
@@ -2399,7 +2425,7 @@ async def test_registration_review_result_is_sent_to_other_admins(
     assert admin_call.kwargs["chat_id"] == 101
     assert "Заявка одобрена: Админ 1" in admin_call.kwargs["text"]
     assert player_call.kwargs["chat_id"] == 200
-    assert player_call.kwargs["text"] == "Игрок Второй, ты успешно зарегистрирован/а!"
+    assert player_call.kwargs["text"] == "Ваша заявка одобрена."
     assert keyboards.MAIN_ADMIN not in keyboard_texts(player_call.kwargs["reply_markup"])
 
 

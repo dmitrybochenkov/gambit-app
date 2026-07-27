@@ -3,24 +3,24 @@ from difflib import SequenceMatcher
 
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
+from app.common.normalization import normalize_display_name
 from app.db.models import Tournament, TournamentRegistration
 from app.db.models.enums import (
-    PlayerRole,
-    PlayerStatus,
     RegistrationStatus,
     TournamentStatus,
+    UserRole,
+    UserStatus,
 )
-from app.db.repositories.player_repository import PlayerRepository
 from app.db.repositories.tournament_registration_repository import (
     TournamentRegistrationRepository,
 )
 from app.db.repositories.tournament_repository import TournamentRepository
+from app.db.repositories.user_repository import UserRepository
 from app.db.session import SessionFactory
-from app.services.dto import PlayerView, TournamentView
-from app.services.player_service import (
+from app.services.dto import TournamentView, UserView
+from app.services.user_service import (
     AdminAccessDeniedError,
-    normalize_display_name,
-    required_player_view,
+    required_user_view,
 )
 
 
@@ -36,7 +36,7 @@ class TournamentUnavailableError(ValueError):
     pass
 
 
-class TournamentPlayerNotFoundError(ValueError):
+class TournamentUserNotFoundError(ValueError):
     pass
 
 
@@ -64,8 +64,12 @@ class TournamentService:
         from_date: date | None = None,
     ) -> list[TournamentView]:
         async with self.session_factory() as session:
-            player = await PlayerRepository(session).get_by_telegram_id(telegram_id)
-            if player is None or player.status != PlayerStatus.ACTIVE:
+            player = await UserRepository(session).get_by_telegram_id(telegram_id)
+            if (
+                player is None
+                or player.status != UserStatus.ACTIVE
+                or player.role != UserRole.PLAYER
+            ):
                 raise TournamentScheduleNotAllowedError
             tournaments = await TournamentRepository(session).list_upcoming_active(
                 from_date=from_date or date.today()
@@ -78,8 +82,12 @@ class TournamentService:
         from_date: date | None = None,
     ) -> list[TournamentView]:
         async with self.session_factory() as session:
-            player = await PlayerRepository(session).get_by_telegram_id(telegram_id)
-            if player is None or player.status != PlayerStatus.ACTIVE:
+            player = await UserRepository(session).get_by_telegram_id(telegram_id)
+            if (
+                player is None
+                or player.status != UserStatus.ACTIVE
+                or player.role != UserRole.PLAYER
+            ):
                 raise TournamentRegistrationNotAllowedError
             tournaments = await TournamentRepository(session).list_upcoming_active(
                 from_date=from_date or date.today()
@@ -92,8 +100,12 @@ class TournamentService:
         from_date: date | None = None,
     ) -> list[TournamentView]:
         async with self.session_factory() as session:
-            player = await PlayerRepository(session).get_by_telegram_id(telegram_id)
-            if player is None or player.status != PlayerStatus.ACTIVE:
+            player = await UserRepository(session).get_by_telegram_id(telegram_id)
+            if (
+                player is None
+                or player.status != UserStatus.ACTIVE
+                or player.role != UserRole.PLAYER
+            ):
                 raise TournamentRegistrationNotAllowedError
             tournaments = await TournamentRegistrationRepository(session).list_registered_upcoming(
                 player_id=player.id,
@@ -116,25 +128,23 @@ class TournamentService:
     async def list_players_for_admin_registration(
         self,
         admin_telegram_id: int,
-    ) -> list[PlayerView]:
+    ) -> list[UserView]:
         async with self.session_factory() as session:
             await self._require_admin(session, admin_telegram_id)
-            players = await PlayerRepository(session).list_active_players()
-            return _sort_players_by_display_name(
-                [required_player_view(player) for player in players]
-            )
+            players = await UserRepository(session).list_active_players()
+            return _sort_players_by_display_name([required_user_view(player) for player in players])
 
     async def search_players_for_admin_registration(
         self,
         admin_telegram_id: int,
         query: str,
         limit: int = 10,
-    ) -> list[PlayerView]:
+    ) -> list[UserView]:
         async with self.session_factory() as session:
             await self._require_admin(session, admin_telegram_id)
-            players = await PlayerRepository(session).list_active_players()
+            players = await UserRepository(session).list_active_players()
             scored_players = [
-                (score, required_player_view(player))
+                (score, required_user_view(player))
                 for player in players
                 if (score := _player_search_score(player, query)) > 0
             ]
@@ -149,7 +159,7 @@ class TournamentService:
         tournament_id: int,
         player_id: int,
         from_date: date | None = None,
-    ) -> tuple[TournamentView, PlayerView]:
+    ) -> tuple[TournamentView, UserView]:
         async with self.session_factory() as session:
             await self._require_admin(session, admin_telegram_id)
             today = from_date or date.today()
@@ -161,9 +171,13 @@ class TournamentService:
             ):
                 raise TournamentUnavailableError
 
-            player = await PlayerRepository(session).get_by_id(player_id)
-            if player is None or player.status != PlayerStatus.ACTIVE or player.telegram_id <= 0:
-                raise TournamentPlayerNotFoundError
+            player = await UserRepository(session).get_by_id(player_id)
+            if (
+                player is None
+                or player.status != UserStatus.ACTIVE
+                or player.role != UserRole.PLAYER
+            ):
+                raise TournamentUserNotFoundError
 
             repository = TournamentRegistrationRepository(session)
             registration = await repository.get(tournament.id, player.id)
@@ -183,7 +197,7 @@ class TournamentService:
                 registration.cancelled_at = None
 
             await session.commit()
-            return tournament_view(tournament), required_player_view(player)
+            return tournament_view(tournament), required_user_view(player)
 
     async def register_player_for_tournaments(
         self,
@@ -196,8 +210,12 @@ class TournamentService:
             return []
 
         async with self.session_factory() as session:
-            player = await PlayerRepository(session).get_by_telegram_id(telegram_id)
-            if player is None or player.status != PlayerStatus.ACTIVE:
+            player = await UserRepository(session).get_by_telegram_id(telegram_id)
+            if (
+                player is None
+                or player.status != UserStatus.ACTIVE
+                or player.role != UserRole.PLAYER
+            ):
                 raise TournamentRegistrationNotAllowedError
 
             today = from_date or date.today()
@@ -250,8 +268,12 @@ class TournamentService:
             return []
 
         async with self.session_factory() as session:
-            player = await PlayerRepository(session).get_by_telegram_id(telegram_id)
-            if player is None or player.status != PlayerStatus.ACTIVE:
+            player = await UserRepository(session).get_by_telegram_id(telegram_id)
+            if (
+                player is None
+                or player.status != UserStatus.ACTIVE
+                or player.role != UserRole.PLAYER
+            ):
                 raise TournamentRegistrationNotAllowedError
 
             repository = TournamentRegistrationRepository(session)
@@ -288,11 +310,11 @@ class TournamentService:
         session: AsyncSession,
         telegram_id: int,
     ) -> None:
-        admin = await PlayerRepository(session).get_by_telegram_id(telegram_id)
+        admin = await UserRepository(session).get_by_telegram_id(telegram_id)
         if (
             admin is None
-            or admin.status != PlayerStatus.ACTIVE
-            or admin.role not in {PlayerRole.ADMIN, PlayerRole.SUPERADMIN}
+            or admin.status != UserStatus.ACTIVE
+            or admin.role not in {UserRole.ADMIN, UserRole.SUPERADMIN}
         ):
             raise AdminAccessDeniedError
 
@@ -310,7 +332,7 @@ def tournament_view(tournament: Tournament) -> TournamentView:
     )
 
 
-def _sort_players_by_display_name(players: list[PlayerView]) -> list[PlayerView]:
+def _sort_players_by_display_name(players: list[UserView]) -> list[UserView]:
     return sorted(
         players,
         key=lambda player: (player.display_name.casefold(), player.id),

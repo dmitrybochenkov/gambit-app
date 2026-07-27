@@ -1,12 +1,12 @@
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import Session
 
-from app.db.factories import create_player
+from app.db.factories import create_user
 from app.db.models import (
-    Player,
     TournamentEconomyConfig,
     TournamentRebuyConfig,
     TournamentType,
+    User,
     WeeklyTournamentTemplate,
 )
 from app.db.models.enums import TournamentTypeStatus
@@ -54,8 +54,8 @@ def build_player(
     telegram_id: int,
     display_name: str,
     **kwargs: object,
-) -> Player:
-    return create_player(
+) -> User:
+    return create_user(
         telegram_id=telegram_id,
         display_name=display_name,
         **kwargs,

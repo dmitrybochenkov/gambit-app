@@ -1,6 +1,5 @@
 from app.db.models.admin_prompt import AdminPrompt
-from app.db.models.player import Player
-from app.db.models.registration_match import RegistrationMatch
+from app.db.models.registration_request import RegistrationRequest
 from app.db.models.scoring_config import ScoringConfig
 from app.db.models.season import Season
 from app.db.models.tournament import Tournament
@@ -14,11 +13,11 @@ from app.db.models.tournament_type import (
     TournamentTypeRule,
     WeeklyTournamentTemplate,
 )
+from app.db.models.user import User
 
 __all__ = [
-    "Player",
-    "RegistrationMatch",
     "AdminPrompt",
+    "RegistrationRequest",
     "ScoringConfig",
     "Season",
     "Tournament",
@@ -30,4 +29,5 @@ __all__ = [
     "TournamentRegistration",
     "TournamentResultDraft",
     "TournamentResult",
+    "User",
 ]

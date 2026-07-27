@@ -7,7 +7,6 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from sqlalchemy.orm import selectinload
 
 from app.db.models import (
-    Player,
     ScoringConfig,
     Season,
     Tournament,
@@ -15,31 +14,32 @@ from app.db.models import (
     TournamentResult,
     TournamentResultDraft,
     TournamentTypeRule,
+    User,
 )
 from app.db.models.enums import (
     KnockoutMode,
-    PlayerRole,
-    PlayerStatus,
     RegistrationStatus,
     TournamentStatus,
+    UserRole,
+    UserStatus,
 )
-from app.db.repositories.player_repository import PlayerRepository
 from app.db.repositories.tournament_repository import TournamentRepository
+from app.db.repositories.user_repository import UserRepository
 from app.db.session import SessionFactory
 from app.services.dto import (
     TournamentResultDraftPlayerView,
     TournamentResultDraftView,
     TournamentView,
 )
-from app.services.player_service import AdminAccessDeniedError
 from app.services.tournament_service import tournament_view
+from app.services.user_service import AdminAccessDeniedError
 
 
 class ResultTournamentNotFoundError(ValueError):
     pass
 
 
-class ResultPlayerNotFoundError(ValueError):
+class ResultUserNotFoundError(ValueError):
     pass
 
 
@@ -126,7 +126,7 @@ class ResultService:
             await self._ensure_drafts(session, tournament.id)
             draft = await self._get_draft(session, tournament.id, player_id)
             if draft is None:
-                raise ResultPlayerNotFoundError
+                raise ResultUserNotFoundError
             if place is not None:
                 result = await session.execute(
                     select(TournamentResultDraft).where(
@@ -215,12 +215,12 @@ class ResultService:
         self,
         session: AsyncSession,
         telegram_id: int,
-    ) -> Player:
-        admin = await PlayerRepository(session).get_by_telegram_id(telegram_id)
+    ) -> User:
+        admin = await UserRepository(session).get_by_telegram_id(telegram_id)
         if (
             admin is None
-            or admin.status != PlayerStatus.ACTIVE
-            or admin.role not in {PlayerRole.ADMIN, PlayerRole.SUPERADMIN}
+            or admin.status != UserStatus.ACTIVE
+            or admin.role not in {UserRole.ADMIN, UserRole.SUPERADMIN}
         ):
             raise AdminAccessDeniedError
         return admin
@@ -285,10 +285,10 @@ class ResultService:
         if tournament is None:
             raise ResultTournamentNotFoundError
         result = await session.execute(
-            select(TournamentResultDraft, Player)
-            .join(Player, Player.id == TournamentResultDraft.player_id)
+            select(TournamentResultDraft, User)
+            .join(User, User.id == TournamentResultDraft.player_id)
             .where(TournamentResultDraft.tournament_id == tournament_id)
-            .order_by(Player.id)
+            .order_by(User.id)
         )
         players = [
             TournamentResultDraftPlayerView(

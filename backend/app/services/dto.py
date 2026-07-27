@@ -4,73 +4,81 @@ from decimal import Decimal
 from enum import StrEnum
 
 
-class PlayerStatusView(StrEnum):
-    PENDING = "pending"
+class UserStatusView(StrEnum):
     ACTIVE = "active"
     BLOCKED = "blocked"
 
 
-class PlayerRoleView(StrEnum):
-    USER = "user"
+class UserRoleView(StrEnum):
+    PLAYER = "player"
     ADMIN = "admin"
     SUPERADMIN = "superadmin"
 
 
 @dataclass(frozen=True)
-class PlayerView:
+class UserView:
     id: int
-    telegram_id: int
+    telegram_id: int | None
     display_name: str
-    status: PlayerStatusView
-    role: PlayerRoleView
+    status: UserStatusView
+    role: UserRoleView
 
     @property
     def is_active(self) -> bool:
-        return self.status == PlayerStatusView.ACTIVE
-
-    @property
-    def is_pending(self) -> bool:
-        return self.status == PlayerStatusView.PENDING
+        return self.status == UserStatusView.ACTIVE
 
     @property
     def is_blocked(self) -> bool:
-        return self.status == PlayerStatusView.BLOCKED
+        return self.status == UserStatusView.BLOCKED
 
     @property
     def is_admin(self) -> bool:
-        return self.role in {PlayerRoleView.ADMIN, PlayerRoleView.SUPERADMIN}
+        return self.role in {UserRoleView.ADMIN, UserRoleView.SUPERADMIN}
 
 
 @dataclass(frozen=True)
-class RegistrationMatchView:
+class RegistrationCandidateView:
+    user: UserView
     score: int
     reason: str
-    historical_player: PlayerView
+
+
+@dataclass(frozen=True)
+class RegistrationRequestView:
+    id: int
+    telegram_id: int
+    request_type: str
+    status: str
+    requested_display_name: str | None
+    requested_link_name: str | None
+    candidate_user_id: int | None
+    created_at: str
 
 
 @dataclass(frozen=True)
 class RegistrationReviewView:
-    player: PlayerView
-    matches: list[RegistrationMatchView]
+    request: RegistrationRequestView
+    candidates: list[RegistrationCandidateView]
 
 
 @dataclass(frozen=True)
 class AdminPanelView:
-    admin: PlayerView
+    admin: UserView
     reviews: list[RegistrationReviewView]
 
 
 @dataclass(frozen=True)
 class RegistrationNotificationView:
-    player: PlayerView
-    admins: list[PlayerView]
-    matches: list[RegistrationMatchView]
+    request: RegistrationRequestView
+    admins: list[UserView]
+    candidates: list[RegistrationCandidateView]
 
 
 @dataclass(frozen=True)
 class RegistrationReviewResultView:
-    player: PlayerView
-    admins: list[PlayerView]
+    user: UserView | None
+    request: RegistrationRequestView
+    admins: list[UserView]
 
 
 @dataclass(frozen=True)

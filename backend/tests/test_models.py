@@ -1,11 +1,11 @@
 from decimal import Decimal
 
-from app.db.factories import create_player
+from app.db.factories import create_user
 from app.db.models import TournamentResult
 
 
 def test_player_display_name() -> None:
-    player = create_player(
+    player = create_user(
         telegram_id=123,
         display_name="Ivan Ivanov",
     )

@@ -4,7 +4,7 @@ from decimal import Decimal
 from sqlalchemy import case, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.db.models import Player, Season, Tournament, TournamentResult
+from app.db.models import Season, Tournament, TournamentResult, User
 from app.db.models.enums import SeasonStatus
 
 
@@ -53,7 +53,7 @@ class ProfileRepository:
 
         statement = (
             select(
-                Player.display_name,
+                User.display_name,
                 total_points.label("total_points"),
                 knockout_points.label("knockout_points"),
                 func.count(TournamentResult.id).label("tournaments_count"),
@@ -65,11 +65,11 @@ class ProfileRepository:
                 self._place_count(4).label("fourth_places_count"),
                 self._place_count(5).label("fifth_places_count"),
             )
-            .select_from(Player)
-            .join(TournamentResult, TournamentResult.player_id == Player.id)
+            .select_from(User)
+            .join(TournamentResult, TournamentResult.player_id == User.id)
             .join(Tournament, Tournament.id == TournamentResult.tournament_id)
-            .where(Player.telegram_id == telegram_id)
-            .group_by(Player.id, Player.display_name)
+            .where(User.telegram_id == telegram_id)
+            .group_by(User.id, User.display_name)
         )
         if current_season:
             statement = statement.join(
@@ -79,9 +79,7 @@ class ProfileRepository:
 
         row = (await self.session.execute(statement)).one_or_none()
         if row is None:
-            player = await self.session.scalar(
-                select(Player).where(Player.telegram_id == telegram_id)
-            )
+            player = await self.session.scalar(select(User).where(User.telegram_id == telegram_id))
             if player is None:
                 return None
             return PlayerProfileStats(

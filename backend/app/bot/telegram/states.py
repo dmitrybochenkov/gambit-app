@@ -2,8 +2,8 @@ from aiogram.fsm.state import State, StatesGroup
 
 
 class RegistrationStates(StatesGroup):
-    entering_display_name = State()
-    confirming = State()
+    entering_new_display_name = State()
+    entering_link_name = State()
 
 
 class CalendarSeasonEditStates(StatesGroup):

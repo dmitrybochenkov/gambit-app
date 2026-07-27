@@ -13,7 +13,7 @@ from app.db.models import (
     Tournament,
     TournamentResult,
 )
-from app.db.models.enums import PlayerStatus, SeasonStatus, TournamentStatus
+from app.db.models.enums import SeasonStatus, TournamentStatus, UserStatus
 from app.services.dto import PlayerProfileView
 from app.services.profile_service import ProfileKind, ProfileService
 
@@ -79,12 +79,12 @@ async def test_profile_filters_current_season_and_all_time(tmp_path: Path) -> No
         player = build_player(
             telegram_id=100,
             display_name="Игрок Первый",
-            status=PlayerStatus.ACTIVE,
+            status=UserStatus.ACTIVE,
         )
         player_without_results = build_player(
             telegram_id=200,
             display_name="King",
-            status=PlayerStatus.ACTIVE,
+            status=UserStatus.ACTIVE,
         )
         session.add_all(
             [

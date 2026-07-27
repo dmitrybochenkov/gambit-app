@@ -2,11 +2,11 @@ from enum import StrEnum
 
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
-from app.db.models.enums import PlayerStatus
-from app.db.repositories.player_repository import PlayerRepository
+from app.db.models.enums import UserRole, UserStatus
 from app.db.repositories.profile_repository import (
     ProfileRepository,
 )
+from app.db.repositories.user_repository import UserRepository
 from app.db.session import SessionFactory
 from app.services.dto import PlayerProfileView
 
@@ -30,8 +30,12 @@ class ProfileService:
         kind: ProfileKind,
     ) -> tuple[str, PlayerProfileView | None]:
         async with self.session_factory() as session:
-            player = await PlayerRepository(session).get_by_telegram_id(telegram_id)
-            if player is None or player.status != PlayerStatus.ACTIVE:
+            player = await UserRepository(session).get_by_telegram_id(telegram_id)
+            if (
+                player is None
+                or player.status != UserStatus.ACTIVE
+                or player.role != UserRole.PLAYER
+            ):
                 raise ProfileNotAllowedError
             return await self._get_profile(ProfileRepository(session), telegram_id, kind)
 

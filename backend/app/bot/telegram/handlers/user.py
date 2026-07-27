@@ -16,11 +16,6 @@ from app.bot.telegram.formatters import (
 from app.bot.telegram.notifications import notify_admins_about_registration
 from app.bot.telegram.states import RegistrationStates
 from app.services.pagination import pagination_service
-from app.services.player_service import (
-    IdentityAlreadyExistsError,
-    RegistrationNotAllowedError,
-    player_service,
-)
 from app.services.profile_service import ProfileNotAllowedError, profile_service
 from app.services.rating_service import RatingNotAllowedError, rating_service
 from app.services.tournament_service import (
@@ -29,6 +24,13 @@ from app.services.tournament_service import (
     TournamentScheduleNotAllowedError,
     TournamentUnavailableError,
     tournament_service,
+)
+from app.services.user_service import (
+    IdentityAlreadyExistsError,
+    InvalidDisplayNameError,
+    RegistrationCandidateNotFoundError,
+    RegistrationNotAllowedError,
+    user_service,
 )
 
 router = Router(name="user")
@@ -45,22 +47,9 @@ def _is_valid_display_name(value: str) -> bool:
 async def _send_registration_intro(message: Message, state: FSMContext) -> None:
     await message.answer(
         texts.user.REGISTRATION_GREETING,
-        reply_markup=ReplyKeyboardRemove(),
+        reply_markup=keyboards.registration_start_keyboard(),
     )
-    await state.set_state(RegistrationStates.entering_display_name)
-    await _send_input_prompt(message, state, texts.user.REGISTRATION_DISPLAY_NAME_PROMPT)
-
-
-async def _send_confirmation(message: Message, state: FSMContext) -> None:
-    data = await state.get_data()
-
-    await state.set_state(RegistrationStates.confirming)
-    await message.answer(
-        texts.user.registration_confirmation(
-            display_name=data.get("display_name", ""),
-        ),
-        reply_markup=keyboards.registration_confirmation_keyboard(),
-    )
+    await state.set_state(None)
 
 
 async def _delete_message(message: Message) -> None:
@@ -101,19 +90,18 @@ async def start_command(message: Message, state: FSMContext) -> None:
     if message.from_user is None:
         return
 
-    player = await player_service.get_by_telegram_id(message.from_user.id)
-    if player is None:
+    user = await user_service.get_by_telegram_id(message.from_user.id)
+    if user is None:
+        if await user_service.get_pending_registration_by_telegram_id(message.from_user.id):
+            await message.answer(
+                texts.user.REGISTRATION_PENDING,
+                reply_markup=ReplyKeyboardRemove(),
+            )
+            return
         await _send_registration_intro(message, state)
         return
 
-    if player.is_pending:
-        await message.answer(
-            texts.user.REGISTRATION_PENDING,
-            reply_markup=ReplyKeyboardRemove(),
-        )
-        return
-
-    if player.is_blocked:
+    if user.is_blocked:
         await message.answer(
             texts.user.BOT_ACCESS_BLOCKED,
             reply_markup=ReplyKeyboardRemove(),
@@ -121,8 +109,8 @@ async def start_command(message: Message, state: FSMContext) -> None:
         return
 
     await message.answer(
-        texts.user.welcome_back(player.display_name),
-        reply_markup=keyboards.main_keyboard_for_player(player),
+        texts.user.welcome_back(user.display_name),
+        reply_markup=keyboards.main_keyboard_for_player(user),
     )
 
 
@@ -145,7 +133,7 @@ async def show_club_address(message: Message) -> None:
     if message.from_user is None:
         return
 
-    player = await player_service.get_by_telegram_id(message.from_user.id)
+    player = await user_service.get_by_telegram_id(message.from_user.id)
     if player is None or not player.is_active:
         await message.answer(texts.user.ADDRESS_UNAVAILABLE)
         return
@@ -158,7 +146,7 @@ async def show_rating_menu(message: Message) -> None:
     if message.from_user is None:
         return
 
-    player = await player_service.get_by_telegram_id(message.from_user.id)
+    player = await user_service.get_by_telegram_id(message.from_user.id)
     if player is None or not player.is_active:
         await message.answer(texts.user.RATING_UNAVAILABLE)
         return
@@ -243,7 +231,7 @@ async def show_profile_menu(message: Message) -> None:
     if message.from_user is None:
         return
 
-    player = await player_service.get_by_telegram_id(message.from_user.id)
+    player = await user_service.get_by_telegram_id(message.from_user.id)
     if player is None or not player.is_active:
         await message.answer(texts.user.PROFILE_UNAVAILABLE)
         return
@@ -556,32 +544,35 @@ async def cancel_tournament_cancellation_selection(
         await callback.message.answer(texts.user.TOURNAMENT_CANCELLATION_CANCELLED)
 
 
-@router.message(RegistrationStates.entering_display_name)
-async def enter_display_name(message: Message, state: FSMContext) -> None:
-    if message.from_user is None:
+@router.callback_query(F.data == keyboards.REGISTRATION_NEW_PLAYER_CALLBACK)
+async def choose_new_player_registration(callback: CallbackQuery, state: FSMContext) -> None:
+    await callback.answer()
+    if callback.message is None:
         return
 
-    display_name = _clean_text(message.text or "")
-    if not _is_valid_display_name(display_name):
-        await message.answer(texts.user.INVALID_DISPLAY_NAME)
+    await _delete_message(callback.message)
+    await state.set_state(RegistrationStates.entering_new_display_name)
+    await _send_input_prompt(callback.message, state, texts.user.REGISTRATION_NEW_PLAYER_PROMPT)
+
+
+@router.callback_query(F.data == keyboards.REGISTRATION_LINK_EXISTING_CALLBACK)
+async def choose_link_existing_registration(callback: CallbackQuery, state: FSMContext) -> None:
+    await callback.answer()
+    if callback.message is None:
         return
 
-    try:
-        await player_service.validate_unique_identity(
-            telegram_id=message.from_user.id,
-            display_name=display_name,
-        )
-    except IdentityAlreadyExistsError:
-        await message.answer(texts.user.DISPLAY_NAME_ALREADY_EXISTS)
-        return
-
-    await _delete_prompt_and_input(message, state)
-    await state.update_data(display_name=display_name)
-    await _send_confirmation(message, state)
+    await _delete_message(callback.message)
+    await state.set_state(RegistrationStates.entering_link_name)
+    await _send_input_prompt(callback.message, state, texts.user.REGISTRATION_LINK_NAME_PROMPT)
 
 
-@router.callback_query(F.data == keyboards.RESTART_REGISTRATION_CALLBACK)
-async def restart_registration(callback: CallbackQuery, state: FSMContext) -> None:
+@router.callback_query(F.data == keyboards.REGISTRATION_RETRY_LINK_CALLBACK)
+async def retry_link_existing_registration(callback: CallbackQuery, state: FSMContext) -> None:
+    await choose_link_existing_registration(callback, state)
+
+
+@router.callback_query(F.data == keyboards.REGISTRATION_BACK_CALLBACK)
+async def back_to_registration_start(callback: CallbackQuery, state: FSMContext) -> None:
     await callback.answer()
     if callback.message is None:
         return
@@ -591,38 +582,67 @@ async def restart_registration(callback: CallbackQuery, state: FSMContext) -> No
     await _send_registration_intro(callback.message, state)
 
 
-@router.callback_query(F.data == keyboards.CONFIRM_REGISTRATION_CALLBACK)
-async def confirm_registration(callback: CallbackQuery, state: FSMContext) -> None:
-    await callback.answer()
-    if callback.message is None:
+@router.message(RegistrationStates.entering_new_display_name)
+async def enter_new_display_name(message: Message, state: FSMContext) -> None:
+    if message.from_user is None:
         return
 
-    await _delete_message(callback.message)
-    data = await state.get_data()
-    display_name = data.get("display_name")
-    if not display_name:
-        await state.clear()
-        await callback.message.answer(texts.user.REGISTRATION_EXPIRED)
+    display_name = _clean_text(message.text or "")
+    if not _is_valid_display_name(display_name):
+        await message.answer(texts.user.INVALID_DISPLAY_NAME)
         return
 
     try:
-        player = await player_service.submit_registration(
-            telegram_id=callback.from_user.id,
-            display_name=display_name,
+        request = await user_service.submit_new_player_registration(
+            message.from_user.id,
+            display_name,
         )
     except IdentityAlreadyExistsError:
-        await state.set_state(RegistrationStates.entering_display_name)
-        await _send_input_prompt(
-            callback.message,
-            state,
-            texts.user.REGISTRATION_DATA_ALREADY_EXISTS,
+        await _delete_prompt_and_input(message, state)
+        await state.clear()
+        await message.answer(
+            texts.user.DISPLAY_NAME_ALREADY_EXISTS,
+            reply_markup=keyboards.registration_start_keyboard(),
         )
         return
-    except RegistrationNotAllowedError:
-        await state.clear()
-        await callback.message.answer(texts.user.REGISTRATION_NOT_ALLOWED)
+    except (InvalidDisplayNameError, RegistrationNotAllowedError):
+        await message.answer(texts.user.REGISTRATION_NOT_ALLOWED)
         return
 
+    await _delete_prompt_and_input(message, state)
     await state.clear()
-    await notify_admins_about_registration(callback.bot, player)
-    await callback.message.answer(texts.user.registration_submitted(player.display_name))
+    await notify_admins_about_registration(message.bot, request.id)
+    await message.answer(texts.user.REGISTRATION_SUBMITTED)
+
+
+@router.message(RegistrationStates.entering_link_name)
+async def enter_link_name(message: Message, state: FSMContext) -> None:
+    if message.from_user is None:
+        return
+
+    requested_link_name = _clean_text(message.text or "")
+    if not _is_valid_display_name(requested_link_name):
+        await message.answer(texts.user.INVALID_DISPLAY_NAME)
+        return
+
+    try:
+        request = await user_service.submit_link_existing_registration(
+            message.from_user.id,
+            requested_link_name,
+        )
+    except RegistrationCandidateNotFoundError:
+        await _delete_prompt_and_input(message, state)
+        await state.clear()
+        await message.answer(
+            texts.user.REGISTRATION_LINK_NOT_FOUND,
+            reply_markup=keyboards.registration_link_not_found_keyboard(),
+        )
+        return
+    except (InvalidDisplayNameError, RegistrationNotAllowedError):
+        await message.answer(texts.user.REGISTRATION_NOT_ALLOWED)
+        return
+
+    await _delete_prompt_and_input(message, state)
+    await state.clear()
+    await notify_admins_about_registration(message.bot, request.id)
+    await message.answer(texts.user.REGISTRATION_SUBMITTED)

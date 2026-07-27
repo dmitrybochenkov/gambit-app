@@ -4,7 +4,7 @@ from decimal import Decimal
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.db.models import Player, Season, Tournament, TournamentResult
+from app.db.models import Season, Tournament, TournamentResult, User
 from app.db.models.enums import SeasonStatus
 
 
@@ -45,14 +45,14 @@ class RatingRepository:
         )
         statement = (
             select(
-                Player.id.label("player_id"),
-                Player.display_name,
+                User.id.label("player_id"),
+                User.display_name,
                 total_points.label("total_points"),
                 func.count(TournamentResult.id).label("tournaments_count"),
             )
-            .join(TournamentResult, TournamentResult.player_id == Player.id)
+            .join(TournamentResult, TournamentResult.player_id == User.id)
             .join(Tournament, Tournament.id == TournamentResult.tournament_id)
-            .group_by(Player.id, Player.display_name)
+            .group_by(User.id, User.display_name)
             .having(total_points > 0)
         )
         if current_season:
@@ -61,7 +61,7 @@ class RatingRepository:
                 Season.id == Tournament.season_id,
             ).where(Season.status == SeasonStatus.ACTIVE)
 
-        result = await self.session.execute(statement.order_by(total_points.desc(), Player.id))
+        result = await self.session.execute(statement.order_by(total_points.desc(), User.id))
         return [
             PointsRatingRow(
                 player_id=row.player_id,
@@ -82,16 +82,16 @@ class RatingRepository:
         total_knockouts = knockouts + big_knockouts
         statement = (
             select(
-                Player.id.label("player_id"),
-                Player.display_name,
+                User.id.label("player_id"),
+                User.display_name,
                 knockouts.label("knockouts_count"),
                 big_knockouts.label("big_knockouts_count"),
                 knockout_points.label("knockout_points"),
                 func.count(TournamentResult.id).label("tournaments_count"),
             )
-            .join(TournamentResult, TournamentResult.player_id == Player.id)
+            .join(TournamentResult, TournamentResult.player_id == User.id)
             .join(Tournament, Tournament.id == TournamentResult.tournament_id)
-            .group_by(Player.id, Player.display_name)
+            .group_by(User.id, User.display_name)
             .having(total_knockouts > 0)
         )
         if current_season:
@@ -104,7 +104,7 @@ class RatingRepository:
             statement.order_by(
                 total_knockouts.desc(),
                 big_knockouts.desc(),
-                Player.id,
+                User.id,
             )
         )
         return [

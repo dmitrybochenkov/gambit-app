@@ -18,11 +18,11 @@ from app.db.models import (
 )
 from app.db.models.enums import (
     KnockoutMode,
-    PlayerRole,
-    PlayerStatus,
     RegistrationStatus,
     SeasonStatus,
     TournamentStatus,
+    UserRole,
+    UserStatus,
 )
 from app.services.result_service import ResultInvalidPlayerDataError, ResultService
 
@@ -50,8 +50,8 @@ async def test_result_tournament_list_includes_open_past_tournaments(
         admin = build_player(
             telegram_id=100,
             display_name="Admin",
-            status=PlayerStatus.ACTIVE,
-            role=PlayerRole.ADMIN,
+            status=UserStatus.ACTIVE,
+            role=UserRole.ADMIN,
         )
         session.add_all([season, admin])
         await session.flush()
@@ -131,14 +131,14 @@ async def test_result_draft_closes_tournament(tmp_path: Path) -> None:
         admin = build_player(
             telegram_id=100,
             display_name="Admin",
-            status=PlayerStatus.ACTIVE,
-            role=PlayerRole.ADMIN,
+            status=UserStatus.ACTIVE,
+            role=UserRole.ADMIN,
         )
         players = [
             build_player(
                 telegram_id=telegram_id,
                 display_name=f"Player {telegram_id}",
-                status=PlayerStatus.ACTIVE,
+                status=UserStatus.ACTIVE,
             )
             for telegram_id in range(101, 106)
         ]
@@ -248,12 +248,12 @@ async def test_result_draft_moves_duplicate_place_to_latest_player(
         admin = build_player(
             telegram_id=100,
             display_name="Admin",
-            status=PlayerStatus.ACTIVE,
-            role=PlayerRole.ADMIN,
+            status=UserStatus.ACTIVE,
+            role=UserRole.ADMIN,
         )
         players = [
-            build_player(telegram_id=101, display_name="First", status=PlayerStatus.ACTIVE),
-            build_player(telegram_id=102, display_name="Second", status=PlayerStatus.ACTIVE),
+            build_player(telegram_id=101, display_name="First", status=UserStatus.ACTIVE),
+            build_player(telegram_id=102, display_name="Second", status=UserStatus.ACTIVE),
         ]
         session.add_all([season, admin, *players])
         await session.flush()

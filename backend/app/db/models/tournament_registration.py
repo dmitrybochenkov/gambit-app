@@ -18,7 +18,7 @@ class TournamentRegistration(Base):
         index=True,
     )
     player_id: Mapped[int] = mapped_column(
-        ForeignKey("players.id", ondelete="CASCADE"),
+        ForeignKey("users.id", ondelete="CASCADE"),
         nullable=False,
         index=True,
     )

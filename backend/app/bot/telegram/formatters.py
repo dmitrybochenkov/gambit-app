@@ -5,10 +5,10 @@ from app.bot.telegram import texts
 from app.services.dto import (
     AdminPromptView,
     PlayerProfileView,
-    PlayerView,
     TournamentResultDraftPlayerView,
     TournamentResultDraftView,
     TournamentView,
+    UserView,
 )
 from app.services.pagination import Page
 
@@ -281,7 +281,7 @@ def format_admin_tournament_registration_tournament_list(
 
 def format_admin_tournament_registration_player_list(
     tournament: TournamentView,
-    page: Page[PlayerView],
+    page: Page[UserView],
     title: str | None = None,
 ) -> str:
     lines = [

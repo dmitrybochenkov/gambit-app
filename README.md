@@ -54,9 +54,35 @@ uv run alembic check
 
 ## Database
 
+The current schema stores people in `users`. Tournament participation and
+results keep `player_id` column names because those rows are game-specific, but
+they reference `users.id`.
+
+The `Player -> User` migration is intentionally irreversible through Alembic:
+it removes the old pending-player registration model and historical
+registration matches. Production rollback for that release must restore the
+previous application directory together with a database backup instead of
+running `alembic downgrade` through that revision.
+
+Import historical users from CSV:
+
+```bash
+cd backend
+uv run python ../scripts/import_historical_users.py ../historical_users_with_admins.csv
+```
+
+Expected CSV columns:
+
+```text
+id,display_name,role,status,telegram_id
+```
+
+`role` is one of `PLAYER`, `ADMIN`, `SUPERADMIN`; `status` is one of `ACTIVE`,
+`BLOCKED`. Empty `telegram_id` is imported as `NULL`.
+
 The initial migration creates:
 
-- players
+- users
 - scoring configs
 - seasons
 - tournaments

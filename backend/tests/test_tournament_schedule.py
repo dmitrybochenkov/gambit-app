@@ -14,11 +14,11 @@ from app.db.models import (
     TournamentRegistration,
 )
 from app.db.models.enums import (
-    PlayerRole,
-    PlayerStatus,
     RegistrationStatus,
     SeasonStatus,
     TournamentStatus,
+    UserRole,
+    UserStatus,
 )
 from app.services.tournament_service import TournamentService
 
@@ -115,7 +115,7 @@ async def test_active_player_can_register_for_multiple_tournaments(tmp_path: Pat
         player = build_player(
             telegram_id=100,
             display_name="Игрок Первый",
-            status=PlayerStatus.ACTIVE,
+            status=UserStatus.ACTIVE,
         )
         session.add_all([season, player])
         await session.flush()
@@ -240,13 +240,13 @@ async def test_admin_can_register_player_for_tournament(tmp_path: Path) -> None:
         admin = build_player(
             telegram_id=100,
             display_name="Админ Первый",
-            status=PlayerStatus.ACTIVE,
-            role=PlayerRole.ADMIN,
+            status=UserStatus.ACTIVE,
+            role=UserRole.ADMIN,
         )
         player = build_player(
             telegram_id=101,
             display_name="Игрок Первый",
-            status=PlayerStatus.ACTIVE,
+            status=UserStatus.ACTIVE,
         )
         session.add_all([season, admin, player])
         await session.flush()
@@ -263,7 +263,7 @@ async def test_admin_can_register_player_for_tournament(tmp_path: Path) -> None:
 
     service = TournamentService(session_factory)
     try:
-        tournament_view, player_view = await service.register_player_for_tournament_by_admin(
+        tournament_view, user_view = await service.register_player_for_tournament_by_admin(
             admin_telegram_id=100,
             tournament_id=tournament_id,
             player_id=player_id,
@@ -278,7 +278,7 @@ async def test_admin_can_register_player_for_tournament(tmp_path: Path) -> None:
 
         assert tournament_view.id == tournament_id
         assert tournament_view.tournament_type_name == "Классика"
-        assert player_view.id == player_id
+        assert user_view.id == player_id
         async with session_factory() as session:
             registrations = list(
                 (
@@ -308,8 +308,8 @@ async def test_admin_player_registration_list_is_sorted_and_searchable(
         admin = build_player(
             telegram_id=100,
             display_name="Админ Первый",
-            status=PlayerStatus.ACTIVE,
-            role=PlayerRole.ADMIN,
+            status=UserStatus.ACTIVE,
+            role=UserRole.ADMIN,
         )
         session.add_all(
             [
@@ -317,17 +317,17 @@ async def test_admin_player_registration_list_is_sorted_and_searchable(
                 build_player(
                     telegram_id=101,
                     display_name="Яков Третий",
-                    status=PlayerStatus.ACTIVE,
+                    status=UserStatus.ACTIVE,
                 ),
                 build_player(
                     telegram_id=102,
                     display_name="Анна Первая",
-                    status=PlayerStatus.ACTIVE,
+                    status=UserStatus.ACTIVE,
                 ),
                 build_player(
                     telegram_id=103,
                     display_name="Борис Второй",
-                    status=PlayerStatus.ACTIVE,
+                    status=UserStatus.ACTIVE,
                 ),
             ]
         )
@@ -342,7 +342,6 @@ async def test_admin_player_registration_list_is_sorted_and_searchable(
         )
 
         assert [player.display_name for player in players] == [
-            "Админ Первый",
             "Анна Первая",
             "Борис Второй",
             "Яков Третий",
