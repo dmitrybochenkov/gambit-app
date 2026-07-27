@@ -8,6 +8,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.db.base import Base
+from app.db.factories import create_player
 from app.db.models import Player, ScoringConfig, Season, Tournament, TournamentResult
 from app.db.models.enums import PlayerStatus, SeasonStatus, TournamentStatus
 
@@ -79,10 +80,9 @@ def test_tournament_result_bonus_points_must_be_nonnegative(
     session: Session,
 ) -> None:
     scoring_config = ScoringConfig()
-    player = Player(
+    player = create_player(
         telegram_id=1,
         display_name="Игрок Первый",
-        display_name_normalized="игрок первыи",
         status=PlayerStatus.ACTIVE,
     )
     session.add_all([scoring_config, player])

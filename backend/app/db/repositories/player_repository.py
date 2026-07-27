@@ -1,6 +1,7 @@
 from sqlalchemy import delete, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.db.factories import create_player
 from app.db.models import Player, RegistrationMatch
 from app.db.models.enums import PlayerRole, PlayerStatus, RegistrationMatchStatus
 
@@ -113,10 +114,9 @@ class PlayerRepository:
     ) -> Player:
         player = await self.get_by_telegram_id(telegram_id)
         if player is None:
-            player = Player(
+            player = create_player(
                 telegram_id=telegram_id,
                 display_name=display_name,
-                display_name_normalized=display_name_normalized,
                 status=PlayerStatus.PENDING,
             )
             self.session.add(player)

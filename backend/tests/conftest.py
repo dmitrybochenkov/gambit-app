@@ -1,6 +1,7 @@
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import Session
 
+from app.db.factories import create_player
 from app.db.models import (
     Player,
     TournamentEconomyConfig,
@@ -54,10 +55,9 @@ def build_player(
     display_name: str,
     **kwargs: object,
 ) -> Player:
-    return Player(
+    return create_player(
         telegram_id=telegram_id,
         display_name=display_name,
-        display_name_normalized=" ".join(display_name.strip().casefold().replace("ё", "е").split()),
         **kwargs,
     )
 

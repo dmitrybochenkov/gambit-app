@@ -1,13 +1,13 @@
 from decimal import Decimal
 
-from app.db.models import Player, TournamentResult
+from app.db.factories import create_player
+from app.db.models import TournamentResult
 
 
 def test_player_display_name() -> None:
-    player = Player(
+    player = create_player(
         telegram_id=123,
         display_name="Ivan Ivanov",
-        display_name_normalized="ivan ivanov",
     )
 
     assert player.display_name == "Ivan Ivanov"

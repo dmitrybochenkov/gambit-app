@@ -5,6 +5,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncEngine, async_sessionmaker, create_async_engine
 
 from app.db.base import Base
+from app.db.factories import create_player
 from app.db.models import Player, RegistrationMatch
 from app.db.models.enums import PlayerRole, PlayerStatus
 from app.services.dto import PlayerStatusView
@@ -12,7 +13,6 @@ from app.services.player_service import (
     AdminAccessDeniedError,
     IdentityAlreadyExistsError,
     PlayerService,
-    normalize_display_name,
 )
 
 
@@ -22,13 +22,6 @@ async def create_player_service(database_path: Path) -> tuple[PlayerService, Asy
         await connection.run_sync(Base.metadata.create_all)
     session_factory = async_sessionmaker(engine, expire_on_commit=False)
     return PlayerService(session_factory), engine
-
-
-def player_identity(display_name: str) -> dict[str, str]:
-    return {
-        "display_name": display_name,
-        "display_name_normalized": normalize_display_name(display_name) or display_name,
-    }
 
 
 async def test_submit_pending_registration(tmp_path: Path) -> None:
@@ -74,10 +67,10 @@ async def test_registration_creates_historical_match_before_approval(
     try:
         session_factory = async_sessionmaker(engine, expire_on_commit=False)
         async with session_factory() as session:
-            historical_player = Player(
+            historical_player = create_player(
                 telegram_id=-1,
+                display_name="Исторический Игрок",
                 status=PlayerStatus.ACTIVE,
-                **player_identity("Исторический Игрок"),
             )
             session.add(historical_player)
             await session.commit()
@@ -122,10 +115,10 @@ async def test_approval_merges_best_historical_match(tmp_path: Path) -> None:
             assert stored_admin is not None
             stored_admin.status = PlayerStatus.ACTIVE
             stored_admin.role = PlayerRole.SUPERADMIN
-            historical_player = Player(
+            historical_player = create_player(
                 telegram_id=-1,
+                display_name="Дима Боченков",
                 status=PlayerStatus.ACTIVE,
-                **player_identity("Дима Боченков"),
             )
             session.add(historical_player)
             await session.commit()
@@ -168,15 +161,15 @@ async def test_approval_merges_selected_historical_match(tmp_path: Path) -> None
             assert stored_admin is not None
             stored_admin.status = PlayerStatus.ACTIVE
             stored_admin.role = PlayerRole.SUPERADMIN
-            first_historical_player = Player(
+            first_historical_player = create_player(
                 telegram_id=-1,
+                display_name="Дима Боченков",
                 status=PlayerStatus.ACTIVE,
-                **player_identity("Дима Боченков"),
             )
-            second_historical_player = Player(
+            second_historical_player = create_player(
                 telegram_id=-2,
+                display_name="Дима Боченкав",
                 status=PlayerStatus.ACTIVE,
-                **player_identity("Дима Боченкав"),
             )
             session.add_all([first_historical_player, second_historical_player])
             await session.commit()
@@ -217,10 +210,10 @@ async def test_approval_can_ignore_historical_match(tmp_path: Path) -> None:
             assert stored_admin is not None
             stored_admin.status = PlayerStatus.ACTIVE
             stored_admin.role = PlayerRole.SUPERADMIN
-            historical_player = Player(
+            historical_player = create_player(
                 telegram_id=-1,
+                display_name="Дима Боченков",
                 status=PlayerStatus.ACTIVE,
-                **player_identity("Дима Боченков"),
             )
             session.add(historical_player)
             await session.commit()
@@ -262,10 +255,10 @@ async def test_rejection_deletes_pending_registration(tmp_path: Path) -> None:
             assert stored_admin is not None
             stored_admin.status = PlayerStatus.ACTIVE
             stored_admin.role = PlayerRole.SUPERADMIN
-            historical_player = Player(
+            historical_player = create_player(
                 telegram_id=-1,
+                display_name="Исторический Игрок",
                 status=PlayerStatus.ACTIVE,
-                **player_identity("Исторический Игрок"),
             )
             session.add(historical_player)
             await session.commit()
@@ -378,11 +371,11 @@ async def test_superadmin_can_promote_active_player_to_admin(tmp_path: Path) -> 
             stored_superadmin.role = PlayerRole.SUPERADMIN
             stored_player.status = PlayerStatus.ACTIVE
             session.add(
-                Player(
+                create_player(
                     telegram_id=-1,
+                    display_name="Исторический Игрок",
                     status=PlayerStatus.ACTIVE,
                     role=PlayerRole.USER,
-                    **player_identity("Исторический Игрок"),
                 )
             )
             await session.commit()
