@@ -1,10 +1,13 @@
 from datetime import date
 from decimal import Decimal
+from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
 import pytest
 from fastapi import HTTPException
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
 from app.api import telegram_webhook as webhook_module
 from app.bot.telegram import keyboards, notifications, runtime
@@ -15,6 +18,10 @@ from app.bot.telegram.formatters import (
 )
 from app.bot.telegram.handlers import admin as admin_handlers
 from app.bot.telegram.handlers import user as user_handlers
+from app.db.base import Base
+from app.db.factories import create_user
+from app.db.models import User
+from app.db.models.enums import UserRole
 from app.services.calendar_service import CalendarPromptInvalidPayloadError
 from app.services.dto import (
     AdminPanelView,
@@ -36,7 +43,7 @@ from app.services.dto import (
 from app.services.pagination import Page
 from app.services.profile_service import ProfileKind
 from app.services.rating_service import RatingKind
-from app.services.user_service import AdminAccessDeniedError
+from app.services.user_service import AdminAccessDeniedError, UserService
 
 
 def active_player() -> UserView:
@@ -637,6 +644,101 @@ async def test_start_command_shows_admin_keyboard_for_admin(
     assert message.answer.await_count == 1
     reply_markup = message.answer.await_args.kwargs["reply_markup"]
     assert keyboards.MAIN_ADMIN in keyboard_texts(reply_markup)
+
+
+async def test_start_command_is_idempotent_for_imported_historical_user(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    engine = create_async_engine(f"sqlite+aiosqlite:///{tmp_path / 'start_user.db'}")
+    async with engine.begin() as connection:
+        await connection.run_sync(Base.metadata.create_all)
+
+    session_factory = async_sessionmaker(engine, expire_on_commit=False)
+    async with session_factory() as session:
+        user = create_user(
+            telegram_id=123,
+            display_name="Дима Боченков",
+            role=UserRole.SUPERADMIN,
+        )
+        user.id = 1
+        session.add(user)
+        await session.commit()
+
+    monkeypatch.setattr(user_handlers, "user_service", UserService(session_factory))
+    state = SimpleNamespace(clear=AsyncMock())
+    message = SimpleNamespace(
+        from_user=SimpleNamespace(id=123),
+        answer=AsyncMock(),
+    )
+
+    try:
+        await user_handlers.start_command(message, state)
+        await user_handlers.start_command(message, state)
+
+        async with session_factory() as session:
+            users = list((await session.execute(select(User))).scalars())
+
+        assert len(users) == 1
+        assert users[0].id == 1
+        assert users[0].telegram_id == 123
+        assert users[0].display_name == "Дима Боченков"
+        assert message.answer.await_count == 2
+    finally:
+        await engine.dispose()
+
+
+async def test_historical_admin_can_open_schedule_after_start(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    user = admin_player(1, 123, role=UserRoleView.SUPERADMIN)
+    user_service = SimpleNamespace(get_by_telegram_id=AsyncMock(return_value=user))
+    tournament = tournament_view(7, date(2026, 7, 8), 1, "Баунти турнир")
+    tournament_service = SimpleNamespace(
+        get_schedule_for_player=AsyncMock(return_value=[tournament])
+    )
+    monkeypatch.setattr(user_handlers, "user_service", user_service)
+    monkeypatch.setattr(user_handlers, "tournament_service", tournament_service)
+    state = SimpleNamespace(clear=AsyncMock())
+    start_message = SimpleNamespace(
+        from_user=SimpleNamespace(id=123),
+        answer=AsyncMock(),
+    )
+    schedule_message = SimpleNamespace(
+        from_user=SimpleNamespace(id=123),
+        answer=AsyncMock(),
+    )
+
+    await user_handlers.start_command(start_message, state)
+    await user_handlers.show_tournament_schedule(schedule_message)
+
+    user_service.get_by_telegram_id.assert_awaited_once_with(123)
+    tournament_service.get_schedule_for_player.assert_awaited_once_with(123)
+    assert start_message.answer.await_args.args[0] == "Админ 1, добро пожаловать!"
+    assert schedule_message.answer.await_args.args[0] == (
+        "Расписание турниров\n\n"
+        "• Среда, 8 июля — Баунти турнир"
+    )
+
+
+async def test_schedule_still_requires_registered_user(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    tournament_service = SimpleNamespace(
+        get_schedule_for_player=AsyncMock(
+            side_effect=user_handlers.TournamentScheduleNotAllowedError
+        )
+    )
+    monkeypatch.setattr(user_handlers, "tournament_service", tournament_service)
+    message = SimpleNamespace(
+        from_user=SimpleNamespace(id=404),
+        answer=AsyncMock(),
+    )
+
+    await user_handlers.show_tournament_schedule(message)
+
+    tournament_service.get_schedule_for_player.assert_awaited_once_with(404)
+    message.answer.assert_awaited_once_with(user_handlers.texts.user.SCHEDULE_UNAVAILABLE)
 
 
 async def test_registration_input_messages_are_deleted() -> None:

@@ -219,6 +219,91 @@ async def test_active_player_can_register_for_multiple_tournaments(tmp_path: Pat
         await engine.dispose()
 
 
+async def test_active_superadmin_can_use_player_tournament_flows_after_new_session(
+    tmp_path: Path,
+) -> None:
+    engine = create_async_engine(f"sqlite+aiosqlite:///{tmp_path / 'superadmin_flow.db'}")
+    async with engine.begin() as connection:
+        await connection.run_sync(Base.metadata.create_all)
+
+    session_factory = async_sessionmaker(engine, expire_on_commit=False)
+    async with session_factory() as session:
+        config = ScoringConfig()
+        session.add(config)
+        await session.flush()
+        await seed_tournament_types_async(session)
+        season = Season(
+            name="Test season",
+            scoring_config_id=config.id,
+            starts_at=date(2026, 7, 1),
+            ends_at=date(2026, 12, 31),
+            status=SeasonStatus.ACTIVE,
+        )
+        player = build_player(
+            telegram_id=100,
+            display_name="Дима Боченков",
+            status=UserStatus.ACTIVE,
+            role=UserRole.SUPERADMIN,
+        )
+        session.add_all([season, player])
+        await session.flush()
+        tournament = Tournament(
+            season_id=season.id,
+            tournament_type_id=tournament_type_id("classic"),
+            date=date(2026, 7, 9),
+            status=TournamentStatus.ACTIVE,
+        )
+        session.add(tournament)
+        await session.commit()
+        tournament_id = tournament.id
+        player_id = player.id
+
+    service = TournamentService(session_factory)
+    try:
+        schedule = await service.get_schedule_for_player(
+            telegram_id=100,
+            from_date=date(2026, 7, 6),
+        )
+        options = await service.get_registration_options_for_player(
+            telegram_id=100,
+            from_date=date(2026, 7, 6),
+        )
+        registered = await service.register_player_for_tournaments(
+            telegram_id=100,
+            tournament_ids=[tournament_id],
+            from_date=date(2026, 7, 6),
+        )
+
+        assert [tournament.id for tournament in schedule] == [tournament_id]
+        assert [tournament.id for tournament in options] == [tournament_id]
+        assert [tournament.id for tournament in registered] == [tournament_id]
+
+        async with session_factory() as session:
+            stored_registration = await session.scalar(
+                select(TournamentRegistration).where(
+                    TournamentRegistration.tournament_id == tournament_id,
+                    TournamentRegistration.player_id == player_id,
+                )
+            )
+        assert stored_registration is not None
+        assert stored_registration.status == RegistrationStatus.REGISTERED
+
+        upcoming_registrations = await service.get_player_upcoming_registrations(
+            telegram_id=100,
+            from_date=date(2026, 7, 6),
+        )
+        cancelled = await service.cancel_player_tournament_registrations(
+            telegram_id=100,
+            tournament_ids=[tournament_id],
+            from_date=date(2026, 7, 6),
+        )
+
+        assert [tournament.id for tournament in upcoming_registrations] == [tournament_id]
+        assert [tournament.id for tournament in cancelled] == [tournament_id]
+    finally:
+        await engine.dispose()
+
+
 async def test_admin_can_register_player_for_tournament(tmp_path: Path) -> None:
     engine = create_async_engine(f"sqlite+aiosqlite:///{tmp_path / 'admin_registration.db'}")
     async with engine.begin() as connection:

@@ -69,6 +69,10 @@ class UserRoleAlreadyAssignedError(ValueError):
     pass
 
 
+class ActiveUserRequiredError(ValueError):
+    pass
+
+
 class UserService:
     def __init__(self, session_factory: async_sessionmaker[AsyncSession]) -> None:
         self.session_factory = session_factory
@@ -77,6 +81,11 @@ class UserService:
         async with self.session_factory() as session:
             user = await UserRepository(session).get_by_telegram_id(telegram_id)
             return user_view(user)
+
+    async def require_active_user(self, telegram_id: int) -> UserView:
+        async with self.session_factory() as session:
+            user = await require_active_user(UserRepository(session), telegram_id)
+            return required_user_view(user)
 
     async def get_pending_registration_by_telegram_id(
         self,
@@ -496,6 +505,13 @@ class UserService:
 
 
 user_service = UserService(SessionFactory)
+
+
+async def require_active_user(repository: UserRepository, telegram_id: int) -> User:
+    user = await repository.get_by_telegram_id(telegram_id)
+    if user is None or user.status != UserStatus.ACTIVE:
+        raise ActiveUserRequiredError
+    return user
 
 
 def user_view(user: User | None) -> UserView | None:

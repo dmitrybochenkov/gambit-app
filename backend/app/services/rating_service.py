@@ -2,13 +2,13 @@ from enum import StrEnum
 
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
-from app.db.models.enums import UserRole, UserStatus
 from app.db.repositories.rating_repository import (
     RatingRepository,
 )
 from app.db.repositories.user_repository import UserRepository
 from app.db.session import SessionFactory
 from app.services.dto import KnockoutsRatingView, PointsRatingView, RatingResultView
+from app.services.user_service import ActiveUserRequiredError, require_active_user
 
 
 class RatingKind(StrEnum):
@@ -32,13 +32,10 @@ class RatingService:
         kind: RatingKind,
     ) -> RatingResultView:
         async with self.session_factory() as session:
-            player = await UserRepository(session).get_by_telegram_id(telegram_id)
-            if (
-                player is None
-                or player.status != UserStatus.ACTIVE
-                or player.role != UserRole.PLAYER
-            ):
-                raise RatingNotAllowedError
+            try:
+                player = await require_active_user(UserRepository(session), telegram_id)
+            except ActiveUserRequiredError as exc:
+                raise RatingNotAllowedError from exc
             title, rows = await self._get_rating(RatingRepository(session), kind)
             return RatingResultView(
                 title=title,

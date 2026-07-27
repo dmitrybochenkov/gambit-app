@@ -13,7 +13,7 @@ from app.db.models import (
     Tournament,
     TournamentResult,
 )
-from app.db.models.enums import SeasonStatus, TournamentStatus, UserStatus
+from app.db.models.enums import SeasonStatus, TournamentStatus, UserRole, UserStatus
 from app.services.dto import PlayerProfileView
 from app.services.profile_service import ProfileKind, ProfileService
 
@@ -186,5 +186,37 @@ async def test_profile_filters_current_season_and_all_time(tmp_path: Path) -> No
         assert "4️⃣" not in all_time_message
         assert "5️⃣" not in all_time_message
         assert "Количество призовых мест:" not in empty_message
+    finally:
+        await engine.dispose()
+
+
+async def test_active_superadmin_can_open_profile_after_new_session(tmp_path: Path) -> None:
+    engine = create_async_engine(f"sqlite+aiosqlite:///{tmp_path / 'superadmin_profile.db'}")
+    async with engine.begin() as connection:
+        await connection.run_sync(Base.metadata.create_all)
+
+    session_factory = async_sessionmaker(engine, expire_on_commit=False)
+    async with session_factory() as session:
+        session.add(
+            build_player(
+                telegram_id=100,
+                display_name="Дима Боченков",
+                status=UserStatus.ACTIVE,
+                role=UserRole.SUPERADMIN,
+            )
+        )
+        await session.commit()
+
+    service = ProfileService(session_factory)
+    try:
+        title, stats = await service.get_profile_for_player(
+            telegram_id=100,
+            kind=ProfileKind.ALL_TIME,
+        )
+
+        assert title == "Твой профиль — за всё время"
+        assert stats is not None
+        assert stats.display_name == "Дима Боченков"
+        assert stats.tournaments_count == 0
     finally:
         await engine.dispose()

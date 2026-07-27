@@ -19,7 +19,9 @@ from app.db.repositories.user_repository import UserRepository
 from app.db.session import SessionFactory
 from app.services.dto import TournamentView, UserView
 from app.services.user_service import (
+    ActiveUserRequiredError,
     AdminAccessDeniedError,
+    require_active_user,
     required_user_view,
 )
 
@@ -64,13 +66,10 @@ class TournamentService:
         from_date: date | None = None,
     ) -> list[TournamentView]:
         async with self.session_factory() as session:
-            player = await UserRepository(session).get_by_telegram_id(telegram_id)
-            if (
-                player is None
-                or player.status != UserStatus.ACTIVE
-                or player.role != UserRole.PLAYER
-            ):
-                raise TournamentScheduleNotAllowedError
+            try:
+                await require_active_user(UserRepository(session), telegram_id)
+            except ActiveUserRequiredError as exc:
+                raise TournamentScheduleNotAllowedError from exc
             tournaments = await TournamentRepository(session).list_upcoming_active(
                 from_date=from_date or date.today()
             )
@@ -82,13 +81,10 @@ class TournamentService:
         from_date: date | None = None,
     ) -> list[TournamentView]:
         async with self.session_factory() as session:
-            player = await UserRepository(session).get_by_telegram_id(telegram_id)
-            if (
-                player is None
-                or player.status != UserStatus.ACTIVE
-                or player.role != UserRole.PLAYER
-            ):
-                raise TournamentRegistrationNotAllowedError
+            try:
+                await require_active_user(UserRepository(session), telegram_id)
+            except ActiveUserRequiredError as exc:
+                raise TournamentRegistrationNotAllowedError from exc
             tournaments = await TournamentRepository(session).list_upcoming_active(
                 from_date=from_date or date.today()
             )
@@ -100,13 +96,10 @@ class TournamentService:
         from_date: date | None = None,
     ) -> list[TournamentView]:
         async with self.session_factory() as session:
-            player = await UserRepository(session).get_by_telegram_id(telegram_id)
-            if (
-                player is None
-                or player.status != UserStatus.ACTIVE
-                or player.role != UserRole.PLAYER
-            ):
-                raise TournamentRegistrationNotAllowedError
+            try:
+                player = await require_active_user(UserRepository(session), telegram_id)
+            except ActiveUserRequiredError as exc:
+                raise TournamentRegistrationNotAllowedError from exc
             tournaments = await TournamentRegistrationRepository(session).list_registered_upcoming(
                 player_id=player.id,
                 from_date=from_date or date.today(),
@@ -210,13 +203,10 @@ class TournamentService:
             return []
 
         async with self.session_factory() as session:
-            player = await UserRepository(session).get_by_telegram_id(telegram_id)
-            if (
-                player is None
-                or player.status != UserStatus.ACTIVE
-                or player.role != UserRole.PLAYER
-            ):
-                raise TournamentRegistrationNotAllowedError
+            try:
+                player = await require_active_user(UserRepository(session), telegram_id)
+            except ActiveUserRequiredError as exc:
+                raise TournamentRegistrationNotAllowedError from exc
 
             today = from_date or date.today()
             tournament_repository = TournamentRepository(session)
@@ -268,13 +258,10 @@ class TournamentService:
             return []
 
         async with self.session_factory() as session:
-            player = await UserRepository(session).get_by_telegram_id(telegram_id)
-            if (
-                player is None
-                or player.status != UserStatus.ACTIVE
-                or player.role != UserRole.PLAYER
-            ):
-                raise TournamentRegistrationNotAllowedError
+            try:
+                player = await require_active_user(UserRepository(session), telegram_id)
+            except ActiveUserRequiredError as exc:
+                raise TournamentRegistrationNotAllowedError from exc
 
             repository = TournamentRegistrationRepository(session)
             available_tournaments = await repository.list_registered_upcoming(

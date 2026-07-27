@@ -13,7 +13,7 @@ from app.db.models import (
     Tournament,
     TournamentResult,
 )
-from app.db.models.enums import SeasonStatus, TournamentStatus, UserStatus
+from app.db.models.enums import SeasonStatus, TournamentStatus, UserRole, UserStatus
 from app.services.pagination import pagination_service
 from app.services.rating_service import RatingKind, RatingService
 
@@ -210,5 +210,35 @@ async def test_rating_filters_current_season_and_all_time(tmp_path: Path) -> Non
             "🎲 - количество турниров\n\n"
         ) in knockout_message
         assert "🥊 6 | ⭐🥊 20 | 🎲 2" in knockout_message
+    finally:
+        await engine.dispose()
+
+
+async def test_active_superadmin_can_open_rating_after_new_session(tmp_path: Path) -> None:
+    engine = create_async_engine(f"sqlite+aiosqlite:///{tmp_path / 'superadmin_rating.db'}")
+    async with engine.begin() as connection:
+        await connection.run_sync(Base.metadata.create_all)
+
+    session_factory = async_sessionmaker(engine, expire_on_commit=False)
+    async with session_factory() as session:
+        session.add(
+            build_player(
+                telegram_id=100,
+                display_name="Дима Боченков",
+                status=UserStatus.ACTIVE,
+                role=UserRole.SUPERADMIN,
+            )
+        )
+        await session.commit()
+
+    service = RatingService(session_factory)
+    try:
+        rating = await service.get_rating_for_player(
+            telegram_id=100,
+            kind=RatingKind.ALL_TIME,
+        )
+
+        assert rating.title == "Рейтинг — за всё время"
+        assert rating.rows == []
     finally:
         await engine.dispose()
