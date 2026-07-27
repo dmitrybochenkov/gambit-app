@@ -19,16 +19,16 @@ from app.bot.telegram.formatters import (
     format_admin_result_tournament_list,
     format_admin_tournament_registration_player_list,
     format_admin_tournament_registration_tournament_list,
-    format_created_season_prompt,
+    format_created_season,
     format_created_tournaments_prompt,
-    format_manual_season_prompt,
+    format_season_open_confirmation,
     format_tournament_label,
 )
 from app.bot.telegram.notifications import format_registration_review
 from app.bot.telegram.states import (
     AdminResultStates,
     AdminTournamentRegistrationStates,
-    CalendarSeasonEditStates,
+    CalendarSeasonOpenStates,
     CalendarTournamentEditStates,
 )
 from app.services.calendar_service import (
@@ -53,6 +53,13 @@ from app.services.result_service import (
     ResultValidationError,
     result_service,
 )
+from app.services.season_service import (
+    SeasonConflictError,
+    SeasonNameAlreadyExistsError,
+    SeasonScoringConfigNotFoundError,
+    SeasonStartDateError,
+    season_service,
+)
 from app.services.tournament_service import (
     TournamentUnavailableError,
     TournamentUserNotFoundError,
@@ -68,11 +75,6 @@ from app.services.user_service import (
 )
 
 router = Router(name="admin")
-SEASON_EDIT_PROMPTS = {
-    keyboards.SeasonEditAction.NAME: texts.admin.ADMIN_CALENDAR_ENTER_SEASON_NAME,
-    keyboards.SeasonEditAction.STARTS_AT: texts.admin.ADMIN_CALENDAR_ENTER_SEASON_START,
-    keyboards.SeasonEditAction.ENDS_AT: texts.admin.ADMIN_CALENDAR_ENTER_SEASON_END,
-}
 TOURNAMENT_ECONOMY_PROMPT = "Введи вход и аддон в формате:\n600 - 20000 - 800 - 125000"
 TOURNAMENT_REBUYS_PROMPT = (
     "Введи ребаи в формате:\n"
@@ -1284,16 +1286,10 @@ async def review_calendar_prompt(
             prompt = await calendar_service.get_prompt(callback_data.prompt_id)
             if callback.message is not None:
                 await _delete_callback_message(callback)
-                if prompt.kind == "season_proposal":
-                    await callback.message.answer(
-                        texts.admin.ADMIN_CALENDAR_EDIT_MENU,
-                        reply_markup=keyboards.season_edit_keyboard(callback_data.prompt_id),
-                    )
-                else:
-                    await callback.message.answer(
-                        texts.admin.ADMIN_CALENDAR_EDIT_MENU,
-                        reply_markup=keyboards.tournament_day_edit_keyboard(prompt),
-                    )
+                await callback.message.answer(
+                    texts.admin.ADMIN_CALENDAR_EDIT_MENU,
+                    reply_markup=keyboards.tournament_day_edit_keyboard(prompt),
+                )
             await callback.answer()
             return
 
@@ -1318,16 +1314,10 @@ async def review_calendar_prompt(
 
     if callback_data.action == keyboards.CalendarPromptAction.CONFIRM:
         result_text = (
-            texts.admin.ADMIN_CALENDAR_SEASON_CREATED
-            if resolved_prompt.kind == "season_proposal"
-            else texts.admin.ADMIN_CALENDAR_TOURNAMENTS_CREATED
+            texts.admin.ADMIN_CALENDAR_TOURNAMENTS_CREATED
+            if resolved_prompt.kind == "tournaments_proposal"
+            else texts.admin.CALENDAR_PROMPT_CONFIRMED
         )
-        if resolved_prompt.kind == "season_proposal":
-            await callback.answer(result_text)
-            if callback.message is not None:
-                await _delete_callback_message(callback)
-                await callback.message.answer(format_created_season_prompt(resolved_prompt))
-            return
         await callback.answer(result_text)
         if callback.message is not None:
             await _delete_callback_message(callback)
@@ -1363,6 +1353,7 @@ async def review_calendar_prompt(
 async def select_admin_calendar_section(
     callback: CallbackQuery,
     callback_data: keyboards.AdminCalendarCallback,
+    state: FSMContext,
 ) -> None:
     try:
         await user_service.require_superadmin(callback.from_user.id)
@@ -1373,6 +1364,7 @@ async def select_admin_calendar_section(
     await _delete_callback_message(callback)
 
     if callback_data.action == keyboards.AdminCalendarAction.CANCEL:
+        await state.clear()
         await callback.answer(texts.admin.ADMIN_CALENDAR_CANCELLED)
         if callback.message is not None:
             await callback.message.answer(texts.admin.ADMIN_CALENDAR_CANCELLED)
@@ -1380,19 +1372,24 @@ async def select_admin_calendar_section(
 
     if callback_data.action == keyboards.AdminCalendarAction.SEASONS:
         try:
-            prompt = await calendar_service.get_or_create_manual_season_prompt()
-        except CalendarPromptEmptyError:
+            configs = await season_service.list_scoring_configs(callback.from_user.id)
+        except AdminAccessDeniedError:
+            await state.clear()
+            await callback.answer(texts.admin.INSUFFICIENT_RIGHTS, show_alert=True)
+            return
+        if not configs:
             await callback.answer(texts.admin.ADMIN_CALENDAR_EMPTY_SEASONS)
             if callback.message is not None:
                 await callback.message.answer(texts.admin.ADMIN_CALENDAR_EMPTY_SEASONS)
             return
 
+        await state.set_state(CalendarSeasonOpenStates.entering_name)
+        await state.update_data(
+            season_available_scoring_config_ids=[config.id for config in configs],
+        )
         await callback.answer()
         if callback.message is not None:
-            await callback.message.answer(
-                format_manual_season_prompt(prompt),
-                reply_markup=keyboards.manual_season_prompt_keyboard(prompt.id),
-            )
+            await callback.message.answer(texts.admin.ADMIN_CALENDAR_ENTER_SEASON_NAME)
         return
 
     try:
@@ -1409,6 +1406,154 @@ async def select_admin_calendar_section(
             format_admin_calendar_prompt(prompt),
             reply_markup=keyboards.manual_tournaments_prompt_keyboard(prompt.id),
         )
+
+
+@router.message(CalendarSeasonOpenStates.entering_name)
+async def enter_season_name(message: Message, state: FSMContext) -> None:
+    if message.from_user is None:
+        return
+
+    try:
+        await user_service.require_superadmin(message.from_user.id)
+    except AdminAccessDeniedError:
+        await state.clear()
+        await message.answer(texts.admin.INSUFFICIENT_RIGHTS)
+        return
+
+    name = " ".join((message.text or "").split())
+    if not name:
+        await message.answer(texts.admin.ADMIN_CALENDAR_ENTER_SEASON_NAME)
+        return
+
+    await state.set_state(CalendarSeasonOpenStates.entering_starts_at)
+    await state.update_data(season_name=name)
+    await message.answer(texts.admin.ADMIN_CALENDAR_ENTER_SEASON_START)
+
+
+@router.message(CalendarSeasonOpenStates.entering_starts_at)
+async def enter_season_starts_at(message: Message, state: FSMContext) -> None:
+    if message.from_user is None:
+        return
+
+    try:
+        await user_service.require_superadmin(message.from_user.id)
+        starts_at = parse_admin_date(message.text or "")
+        configs = await season_service.list_scoring_configs(message.from_user.id)
+    except AdminAccessDeniedError:
+        await state.clear()
+        await message.answer(texts.admin.INSUFFICIENT_RIGHTS)
+        return
+    except ValueError:
+        await message.answer(texts.admin.ADMIN_CALENDAR_INVALID_DATE)
+        return
+
+    if not configs:
+        await state.clear()
+        await message.answer(texts.admin.ADMIN_CALENDAR_EMPTY_SEASONS)
+        return
+
+    await state.update_data(season_starts_at=starts_at.isoformat())
+    await message.answer(
+        texts.admin.ADMIN_CALENDAR_SELECT_SCORING_CONFIG,
+        reply_markup=keyboards.season_scoring_config_keyboard(configs),
+    )
+
+
+@router.callback_query(keyboards.SeasonOpenCallback.filter())
+async def select_season_open_action(
+    callback: CallbackQuery,
+    callback_data: keyboards.SeasonOpenCallback,
+    state: FSMContext,
+) -> None:
+    if callback_data.action == keyboards.SeasonOpenAction.CANCEL:
+        await state.clear()
+        await callback.answer(texts.admin.ADMIN_CALENDAR_CANCELLED)
+        if callback.message is not None:
+            await _delete_callback_message(callback)
+            await callback.message.answer(texts.admin.ADMIN_CALENDAR_CANCELLED)
+        return
+
+    try:
+        await user_service.require_superadmin(callback.from_user.id)
+    except AdminAccessDeniedError:
+        await state.clear()
+        await callback.answer(texts.admin.INSUFFICIENT_RIGHTS, show_alert=True)
+        return
+
+    data = await state.get_data()
+    name = data.get("season_name")
+    starts_at_raw = data.get("season_starts_at")
+    if not isinstance(name, str) or not isinstance(starts_at_raw, str):
+        await callback.answer(texts.admin.ADMIN_CALENDAR_SEASON_ALREADY_HANDLED, show_alert=True)
+        return
+
+    if callback_data.action == keyboards.SeasonOpenAction.CONFIG:
+        try:
+            configs = await season_service.list_scoring_configs(callback.from_user.id)
+        except AdminAccessDeniedError:
+            await state.clear()
+            await callback.answer(texts.admin.INSUFFICIENT_RIGHTS, show_alert=True)
+            return
+        config = next(
+            (config for config in configs if config.id == callback_data.scoring_config_id),
+            None,
+        )
+        if config is None:
+            await callback.answer(texts.admin.ADMIN_CALENDAR_SCORING_CONFIG_NOT_FOUND)
+            return
+
+        starts_at = date.fromisoformat(starts_at_raw)
+        await state.update_data(season_scoring_config_id=config.id)
+        await callback.answer()
+        if callback.message is not None:
+            await _delete_callback_message(callback)
+            await callback.message.answer(
+                format_season_open_confirmation(
+                    name=name,
+                    starts_at=starts_at,
+                    scoring_config=config,
+                ),
+                reply_markup=keyboards.season_open_confirmation_keyboard(),
+            )
+        return
+
+    scoring_config_id = data.get("season_scoring_config_id")
+    if not isinstance(scoring_config_id, int):
+        await callback.answer(texts.admin.ADMIN_CALENDAR_SCORING_CONFIG_NOT_FOUND)
+        return
+
+    try:
+        season = await season_service.open_season(
+            admin_telegram_id=callback.from_user.id,
+            name=name,
+            starts_at=date.fromisoformat(starts_at_raw),
+            scoring_config_id=scoring_config_id,
+        )
+    except SeasonNameAlreadyExistsError:
+        await callback.answer(texts.admin.ADMIN_CALENDAR_SEASON_NAME_EXISTS, show_alert=True)
+        return
+    except SeasonScoringConfigNotFoundError:
+        await callback.answer(
+            texts.admin.ADMIN_CALENDAR_SCORING_CONFIG_NOT_FOUND,
+            show_alert=True,
+        )
+        return
+    except SeasonStartDateError:
+        await callback.answer(texts.admin.ADMIN_CALENDAR_SEASON_START_INVALID, show_alert=True)
+        return
+    except SeasonConflictError:
+        await callback.answer(texts.admin.ADMIN_CALENDAR_SEASON_CONFLICT, show_alert=True)
+        return
+    except AdminAccessDeniedError:
+        await state.clear()
+        await callback.answer(texts.admin.INSUFFICIENT_RIGHTS, show_alert=True)
+        return
+
+    await state.clear()
+    await callback.answer(texts.admin.ADMIN_CALENDAR_SEASON_CREATED)
+    if callback.message is not None:
+        await _delete_callback_message(callback)
+        await callback.message.answer(format_created_season(season))
 
 
 @router.callback_query(keyboards.TournamentDayEditCallback.filter())
@@ -1687,36 +1832,6 @@ async def enter_result_manual_value(message: Message, state: FSMContext) -> None
     )
 
 
-@router.callback_query(keyboards.SeasonEditCallback.filter())
-async def select_season_edit_field(
-    callback: CallbackQuery,
-    callback_data: keyboards.SeasonEditCallback,
-    state: FSMContext,
-) -> None:
-    try:
-        await user_service.require_superadmin(callback.from_user.id)
-    except AdminAccessDeniedError:
-        await callback.answer(texts.admin.INSUFFICIENT_RIGHTS, show_alert=True)
-        return
-
-    await _delete_callback_message(callback)
-    if callback_data.action == keyboards.SeasonEditAction.CANCEL:
-        await state.clear()
-        await callback.answer(texts.admin.ADMIN_CALENDAR_CANCELLED)
-        if callback.message is not None:
-            await callback.message.answer(texts.admin.ADMIN_CALENDAR_CANCELLED)
-        return
-
-    await state.set_state(CalendarSeasonEditStates.entering_value)
-    await state.update_data(
-        season_prompt_id=callback_data.prompt_id,
-        season_edit_field=callback_data.action.value,
-    )
-    await callback.answer()
-    if callback.message is not None:
-        await callback.message.answer(SEASON_EDIT_PROMPTS[callback_data.action])
-
-
 @router.message(CalendarTournamentEditStates.entering_economy)
 async def enter_tournament_economy(message: Message, state: FSMContext) -> None:
     if message.from_user is None:
@@ -1788,60 +1903,6 @@ async def enter_tournament_rebuys(message: Message, state: FSMContext) -> None:
     await message.answer(
         format_admin_calendar_prompt(prompt),
         reply_markup=keyboards.manual_tournaments_prompt_keyboard(prompt.id),
-    )
-
-
-@router.message(CalendarSeasonEditStates.entering_value)
-async def enter_season_edit_value(message: Message, state: FSMContext) -> None:
-    if message.from_user is None:
-        return
-
-    try:
-        await user_service.require_superadmin(message.from_user.id)
-    except AdminAccessDeniedError:
-        await state.clear()
-        await message.answer(texts.admin.INSUFFICIENT_RIGHTS)
-        return
-
-    data = await state.get_data()
-    prompt_id = int(data["season_prompt_id"])
-    field = keyboards.SeasonEditAction(data["season_edit_field"])
-    value = " ".join((message.text or "").split())
-    if not value:
-        await message.answer(SEASON_EDIT_PROMPTS[field])
-        return
-
-    try:
-        if field == keyboards.SeasonEditAction.NAME:
-            prompt = await calendar_service.update_season_prompt(
-                prompt_id=prompt_id,
-                name=value,
-            )
-        elif field == keyboards.SeasonEditAction.STARTS_AT:
-            prompt = await calendar_service.update_season_prompt(
-                prompt_id=prompt_id,
-                starts_at=parse_admin_date(value),
-            )
-        else:
-            prompt = await calendar_service.update_season_prompt(
-                prompt_id=prompt_id,
-                ends_at=parse_admin_date(value),
-            )
-    except CalendarPromptInvalidPayloadError:
-        await message.answer(texts.admin.invalid_calendar_period(SEASON_EDIT_PROMPTS[field]))
-        return
-    except ValueError:
-        await message.answer(texts.admin.ADMIN_CALENDAR_INVALID_DATE)
-        return
-    except (CalendarPromptNotFoundError, CalendarPromptAlreadyResolvedError):
-        await state.clear()
-        await message.answer(texts.admin.CALENDAR_PROMPT_ALREADY_RESOLVED)
-        return
-
-    await state.clear()
-    await message.answer(
-        format_manual_season_prompt(prompt),
-        reply_markup=keyboards.manual_season_prompt_keyboard(prompt.id),
     )
 
 

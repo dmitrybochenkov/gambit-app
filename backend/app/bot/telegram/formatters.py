@@ -5,6 +5,8 @@ from app.bot.telegram import texts
 from app.services.dto import (
     AdminPromptView,
     PlayerProfileView,
+    ScoringConfigView,
+    SeasonView,
     TournamentResultDraftPlayerView,
     TournamentResultDraftView,
     TournamentView,
@@ -56,21 +58,6 @@ def format_profile(title: str, stats: PlayerProfileView | None) -> str:
 
 def format_admin_calendar_prompt(prompt: AdminPromptView) -> str:
     payload = json.loads(prompt.payload)
-    if prompt.kind == "season_proposal":
-        starts_at = date.fromisoformat(payload["starts_at"])
-        ends_at = date.fromisoformat(payload["ends_at"])
-        return "\n".join(
-            [
-                texts.admin.SEASON_PROPOSAL_TITLE,
-                "",
-                f"{texts.admin.SEASON_PROPOSAL_LABEL}: {payload['name']}",
-                f"{texts.admin.SEASON_PERIOD_LABEL}: "
-                f"{format_date(starts_at)} — {format_date(ends_at)}",
-                "",
-                texts.admin.CONFIRM_CREATION_PROMPT,
-            ]
-        )
-
     lines = [texts.admin.TOURNAMENTS_MANUAL_PROPOSAL_TITLE, ""]
     for item in payload["tournaments"]:
         lines.extend(_format_tournament_proposal_item(item))
@@ -296,31 +283,40 @@ def format_admin_tournament_registration_player_list(
     return "\n".join(lines)
 
 
-def format_manual_season_prompt(prompt: AdminPromptView) -> str:
-    payload = json.loads(prompt.payload)
-    starts_at = date.fromisoformat(payload["starts_at"])
-    ends_at = date.fromisoformat(payload["ends_at"])
+def format_season_open_confirmation(
+    *,
+    name: str,
+    starts_at: date,
+    scoring_config: ScoringConfigView,
+) -> str:
     return "\n".join(
         [
             texts.admin.SEASON_MANUAL_PROPOSAL_TITLE,
-            payload["name"],
-            f"{texts.admin.SEASON_PERIOD_LABEL}: "
-            f"{format_numeric_date(starts_at)} — {format_numeric_date(ends_at)}",
+            name,
+            f"{texts.admin.SEASON_START_LABEL}: {format_numeric_date(starts_at)}",
+            f"{texts.admin.SEASON_SCORING_CONFIG_LABEL}: "
+            f"{format_scoring_config_label(scoring_config)}",
+            "",
+            texts.admin.SEASON_ACTIVE_CLOSE_WARNING,
         ]
     )
 
 
-def format_created_season_prompt(prompt: AdminPromptView) -> str:
-    payload = json.loads(prompt.payload)
-    starts_at = date.fromisoformat(payload["starts_at"])
-    ends_at = date.fromisoformat(payload["ends_at"])
+def format_created_season(season: SeasonView) -> str:
     return "\n".join(
         [
             texts.admin.SEASON_CREATED_TITLE,
-            payload["name"],
-            f"{texts.admin.SEASON_PERIOD_LABEL}: "
-            f"{format_numeric_date(starts_at)} — {format_numeric_date(ends_at)}",
+            season.name,
+            f"{texts.admin.SEASON_START_LABEL}: {format_numeric_date(season.starts_at)}",
+            f"{texts.admin.SEASON_SCORING_CONFIG_LABEL}: #{season.scoring_config_id}",
         ]
+    )
+
+
+def format_scoring_config_label(config: ScoringConfigView) -> str:
+    return (
+        f"#{config.id}: 🥊 {config.knockout_small_points} | "
+        f"💥🥊 {config.knockout_big_points}"
     )
 
 

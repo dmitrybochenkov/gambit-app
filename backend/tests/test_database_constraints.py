@@ -41,7 +41,7 @@ def test_closed_tournament_requires_points_pool(session: Session) -> None:
         name="Season 1",
         scoring_config_id=scoring_config.id,
         starts_at=date(2026, 1, 1),
-        ends_at=date(2026, 12, 31),
+        ends_at=None,
         status=SeasonStatus.ACTIVE,
     )
     session.add(season)
@@ -76,6 +76,91 @@ def test_scoring_coefficients_must_total_one(session: Session) -> None:
         session.commit()
 
 
+def test_active_season_requires_empty_end_date(session: Session) -> None:
+    scoring_config = ScoringConfig()
+    session.add(scoring_config)
+    session.flush()
+
+    session.add(
+        Season(
+            name="Season 1",
+            scoring_config_id=scoring_config.id,
+            starts_at=date(2026, 1, 1),
+            ends_at=date(2026, 12, 31),
+            status=SeasonStatus.ACTIVE,
+        )
+    )
+
+    with pytest.raises(IntegrityError):
+        session.commit()
+
+
+def test_closed_season_requires_end_date(session: Session) -> None:
+    scoring_config = ScoringConfig()
+    session.add(scoring_config)
+    session.flush()
+
+    session.add(
+        Season(
+            name="Season 1",
+            scoring_config_id=scoring_config.id,
+            starts_at=date(2026, 1, 1),
+            ends_at=None,
+            status=SeasonStatus.CLOSED,
+        )
+    )
+
+    with pytest.raises(IntegrityError):
+        session.commit()
+
+
+def test_closed_season_end_date_must_not_precede_start_date(session: Session) -> None:
+    scoring_config = ScoringConfig()
+    session.add(scoring_config)
+    session.flush()
+
+    session.add(
+        Season(
+            name="Season 1",
+            scoring_config_id=scoring_config.id,
+            starts_at=date(2026, 1, 2),
+            ends_at=date(2026, 1, 1),
+            status=SeasonStatus.CLOSED,
+        )
+    )
+
+    with pytest.raises(IntegrityError):
+        session.commit()
+
+
+def test_database_rejects_multiple_active_seasons(session: Session) -> None:
+    scoring_config = ScoringConfig()
+    session.add(scoring_config)
+    session.flush()
+
+    session.add_all(
+        [
+            Season(
+                name="Season 1",
+                scoring_config_id=scoring_config.id,
+                starts_at=date(2026, 1, 1),
+                ends_at=None,
+                status=SeasonStatus.ACTIVE,
+            ),
+            Season(
+                name="Season 2",
+                scoring_config_id=scoring_config.id,
+                starts_at=date(2026, 6, 1),
+                ends_at=None,
+                status=SeasonStatus.ACTIVE,
+            ),
+        ]
+    )
+
+    with pytest.raises(IntegrityError):
+        session.commit()
+
+
 def test_tournament_result_bonus_points_must_be_nonnegative(
     session: Session,
 ) -> None:
@@ -93,7 +178,7 @@ def test_tournament_result_bonus_points_must_be_nonnegative(
         name="Season 1",
         scoring_config_id=scoring_config.id,
         starts_at=date(2026, 1, 1),
-        ends_at=date(2026, 12, 31),
+        ends_at=None,
         status=SeasonStatus.ACTIVE,
     )
     session.add(season)

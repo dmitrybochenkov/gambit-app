@@ -22,7 +22,6 @@ from app.db.base import Base
 from app.db.factories import create_user
 from app.db.models import User
 from app.db.models.enums import UserRole
-from app.services.calendar_service import CalendarPromptInvalidPayloadError
 from app.services.dto import (
     AdminPanelView,
     AdminPromptView,
@@ -33,6 +32,9 @@ from app.services.dto import (
     RegistrationRequestView,
     RegistrationReviewResultView,
     RegistrationReviewView,
+    ScoringConfigView,
+    SeasonStatusView,
+    SeasonView,
     TournamentResultDraftPlayerView,
     TournamentResultDraftView,
     TournamentView,
@@ -55,6 +57,30 @@ def active_player() -> UserView:
         display_name="Игрок Первый",
         status=UserStatusView.ACTIVE,
         role=UserRoleView.PLAYER,
+    )
+
+
+def scoring_config_view(config_id: int = 1) -> ScoringConfigView:
+    return ScoringConfigView(
+        id=config_id,
+        place_1_coefficient=Decimal("0.45"),
+        place_2_coefficient=Decimal("0.25"),
+        place_3_coefficient=Decimal("0.15"),
+        place_4_coefficient=Decimal("0.10"),
+        place_5_coefficient=Decimal("0.05"),
+        knockout_small_points=15,
+        knockout_big_points=60,
+    )
+
+
+def season_view(season_id: int = 1) -> SeasonView:
+    return SeasonView(
+        id=season_id,
+        name="Осень 2026",
+        starts_at=date(2026, 9, 1),
+        ends_at=None,
+        status=SeasonStatusView.ACTIVE,
+        scoring_config_id=1,
     )
 
 
@@ -1678,48 +1704,61 @@ async def test_confirm_add_admin_promotes_player_and_notifies(
     assert "🛠 Админ-панель" in keyboard_texts(bot.send_message.await_args.kwargs["reply_markup"])
 
 
-async def test_admin_calendar_seasons_callback_sends_manual_prompt(
+async def test_admin_calendar_seasons_callback_starts_manual_flow(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     admin = admin_player(1, 100, UserRoleView.SUPERADMIN)
     user_service = SimpleNamespace(require_superadmin=AsyncMock(return_value=admin))
-    calendar_service = SimpleNamespace(
-        get_or_create_manual_season_prompt=AsyncMock(
-            return_value=AdminPromptView(
-                id=7,
-                kind="season_proposal",
-                payload=('{"name":"Осень 2026","starts_at":"2026-09-01","ends_at":"2026-11-30"}'),
-                status="pending",
-            )
-        )
+    season_service = SimpleNamespace(
+        list_scoring_configs=AsyncMock(return_value=[scoring_config_view()])
     )
     monkeypatch.setattr(admin_handlers, "user_service", user_service)
-    monkeypatch.setattr(admin_handlers, "calendar_service", calendar_service)
-    message = SimpleNamespace(
-        delete=AsyncMock(),
-        answer=AsyncMock(),
-    )
+    monkeypatch.setattr(admin_handlers, "season_service", season_service)
+    message = SimpleNamespace(delete=AsyncMock(), answer=AsyncMock())
     callback = SimpleNamespace(
         from_user=SimpleNamespace(id=100),
         message=message,
         answer=AsyncMock(),
     )
     callback_data = SimpleNamespace(action=keyboards.AdminCalendarAction.SEASONS)
+    state = SimpleNamespace(set_state=AsyncMock(), update_data=AsyncMock(), clear=AsyncMock())
 
-    await admin_handlers.select_admin_calendar_section(callback, callback_data)
+    await admin_handlers.select_admin_calendar_section(callback, callback_data, state)
 
     user_service.require_superadmin.assert_awaited_once_with(100)
-    calendar_service.get_or_create_manual_season_prompt.assert_awaited_once_with()
-    message.delete.assert_awaited_once_with()
-    message.answer.assert_awaited_once()
-    answer = message.answer.await_args
-    assert answer.args[0] == (
-        "Будет создан новый сезон:\nОсень 2026\nПериод: 1.09.2026 — 30.11.2026"
+    season_service.list_scoring_configs.assert_awaited_once_with(100)
+    state.set_state.assert_awaited_once_with(
+        admin_handlers.CalendarSeasonOpenStates.entering_name
     )
-    buttons = [
-        button.text for row in answer.kwargs["reply_markup"].inline_keyboard for button in row
-    ]
-    assert buttons == ["✅ Создать", "✏️ Изменить", "❌ Отмена"]
+    state.update_data.assert_awaited_once_with(season_available_scoring_config_ids=[1])
+    message.delete.assert_awaited_once_with()
+    message.answer.assert_awaited_once_with("Введи название сезона.")
+
+
+async def test_admin_calendar_seasons_callback_handles_missing_scoring_configs(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    user_service = SimpleNamespace(require_superadmin=AsyncMock(return_value=admin_player(1, 100)))
+    season_service = SimpleNamespace(list_scoring_configs=AsyncMock(return_value=[]))
+    monkeypatch.setattr(admin_handlers, "user_service", user_service)
+    monkeypatch.setattr(admin_handlers, "season_service", season_service)
+    message = SimpleNamespace(delete=AsyncMock(), answer=AsyncMock())
+    callback = SimpleNamespace(
+        from_user=SimpleNamespace(id=100),
+        message=message,
+        answer=AsyncMock(),
+    )
+    state = SimpleNamespace(set_state=AsyncMock(), update_data=AsyncMock(), clear=AsyncMock())
+
+    await admin_handlers.select_admin_calendar_section(
+        callback,
+        SimpleNamespace(action=keyboards.AdminCalendarAction.SEASONS),
+        state,
+    )
+
+    state.set_state.assert_not_awaited()
+    callback.answer.assert_awaited_once_with("Нет конфигураций начисления рейтинга.")
+    message.answer.assert_awaited_once_with("Нет конфигураций начисления рейтинга.")
 
 
 async def test_admin_calendar_tournaments_callback_sends_detailed_prompt(
@@ -1757,8 +1796,9 @@ async def test_admin_calendar_tournaments_callback_sends_detailed_prompt(
         answer=AsyncMock(),
     )
     callback_data = SimpleNamespace(action=keyboards.AdminCalendarAction.TOURNAMENTS)
+    state = SimpleNamespace(clear=AsyncMock())
 
-    await admin_handlers.select_admin_calendar_section(callback, callback_data)
+    await admin_handlers.select_admin_calendar_section(callback, callback_data, state)
 
     calendar_service.get_or_create_manual_tournaments_prompt.assert_awaited_once_with()
     message.delete.assert_awaited_once_with()
@@ -1818,98 +1858,51 @@ async def test_admin_calendar_prompt_denies_regular_admin(
     callback.answer.assert_awaited_once_with("Недостаточно прав.", show_alert=True)
 
 
-async def test_manual_season_confirm_deletes_prompt_and_sends_created_message(
+async def test_enter_season_name_prompts_for_start_date(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    admin = admin_player(1, 100, UserRoleView.SUPERADMIN)
-    user_service = SimpleNamespace(require_superadmin=AsyncMock(return_value=admin))
-    calendar_service = SimpleNamespace(
-        resolve_prompt=AsyncMock(
-            return_value=AdminPromptView(
-                id=7,
-                kind="season_proposal",
-                payload=('{"name":"Осень 2026","starts_at":"2026-09-01","ends_at":"2026-11-30"}'),
-                status="confirmed",
-            )
-        )
-    )
+    user_service = SimpleNamespace(require_superadmin=AsyncMock(return_value=admin_player(1, 100)))
     monkeypatch.setattr(admin_handlers, "user_service", user_service)
-    monkeypatch.setattr(admin_handlers, "calendar_service", calendar_service)
     message = SimpleNamespace(
-        text=("Будет создан новый сезон:\nОсень 2026\nПериод: 1.09.2026 — 30.11.2026"),
-        delete=AsyncMock(),
+        from_user=SimpleNamespace(id=100),
+        text="Осень 2026",
         answer=AsyncMock(),
     )
-    callback = SimpleNamespace(
-        from_user=SimpleNamespace(id=100, display_name="Dima Bochenkov"),
-        message=message,
-        answer=AsyncMock(),
+    state = SimpleNamespace(set_state=AsyncMock(), update_data=AsyncMock(), clear=AsyncMock())
+
+    await admin_handlers.enter_season_name(message, state)
+
+    state.set_state.assert_awaited_once_with(
+        admin_handlers.CalendarSeasonOpenStates.entering_starts_at
     )
-    callback_data = SimpleNamespace(
-        action=keyboards.CalendarPromptAction.CONFIRM,
-        prompt_id=7,
-    )
-    state = SimpleNamespace(clear=AsyncMock())
-
-    await admin_handlers.review_calendar_prompt(callback, callback_data, state)
-
-    calendar_service.resolve_prompt.assert_awaited_once()
-    state.clear.assert_awaited_once()
-    callback.answer.assert_awaited_once_with("Сезон создан.")
-    message.delete.assert_awaited_once_with()
-    message.answer.assert_awaited_once_with(
-        "Создан новый сезон:\nОсень 2026\nПериод: 1.09.2026 — 30.11.2026"
-    )
+    state.update_data.assert_awaited_once_with(season_name="Осень 2026")
+    message.answer.assert_awaited_once_with("Введи дату начала в формате 1.09.2026.")
 
 
-async def test_season_edit_button_opens_field_menu(
+async def test_enter_season_start_prompts_for_scoring_config(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    admin = admin_player(1, 100, UserRoleView.SUPERADMIN)
-    user_service = SimpleNamespace(require_superadmin=AsyncMock(return_value=admin))
-    calendar_service = SimpleNamespace(
-        get_prompt=AsyncMock(
-            return_value=AdminPromptView(
-                id=7,
-                kind="season_proposal",
-                payload=('{"name":"Осень 2026","starts_at":"2026-09-01","ends_at":"2026-11-30"}'),
-                status="pending",
-            )
-        )
+    user_service = SimpleNamespace(require_superadmin=AsyncMock(return_value=admin_player(1, 100)))
+    season_service = SimpleNamespace(
+        list_scoring_configs=AsyncMock(return_value=[scoring_config_view()])
     )
     monkeypatch.setattr(admin_handlers, "user_service", user_service)
-    monkeypatch.setattr(admin_handlers, "calendar_service", calendar_service)
-    state = SimpleNamespace(clear=AsyncMock())
-    message = SimpleNamespace(delete=AsyncMock(), answer=AsyncMock())
-    callback = SimpleNamespace(
+    monkeypatch.setattr(admin_handlers, "season_service", season_service)
+    message = SimpleNamespace(
         from_user=SimpleNamespace(id=100),
-        message=message,
+        text="1.09.2026",
         answer=AsyncMock(),
     )
-    callback_data = SimpleNamespace(
-        action=keyboards.CalendarPromptAction.EDIT,
-        prompt_id=7,
-    )
+    state = SimpleNamespace(update_data=AsyncMock(), clear=AsyncMock())
 
-    await admin_handlers.review_calendar_prompt(callback, callback_data, state)
+    await admin_handlers.enter_season_starts_at(message, state)
 
-    user_service.require_superadmin.assert_awaited_once_with(100)
-    calendar_service.get_prompt.assert_awaited_once_with(7)
-    state.clear.assert_awaited_once()
-    message.delete.assert_awaited_once_with()
-    message.answer.assert_awaited_once()
-    assert message.answer.await_args.args[0] == "Что меняем?"
-    buttons = [
-        button.text
-        for row in message.answer.await_args.kwargs["reply_markup"].inline_keyboard
-        for button in row
-    ]
-    assert buttons == [
-        "✏️ Название",
-        "📅 Дата начала",
-        "🏁 Дата окончания",
-        "❌ Отмена",
-    ]
+    state.update_data.assert_awaited_once_with(season_starts_at="2026-09-01")
+    answer = message.answer.await_args
+    assert answer.args[0] == "Выбери конфигурацию начисления рейтинга."
+    assert [
+        button.text for row in answer.kwargs["reply_markup"].inline_keyboard for button in row
+    ] == ["#1: 🥊 15 | 💥🥊 60", "❌ Отмена"]
 
 
 async def test_tournament_edit_button_opens_day_menu(
@@ -1965,13 +1958,15 @@ async def test_tournament_edit_button_opens_day_menu(
     assert buttons == ["Среда, 22.07.2026", "❌ Отмена"]
 
 
-async def test_season_edit_field_prompts_for_value(
+async def test_select_scoring_config_shows_confirmation_without_end_date(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    admin = admin_player(1, 100, UserRoleView.SUPERADMIN)
-    service = SimpleNamespace(require_superadmin=AsyncMock(return_value=admin))
-    monkeypatch.setattr(admin_handlers, "user_service", service)
-    state = SimpleNamespace(set_state=AsyncMock(), update_data=AsyncMock())
+    user_service = SimpleNamespace(require_superadmin=AsyncMock(return_value=admin_player(1, 100)))
+    season_service = SimpleNamespace(
+        list_scoring_configs=AsyncMock(return_value=[scoring_config_view()])
+    )
+    monkeypatch.setattr(admin_handlers, "user_service", user_service)
+    monkeypatch.setattr(admin_handlers, "season_service", season_service)
     message = SimpleNamespace(delete=AsyncMock(), answer=AsyncMock())
     callback = SimpleNamespace(
         from_user=SimpleNamespace(id=100),
@@ -1979,128 +1974,174 @@ async def test_season_edit_field_prompts_for_value(
         answer=AsyncMock(),
     )
     callback_data = SimpleNamespace(
-        action=keyboards.SeasonEditAction.STARTS_AT,
-        prompt_id=7,
+        action=keyboards.SeasonOpenAction.CONFIG,
+        scoring_config_id=1,
+    )
+    state = SimpleNamespace(
+        get_data=AsyncMock(
+            return_value={
+                "season_name": "Осень 2026",
+                "season_starts_at": "2026-09-01",
+            }
+        ),
+        update_data=AsyncMock(),
+        clear=AsyncMock(),
     )
 
-    await admin_handlers.select_season_edit_field(callback, callback_data, state)
+    await admin_handlers.select_season_open_action(callback, callback_data, state)
 
-    service.require_superadmin.assert_awaited_once_with(100)
+    state.update_data.assert_awaited_once_with(season_scoring_config_id=1)
     message.delete.assert_awaited_once_with()
-    state.set_state.assert_awaited_once()
-    state.update_data.assert_awaited_once_with(
-        season_prompt_id=7,
-        season_edit_field=keyboards.SeasonEditAction.STARTS_AT.value,
+    answer_text = message.answer.await_args.args[0]
+    assert answer_text == (
+        "Будет создан новый сезон:\n"
+        "Осень 2026\n"
+        "Дата начала: 1.09.2026\n"
+        "Конфигурация рейтинга: #1: 🥊 15 | 💥🥊 60\n\n"
+        "Текущий активный сезон, если он есть, будет закрыт датой за день до начала нового."
     )
-    message.answer.assert_awaited_once_with("Введи дату начала в формате 1.09.2026.")
+    assert "Дата окончания" not in answer_text
+    assert [
+        button.text
+        for row in message.answer.await_args.kwargs["reply_markup"].inline_keyboard
+        for button in row
+    ] == ["✅ Создать", "❌ Отмена"]
 
 
-async def test_season_edit_value_updates_prompt(
+async def test_confirm_manual_season_open_calls_public_service(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    admin = admin_player(1, 100, UserRoleView.SUPERADMIN)
-    user_service = SimpleNamespace(require_superadmin=AsyncMock(return_value=admin))
-    prompt = AdminPromptView(
-        id=7,
-        kind="season_proposal",
-        payload=('{"name":"Осень 2026","starts_at":"2026-09-02","ends_at":"2026-11-30"}'),
-        status="pending",
+    user_service = SimpleNamespace(require_superadmin=AsyncMock(return_value=admin_player(1, 100)))
+    season_service = SimpleNamespace(
+        open_season=AsyncMock(return_value=season_view()),
     )
-    calendar_service = SimpleNamespace(update_season_prompt=AsyncMock(return_value=prompt))
     monkeypatch.setattr(admin_handlers, "user_service", user_service)
-    monkeypatch.setattr(admin_handlers, "calendar_service", calendar_service)
+    monkeypatch.setattr(admin_handlers, "season_service", season_service)
+    message = SimpleNamespace(delete=AsyncMock(), answer=AsyncMock())
+    callback = SimpleNamespace(
+        from_user=SimpleNamespace(id=100),
+        message=message,
+        answer=AsyncMock(),
+    )
+    callback_data = SimpleNamespace(
+        action=keyboards.SeasonOpenAction.CONFIRM,
+        scoring_config_id=0,
+    )
     state = SimpleNamespace(
         get_data=AsyncMock(
             return_value={
-                "season_prompt_id": 7,
-                "season_edit_field": keyboards.SeasonEditAction.STARTS_AT.value,
+                "season_name": "Осень 2026",
+                "season_starts_at": "2026-09-01",
+                "season_scoring_config_id": 1,
             }
         ),
         clear=AsyncMock(),
     )
-    message = SimpleNamespace(
-        from_user=SimpleNamespace(id=100),
-        text="2.09.2026",
-        answer=AsyncMock(),
+
+    await admin_handlers.select_season_open_action(callback, callback_data, state)
+
+    season_service.open_season.assert_awaited_once_with(
+        admin_telegram_id=100,
+        name="Осень 2026",
+        starts_at=date(2026, 9, 1),
+        scoring_config_id=1,
+    )
+    state.clear.assert_awaited_once_with()
+    callback.answer.assert_awaited_once_with("Сезон создан.")
+    message.delete.assert_awaited_once_with()
+    message.answer.assert_awaited_once_with(
+        "Создан новый сезон:\nОсень 2026\nДата начала: 1.09.2026\nКонфигурация рейтинга: #1"
     )
 
-    await admin_handlers.enter_season_edit_value(message, state)
 
-    calendar_service.update_season_prompt.assert_awaited_once_with(
-        prompt_id=7,
-        starts_at=date(2026, 9, 2),
-    )
-    state.clear.assert_awaited_once()
-    assert message.answer.await_args.args[0] == (
-        "Будет создан новый сезон:\nОсень 2026\nПериод: 2.09.2026 — 30.11.2026"
-    )
-
-
-async def test_season_edit_value_rejects_invalid_date(
+async def test_confirm_manual_season_name_conflict_keeps_state(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    admin = admin_player(1, 100, UserRoleView.SUPERADMIN)
-    user_service = SimpleNamespace(require_superadmin=AsyncMock(return_value=admin))
-    calendar_service = SimpleNamespace(update_season_prompt=AsyncMock())
+    user_service = SimpleNamespace(require_superadmin=AsyncMock(return_value=admin_player(1, 100)))
+    season_service = SimpleNamespace(
+        open_season=AsyncMock(side_effect=admin_handlers.SeasonNameAlreadyExistsError)
+    )
     monkeypatch.setattr(admin_handlers, "user_service", user_service)
-    monkeypatch.setattr(admin_handlers, "calendar_service", calendar_service)
+    monkeypatch.setattr(admin_handlers, "season_service", season_service)
+    callback = SimpleNamespace(
+        from_user=SimpleNamespace(id=100),
+        message=SimpleNamespace(delete=AsyncMock(), answer=AsyncMock()),
+        answer=AsyncMock(),
+    )
     state = SimpleNamespace(
         get_data=AsyncMock(
             return_value={
-                "season_prompt_id": 7,
-                "season_edit_field": keyboards.SeasonEditAction.ENDS_AT.value,
+                "season_name": "Осень 2026",
+                "season_starts_at": "2026-09-01",
+                "season_scoring_config_id": 1,
             }
         ),
         clear=AsyncMock(),
     )
-    message = SimpleNamespace(
-        from_user=SimpleNamespace(id=100),
-        text="2026-11-30",
-        answer=AsyncMock(),
+
+    await admin_handlers.select_season_open_action(
+        callback,
+        SimpleNamespace(action=keyboards.SeasonOpenAction.CONFIRM, scoring_config_id=0),
+        state,
     )
 
-    await admin_handlers.enter_season_edit_value(message, state)
+    callback.answer.assert_awaited_once_with(
+        "Сезон с таким названием уже существует.",
+        show_alert=True,
+    )
+    state.clear.assert_not_awaited()
 
-    calendar_service.update_season_prompt.assert_not_awaited()
+
+async def test_repeat_season_confirm_callback_does_not_create_second_season(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    user_service = SimpleNamespace(require_superadmin=AsyncMock(return_value=admin_player(1, 100)))
+    season_service = SimpleNamespace(open_season=AsyncMock())
+    monkeypatch.setattr(admin_handlers, "user_service", user_service)
+    monkeypatch.setattr(admin_handlers, "season_service", season_service)
+    callback = SimpleNamespace(
+        from_user=SimpleNamespace(id=100),
+        message=SimpleNamespace(delete=AsyncMock(), answer=AsyncMock()),
+        answer=AsyncMock(),
+    )
+    state = SimpleNamespace(
+        get_data=AsyncMock(return_value={}),
+        clear=AsyncMock(),
+    )
+
+    await admin_handlers.select_season_open_action(
+        callback,
+        SimpleNamespace(action=keyboards.SeasonOpenAction.CONFIRM, scoring_config_id=0),
+        state,
+    )
+
+    season_service.open_season.assert_not_awaited()
+    callback.answer.assert_awaited_once_with(
+        "Сценарий открытия сезона уже завершён.",
+        show_alert=True,
+    )
+
+
+async def test_enter_season_start_rejects_invalid_date(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    user_service = SimpleNamespace(require_superadmin=AsyncMock(return_value=admin_player(1, 100)))
+    season_service = SimpleNamespace(list_scoring_configs=AsyncMock())
+    monkeypatch.setattr(admin_handlers, "user_service", user_service)
+    monkeypatch.setattr(admin_handlers, "season_service", season_service)
+    message = SimpleNamespace(
+        from_user=SimpleNamespace(id=100),
+        text="2026-09-01",
+        answer=AsyncMock(),
+    )
+    state = SimpleNamespace(update_data=AsyncMock(), clear=AsyncMock())
+
+    await admin_handlers.enter_season_starts_at(message, state)
+
+    season_service.list_scoring_configs.assert_not_awaited()
+    state.update_data.assert_not_awaited()
     state.clear.assert_not_awaited()
     message.answer.assert_awaited_once_with("Дата должна быть в формате 1.09.2026.")
-
-
-async def test_season_edit_value_rejects_invalid_period(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    admin = admin_player(1, 100, UserRoleView.SUPERADMIN)
-    user_service = SimpleNamespace(require_superadmin=AsyncMock(return_value=admin))
-    calendar_service = SimpleNamespace(
-        update_season_prompt=AsyncMock(side_effect=CalendarPromptInvalidPayloadError)
-    )
-    monkeypatch.setattr(admin_handlers, "user_service", user_service)
-    monkeypatch.setattr(admin_handlers, "calendar_service", calendar_service)
-    state = SimpleNamespace(
-        get_data=AsyncMock(
-            return_value={
-                "season_prompt_id": 7,
-                "season_edit_field": keyboards.SeasonEditAction.STARTS_AT.value,
-            }
-        ),
-        clear=AsyncMock(),
-    )
-    message = SimpleNamespace(
-        from_user=SimpleNamespace(id=100),
-        text="1.12.2026",
-        answer=AsyncMock(),
-    )
-
-    await admin_handlers.enter_season_edit_value(message, state)
-
-    calendar_service.update_season_prompt.assert_awaited_once_with(
-        prompt_id=7,
-        starts_at=date(2026, 12, 1),
-    )
-    state.clear.assert_not_awaited()
-    message.answer.assert_awaited_once_with(
-        "Дата начала не может быть позже даты окончания. Введи дату начала в формате 1.09.2026."
-    )
 
 
 async def test_admin_panel_registration_requests_button_shows_pending(

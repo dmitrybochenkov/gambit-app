@@ -6,8 +6,9 @@ class RegistrationStates(StatesGroup):
     entering_link_name = State()
 
 
-class CalendarSeasonEditStates(StatesGroup):
-    entering_value = State()
+class CalendarSeasonOpenStates(StatesGroup):
+    entering_name = State()
+    entering_starts_at = State()
 
 
 class CalendarTournamentEditStates(StatesGroup):

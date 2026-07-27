@@ -38,7 +38,7 @@ async def test_upcoming_schedule_uses_active_tournaments(tmp_path: Path) -> None
             name="Test season",
             scoring_config_id=config.id,
             starts_at=date(2026, 7, 1),
-            ends_at=date(2026, 12, 31),
+            ends_at=None,
             status=SeasonStatus.ACTIVE,
         )
         session.add(season)
@@ -109,7 +109,7 @@ async def test_active_player_can_register_for_multiple_tournaments(tmp_path: Pat
             name="Test season",
             scoring_config_id=config.id,
             starts_at=date(2026, 7, 1),
-            ends_at=date(2026, 12, 31),
+            ends_at=None,
             status=SeasonStatus.ACTIVE,
         )
         player = build_player(
@@ -236,7 +236,7 @@ async def test_active_superadmin_can_use_player_tournament_flows_after_new_sessi
             name="Test season",
             scoring_config_id=config.id,
             starts_at=date(2026, 7, 1),
-            ends_at=date(2026, 12, 31),
+            ends_at=None,
             status=SeasonStatus.ACTIVE,
         )
         player = build_player(
@@ -319,7 +319,7 @@ async def test_admin_can_register_player_for_tournament(tmp_path: Path) -> None:
             name="Test season",
             scoring_config_id=config.id,
             starts_at=date(2026, 7, 1),
-            ends_at=date(2026, 12, 31),
+            ends_at=None,
             status=SeasonStatus.ACTIVE,
         )
         admin = build_player(

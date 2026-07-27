@@ -15,6 +15,11 @@ class UserRoleView(StrEnum):
     SUPERADMIN = "superadmin"
 
 
+class SeasonStatusView(StrEnum):
+    ACTIVE = "active"
+    CLOSED = "closed"
+
+
 class UserStartStatusView(StrEnum):
     REGISTERED = "registered"
     PENDING_REGISTRATION = "pending_registration"
@@ -132,6 +137,28 @@ class TournamentView:
     date: date
     tournament_type_id: int
     tournament_type_name: str | None
+
+
+@dataclass(frozen=True)
+class SeasonView:
+    id: int
+    name: str
+    starts_at: date
+    ends_at: date | None
+    status: SeasonStatusView
+    scoring_config_id: int
+
+
+@dataclass(frozen=True)
+class ScoringConfigView:
+    id: int
+    place_1_coefficient: Decimal
+    place_2_coefficient: Decimal
+    place_3_coefficient: Decimal
+    place_4_coefficient: Decimal
+    place_5_coefficient: Decimal
+    knockout_small_points: int
+    knockout_big_points: int
 
 
 @dataclass(frozen=True)

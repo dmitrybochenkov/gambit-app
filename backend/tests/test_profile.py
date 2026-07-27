@@ -66,7 +66,7 @@ async def test_profile_filters_current_season_and_all_time(tmp_path: Path) -> No
             name="Current season",
             scoring_config_id=config.id,
             starts_at=date(2026, 7, 1),
-            ends_at=date(2026, 12, 31),
+            ends_at=None,
             status=SeasonStatus.ACTIVE,
         )
         previous_season = Season(

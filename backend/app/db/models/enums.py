@@ -17,7 +17,6 @@ class UserRole(StrEnum):
 
 
 class SeasonStatus(StrEnum):
-    UPCOMING = "upcoming"
     ACTIVE = "active"
     CLOSED = "closed"
 

@@ -12,6 +12,7 @@ from app.services.dto import (
     AdminPromptView,
     RegistrationCandidateView,
     RegistrationReviewView,
+    ScoringConfigView,
     TournamentResultDraftPlayerView,
     TournamentResultDraftView,
     TournamentTypeOptionView,
@@ -84,16 +85,15 @@ class AdminCalendarCallback(CallbackData, prefix="admin_calendar"):
     action: AdminCalendarAction
 
 
-class SeasonEditAction(StrEnum):
-    NAME = "name"
-    STARTS_AT = "starts_at"
-    ENDS_AT = "ends_at"
+class SeasonOpenAction(StrEnum):
+    CONFIG = "config"
+    CONFIRM = "confirm"
     CANCEL = "cancel"
 
 
-class SeasonEditCallback(CallbackData, prefix="season_edit"):
-    action: SeasonEditAction
-    prompt_id: int
+class SeasonOpenCallback(CallbackData, prefix="season_open"):
+    action: SeasonOpenAction
+    scoring_config_id: int
 
 
 class AdminCandidateAction(StrEnum):
@@ -1120,33 +1120,6 @@ def admin_calendar_keyboard() -> InlineKeyboardMarkup:
     return builder.as_markup()
 
 
-def manual_season_prompt_keyboard(prompt_id: int) -> InlineKeyboardMarkup:
-    builder = InlineKeyboardBuilder()
-    builder.button(
-        text=buttons.ADMIN_CALENDAR_OPEN,
-        callback_data=CalendarPromptCallback(
-            action=CalendarPromptAction.CONFIRM,
-            prompt_id=prompt_id,
-        ),
-    )
-    builder.button(
-        text=buttons.ADMIN_CALENDAR_EDIT,
-        callback_data=CalendarPromptCallback(
-            action=CalendarPromptAction.EDIT,
-            prompt_id=prompt_id,
-        ),
-    )
-    builder.button(
-        text=buttons.ADMIN_CALENDAR_CANCEL,
-        callback_data=CalendarPromptCallback(
-            action=CalendarPromptAction.CANCEL,
-            prompt_id=prompt_id,
-        ),
-    )
-    builder.adjust(2, 1)
-    return builder.as_markup()
-
-
 def manual_tournaments_prompt_keyboard(prompt_id: int) -> InlineKeyboardMarkup:
     builder = InlineKeyboardBuilder()
     builder.button(
@@ -1174,38 +1147,52 @@ def manual_tournaments_prompt_keyboard(prompt_id: int) -> InlineKeyboardMarkup:
     return builder.as_markup()
 
 
-def season_edit_keyboard(prompt_id: int) -> InlineKeyboardMarkup:
+def season_scoring_config_keyboard(configs: list[ScoringConfigView]) -> InlineKeyboardMarkup:
     builder = InlineKeyboardBuilder()
+    for config in configs:
+        builder.button(
+            text=scoring_config_label(config),
+            callback_data=SeasonOpenCallback(
+                action=SeasonOpenAction.CONFIG,
+                scoring_config_id=config.id,
+            ),
+        )
     builder.button(
-        text=buttons.ADMIN_SEASON_EDIT_NAME,
-        callback_data=SeasonEditCallback(
-            action=SeasonEditAction.NAME,
-            prompt_id=prompt_id,
-        ),
-    )
-    builder.button(
-        text=buttons.ADMIN_SEASON_EDIT_START,
-        callback_data=SeasonEditCallback(
-            action=SeasonEditAction.STARTS_AT,
-            prompt_id=prompt_id,
-        ),
-    )
-    builder.button(
-        text=buttons.ADMIN_SEASON_EDIT_END,
-        callback_data=SeasonEditCallback(
-            action=SeasonEditAction.ENDS_AT,
-            prompt_id=prompt_id,
-        ),
-    )
-    builder.button(
-        text=buttons.ADMIN_CALENDAR_CANCEL,
-        callback_data=SeasonEditCallback(
-            action=SeasonEditAction.CANCEL,
-            prompt_id=prompt_id,
+        text=buttons.ADMIN_CANCEL,
+        callback_data=SeasonOpenCallback(
+            action=SeasonOpenAction.CANCEL,
+            scoring_config_id=0,
         ),
     )
     builder.adjust(1)
     return builder.as_markup()
+
+
+def season_open_confirmation_keyboard() -> InlineKeyboardMarkup:
+    builder = InlineKeyboardBuilder()
+    builder.button(
+        text=buttons.ADMIN_CALENDAR_OPEN,
+        callback_data=SeasonOpenCallback(
+            action=SeasonOpenAction.CONFIRM,
+            scoring_config_id=0,
+        ),
+    )
+    builder.button(
+        text=buttons.ADMIN_CALENDAR_CANCEL,
+        callback_data=SeasonOpenCallback(
+            action=SeasonOpenAction.CANCEL,
+            scoring_config_id=0,
+        ),
+    )
+    builder.adjust(1)
+    return builder.as_markup()
+
+
+def scoring_config_label(config: ScoringConfigView) -> str:
+    return (
+        f"#{config.id}: 🥊 {config.knockout_small_points} | "
+        f"💥🥊 {config.knockout_big_points}"
+    )
 
 
 def tournament_day_edit_keyboard(prompt: AdminPromptView) -> InlineKeyboardMarkup:

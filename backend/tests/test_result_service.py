@@ -44,7 +44,7 @@ async def test_result_tournament_list_includes_open_past_tournaments(
             name="Test season",
             scoring_config_id=config.id,
             starts_at=date(2026, 7, 1),
-            ends_at=date(2026, 12, 31),
+            ends_at=None,
             status=SeasonStatus.ACTIVE,
         )
         admin = build_player(
@@ -125,7 +125,7 @@ async def test_result_draft_closes_tournament(tmp_path: Path) -> None:
             name="Test season",
             scoring_config_id=config.id,
             starts_at=date(2026, 7, 1),
-            ends_at=date(2026, 12, 31),
+            ends_at=None,
             status=SeasonStatus.ACTIVE,
         )
         admin = build_player(
@@ -242,7 +242,7 @@ async def test_result_draft_moves_duplicate_place_to_latest_player(
             name="Test season",
             scoring_config_id=config.id,
             starts_at=date(2026, 7, 1),
-            ends_at=date(2026, 12, 31),
+            ends_at=None,
             status=SeasonStatus.ACTIVE,
         )
         admin = build_player(

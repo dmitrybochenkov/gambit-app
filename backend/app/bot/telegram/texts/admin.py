@@ -63,7 +63,7 @@ REGISTRATION_ALREADY_REVIEWED = "Заявка уже обработана."
 
 ADMIN_CALENDAR_PROMPT = "Меню для создания сезонов и турниров в базе данных."
 ADMIN_CALENDAR_CANCELLED = "Отмена."
-ADMIN_CALENDAR_EMPTY_SEASONS = "Новый сезон пока не требуется."
+ADMIN_CALENDAR_EMPTY_SEASONS = "Нет конфигураций начисления рейтинга."
 ADMIN_CALENDAR_EMPTY_TOURNAMENTS = "Турниры на ближайшую неделю уже созданы."
 ADMIN_CALENDAR_SEASON_CREATED = "Сезон создан."
 SEASON_CREATED_TITLE = "Создан новый сезон:"
@@ -75,11 +75,17 @@ TOURNAMENT_REBUYS_LABEL = "Ребаи:"
 TOURNAMENT_ADDON_LABEL = "Аддон:"
 ADMIN_CALENDAR_EDIT_SEASON = "Ок, не открываю сезон. Пришли правки отдельным сообщением."
 ADMIN_CALENDAR_EDIT_MENU = "Что меняем?"
-ADMIN_CALENDAR_ENTER_SEASON_NAME = "Введи новое название сезона."
+ADMIN_CALENDAR_ENTER_SEASON_NAME = "Введи название сезона."
 ADMIN_CALENDAR_ENTER_SEASON_START = "Введи дату начала в формате 1.09.2026."
-ADMIN_CALENDAR_ENTER_SEASON_END = "Введи дату окончания в формате 30.11.2026."
+ADMIN_CALENDAR_SELECT_SCORING_CONFIG = "Выбери конфигурацию начисления рейтинга."
 ADMIN_CALENDAR_INVALID_DATE = "Дата должна быть в формате 1.09.2026."
-ADMIN_CALENDAR_INVALID_PERIOD = "Дата начала не может быть позже даты окончания. {retry_prompt}"
+ADMIN_CALENDAR_SEASON_NAME_EXISTS = "Сезон с таким названием уже существует."
+ADMIN_CALENDAR_SCORING_CONFIG_NOT_FOUND = "Конфигурация начисления рейтинга не найдена."
+ADMIN_CALENDAR_SEASON_START_INVALID = (
+    "Дата начала нового сезона должна быть позже даты начала текущего активного сезона."
+)
+ADMIN_CALENDAR_SEASON_CONFLICT = "Не удалось открыть сезон. Попробуй ещё раз."
+ADMIN_CALENDAR_SEASON_ALREADY_HANDLED = "Сценарий открытия сезона уже завершён."
 
 CALENDAR_PROMPT_NOT_FOUND = "Предложение не найдено."
 CALENDAR_PROMPT_ALREADY_RESOLVED = "Предложение уже обработано."
@@ -90,7 +96,11 @@ CALENDAR_PROMPT_NEEDS_CHANGES = "Нужны правки. Ручное реда�
 SEASON_PROPOSAL_TITLE = "Нужно подготовить следующий сезон."
 SEASON_MANUAL_PROPOSAL_TITLE = "Будет создан новый сезон:"
 SEASON_PROPOSAL_LABEL = "Предложение"
-SEASON_PERIOD_LABEL = "Период"
+SEASON_START_LABEL = "Дата начала"
+SEASON_SCORING_CONFIG_LABEL = "Конфигурация рейтинга"
+SEASON_ACTIVE_CLOSE_WARNING = (
+    "Текущий активный сезон, если он есть, будет закрыт датой за день до начала нового."
+)
 TOURNAMENTS_PROPOSAL_TITLE = "Нужно создать турниры на ближайшую неделю."
 CONFIRM_CREATION_PROMPT = "Подтвердить создание?"
 REGISTRATION_MATCHES_TITLE = "Возможные совпадения с историей:"
@@ -189,7 +199,3 @@ def calendar_reviewed_by_admin(
     admin_name: str,
 ) -> str:
     return f"{prompt_text}\n\n{result_text}: {admin_name}"
-
-
-def invalid_calendar_period(retry_prompt: str) -> str:
-    return ADMIN_CALENDAR_INVALID_PERIOD.format(retry_prompt=retry_prompt)
