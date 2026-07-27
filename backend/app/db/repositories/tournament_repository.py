@@ -4,7 +4,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
-from app.db.models import Tournament, WeeklyTournamentTemplate
+from app.db.models import Tournament, TournamentType, WeeklyTournamentTemplate
 from app.db.models.enums import TournamentStatus, TournamentTypeStatus
 
 
@@ -55,6 +55,15 @@ class TournamentRepository:
             select(Tournament.id).where(Tournament.date == tournament_date)
         )
         return result.scalar_one_or_none() is not None
+
+    async def get_active_tournament_type_by_code(self, code: str) -> TournamentType | None:
+        result = await self.session.execute(
+            select(TournamentType).where(
+                TournamentType.code == code,
+                TournamentType.status == TournamentTypeStatus.ACTIVE,
+            )
+        )
+        return result.scalar_one_or_none()
 
     async def list_active_weekly_templates(self) -> list[WeeklyTournamentTemplate]:
         result = await self.session.execute(

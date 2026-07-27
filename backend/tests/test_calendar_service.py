@@ -8,12 +8,14 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncEngine, async_sessionmaker, create_async_engine
 
 from app.db.base import Base
-from app.db.models import AdminPrompt, ScoringConfig, Season, Tournament
-from app.db.models.enums import SeasonStatus, TournamentStatus
+from app.db.models import AdminPrompt, ScoringConfig, Season, Tournament, TournamentType
+from app.db.models.enums import SeasonStatus, TournamentStatus, TournamentTypeStatus
 from app.services.calendar_service import (
     CalendarPromptAction,
     CalendarPromptAlreadyResolvedError,
     CalendarService,
+    CalendarSundayTournamentDateError,
+    CalendarSundayTournamentTypeNotFoundError,
     CalendarTournamentDateAlreadyExistsError,
 )
 
@@ -295,5 +297,126 @@ async def test_repeated_prompt_confirmation_does_not_create_second_tournament(
             tournaments = list((await session.execute(select(Tournament))).scalars())
 
         assert len(tournaments) == 1
+    finally:
+        await engine.dispose()
+
+
+async def test_recommended_sunday_tournament_type_resolves_active_type(
+    tmp_path: Path,
+) -> None:
+    service, session_factory, engine = await create_calendar_service(tmp_path / "calendar.db")
+    try:
+        await seed_calendar_data(session_factory)
+
+        tournament_type = await service.get_recommended_sunday_tournament_type(
+            date(2026, 7, 26)
+        )
+
+        assert tournament_type.id == 5
+        assert tournament_type.name == "Mystery Bounty"
+    finally:
+        await engine.dispose()
+
+
+async def test_recommended_sunday_tournament_type_rejects_non_sunday(
+    tmp_path: Path,
+) -> None:
+    service, _session_factory, engine = await create_calendar_service(tmp_path / "calendar.db")
+    try:
+        with pytest.raises(CalendarSundayTournamentDateError):
+            await service.get_recommended_sunday_tournament_type(date(2026, 7, 27))
+    finally:
+        await engine.dispose()
+
+
+async def test_recommended_sunday_tournament_type_requires_configured_type(
+    tmp_path: Path,
+) -> None:
+    service, session_factory, engine = await create_calendar_service(tmp_path / "calendar.db")
+    try:
+        async with session_factory() as session:
+            await seed_tournament_types_async(session)
+            boss = await session.get(TournamentType, 6)
+            assert boss is not None
+            await session.delete(boss)
+            await session.commit()
+
+        with pytest.raises(CalendarSundayTournamentTypeNotFoundError):
+            await service.get_recommended_sunday_tournament_type(date(2026, 8, 2))
+    finally:
+        await engine.dispose()
+
+
+async def test_recommended_sunday_tournament_type_requires_active_type(
+    tmp_path: Path,
+) -> None:
+    service, session_factory, engine = await create_calendar_service(tmp_path / "calendar.db")
+    try:
+        async with session_factory() as session:
+            await seed_tournament_types_async(session)
+            boss = await session.get(TournamentType, 6)
+            assert boss is not None
+            boss.status = TournamentTypeStatus.ARCHIVED
+            await session.commit()
+
+        with pytest.raises(CalendarSundayTournamentTypeNotFoundError):
+            await service.get_recommended_sunday_tournament_type(date(2026, 8, 2))
+    finally:
+        await engine.dispose()
+
+
+async def test_existing_tournaments_do_not_affect_sunday_recommendation(
+    tmp_path: Path,
+) -> None:
+    service, session_factory, engine = await create_calendar_service(tmp_path / "calendar.db")
+    try:
+        await seed_calendar_data(session_factory)
+        async with session_factory() as session:
+            session.add_all(
+                [
+                    Tournament(
+                        season_id=1,
+                        tournament_type_id=5,
+                        date=date(2026, 7, 19),
+                        status=TournamentStatus.ACTIVE,
+                    ),
+                    Tournament(
+                        season_id=1,
+                        tournament_type_id=5,
+                        date=date(2026, 8, 9),
+                        status=TournamentStatus.ACTIVE,
+                    ),
+                ]
+            )
+            await session.commit()
+
+        first_recommendation = await service.get_recommended_sunday_tournament_type(
+            date(2026, 8, 2)
+        )
+
+        async with session_factory() as session:
+            historical = (
+                await session.execute(
+                    select(Tournament).where(Tournament.date == date(2026, 7, 19))
+                )
+            ).scalar_one()
+            await session.delete(historical)
+            session.add(
+                Tournament(
+                    season_id=1,
+                    tournament_type_id=6,
+                    date=date(2026, 8, 16),
+                    status=TournamentStatus.ACTIVE,
+                )
+            )
+            await session.commit()
+
+        second_recommendation = await service.get_recommended_sunday_tournament_type(
+            date(2026, 8, 2)
+        )
+
+        assert first_recommendation.id == 6
+        assert first_recommendation.name == "Boss Bounty"
+        assert second_recommendation == first_recommendation
     finally:
         await engine.dispose()

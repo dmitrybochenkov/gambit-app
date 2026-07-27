@@ -33,6 +33,11 @@ from app.services.dto import (
     TournamentTypeDetailView,
     TournamentTypeOptionView,
 )
+from app.services.sunday_tournament_rotation import (
+    SundayTournamentRotation,
+    SundayTournamentRotationDateError,
+    sunday_tournament_rotation,
+)
 
 
 class AdminPromptKind(StrEnum):
@@ -65,9 +70,22 @@ class CalendarTournamentDateAlreadyExistsError(ValueError):
     pass
 
 
+class CalendarSundayTournamentDateError(ValueError):
+    pass
+
+
+class CalendarSundayTournamentTypeNotFoundError(ValueError):
+    pass
+
+
 class CalendarService:
-    def __init__(self, session_factory: async_sessionmaker[AsyncSession]) -> None:
+    def __init__(
+        self,
+        session_factory: async_sessionmaker[AsyncSession],
+        sunday_rotation: SundayTournamentRotation = sunday_tournament_rotation,
+    ) -> None:
         self.session_factory = session_factory
+        self.sunday_rotation = sunday_rotation
 
     async def create_manual_tournament_prompt(
         self,
@@ -121,6 +139,26 @@ class CalendarService:
                 TournamentTypeOptionView(id=tournament_type.id, name=tournament_type.name)
                 for tournament_type in result.scalars()
             ]
+
+    async def get_recommended_sunday_tournament_type(
+        self,
+        target_date: date,
+    ) -> TournamentTypeOptionView:
+        try:
+            tournament_type_code = self.sunday_rotation.code_for(target_date)
+        except SundayTournamentRotationDateError as error:
+            raise CalendarSundayTournamentDateError from error
+
+        async with self.session_factory() as session:
+            tournament_type = await TournamentRepository(
+                session
+            ).get_active_tournament_type_by_code(tournament_type_code)
+            if tournament_type is None:
+                raise CalendarSundayTournamentTypeNotFoundError(tournament_type_code)
+            return TournamentTypeOptionView(
+                id=tournament_type.id,
+                name=tournament_type.name,
+            )
 
     async def resolve_prompt(
         self,
