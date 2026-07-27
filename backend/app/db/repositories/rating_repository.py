@@ -62,9 +62,7 @@ class RatingRepository:
                 Season.id == Tournament.season_id,
             ).where(Season.status == SeasonStatus.ACTIVE)
 
-        result = await self.session.execute(
-            statement.order_by(total_points.desc(), Player.id)
-        )
+        result = await self.session.execute(statement.order_by(total_points.desc(), Player.id))
         return [
             PointsRatingRow(
                 player_id=row.player_id,

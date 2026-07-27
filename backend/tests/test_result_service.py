@@ -209,9 +209,7 @@ async def test_result_draft_closes_tournament(tmp_path: Path) -> None:
     async with session_factory() as session:
         results = list(
             (
-                await session.execute(
-                    select(TournamentResult).order_by(TournamentResult.player_id)
-                )
+                await session.execute(select(TournamentResult).order_by(TournamentResult.player_id))
             ).scalars()
         )
         drafts = list((await session.execute(select(TournamentResultDraft))).scalars())
@@ -298,9 +296,7 @@ async def test_result_draft_moves_duplicate_place_to_latest_player(
         (player_ids[0], None),
         (player_ids[1], 1),
     ]
-    assert await service.validate_draft(100, tournament_id) == [
-        "Введи места: 2, 3, 4, 5."
-    ]
+    assert await service.validate_draft(100, tournament_id) == ["Введи места: 2, 3, 4, 5."]
 
     try:
         await service.update_player_result(

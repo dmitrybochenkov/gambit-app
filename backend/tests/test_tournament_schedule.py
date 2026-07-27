@@ -168,34 +168,29 @@ async def test_active_player_can_register_for_multiple_tournaments(tmp_path: Pat
         assert len(registrations) == 2
         assert all(registration.player_id == player_id for registration in registrations)
         assert all(
-            registration.status == RegistrationStatus.REGISTERED
-            for registration in registrations
+            registration.status == RegistrationStatus.REGISTERED for registration in registrations
         )
 
         upcoming_registrations = await service.get_player_upcoming_registrations(
             telegram_id=100,
             from_date=date(2026, 7, 6),
         )
-        assert [
-            tournament.id for tournament in upcoming_registrations
-        ] == tournament_ids
-        assert [
-            tournament.tournament_type_name for tournament in upcoming_registrations
-        ] == ["Баунти турнир", "Классика"]
+        assert [tournament.id for tournament in upcoming_registrations] == tournament_ids
+        assert [tournament.tournament_type_name for tournament in upcoming_registrations] == [
+            "Баунти турнир",
+            "Классика",
+        ]
 
-        cancelled_tournaments = (
-            await service.cancel_player_tournament_registrations(
-                telegram_id=100,
-                tournament_ids=tournament_ids,
-                from_date=date(2026, 7, 6),
-            )
+        cancelled_tournaments = await service.cancel_player_tournament_registrations(
+            telegram_id=100,
+            tournament_ids=tournament_ids,
+            from_date=date(2026, 7, 6),
         )
-        assert [
-            tournament.id for tournament in cancelled_tournaments
-        ] == tournament_ids
-        assert [
-            tournament.tournament_type_name for tournament in cancelled_tournaments
-        ] == ["Баунти турнир", "Классика"]
+        assert [tournament.id for tournament in cancelled_tournaments] == tournament_ids
+        assert [tournament.tournament_type_name for tournament in cancelled_tournaments] == [
+            "Баунти турнир",
+            "Классика",
+        ]
 
         async with session_factory() as session:
             cancelled_registrations = list(
@@ -212,8 +207,7 @@ async def test_active_player_can_register_for_multiple_tournaments(tmp_path: Pat
             for registration in cancelled_registrations
         )
         assert all(
-            registration.cancelled_at is not None
-            for registration in cancelled_registrations
+            registration.cancelled_at is not None for registration in cancelled_registrations
         )
         assert (
             await service.get_player_upcoming_registrations(
@@ -270,13 +264,11 @@ async def test_admin_can_register_player_for_tournament(tmp_path: Path) -> None:
 
     service = TournamentService(session_factory)
     try:
-        tournament_view, player_view = (
-            await service.register_player_for_tournament_by_admin(
-                admin_telegram_id=100,
-                tournament_id=tournament_id,
-                player_id=player_id,
-                from_date=date(2026, 7, 6),
-            )
+        tournament_view, player_view = await service.register_player_for_tournament_by_admin(
+            admin_telegram_id=100,
+            tournament_id=tournament_id,
+            player_id=player_id,
+            from_date=date(2026, 7, 6),
         )
         await service.register_player_for_tournament_by_admin(
             admin_telegram_id=100,
@@ -359,8 +351,6 @@ async def test_admin_player_registration_list_is_sorted_and_searchable(
             "Борис Второй (boris_two)",
             "Яков Третий (yakov)",
         ]
-        assert [player.display_name for player in search_results] == [
-            "Анна Первая (anna_one)"
-        ]
+        assert [player.display_name for player in search_results] == ["Анна Первая (anna_one)"]
     finally:
         await engine.dispose()

@@ -233,9 +233,7 @@ async def cancel_rating(
     callback_data: keyboards.RatingCancelCallback,
 ) -> None:
     answer = (
-        "Рейтинг закрыт"
-        if callback_data.action == keyboards.RatingCancelAction.CLOSE
-        else "Отмена"
+        "Рейтинг закрыт" if callback_data.action == keyboards.RatingCancelAction.CLOSE else "Отмена"
     )
     await callback.answer(answer)
     if callback.message is None:
@@ -316,9 +314,7 @@ async def show_tournaments_for_registration(message: Message, state: FSMContext)
     )
     registered_tournament_ids = {tournament.id for tournament in registered_tournaments}
     selected_tournament_ids = [
-        tournament.id
-        for tournament in tournaments
-        if tournament.id in registered_tournament_ids
+        tournament.id for tournament in tournaments if tournament.id in registered_tournament_ids
     ]
     await state.update_data(tournament_registration_selection=selected_tournament_ids)
     page = pagination_service.paginate(
@@ -364,9 +360,7 @@ async def register_for_tournament(
         return
     available_ids = {tournament.id for tournament in tournaments}
     selected_tournament_ids &= available_ids
-    await state.update_data(
-        tournament_registration_selection=sorted(selected_tournament_ids)
-    )
+    await state.update_data(tournament_registration_selection=sorted(selected_tournament_ids))
     page = pagination_service.paginate(
         tournaments,
         page=callback_data.page,
@@ -496,9 +490,7 @@ async def select_tournament_for_cancellation(
 
     available_ids = {tournament.id for tournament in tournaments}
     selected_tournament_ids &= available_ids
-    await state.update_data(
-        tournament_cancellation_selection=sorted(selected_tournament_ids)
-    )
+    await state.update_data(tournament_cancellation_selection=sorted(selected_tournament_ids))
     page = pagination_service.paginate(
         tournaments,
         page=callback_data.page,

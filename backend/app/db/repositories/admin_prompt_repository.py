@@ -13,9 +13,7 @@ class AdminPromptRepository:
         return await self.session.get(AdminPrompt, prompt_id)
 
     async def get_by_key(self, key: str) -> AdminPrompt | None:
-        result = await self.session.execute(
-            select(AdminPrompt).where(AdminPrompt.key == key)
-        )
+        result = await self.session.execute(select(AdminPrompt).where(AdminPrompt.key == key))
         return result.scalar_one_or_none()
 
     async def get_or_create_pending(

@@ -98,9 +98,7 @@ async def test_registration_creates_historical_match_before_approval(
             assert historical is not None
             assert historical.telegram_id == -1
 
-            match = (
-                await session.execute(select(RegistrationMatch))
-            ).scalar_one()
+            match = (await session.execute(select(RegistrationMatch))).scalar_one()
             assert match.pending_player_id == pending_player.id
             assert match.historical_player_id == historical_player.id
             assert match.score == 100

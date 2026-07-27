@@ -23,13 +23,9 @@ def upgrade() -> None:
         sa.text("SELECT COUNT(*) FROM players WHERE status = 'rejected'")
     ).scalar_one()
     if rejected_count:
-        raise RuntimeError(
-            "Cannot remove rejected player state while rejected players exist."
-        )
+        raise RuntimeError("Cannot remove rejected player state while rejected players exist.")
 
-    existing_columns = {
-        column["name"] for column in sa.inspect(connection).get_columns("players")
-    }
+    existing_columns = {column["name"] for column in sa.inspect(connection).get_columns("players")}
     columns_to_drop = [
         column
         for column in ["rejection_reason", "rejected_by_admin_id", "rejected_at"]

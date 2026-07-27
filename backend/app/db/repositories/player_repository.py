@@ -18,9 +18,7 @@ class PlayerRepository:
 
     async def list_pending(self, limit: int | None = None) -> list[Player]:
         query = (
-            select(Player)
-            .where(Player.status == PlayerStatus.PENDING)
-            .order_by(Player.created_at)
+            select(Player).where(Player.status == PlayerStatus.PENDING).order_by(Player.created_at)
         )
         if limit is not None:
             query = query.limit(limit)
@@ -113,9 +111,7 @@ class PlayerRepository:
 
     async def list_historical_players(self) -> list[Player]:
         result = await self.session.execute(
-            select(Player)
-            .where(Player.telegram_id < 0)
-            .order_by(Player.id)
+            select(Player).where(Player.telegram_id < 0).order_by(Player.id)
         )
         return list(result.scalars())
 

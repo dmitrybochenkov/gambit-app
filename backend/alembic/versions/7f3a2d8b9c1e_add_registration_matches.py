@@ -120,9 +120,7 @@ def downgrade() -> None:
 
 def _populate_normalized_identity() -> None:
     connection = op.get_bind()
-    players = connection.execute(
-        sa.text("SELECT id, full_name, nickname FROM players")
-    ).mappings()
+    players = connection.execute(sa.text("SELECT id, full_name, nickname FROM players")).mappings()
     for player in players:
         connection.execute(
             sa.text(

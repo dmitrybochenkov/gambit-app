@@ -32,9 +32,7 @@ async def create_calendar_service(
 
 
 async def test_manual_tournament_prompt_collects_next_week(tmp_path: Path) -> None:
-    service, session_factory, engine = await create_calendar_service(
-        tmp_path / "calendar.db"
-    )
+    service, session_factory, engine = await create_calendar_service(tmp_path / "calendar.db")
     try:
         async with session_factory() as session:
             config = ScoringConfig()
@@ -54,9 +52,7 @@ async def test_manual_tournament_prompt_collects_next_week(tmp_path: Path) -> No
             )
             await session.commit()
 
-        prompt = await service.get_or_create_manual_tournaments_prompt(
-            today=date(2026, 7, 12)
-        )
+        prompt = await service.get_or_create_manual_tournaments_prompt(today=date(2026, 7, 12))
 
         assert prompt.kind == "tournaments_proposal"
         payload = json.loads(prompt.payload)
@@ -87,9 +83,7 @@ async def test_manual_tournament_prompt_collects_next_week(tmp_path: Path) -> No
 
 
 async def test_confirming_tournament_prompt_creates_tournaments(tmp_path: Path) -> None:
-    service, session_factory, engine = await create_calendar_service(
-        tmp_path / "calendar.db"
-    )
+    service, session_factory, engine = await create_calendar_service(tmp_path / "calendar.db")
     try:
         async with session_factory() as session:
             config = ScoringConfig()
@@ -109,9 +103,7 @@ async def test_confirming_tournament_prompt_creates_tournaments(tmp_path: Path) 
             )
             await session.commit()
 
-        prompt = await service.get_or_create_manual_tournaments_prompt(
-            today=date(2026, 7, 12)
-        )
+        prompt = await service.get_or_create_manual_tournaments_prompt(today=date(2026, 7, 12))
         await service.resolve_prompt(
             prompt_id=prompt.id,
             admin_telegram_id=100,
@@ -122,10 +114,7 @@ async def test_confirming_tournament_prompt_creates_tournaments(tmp_path: Path) 
             tournaments = list((await session.execute(select(Tournament))).scalars())
 
         assert len(tournaments) == 5
-        assert [
-            (tournament.date, tournament.tournament_type_id)
-            for tournament in tournaments
-        ] == [
+        assert [(tournament.date, tournament.tournament_type_id) for tournament in tournaments] == [
             (date(2026, 7, 15), 1),
             (date(2026, 7, 16), 2),
             (date(2026, 7, 17), 3),
@@ -138,9 +127,7 @@ async def test_confirming_tournament_prompt_creates_tournaments(tmp_path: Path) 
 
 
 async def test_confirming_season_prompt_creates_upcoming_season(tmp_path: Path) -> None:
-    service, session_factory, engine = await create_calendar_service(
-        tmp_path / "calendar.db"
-    )
+    service, session_factory, engine = await create_calendar_service(tmp_path / "calendar.db")
     try:
         async with session_factory() as session:
             config = ScoringConfig()
@@ -160,9 +147,7 @@ async def test_confirming_season_prompt_creates_upcoming_season(tmp_path: Path) 
             )
             await session.commit()
 
-        prompt = await service.get_or_create_manual_season_prompt(
-            today=date(2026, 7, 18)
-        )
+        prompt = await service.get_or_create_manual_season_prompt(today=date(2026, 7, 18))
         resolved = await service.resolve_prompt(
             prompt_id=prompt.id,
             admin_telegram_id=100,
@@ -185,9 +170,7 @@ async def test_confirming_season_prompt_creates_upcoming_season(tmp_path: Path) 
 async def test_manual_season_prompt_can_be_created_before_season_end(
     tmp_path: Path,
 ) -> None:
-    service, session_factory, engine = await create_calendar_service(
-        tmp_path / "calendar.db"
-    )
+    service, session_factory, engine = await create_calendar_service(tmp_path / "calendar.db")
     try:
         async with session_factory() as session:
             config = ScoringConfig()
@@ -204,9 +187,7 @@ async def test_manual_season_prompt_can_be_created_before_season_end(
             )
             await session.commit()
 
-        prompt = await service.get_or_create_manual_season_prompt(
-            today=date(2026, 7, 18)
-        )
+        prompt = await service.get_or_create_manual_season_prompt(today=date(2026, 7, 18))
         payload = json.loads(prompt.payload)
 
         assert prompt.kind == "season_proposal"
@@ -216,9 +197,7 @@ async def test_manual_season_prompt_can_be_created_before_season_end(
 
 
 async def test_manual_season_prompt_reopens_resolved_prompt(tmp_path: Path) -> None:
-    service, session_factory, engine = await create_calendar_service(
-        tmp_path / "calendar.db"
-    )
+    service, session_factory, engine = await create_calendar_service(tmp_path / "calendar.db")
     try:
         async with session_factory() as session:
             config = ScoringConfig()
@@ -235,17 +214,13 @@ async def test_manual_season_prompt_reopens_resolved_prompt(tmp_path: Path) -> N
             )
             await session.commit()
 
-        prompt = await service.get_or_create_manual_season_prompt(
-            today=date(2026, 7, 18)
-        )
+        prompt = await service.get_or_create_manual_season_prompt(today=date(2026, 7, 18))
         await service.resolve_prompt(
             prompt_id=prompt.id,
             admin_telegram_id=100,
             action=CalendarPromptAction.CANCEL,
         )
-        reopened = await service.get_or_create_manual_season_prompt(
-            today=date(2026, 7, 18)
-        )
+        reopened = await service.get_or_create_manual_season_prompt(today=date(2026, 7, 18))
 
         assert reopened.id == prompt.id
         assert reopened.status == AdminPromptStatus.PENDING.value
@@ -254,9 +229,7 @@ async def test_manual_season_prompt_reopens_resolved_prompt(tmp_path: Path) -> N
 
 
 async def test_updates_manual_season_prompt(tmp_path: Path) -> None:
-    service, session_factory, engine = await create_calendar_service(
-        tmp_path / "calendar.db"
-    )
+    service, session_factory, engine = await create_calendar_service(tmp_path / "calendar.db")
     try:
         async with session_factory() as session:
             config = ScoringConfig()
@@ -273,9 +246,7 @@ async def test_updates_manual_season_prompt(tmp_path: Path) -> None:
             )
             await session.commit()
 
-        prompt = await service.get_or_create_manual_season_prompt(
-            today=date(2026, 7, 18)
-        )
+        prompt = await service.get_or_create_manual_season_prompt(today=date(2026, 7, 18))
         updated = await service.update_season_prompt(
             prompt_id=prompt.id,
             name="Осенний сезон 2026",
@@ -291,9 +262,7 @@ async def test_updates_manual_season_prompt(tmp_path: Path) -> None:
 
 
 async def test_rejects_invalid_manual_season_period(tmp_path: Path) -> None:
-    service, session_factory, engine = await create_calendar_service(
-        tmp_path / "calendar.db"
-    )
+    service, session_factory, engine = await create_calendar_service(tmp_path / "calendar.db")
     try:
         async with session_factory() as session:
             config = ScoringConfig()
@@ -310,9 +279,7 @@ async def test_rejects_invalid_manual_season_period(tmp_path: Path) -> None:
             )
             await session.commit()
 
-        prompt = await service.get_or_create_manual_season_prompt(
-            today=date(2026, 7, 18)
-        )
+        prompt = await service.get_or_create_manual_season_prompt(today=date(2026, 7, 18))
         try:
             await service.update_season_prompt(
                 prompt_id=prompt.id,
@@ -335,9 +302,7 @@ def test_winter_season_name_uses_start_year_only() -> None:
 
 
 async def test_manual_tournament_prompt_uses_next_monday(tmp_path: Path) -> None:
-    service, session_factory, engine = await create_calendar_service(
-        tmp_path / "calendar.db"
-    )
+    service, session_factory, engine = await create_calendar_service(tmp_path / "calendar.db")
     try:
         async with session_factory() as session:
             config = ScoringConfig()
@@ -357,9 +322,7 @@ async def test_manual_tournament_prompt_uses_next_monday(tmp_path: Path) -> None
             )
             await session.commit()
 
-        prompt = await service.get_or_create_manual_tournaments_prompt(
-            today=date(2026, 7, 16)
-        )
+        prompt = await service.get_or_create_manual_tournaments_prompt(today=date(2026, 7, 16))
         payload = json.loads(prompt.payload)
 
         assert [item["date"] for item in payload["tournaments"]][:2] == [
@@ -373,9 +336,7 @@ async def test_manual_tournament_prompt_uses_next_monday(tmp_path: Path) -> None
 async def test_sync_season_statuses_closes_finished_and_opens_current(
     tmp_path: Path,
 ) -> None:
-    service, session_factory, engine = await create_calendar_service(
-        tmp_path / "calendar.db"
-    )
+    service, session_factory, engine = await create_calendar_service(tmp_path / "calendar.db")
     try:
         async with session_factory() as session:
             config = ScoringConfig()

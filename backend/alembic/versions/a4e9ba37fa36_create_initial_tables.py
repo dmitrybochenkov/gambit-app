@@ -27,9 +27,7 @@ def upgrade() -> None:
         sa.Column("nickname", sa.String(length=100), nullable=True),
         sa.Column(
             "status",
-            sa.Enum(
-                "pending", "active", "blocked", name="player_status", native_enum=False
-            ),
+            sa.Enum("pending", "active", "blocked", name="player_status", native_enum=False),
             nullable=False,
         ),
         sa.Column(

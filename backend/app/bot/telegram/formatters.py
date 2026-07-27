@@ -29,10 +29,7 @@ def format_tournament_label(tournament: TournamentView) -> str:
         if tournament.tournament_type_name is not None
         else _fallback_tournament_type_name(tournament)
     )
-    return (
-        f"{weekday}, {tournament.date.day} {month} — "
-        f"{type_name}"
-    )
+    return f"{weekday}, {tournament.date.day} {month} — {type_name}"
 
 
 def format_tournament_schedule(tournaments: list[TournamentView]) -> str:
@@ -93,11 +90,7 @@ def format_admin_result_tournament_list(page: Page[TournamentView]) -> str:
 
 
 def format_admin_result_menu(draft: TournamentResultDraftView) -> str:
-    pool = (
-        format_decimal(draft.points_pool)
-        if draft.points_pool is not None
-        else "не введен"
-    )
+    pool = format_decimal(draft.points_pool) if draft.points_pool is not None else "не введен"
     lines = [
         texts.admin.ADMIN_RESULTS_MENU_TITLE,
         format_tournament_label(draft.tournament),
@@ -109,11 +102,7 @@ def format_admin_result_menu(draft: TournamentResultDraftView) -> str:
 
 
 def format_admin_result_close_confirmation(draft: TournamentResultDraftView) -> str:
-    pool = (
-        format_decimal(draft.points_pool)
-        if draft.points_pool is not None
-        else "не введен"
-    )
+    pool = format_decimal(draft.points_pool) if draft.points_pool is not None else "не введен"
     lines = [
         "Подтверди закрытие турнира",
         format_tournament_label(draft.tournament),
@@ -144,11 +133,7 @@ def format_admin_result_players(
 
 
 def _admin_result_player_has_value(player: TournamentResultDraftPlayerView) -> bool:
-    return (
-        player.place is not None
-        or player.knockouts_count > 0
-        or player.big_knockouts_count > 0
-    )
+    return player.place is not None or player.knockouts_count > 0 or player.big_knockouts_count > 0
 
 
 def _admin_result_summary_lines(draft: TournamentResultDraftView) -> list[str]:

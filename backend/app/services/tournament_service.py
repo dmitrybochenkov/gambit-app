@@ -96,9 +96,7 @@ class TournamentService:
             player = await PlayerRepository(session).get_by_telegram_id(telegram_id)
             if player is None or player.status != PlayerStatus.ACTIVE:
                 raise TournamentRegistrationNotAllowedError
-            tournaments = await TournamentRegistrationRepository(
-                session
-            ).list_registered_upcoming(
+            tournaments = await TournamentRegistrationRepository(session).list_registered_upcoming(
                 player_id=player.id,
                 from_date=from_date or date.today(),
             )
@@ -165,11 +163,7 @@ class TournamentService:
                 raise TournamentUnavailableError
 
             player = await PlayerRepository(session).get_by_id(player_id)
-            if (
-                player is None
-                or player.status != PlayerStatus.ACTIVE
-                or player.telegram_id <= 0
-            ):
+            if player is None or player.status != PlayerStatus.ACTIVE or player.telegram_id <= 0:
                 raise TournamentPlayerNotFoundError
 
             repository = TournamentRegistrationRepository(session)
@@ -266,23 +260,16 @@ class TournamentService:
                 player_id=player.id,
                 from_date=from_date or date.today(),
             )
-            tournaments_by_id = {
-                tournament.id: tournament
-                for tournament in available_tournaments
-            }
+            tournaments_by_id = {tournament.id: tournament for tournament in available_tournaments}
             if any(
-                tournament_id not in tournaments_by_id
-                for tournament_id in unique_tournament_ids
+                tournament_id not in tournaments_by_id for tournament_id in unique_tournament_ids
             ):
                 raise TournamentCancellationUnavailableError
 
             registrations: list[TournamentRegistration] = []
             for tournament_id in unique_tournament_ids:
                 registration = await repository.get(tournament_id, player.id)
-                if (
-                    registration is None
-                    or registration.status != RegistrationStatus.REGISTERED
-                ):
+                if registration is None or registration.status != RegistrationStatus.REGISTERED:
                     raise TournamentCancellationUnavailableError
                 registrations.append(registration)
 

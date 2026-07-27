@@ -36,13 +36,11 @@ BOT_ACCESS_BLOCKED = "Доступ к боту заблокирован."
 SCHEDULE_UNAVAILABLE = "Расписание доступно зарегистрированным игрокам. Нажми /start."
 ADDRESS_UNAVAILABLE = "Адрес доступен зарегистрированным игрокам. Нажми /start."
 CLUB_ADDRESS = (
-    "📍 Орехово-Зуево, ул. Ленина, 105\n"
-    "🏆 Играем исключительно на рейтинг и спортивный интерес."
+    "📍 Орехово-Зуево, ул. Ленина, 105\n🏆 Играем исключительно на рейтинг и спортивный интерес."
 )
 
 RATING_UNAVAILABLE = (
-    "Рейтинг доступен зарегистрированным игрокам. "
-    "Нажми /start, чтобы зарегистрироваться!"
+    "Рейтинг доступен зарегистрированным игрокам. Нажми /start, чтобы зарегистрироваться!"
 )
 RATING_MENU_PROMPT = "Какой рейтинг ты хочешь посмотреть?"
 RATING_ACTIVE_ONLY = "Рейтинг доступен только активным игрокам."
@@ -55,14 +53,10 @@ PROFILE_NOT_FOUND = "Профиль не найден. Нажми /start."
 PROFILE_PRIZE_PLACES_LABEL = "Количество призовых мест:"
 
 TOURNAMENTS_EMPTY = "Ближайших турниров пока нет."
-TOURNAMENT_REGISTRATION_UNAVAILABLE = (
-    "Запись доступна зарегистрированным игрокам. Нажми /start."
-)
+TOURNAMENT_REGISTRATION_UNAVAILABLE = "Запись доступна зарегистрированным игрокам. Нажми /start."
 TOURNAMENT_REGISTRATION_ACTIVE_ONLY = "Запись доступна только активным игрокам."
 TOURNAMENT_REGISTRATION_EMPTY = "Ближайших турниров для записи пока нет."
-TOURNAMENT_REGISTRATION_PROMPT = (
-    "Выбери турниры, на которые хочешь записаться."
-)
+TOURNAMENT_REGISTRATION_PROMPT = "Выбери турниры, на которые хочешь записаться."
 TOURNAMENT_REMOVED_FROM_SELECTION = "Турнир убран из выбранных."
 TOURNAMENT_ADDED_TO_SELECTION = "Турнир добавлен."
 TOURNAMENT_SELECTION_EMPTY = "Сначала выбери хотя бы один турнир."
@@ -78,16 +72,10 @@ TOURNAMENT_REGISTRATION_GRATITUDE = (
 TOURNAMENT_CANCELLATION_UNAVAILABLE = (
     "Отмена записи доступна зарегистрированным игрокам. Нажми /start."
 )
-TOURNAMENT_CANCELLATION_ACTIVE_ONLY = (
-    "Отмена записи доступна только активным игрокам."
-)
+TOURNAMENT_CANCELLATION_ACTIVE_ONLY = "Отмена записи доступна только активным игрокам."
 TOURNAMENT_CANCELLATION_EMPTY = "Ты не записан ни на один турнир."
-TOURNAMENT_CANCELLATION_PROMPT = (
-    "Выбери турниры, с которых хочешь снять запись."
-)
-TOURNAMENT_CANCELLATION_UNAVAILABLE_ITEM = (
-    "Одна из записей уже недоступна для отмены."
-)
+TOURNAMENT_CANCELLATION_PROMPT = "Выбери турниры, с которых хочешь снять запись."
+TOURNAMENT_CANCELLATION_UNAVAILABLE_ITEM = "Одна из записей уже недоступна для отмены."
 TOURNAMENT_CANCELLATION_CANCELLED = "Отмена"
 TOURNAMENT_CANCELLATION_SINGLE_HEADING = "Ты отменил запись на турнир:"
 TOURNAMENT_CANCELLATION_MULTIPLE_HEADING = "Ты отменил запись на турниры:"
@@ -163,8 +151,7 @@ def rating_message(
         if isinstance(row, PointsRatingView):
             points = _format_decimal(row.total_points)
             lines.append(
-                f"{position_label} {display_name} — "
-                f"⭐{points} | 🎲 {row.tournaments_count}"
+                f"{position_label} {display_name} — ⭐{points} | 🎲 {row.tournaments_count}"
             )
         else:
             knockout_points = _format_decimal(row.knockout_points)

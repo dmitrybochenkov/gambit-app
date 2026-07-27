@@ -189,9 +189,7 @@ class CalendarService:
                 payload["starts_at"] = starts_at.isoformat()
             if ends_at is not None:
                 payload["ends_at"] = ends_at.isoformat()
-            if date.fromisoformat(payload["starts_at"]) > date.fromisoformat(
-                payload["ends_at"]
-            ):
+            if date.fromisoformat(payload["starts_at"]) > date.fromisoformat(payload["ends_at"]):
                 raise CalendarPromptInvalidPayloadError
 
             prompt.payload = json.dumps(payload, ensure_ascii=False)

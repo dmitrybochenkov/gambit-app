@@ -38,20 +38,14 @@ ADMIN_RESULTS_CHECK_FAILED_SHORT = "Нужно поправить ошибки."
 ADMIN_RESULTS_CANCELLED = "Отмена."
 ADMIN_RESULTS_NOT_FOUND = "Турнир не найден или уже закрыт."
 ADMIN_TOURNAMENT_REGISTRATION_NO_TOURNAMENTS = "Нет активных турниров для записи."
-ADMIN_TOURNAMENT_REGISTRATION_TOURNAMENT_LIST_TITLE = (
-    "Выбери турнир для регистрации игрока:"
-)
+ADMIN_TOURNAMENT_REGISTRATION_TOURNAMENT_LIST_TITLE = "Выбери турнир для регистрации игрока:"
 ADMIN_TOURNAMENT_REGISTRATION_NO_PLAYERS = "Нет активных игроков для регистрации."
 ADMIN_TOURNAMENT_REGISTRATION_PLAYER_LIST_TITLE = "Кого регистрируем?"
 ADMIN_TOURNAMENT_REGISTRATION_SEARCH_PROMPT = "Введи имя или ник игрока."
 ADMIN_TOURNAMENT_REGISTRATION_SEARCH_RESULTS_TITLE = "Нашел похожих игроков:"
 ADMIN_TOURNAMENT_REGISTRATION_SEARCH_EMPTY = "Игроки не найдены."
-ADMIN_TOURNAMENT_REGISTRATION_SUCCESS = (
-    "Игрок зарегистрирован на турнир:\n{player}\n{tournament}"
-)
-ADMIN_TOURNAMENT_REGISTRATION_PLAYER_NOTIFICATION = (
-    "Ты зарегистрирован на турнир:\n{tournament}"
-)
+ADMIN_TOURNAMENT_REGISTRATION_SUCCESS = "Игрок зарегистрирован на турнир:\n{player}\n{tournament}"
+ADMIN_TOURNAMENT_REGISTRATION_PLAYER_NOTIFICATION = "Ты зарегистрирован на турнир:\n{tournament}"
 ADMIN_TOURNAMENT_REGISTRATION_CANCELLED = "Отмена."
 ADMIN_TOURNAMENT_REGISTRATION_NOT_FOUND = "Турнир или игрок уже недоступен."
 NO_PENDING_REGISTRATIONS = "Новых заявок нет."
@@ -90,17 +84,13 @@ ADMIN_CALENDAR_ENTER_SEASON_NAME = "Введи новое название се�
 ADMIN_CALENDAR_ENTER_SEASON_START = "Введи дату начала в формате 1.09.2026."
 ADMIN_CALENDAR_ENTER_SEASON_END = "Введи дату окончания в формате 30.11.2026."
 ADMIN_CALENDAR_INVALID_DATE = "Дата должна быть в формате 1.09.2026."
-ADMIN_CALENDAR_INVALID_PERIOD = (
-    "Дата начала не может быть позже даты окончания. {retry_prompt}"
-)
+ADMIN_CALENDAR_INVALID_PERIOD = "Дата начала не может быть позже даты окончания. {retry_prompt}"
 
 CALENDAR_PROMPT_NOT_FOUND = "Предложение не найдено."
 CALENDAR_PROMPT_ALREADY_RESOLVED = "Предложение уже обработано."
 CALENDAR_PROMPT_CONFIRMED = "Подтверждено"
 CALENDAR_PROMPT_CANCELLED = "Отменено"
-CALENDAR_PROMPT_NEEDS_CHANGES = (
-    "Нужны правки. Ручное редактирование добавим в админке."
-)
+CALENDAR_PROMPT_NEEDS_CHANGES = "Нужны правки. Ручное редактирование добавим в админке."
 
 SEASON_PROPOSAL_TITLE = "Нужно подготовить следующий сезон."
 SEASON_MANUAL_PROPOSAL_TITLE = "Будет создан новый сезон:"
@@ -130,9 +120,7 @@ def admin_add_confirmation(display_name: str) -> str:
 
 
 def admin_result_check_failed(errors: list[str]) -> str:
-    return ADMIN_RESULTS_CHECK_FAILED.format(
-        errors="\n".join(f"• {error}" for error in errors)
-    )
+    return ADMIN_RESULTS_CHECK_FAILED.format(errors="\n".join(f"• {error}" for error in errors))
 
 
 def admin_tournament_registration_success(player: str, tournament: str) -> str:

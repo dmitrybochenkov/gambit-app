@@ -73,10 +73,7 @@ SEASON_EDIT_PROMPTS = {
     keyboards.SeasonEditAction.STARTS_AT: texts.admin.ADMIN_CALENDAR_ENTER_SEASON_START,
     keyboards.SeasonEditAction.ENDS_AT: texts.admin.ADMIN_CALENDAR_ENTER_SEASON_END,
 }
-TOURNAMENT_ECONOMY_PROMPT = (
-    "Введи вход и аддон в формате:\n"
-    "600 - 20000 - 800 - 125000"
-)
+TOURNAMENT_ECONOMY_PROMPT = "Введи вход и аддон в формате:\n600 - 20000 - 800 - 125000"
 TOURNAMENT_REBUYS_PROMPT = (
     "Введи ребаи в формате:\n"
     "600 / 800 / 800 / 800 / 1000 / 1000 - "
@@ -92,9 +89,7 @@ async def open_admin_panel(message: Message) -> None:
         return
 
     try:
-        admin_panel = await player_service.get_admin_panel_for_admin(
-            message.from_user.id
-        )
+        admin_panel = await player_service.get_admin_panel_for_admin(message.from_user.id)
     except AdminAccessDeniedError:
         await message.answer(texts.admin.ACCESS_DENIED)
         return
@@ -172,9 +167,7 @@ async def show_admin_candidates(message: Message) -> None:
         return
 
     try:
-        players = await player_service.list_admin_candidates_for_superadmin(
-            message.from_user.id
-        )
+        players = await player_service.list_admin_candidates_for_superadmin(message.from_user.id)
     except AdminAccessDeniedError:
         await message.answer(texts.admin.INSUFFICIENT_RIGHTS)
         return
@@ -200,9 +193,7 @@ async def show_result_tournaments(message: Message) -> None:
         return
 
     try:
-        tournaments = await result_service.list_open_tournaments_for_admin(
-            message.from_user.id
-        )
+        tournaments = await result_service.list_open_tournaments_for_admin(message.from_user.id)
     except AdminAccessDeniedError:
         await message.answer(texts.admin.ACCESS_DENIED)
         return
@@ -260,9 +251,7 @@ async def select_admin_registration_tournament(
             await callback.answer(texts.admin.ADMIN_TOURNAMENT_REGISTRATION_CANCELLED)
             if callback.message is not None:
                 await _delete_callback_message(callback)
-                await callback.message.answer(
-                    texts.admin.ADMIN_TOURNAMENT_REGISTRATION_CANCELLED
-                )
+                await callback.message.answer(texts.admin.ADMIN_TOURNAMENT_REGISTRATION_CANCELLED)
             return
 
         tournaments = await tournament_service.list_registration_tournaments_for_admin(
@@ -282,18 +271,12 @@ async def select_admin_registration_tournament(
         if callback.message is not None:
             await callback.message.edit_text(
                 format_admin_tournament_registration_tournament_list(page),
-                reply_markup=keyboards.admin_tournament_registration_tournament_keyboard(
-                    page
-                ),
+                reply_markup=keyboards.admin_tournament_registration_tournament_keyboard(page),
             )
         return
 
     tournament = next(
-        (
-            tournament
-            for tournament in tournaments
-            if tournament.id == callback_data.tournament_id
-        ),
+        (tournament for tournament in tournaments if tournament.id == callback_data.tournament_id),
         None,
     )
     if tournament is None:
@@ -315,9 +298,7 @@ async def select_admin_registration_tournament(
         await callback.answer()
         if callback.message is not None:
             await _delete_callback_message(callback)
-            await callback.message.answer(
-                texts.admin.ADMIN_TOURNAMENT_REGISTRATION_NO_PLAYERS
-            )
+            await callback.message.answer(texts.admin.ADMIN_TOURNAMENT_REGISTRATION_NO_PLAYERS)
         return
 
     page = pagination_service.paginate(
@@ -349,9 +330,7 @@ async def select_admin_registration_player(
             await callback.answer(texts.admin.ADMIN_TOURNAMENT_REGISTRATION_CANCELLED)
             if callback.message is not None:
                 await _delete_callback_message(callback)
-                await callback.message.answer(
-                    texts.admin.ADMIN_TOURNAMENT_REGISTRATION_CANCELLED
-                )
+                await callback.message.answer(texts.admin.ADMIN_TOURNAMENT_REGISTRATION_CANCELLED)
             return
 
         if callback_data.action == keyboards.AdminTournamentRegistrationPlayerAction.BACK:
@@ -369,9 +348,7 @@ async def select_admin_registration_player(
                 await _delete_callback_message(callback)
                 await callback.message.answer(
                     format_admin_tournament_registration_tournament_list(page),
-                    reply_markup=keyboards.admin_tournament_registration_tournament_keyboard(
-                        page
-                    ),
+                    reply_markup=keyboards.admin_tournament_registration_tournament_keyboard(page),
                 )
             return
 
@@ -397,12 +374,8 @@ async def select_admin_registration_player(
             callback.from_user.id
         )
         if callback_data.action == keyboards.AdminTournamentRegistrationPlayerAction.SEARCH:
-            await state.set_state(
-                AdminTournamentRegistrationStates.entering_player_search
-            )
-            await state.update_data(
-                admin_registration_tournament_id=callback_data.tournament_id
-            )
+            await state.set_state(AdminTournamentRegistrationStates.entering_player_search)
+            await state.update_data(admin_registration_tournament_id=callback_data.tournament_id)
             await callback.answer()
             if callback.message is not None:
                 await _delete_callback_message(callback)
@@ -430,12 +403,10 @@ async def select_admin_registration_player(
                 )
             return
 
-        tournament, player = (
-            await tournament_service.register_player_for_tournament_by_admin(
-                admin_telegram_id=callback.from_user.id,
-                tournament_id=callback_data.tournament_id,
-                player_id=callback_data.player_id,
-            )
+        tournament, player = await tournament_service.register_player_for_tournament_by_admin(
+            admin_telegram_id=callback.from_user.id,
+            tournament_id=callback_data.tournament_id,
+            player_id=callback_data.player_id,
         )
     except AdminAccessDeniedError:
         await state.clear()
@@ -464,9 +435,7 @@ async def select_admin_registration_player(
     try:
         await callback.bot.send_message(
             chat_id=player.telegram_id,
-            text=texts.admin.admin_tournament_registration_player_notification(
-                tournament_label
-            ),
+            text=texts.admin.admin_tournament_registration_player_notification(tournament_label),
             reply_markup=keyboards.main_keyboard_for_player(player),
         )
     except (TelegramBadRequest, TelegramForbiddenError):
@@ -635,9 +604,7 @@ async def confirm_result_close(
                 await _delete_callback_message(callback)
                 await callback.message.answer(
                     format_admin_result_menu(draft),
-                    reply_markup=keyboards.admin_result_menu_keyboard(
-                        draft.tournament.id
-                    ),
+                    reply_markup=keyboards.admin_result_menu_keyboard(draft.tournament.id),
                     parse_mode=RESULT_SUMMARY_PARSE_MODE,
                 )
             return
@@ -710,9 +677,7 @@ async def select_result_player(
                 await _delete_callback_message(callback)
                 await callback.message.answer(
                     format_admin_result_menu(draft),
-                    reply_markup=keyboards.admin_result_menu_keyboard(
-                        draft.tournament.id
-                    ),
+                    reply_markup=keyboards.admin_result_menu_keyboard(draft.tournament.id),
                     parse_mode=RESULT_SUMMARY_PARSE_MODE,
                 )
             return
@@ -733,11 +698,7 @@ async def select_result_player(
             return
 
         player = next(
-            (
-                player
-                for player in draft.players
-                if player.player_id == callback_data.player_id
-            ),
+            (player for player in draft.players if player.player_id == callback_data.player_id),
             None,
         )
         if player is None:
@@ -766,9 +727,7 @@ async def select_result_player(
                     player_id=callback_data.player_id,
                     field=keyboards.AdminResultField.PLACE,
                     occupied_places={
-                        player.place
-                        for player in draft.players
-                        if player.place is not None
+                        player.place for player in draft.players if player.place is not None
                     },
                 ),
             )
@@ -842,9 +801,7 @@ async def select_result_field(
                     player_id=callback_data.player_id,
                     field=callback_data.field,
                     occupied_places={
-                        player.place
-                        for player in draft.players
-                        if player.place is not None
+                        player.place for player in draft.players if player.place is not None
                     },
                 ),
             )
@@ -925,9 +882,7 @@ async def select_result_value(
             await callback.answer()
             if callback.message is not None:
                 await callback.message.edit_text(
-                    texts.admin.ADMIN_RESULTS_MANUAL_VALUE_PROMPTS[
-                        callback_data.field.value
-                    ],
+                    texts.admin.ADMIN_RESULTS_MANUAL_VALUE_PROMPTS[callback_data.field.value],
                     reply_markup=keyboards.admin_result_manual_value_keyboard(
                         tournament_id=callback_data.tournament_id,
                         page=callback_data.page,
@@ -995,9 +950,7 @@ async def select_admin_candidate(
                 await callback.message.answer(texts.admin.ADMIN_CALENDAR_CANCELLED)
             return
 
-        players = await player_service.list_admin_candidates_for_superadmin(
-            callback.from_user.id
-        )
+        players = await player_service.list_admin_candidates_for_superadmin(callback.from_user.id)
     except AdminAccessDeniedError:
         await callback.answer(texts.admin.INSUFFICIENT_RIGHTS, show_alert=True)
         return
@@ -1280,9 +1233,7 @@ async def select_registration_match(
         callback=callback,
         review_result=review_result,
         result_text=texts.admin.REGISTRATION_APPROVED,
-        player_text=texts.admin.registration_approved_message(
-            review_result.player.display_name
-        ),
+        player_text=texts.admin.registration_approved_message(review_result.player.display_name),
         player_keyboard=keyboards.main_keyboard_after_registration(),
     )
 
@@ -1887,9 +1838,7 @@ async def enter_season_edit_value(message: Message, state: FSMContext) -> None:
                 ends_at=parse_admin_date(value),
             )
     except CalendarPromptInvalidPayloadError:
-        await message.answer(
-            texts.admin.invalid_calendar_period(SEASON_EDIT_PROMPTS[field])
-        )
+        await message.answer(texts.admin.invalid_calendar_period(SEASON_EDIT_PROMPTS[field]))
         return
     except ValueError:
         await message.answer(texts.admin.ADMIN_CALENDAR_INVALID_DATE)

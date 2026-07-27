@@ -51,18 +51,27 @@ def active_player() -> PlayerView:
 
 
 def test_parse_result_manual_value() -> None:
-    assert admin_handlers.parse_result_manual_value(
-        "17",
-        field=keyboards.AdminResultField.KNOCKOUTS,
-    ) == 17
-    assert admin_handlers.parse_result_manual_value(
-        "10",
-        field=keyboards.AdminResultField.BIG_KNOCKOUTS,
-    ) == 10
-    assert admin_handlers.parse_result_manual_value(
-        "5",
-        field=keyboards.AdminResultField.PLACE,
-    ) == 5
+    assert (
+        admin_handlers.parse_result_manual_value(
+            "17",
+            field=keyboards.AdminResultField.KNOCKOUTS,
+        )
+        == 17
+    )
+    assert (
+        admin_handlers.parse_result_manual_value(
+            "10",
+            field=keyboards.AdminResultField.BIG_KNOCKOUTS,
+        )
+        == 10
+    )
+    assert (
+        admin_handlers.parse_result_manual_value(
+            "5",
+            field=keyboards.AdminResultField.PLACE,
+        )
+        == 5
+    )
 
 
 def test_parse_result_manual_value_rejects_place_outside_top_five() -> None:
@@ -516,9 +525,7 @@ async def test_place_only_result_player_opens_place_keyboard(
     callback.answer.assert_awaited_once()
     message.delete.assert_awaited_once()
     message.answer.assert_awaited_once()
-    assert message.answer.await_args.args[0] == (
-        "Илларионов Александр\n\nВыбери место:"
-    )
+    assert message.answer.await_args.args[0] == ("Илларионов Александр\n\nВыбери место:")
     assert [
         button.text
         for row in message.answer.await_args.kwargs["reply_markup"].inline_keyboard
@@ -619,9 +626,7 @@ async def test_start_command_shows_admin_keyboard_for_admin(
         answer=AsyncMock(),
     )
     state = SimpleNamespace(clear=AsyncMock())
-    service = SimpleNamespace(
-        get_by_telegram_id=AsyncMock(return_value=admin_player(1, 123))
-    )
+    service = SimpleNamespace(get_by_telegram_id=AsyncMock(return_value=admin_player(1, 123)))
     monkeypatch.setattr(user_handlers, "player_service", service)
 
     await user_handlers.start_command(message, state)
@@ -688,9 +693,7 @@ async def test_rating_button_shows_four_filters(
     answer = message.answer.await_args
     assert answer.args[0] == "Какой рейтинг ты хочешь посмотреть?"
     buttons = [
-        button.text
-        for row in answer.kwargs["reply_markup"].inline_keyboard
-        for button in row
+        button.text for row in answer.kwargs["reply_markup"].inline_keyboard for button in row
     ]
     assert buttons == [
         "🏆 Текущий сезон",
@@ -833,9 +836,7 @@ async def test_profile_button_shows_two_filters(
     answer = message.answer.await_args
     assert answer.args[0] == "За какой период ты хочешь посмотреть свои достижения?"
     buttons = [
-        button.text
-        for row in answer.kwargs["reply_markup"].inline_keyboard
-        for button in row
+        button.text for row in answer.kwargs["reply_markup"].inline_keyboard for button in row
     ]
     assert buttons == ["🏆 За текущий сезон", "⏳ За все время", "❌ Отмена"]
 
@@ -844,9 +845,7 @@ async def test_profile_callback_sends_selected_profile(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     profile_service = SimpleNamespace(
-        get_profile_for_player=AsyncMock(
-            return_value=("Твой профиль — текущий сезон", None)
-        )
+        get_profile_for_player=AsyncMock(return_value=("Твой профиль — текущий сезон", None))
     )
     monkeypatch.setattr(user_handlers, "profile_service", profile_service)
     message = SimpleNamespace(delete=AsyncMock(), answer=AsyncMock())
@@ -1003,9 +1002,7 @@ async def test_multiple_tournament_registration_sends_confirmation(
         tournament_view(7, date(2026, 7, 8), 1, "Баунти турнир"),
         tournament_view(8, date(2026, 7, 9), 2, "Классика"),
     ]
-    service = SimpleNamespace(
-        register_player_for_tournaments=AsyncMock(return_value=tournaments)
-    )
+    service = SimpleNamespace(register_player_for_tournaments=AsyncMock(return_value=tournaments))
     monkeypatch.setattr(user_handlers, "tournament_service", service)
     message = SimpleNamespace(
         delete=AsyncMock(),
@@ -1017,9 +1014,7 @@ async def test_multiple_tournament_registration_sends_confirmation(
         answer=AsyncMock(),
     )
     state = SimpleNamespace(
-        get_data=AsyncMock(
-            return_value={"tournament_registration_selection": [7, 8]}
-        ),
+        get_data=AsyncMock(return_value={"tournament_registration_selection": [7, 8]}),
         update_data=AsyncMock(),
     )
 
@@ -1056,9 +1051,7 @@ async def test_tournament_registration_selection_can_be_cancelled() -> None:
 async def test_cancellation_button_reports_when_player_has_no_registrations(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    service = SimpleNamespace(
-        get_player_upcoming_registrations=AsyncMock(return_value=[])
-    )
+    service = SimpleNamespace(get_player_upcoming_registrations=AsyncMock(return_value=[]))
     monkeypatch.setattr(user_handlers, "tournament_service", service)
     message = SimpleNamespace(
         from_user=SimpleNamespace(id=123),
@@ -1080,9 +1073,7 @@ async def test_multiple_tournament_cancellation_sends_confirmation(
         tournament_view(8, date(2026, 7, 9), 2, "Классика"),
     ]
     service = SimpleNamespace(
-        cancel_player_tournament_registrations=AsyncMock(
-            return_value=tournaments
-        )
+        cancel_player_tournament_registrations=AsyncMock(return_value=tournaments)
     )
     monkeypatch.setattr(user_handlers, "tournament_service", service)
     message = SimpleNamespace(
@@ -1095,9 +1086,7 @@ async def test_multiple_tournament_cancellation_sends_confirmation(
         answer=AsyncMock(),
     )
     state = SimpleNamespace(
-        get_data=AsyncMock(
-            return_value={"tournament_cancellation_selection": [7, 8]}
-        ),
+        get_data=AsyncMock(return_value={"tournament_cancellation_selection": [7, 8]}),
         update_data=AsyncMock(),
     )
 
@@ -1186,9 +1175,7 @@ async def test_admin_panel_entry_sends_admin_keyboard(
 ) -> None:
     admin = admin_player(1, 100, PlayerRoleView.SUPERADMIN)
     service = SimpleNamespace(
-        get_admin_panel_for_admin=AsyncMock(
-            return_value=AdminPanelView(admin=admin, reviews=[])
-        )
+        get_admin_panel_for_admin=AsyncMock(return_value=AdminPanelView(admin=admin, reviews=[]))
     )
     monkeypatch.setattr(admin_handlers, "player_service", service)
     message = SimpleNamespace(
@@ -1215,9 +1202,7 @@ async def test_admin_panel_entry_shows_superadmin_button_for_admin(
 ) -> None:
     admin = admin_player(1, 100, PlayerRoleView.ADMIN)
     service = SimpleNamespace(
-        get_admin_panel_for_admin=AsyncMock(
-            return_value=AdminPanelView(admin=admin, reviews=[])
-        )
+        get_admin_panel_for_admin=AsyncMock(return_value=AdminPanelView(admin=admin, reviews=[]))
     )
     monkeypatch.setattr(admin_handlers, "player_service", service)
     message = SimpleNamespace(
@@ -1279,9 +1264,7 @@ async def test_superadmin_panel_back_returns_admin_keyboard(
 ) -> None:
     admin = admin_player(1, 100, PlayerRoleView.SUPERADMIN)
     service = SimpleNamespace(
-        get_admin_panel_for_admin=AsyncMock(
-            return_value=AdminPanelView(admin=admin, reviews=[])
-        )
+        get_admin_panel_for_admin=AsyncMock(return_value=AdminPanelView(admin=admin, reviews=[]))
     )
     monkeypatch.setattr(admin_handlers, "player_service", service)
     message = SimpleNamespace(
@@ -1305,9 +1288,7 @@ async def test_admin_calendar_button_shows_inline_menu(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     admin = admin_player(1, 100, PlayerRoleView.SUPERADMIN)
-    service = SimpleNamespace(
-        require_superadmin=AsyncMock(return_value=admin)
-    )
+    service = SimpleNamespace(require_superadmin=AsyncMock(return_value=admin))
     monkeypatch.setattr(admin_handlers, "player_service", service)
     message = SimpleNamespace(
         from_user=SimpleNamespace(id=100),
@@ -1320,9 +1301,7 @@ async def test_admin_calendar_button_shows_inline_menu(
     answer = message.answer.await_args
     assert answer.args[0] == "Меню для создания сезонов и турниров в базе данных."
     buttons = [
-        button.text
-        for row in answer.kwargs["reply_markup"].inline_keyboard
-        for button in row
+        button.text for row in answer.kwargs["reply_markup"].inline_keyboard for button in row
     ]
     assert buttons == ["⏳ Сезоны", "🏆 Турниры", "❌ Отмена"]
     assert [len(row) for row in answer.kwargs["reply_markup"].inline_keyboard] == [
@@ -1351,9 +1330,7 @@ async def test_add_admin_button_shows_candidates(
     answer = message.answer.await_args
     assert answer.args[0] == "Кого назначаем админом?\n\n1 — Игрок Первый"
     buttons = [
-        button.text
-        for row in answer.kwargs["reply_markup"].inline_keyboard
-        for button in row
+        button.text for row in answer.kwargs["reply_markup"].inline_keyboard for button in row
     ]
     assert buttons == ["1. Игрок Первый", "❌ Отмена"]
 
@@ -1376,13 +1353,10 @@ async def test_admin_registration_button_shows_tournaments(
     service.list_registration_tournaments_for_admin.assert_awaited_once_with(100)
     answer = message.answer.await_args
     assert answer.args[0] == (
-        "Выбери турнир для регистрации игрока:\n\n"
-        "125 — Воскресенье, 19 июля — Классика"
+        "Выбери турнир для регистрации игрока:\n\n125 — Воскресенье, 19 июля — Классика"
     )
     buttons = [
-        button.text
-        for row in answer.kwargs["reply_markup"].inline_keyboard
-        for button in row
+        button.text for row in answer.kwargs["reply_markup"].inline_keyboard for button in row
     ]
     assert buttons == ["125", "❌ Отмена"]
 
@@ -1415,14 +1389,10 @@ async def test_admin_registration_tournament_selection_shows_players(
     message.delete.assert_awaited_once_with()
     answer = message.answer.await_args
     assert answer.args[0] == (
-        "Кого регистрируем?\n"
-        "Воскресенье, 19 июля — Классика\n\n"
-        "1 — Игрок Первый"
+        "Кого регистрируем?\nВоскресенье, 19 июля — Классика\n\n1 — Игрок Первый"
     )
     buttons = [
-        button.text
-        for row in answer.kwargs["reply_markup"].inline_keyboard
-        for button in row
+        button.text for row in answer.kwargs["reply_markup"].inline_keyboard for button in row
     ]
     assert buttons == ["🔎 Найти игрока", "1. Игрок Первый", "⬅️ Назад", "❌ Отмена"]
 
@@ -1435,9 +1405,7 @@ async def test_admin_registration_player_selection_registers_player(
     service = SimpleNamespace(
         list_registration_tournaments_for_admin=AsyncMock(return_value=[tournament]),
         list_players_for_admin_registration=AsyncMock(return_value=[player]),
-        register_player_for_tournament_by_admin=AsyncMock(
-            return_value=(tournament, player)
-        ),
+        register_player_for_tournament_by_admin=AsyncMock(return_value=(tournament, player)),
     )
     monkeypatch.setattr(admin_handlers, "tournament_service", service)
     message = SimpleNamespace(delete=AsyncMock(), answer=AsyncMock())
@@ -1464,15 +1432,12 @@ async def test_admin_registration_player_selection_registers_player(
     )
     message.delete.assert_awaited_once_with()
     assert message.answer.await_args.args[0] == (
-        "Игрок зарегистрирован на турнир:\n"
-        "Игрок Первый\n"
-        "Воскресенье, 19 июля — Классика"
+        "Игрок зарегистрирован на турнир:\nИгрок Первый\nВоскресенье, 19 июля — Классика"
     )
     callback.bot.send_message.assert_awaited_once()
     assert callback.bot.send_message.await_args.kwargs["chat_id"] == 123
     assert callback.bot.send_message.await_args.kwargs["text"] == (
-        "Ты зарегистрирован на турнир:\n"
-        "Воскресенье, 19 июля — Классика"
+        "Ты зарегистрирован на турнир:\nВоскресенье, 19 июля — Классика"
     )
     state.clear.assert_awaited_once_with()
 
@@ -1508,9 +1473,7 @@ async def test_admin_registration_search_prompts_for_query(
     answer = message.answer.await_args
     assert answer.args[0] == "Введи имя или ник игрока."
     assert [
-        button.text
-        for row in answer.kwargs["reply_markup"].inline_keyboard
-        for button in row
+        button.text for row in answer.kwargs["reply_markup"].inline_keyboard for button in row
     ] == ["❌ Отмена"]
 
 
@@ -1543,14 +1506,10 @@ async def test_admin_registration_search_shows_matches(
     state.clear.assert_awaited_once_with()
     answer = message.answer.await_args
     assert answer.args[0] == (
-        "Нашел похожих игроков:\n"
-        "Воскресенье, 19 июля — Классика\n\n"
-        "1 — Игрок Первый"
+        "Нашел похожих игроков:\nВоскресенье, 19 июля — Классика\n\n1 — Игрок Первый"
     )
     assert [
-        button.text
-        for row in answer.kwargs["reply_markup"].inline_keyboard
-        for button in row
+        button.text for row in answer.kwargs["reply_markup"].inline_keyboard for button in row
     ] == ["🔎 Искать заново", "1. Игрок Первый", "⬅️ Назад", "❌ Отмена"]
 
 
@@ -1558,9 +1517,7 @@ async def test_add_admin_button_denies_regular_admin(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     service = SimpleNamespace(
-        list_admin_candidates_for_superadmin=AsyncMock(
-            side_effect=AdminAccessDeniedError
-        )
+        list_admin_candidates_for_superadmin=AsyncMock(side_effect=AdminAccessDeniedError)
     )
     monkeypatch.setattr(admin_handlers, "player_service", service)
     message = SimpleNamespace(
@@ -1604,28 +1561,20 @@ async def test_confirm_add_admin_promotes_player_and_notifies(
     bot.send_message.assert_awaited_once()
     assert bot.send_message.await_args.kwargs["chat_id"] == 200
     assert bot.send_message.await_args.kwargs["text"] == "Тебе назначена роль админа."
-    assert "🛠 Админ-панель" in keyboard_texts(
-        bot.send_message.await_args.kwargs["reply_markup"]
-    )
+    assert "🛠 Админ-панель" in keyboard_texts(bot.send_message.await_args.kwargs["reply_markup"])
 
 
 async def test_admin_calendar_seasons_callback_sends_manual_prompt(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     admin = admin_player(1, 100, PlayerRoleView.SUPERADMIN)
-    player_service = SimpleNamespace(
-        require_superadmin=AsyncMock(return_value=admin)
-    )
+    player_service = SimpleNamespace(require_superadmin=AsyncMock(return_value=admin))
     calendar_service = SimpleNamespace(
         get_or_create_manual_season_prompt=AsyncMock(
             return_value=AdminPromptView(
                 id=7,
                 kind="season_proposal",
-                payload=(
-                    '{"name":"Осень 2026",'
-                    '"starts_at":"2026-09-01",'
-                    '"ends_at":"2026-11-30"}'
-                ),
+                payload=('{"name":"Осень 2026","starts_at":"2026-09-01","ends_at":"2026-11-30"}'),
                 status="pending",
             )
         )
@@ -1651,14 +1600,10 @@ async def test_admin_calendar_seasons_callback_sends_manual_prompt(
     message.answer.assert_awaited_once()
     answer = message.answer.await_args
     assert answer.args[0] == (
-        "Будет создан новый сезон:\n"
-        "Осень 2026\n"
-        "Период: 1.09.2026 — 30.11.2026"
+        "Будет создан новый сезон:\nОсень 2026\nПериод: 1.09.2026 — 30.11.2026"
     )
     buttons = [
-        button.text
-        for row in answer.kwargs["reply_markup"].inline_keyboard
-        for button in row
+        button.text for row in answer.kwargs["reply_markup"].inline_keyboard for button in row
     ]
     assert buttons == ["✅ Создать", "✏️ Изменить", "❌ Отмена"]
 
@@ -1716,9 +1661,7 @@ async def test_admin_calendar_tournaments_callback_sends_detailed_prompt(
         "800 ₽ — 125 000 фишек"
     )
     buttons = [
-        button.text
-        for row in answer.kwargs["reply_markup"].inline_keyboard
-        for button in row
+        button.text for row in answer.kwargs["reply_markup"].inline_keyboard for button in row
     ]
     assert buttons == ["✅ Создать", "✏️ Изменить", "❌ Отмена"]
 
@@ -1726,9 +1669,7 @@ async def test_admin_calendar_tournaments_callback_sends_detailed_prompt(
 async def test_admin_calendar_denies_regular_admin(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    service = SimpleNamespace(
-        require_superadmin=AsyncMock(side_effect=AdminAccessDeniedError)
-    )
+    service = SimpleNamespace(require_superadmin=AsyncMock(side_effect=AdminAccessDeniedError))
     monkeypatch.setattr(admin_handlers, "player_service", service)
     message = SimpleNamespace(
         from_user=SimpleNamespace(id=100),
@@ -1744,9 +1685,7 @@ async def test_admin_calendar_denies_regular_admin(
 async def test_admin_calendar_prompt_denies_regular_admin(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    service = SimpleNamespace(
-        require_superadmin=AsyncMock(side_effect=AdminAccessDeniedError)
-    )
+    service = SimpleNamespace(require_superadmin=AsyncMock(side_effect=AdminAccessDeniedError))
     monkeypatch.setattr(admin_handlers, "player_service", service)
     callback = SimpleNamespace(
         from_user=SimpleNamespace(id=100),
@@ -1775,11 +1714,7 @@ async def test_manual_season_confirm_deletes_prompt_and_sends_created_message(
             return_value=AdminPromptView(
                 id=7,
                 kind="season_proposal",
-                payload=(
-                    '{"name":"Осень 2026",'
-                    '"starts_at":"2026-09-01",'
-                    '"ends_at":"2026-11-30"}'
-                ),
+                payload=('{"name":"Осень 2026","starts_at":"2026-09-01","ends_at":"2026-11-30"}'),
                 status="confirmed",
             )
         )
@@ -1787,11 +1722,7 @@ async def test_manual_season_confirm_deletes_prompt_and_sends_created_message(
     monkeypatch.setattr(admin_handlers, "player_service", player_service)
     monkeypatch.setattr(admin_handlers, "calendar_service", calendar_service)
     message = SimpleNamespace(
-        text=(
-            "Будет создан новый сезон:\n"
-            "Осень 2026\n"
-            "Период: 1.09.2026 — 30.11.2026"
-        ),
+        text=("Будет создан новый сезон:\nОсень 2026\nПериод: 1.09.2026 — 30.11.2026"),
         delete=AsyncMock(),
         answer=AsyncMock(),
     )
@@ -1813,9 +1744,7 @@ async def test_manual_season_confirm_deletes_prompt_and_sends_created_message(
     callback.answer.assert_awaited_once_with("Сезон создан.")
     message.delete.assert_awaited_once_with()
     message.answer.assert_awaited_once_with(
-        "Создан новый сезон:\n"
-        "Осень 2026\n"
-        "Период: 1.09.2026 — 30.11.2026"
+        "Создан новый сезон:\nОсень 2026\nПериод: 1.09.2026 — 30.11.2026"
     )
 
 
@@ -1829,11 +1758,7 @@ async def test_season_edit_button_opens_field_menu(
             return_value=AdminPromptView(
                 id=7,
                 kind="season_proposal",
-                payload=(
-                    '{"name":"Осень 2026",'
-                    '"starts_at":"2026-09-01",'
-                    '"ends_at":"2026-11-30"}'
-                ),
+                payload=('{"name":"Осень 2026","starts_at":"2026-09-01","ends_at":"2026-11-30"}'),
                 status="pending",
             )
         )
@@ -1953,9 +1878,7 @@ async def test_season_edit_field_prompts_for_value(
         season_prompt_id=7,
         season_edit_field=keyboards.SeasonEditAction.STARTS_AT.value,
     )
-    message.answer.assert_awaited_once_with(
-        "Введи дату начала в формате 1.09.2026."
-    )
+    message.answer.assert_awaited_once_with("Введи дату начала в формате 1.09.2026.")
 
 
 async def test_season_edit_value_updates_prompt(
@@ -1966,11 +1889,7 @@ async def test_season_edit_value_updates_prompt(
     prompt = AdminPromptView(
         id=7,
         kind="season_proposal",
-        payload=(
-            '{"name":"Осень 2026",'
-            '"starts_at":"2026-09-02",'
-            '"ends_at":"2026-11-30"}'
-        ),
+        payload=('{"name":"Осень 2026","starts_at":"2026-09-02","ends_at":"2026-11-30"}'),
         status="pending",
     )
     calendar_service = SimpleNamespace(update_season_prompt=AsyncMock(return_value=prompt))
@@ -1999,9 +1918,7 @@ async def test_season_edit_value_updates_prompt(
     )
     state.clear.assert_awaited_once()
     assert message.answer.await_args.args[0] == (
-        "Будет создан новый сезон:\n"
-        "Осень 2026\n"
-        "Период: 2.09.2026 — 30.11.2026"
+        "Будет создан новый сезон:\nОсень 2026\nПериод: 2.09.2026 — 30.11.2026"
     )
 
 
@@ -2068,8 +1985,7 @@ async def test_season_edit_value_rejects_invalid_period(
     )
     state.clear.assert_not_awaited()
     message.answer.assert_awaited_once_with(
-        "Дата начала не может быть позже даты окончания. "
-        "Введи дату начала в формате 1.09.2026."
+        "Дата начала не может быть позже даты окончания. Введи дату начала в формате 1.09.2026."
     )
 
 
@@ -2078,9 +1994,7 @@ async def test_admin_panel_registration_requests_button_shows_pending(
 ) -> None:
     admin = admin_player(1, 100, PlayerRoleView.SUPERADMIN)
     service = SimpleNamespace(
-        get_admin_panel_for_admin=AsyncMock(
-            return_value=AdminPanelView(admin=admin, reviews=[])
-        )
+        get_admin_panel_for_admin=AsyncMock(return_value=AdminPanelView(admin=admin, reviews=[]))
     )
     monkeypatch.setattr(admin_handlers, "player_service", service)
     message = SimpleNamespace(
@@ -2126,9 +2040,7 @@ async def test_admin_panel_registration_requests_button_shows_paginated_list(
         "Страница 1/2"
     )
     buttons = [
-        button.text
-        for row in answer.kwargs["reply_markup"].inline_keyboard
-        for button in row
+        button.text for row in answer.kwargs["reply_markup"].inline_keyboard for button in row
     ]
     assert buttons == ["10", "11", "12", "13", "14", "15", "➡️", "❌ Отмена"]
 
@@ -2162,9 +2074,7 @@ async def test_admin_registration_list_page_callback_edits_list(
     callback.answer.assert_awaited_once_with()
     message.edit_text.assert_awaited_once()
     assert message.edit_text.await_args.args[0] == (
-        "Заявки на регистрацию\n\n"
-        "16 — Игрок 16\n\n"
-        "Страница 2/2"
+        "Заявки на регистрацию\n\n16 — Игрок 16\n\nСтраница 2/2"
     )
     buttons = [
         button.text
@@ -2193,9 +2103,7 @@ async def test_admin_registration_list_open_edits_message_to_review(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     review = registration_review(10)
-    service = SimpleNamespace(
-        get_registration_review_for_admin=AsyncMock(return_value=review)
-    )
+    service = SimpleNamespace(get_registration_review_for_admin=AsyncMock(return_value=review))
     monkeypatch.setattr(admin_handlers, "player_service", service)
     message = SimpleNamespace(edit_text=AsyncMock())
     callback = SimpleNamespace(
@@ -2231,9 +2139,7 @@ async def test_admin_panel_exit_returns_main_keyboard(
 ) -> None:
     admin = admin_player(1, 100, PlayerRoleView.SUPERADMIN)
     service = SimpleNamespace(
-        get_admin_panel_for_admin=AsyncMock(
-            return_value=AdminPanelView(admin=admin, reviews=[])
-        )
+        get_admin_panel_for_admin=AsyncMock(return_value=AdminPanelView(admin=admin, reviews=[]))
     )
     monkeypatch.setattr(admin_handlers, "player_service", service)
     message = SimpleNamespace(
@@ -2271,11 +2177,7 @@ async def test_admin_panel_denies_regular_player(
 async def test_registration_review_keyboard_with_history_has_action_labels() -> None:
     keyboard = keyboards.registration_review_keyboard(player_id=10, has_matches=True)
 
-    buttons = [
-        button.text
-        for row in keyboard.inline_keyboard
-        for button in row
-    ]
+    buttons = [button.text for row in keyboard.inline_keyboard for button in row]
     assert buttons == [
         "🔗 Связать с историей",
         "🆕 Сохранить нового пользователя",
@@ -2401,11 +2303,7 @@ async def test_registration_review_with_multiple_matches_shows_selection(
     callback.answer.assert_awaited_once_with()
     message.edit_reply_markup.assert_awaited_once()
     selection_keyboard = message.edit_reply_markup.await_args.kwargs["reply_markup"]
-    buttons = [
-        button.text
-        for row in selection_keyboard.inline_keyboard
-        for button in row
-    ]
+    buttons = [button.text for row in selection_keyboard.inline_keyboard for button in row]
     assert buttons == [
         "1. Исторический 20 (100%)",
         "2. Исторический 21 (92%)",
@@ -2487,7 +2385,7 @@ async def test_registration_review_result_is_sent_to_other_admins(
                 player=player,
                 admins=[reviewer, other_admin],
             )
-        )
+        ),
     )
     monkeypatch.setattr(admin_handlers, "player_service", service)
     message = SimpleNamespace(

@@ -69,16 +69,24 @@ class PlayerService:
         nickname_normalized = normalize_nickname(nickname)
         async with self.session_factory() as session:
             repository = PlayerRepository(session)
-            if full_name and full_name_normalized and await repository.full_name_exists(
-                full_name,
-                full_name_normalized,
-                telegram_id,
+            if (
+                full_name
+                and full_name_normalized
+                and await repository.full_name_exists(
+                    full_name,
+                    full_name_normalized,
+                    telegram_id,
+                )
             ):
                 raise IdentityAlreadyExistsError("full_name")
-            if nickname and nickname_normalized and await repository.nickname_exists(
-                nickname,
-                nickname_normalized,
-                telegram_id,
+            if (
+                nickname
+                and nickname_normalized
+                and await repository.nickname_exists(
+                    nickname,
+                    nickname_normalized,
+                    telegram_id,
+                )
             ):
                 raise IdentityAlreadyExistsError("nickname")
 
@@ -277,16 +285,24 @@ class PlayerService:
             }:
                 raise RegistrationNotAllowedError
 
-            if full_name and full_name_normalized and await repository.full_name_exists(
-                full_name,
-                full_name_normalized,
-                telegram_id,
+            if (
+                full_name
+                and full_name_normalized
+                and await repository.full_name_exists(
+                    full_name,
+                    full_name_normalized,
+                    telegram_id,
+                )
             ):
                 raise IdentityAlreadyExistsError("full_name")
-            if nickname and nickname_normalized and await repository.nickname_exists(
-                nickname,
-                nickname_normalized,
-                telegram_id,
+            if (
+                nickname
+                and nickname_normalized
+                and await repository.nickname_exists(
+                    nickname,
+                    nickname_normalized,
+                    telegram_id,
+                )
             ):
                 raise IdentityAlreadyExistsError("nickname")
 
