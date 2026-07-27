@@ -4,7 +4,7 @@ from sqlalchemy import CheckConstraint, Date, ForeignKey, Integer, String
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.db.base import Base
-from app.db.models.enums import SeasonStatus, database_enum
+from app.db.models.enums import SeasonStatus, SeasonStatusType
 
 
 class Season(Base):
@@ -19,7 +19,7 @@ class Season(Base):
     starts_at: Mapped[date] = mapped_column(Date, nullable=False)
     ends_at: Mapped[date] = mapped_column(Date, nullable=False)
     status: Mapped[SeasonStatus] = mapped_column(
-        database_enum(SeasonStatus, "season_status"),
+        SeasonStatusType(),
         default=SeasonStatus.ACTIVE,
         nullable=False,
         index=True,

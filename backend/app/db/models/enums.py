@@ -1,6 +1,8 @@
 from enum import StrEnum
 
 from sqlalchemy import Enum as SqlEnum
+from sqlalchemy import String
+from sqlalchemy.types import TypeDecorator
 
 
 class PlayerStatus(StrEnum):
@@ -62,3 +64,20 @@ def database_enum[EnumType: StrEnum](enum_class: type[EnumType], name: str) -> S
         values_callable=lambda items: [item.value for item in items],
         validate_strings=True,
     )
+
+
+class SeasonStatusType(TypeDecorator[SeasonStatus]):
+    impl = String(6)
+    cache_ok = True
+
+    def process_bind_param(self, value: SeasonStatus | str | None, dialect) -> str | None:
+        del dialect
+        if value is None:
+            return None
+        return SeasonStatus(value).value
+
+    def process_result_value(self, value: str | None, dialect) -> SeasonStatus | None:
+        del dialect
+        if value is None:
+            return None
+        return SeasonStatus(value)

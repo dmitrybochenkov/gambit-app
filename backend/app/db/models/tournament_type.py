@@ -1,6 +1,6 @@
 from decimal import Decimal
 
-from sqlalchemy import CheckConstraint, ForeignKey, Integer, Numeric, String, Text
+from sqlalchemy import CheckConstraint, ForeignKey, Integer, Numeric, String, Text, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.base import Base
@@ -33,7 +33,6 @@ class TournamentTypeRule(TimestampMixin, Base):
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     tournament_type_id: Mapped[int] = mapped_column(
         ForeignKey("tournament_types.id", ondelete="CASCADE"),
-        unique=True,
         nullable=False,
         index=True,
     )
@@ -60,6 +59,10 @@ class TournamentTypeRule(TimestampMixin, Base):
             "prize_place_multiplier > 0",
             name="prize_place_multiplier_positive",
         ),
+        UniqueConstraint(
+            "tournament_type_id",
+            name="uq_tournament_type_rules_tournament_type_id",
+        ),
     )
 
 
@@ -69,7 +72,6 @@ class TournamentEconomyConfig(TimestampMixin, Base):
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     tournament_type_id: Mapped[int] = mapped_column(
         ForeignKey("tournament_types.id", ondelete="CASCADE"),
-        unique=True,
         nullable=False,
         index=True,
     )
@@ -83,6 +85,10 @@ class TournamentEconomyConfig(TimestampMixin, Base):
         CheckConstraint("entry_stack > 0", name="entry_stack_positive"),
         CheckConstraint("addon_fee >= 0", name="addon_fee_nonnegative"),
         CheckConstraint("addon_stack > 0", name="addon_stack_positive"),
+        UniqueConstraint(
+            "tournament_type_id",
+            name="uq_tournament_economy_configs_tournament_type_id",
+        ),
     )
 
 
