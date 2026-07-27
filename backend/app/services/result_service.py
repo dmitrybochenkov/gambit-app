@@ -1,6 +1,7 @@
 import json
 from datetime import date
 from decimal import ROUND_HALF_UP, Decimal
+from enum import StrEnum
 
 from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
@@ -55,6 +56,12 @@ class ResultValidationError(ValueError):
     def __init__(self, errors: list[str]) -> None:
         self.errors = errors
         super().__init__("\n".join(errors))
+
+
+class ResultField(StrEnum):
+    KNOCKOUTS = "ko"
+    BIG_KNOCKOUTS = "big"
+    PLACE = "place"
 
 
 class ResultService:
@@ -142,6 +149,43 @@ class ResultService:
             draft.big_knockouts_count = big_knockouts_count
             await session.commit()
             return await self._draft_view(session, tournament.id)
+
+    async def update_player_result_field(
+        self,
+        admin_telegram_id: int,
+        tournament_id: int,
+        player_id: int,
+        field: ResultField,
+        value: int,
+    ) -> TournamentResultDraftView:
+        draft = await self.get_or_create_draft(
+            admin_telegram_id=admin_telegram_id,
+            tournament_id=tournament_id,
+        )
+        if not self.result_field_is_allowed(draft.knockout_mode, field):
+            raise ResultInvalidPlayerDataError
+        player = self.find_result_player(draft, player_id)
+        if player is None:
+            raise ResultUserNotFoundError
+
+        place = player.place
+        knockouts_count = player.knockouts_count
+        big_knockouts_count = player.big_knockouts_count
+        if field == ResultField.PLACE:
+            place = value
+        elif field == ResultField.KNOCKOUTS:
+            knockouts_count = value
+        elif field == ResultField.BIG_KNOCKOUTS:
+            big_knockouts_count = value
+
+        return await self.update_player_result(
+            admin_telegram_id=admin_telegram_id,
+            tournament_id=tournament_id,
+            player_id=player_id,
+            place=place,
+            knockouts_count=knockouts_count,
+            big_knockouts_count=big_knockouts_count,
+        )
 
     async def close_tournament(
         self,
@@ -387,6 +431,31 @@ class ResultService:
                 + big_knockouts_count * scoring_config.knockout_big_points
             )
         return Decimal(points).quantize(Decimal("0.01"))
+
+    @staticmethod
+    def find_result_player(
+        draft: TournamentResultDraftView,
+        player_id: int,
+    ) -> TournamentResultDraftPlayerView | None:
+        return next(
+            (player for player in draft.players if player.player_id == player_id),
+            None,
+        )
+
+    @staticmethod
+    def result_field_is_allowed(
+        knockout_mode: str,
+        field: ResultField,
+    ) -> bool:
+        if field == ResultField.KNOCKOUTS:
+            return knockout_mode in {"small", "small_big"}
+        if field == ResultField.BIG_KNOCKOUTS:
+            return knockout_mode == "small_big"
+        return field == ResultField.PLACE
+
+    @staticmethod
+    def occupied_result_places(draft: TournamentResultDraftView) -> set[int]:
+        return {player.place for player in draft.players if player.place is not None}
 
 
 result_service = ResultService(SessionFactory)

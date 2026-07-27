@@ -12,7 +12,7 @@ from app.db.models.enums import (
     RegistrationRequestType,
     UserRole,
 )
-from app.services.dto import UserRoleView
+from app.services.dto import UserRoleView, UserStartStatusView
 from app.services.user_service import (
     IdentityAlreadyExistsError,
     RegistrationCandidateNotFoundError,
@@ -303,5 +303,42 @@ async def test_existing_telegram_user_cannot_register_again(tmp_path: Path) -> N
 
         with pytest.raises(RegistrationNotAllowedError):
             await service.submit_new_player_registration(telegram_id=1001, display_name="Ace 2")
+    finally:
+        await engine.dispose()
+
+
+@pytest.mark.asyncio
+async def test_start_view_reports_existing_active_user(tmp_path: Path) -> None:
+    service, engine = await create_user_service(tmp_path / "users.db")
+    try:
+        async with async_sessionmaker(engine, expire_on_commit=False)() as session:
+            session.add(
+                create_user(
+                    display_name="Супер Админ",
+                    telegram_id=1,
+                    role=UserRole.SUPERADMIN,
+                )
+            )
+            await session.commit()
+
+        start_view = await service.get_start_view(1)
+
+        assert start_view.status == UserStartStatusView.REGISTERED
+        assert start_view.user is not None
+        assert start_view.user.display_name == "Супер Админ"
+    finally:
+        await engine.dispose()
+
+
+@pytest.mark.asyncio
+async def test_start_view_reports_pending_registration(tmp_path: Path) -> None:
+    service, engine = await create_user_service(tmp_path / "users.db")
+    try:
+        await service.submit_new_player_registration(telegram_id=1001, display_name="Ace")
+
+        start_view = await service.get_start_view(1001)
+
+        assert start_view.status == UserStartStatusView.PENDING_REGISTRATION
+        assert start_view.user is None
     finally:
         await engine.dispose()

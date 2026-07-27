@@ -15,6 +15,7 @@ from app.bot.telegram.formatters import (
 )
 from app.bot.telegram.notifications import notify_admins_about_registration
 from app.bot.telegram.states import RegistrationStates
+from app.services.dto import UserStartStatusView
 from app.services.pagination import pagination_service
 from app.services.profile_service import ProfileNotAllowedError, profile_service
 from app.services.rating_service import RatingNotAllowedError, rating_service
@@ -26,6 +27,7 @@ from app.services.tournament_service import (
     tournament_service,
 )
 from app.services.user_service import (
+    ActiveUserRequiredError,
     IdentityAlreadyExistsError,
     InvalidDisplayNameError,
     RegistrationCandidateNotFoundError,
@@ -90,24 +92,24 @@ async def start_command(message: Message, state: FSMContext) -> None:
     if message.from_user is None:
         return
 
-    user = await user_service.get_by_telegram_id(message.from_user.id)
-    if user is None:
-        if await user_service.get_pending_registration_by_telegram_id(message.from_user.id):
-            await message.answer(
-                texts.user.REGISTRATION_PENDING,
-                reply_markup=ReplyKeyboardRemove(),
-            )
-            return
+    start_view = await user_service.get_start_view(message.from_user.id)
+    if start_view.status == UserStartStatusView.PENDING_REGISTRATION:
+        await message.answer(
+            texts.user.REGISTRATION_PENDING,
+            reply_markup=ReplyKeyboardRemove(),
+        )
+        return
+    if start_view.status == UserStartStatusView.NEEDS_REGISTRATION:
         await _send_registration_intro(message, state)
         return
-
-    if user.is_blocked:
+    if start_view.status == UserStartStatusView.BLOCKED:
         await message.answer(
             texts.user.BOT_ACCESS_BLOCKED,
             reply_markup=ReplyKeyboardRemove(),
         )
         return
 
+    user = start_view.required_user
     await message.answer(
         texts.user.welcome_back(user.display_name),
         reply_markup=keyboards.main_keyboard_for_player(user),
@@ -133,8 +135,9 @@ async def show_club_address(message: Message) -> None:
     if message.from_user is None:
         return
 
-    player = await user_service.get_by_telegram_id(message.from_user.id)
-    if player is None or not player.is_active:
+    try:
+        await user_service.require_active_user(message.from_user.id)
+    except ActiveUserRequiredError:
         await message.answer(texts.user.ADDRESS_UNAVAILABLE)
         return
 
@@ -146,8 +149,9 @@ async def show_rating_menu(message: Message) -> None:
     if message.from_user is None:
         return
 
-    player = await user_service.get_by_telegram_id(message.from_user.id)
-    if player is None or not player.is_active:
+    try:
+        await user_service.require_active_user(message.from_user.id)
+    except ActiveUserRequiredError:
         await message.answer(texts.user.RATING_UNAVAILABLE)
         return
 
@@ -231,8 +235,9 @@ async def show_profile_menu(message: Message) -> None:
     if message.from_user is None:
         return
 
-    player = await user_service.get_by_telegram_id(message.from_user.id)
-    if player is None or not player.is_active:
+    try:
+        await user_service.require_active_user(message.from_user.id)
+    except ActiveUserRequiredError:
         await message.answer(texts.user.PROFILE_UNAVAILABLE)
         return
 

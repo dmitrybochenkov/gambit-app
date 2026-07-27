@@ -26,6 +26,7 @@ from app.services.dto import (
     RegistrationReviewResultView,
     RegistrationReviewView,
     UserRoleView,
+    UserStartView,
     UserStatusView,
     UserView,
 )
@@ -81,6 +82,24 @@ class UserService:
         async with self.session_factory() as session:
             user = await UserRepository(session).get_by_telegram_id(telegram_id)
             return user_view(user)
+
+    async def get_start_view(self, telegram_id: int) -> UserStartView:
+        async with self.session_factory() as session:
+            user = await UserRepository(session).get_by_telegram_id(telegram_id)
+            if user is not None:
+                user_view = required_user_view(user)
+                if user.status == UserStatus.BLOCKED:
+                    return UserStartView.blocked(user_view)
+                return UserStartView.registered(user_view)
+
+            request = await RegistrationRequestRepository(session).get_pending_by_telegram_id(
+                telegram_id
+            )
+            return (
+                UserStartView.pending_registration()
+                if request is not None
+                else UserStartView.needs_registration()
+            )
 
     async def require_active_user(self, telegram_id: int) -> UserView:
         async with self.session_factory() as session:

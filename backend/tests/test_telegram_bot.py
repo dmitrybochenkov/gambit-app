@@ -37,6 +37,8 @@ from app.services.dto import (
     TournamentResultDraftView,
     TournamentView,
     UserRoleView,
+    UserStartStatusView,
+    UserStartView,
     UserStatusView,
     UserView,
 )
@@ -608,15 +610,16 @@ async def test_start_command_opens_registration(monkeypatch: pytest.MonkeyPatch)
     )
     state = SimpleNamespace(clear=AsyncMock(), set_state=AsyncMock(), update_data=AsyncMock())
     service = SimpleNamespace(
-        get_by_telegram_id=AsyncMock(return_value=None),
-        get_pending_registration_by_telegram_id=AsyncMock(return_value=None),
+        get_start_view=AsyncMock(
+            return_value=UserStartView(status=UserStartStatusView.NEEDS_REGISTRATION)
+        ),
     )
     monkeypatch.setattr(user_handlers, "user_service", service)
 
     await user_handlers.start_command(message, state)
 
     state.clear.assert_awaited_once()
-    service.get_by_telegram_id.assert_awaited_once_with(123)
+    service.get_start_view.assert_awaited_once_with(123)
     message.answer.assert_awaited_once()
     answer = message.answer.await_args
     assert answer.args[0] == user_handlers.texts.user.REGISTRATION_GREETING
@@ -634,13 +637,20 @@ async def test_start_command_shows_admin_keyboard_for_admin(
         answer=AsyncMock(),
     )
     state = SimpleNamespace(clear=AsyncMock())
-    service = SimpleNamespace(get_by_telegram_id=AsyncMock(return_value=admin_player(1, 123)))
+    service = SimpleNamespace(
+        get_start_view=AsyncMock(
+            return_value=UserStartView(
+                status=UserStartStatusView.REGISTERED,
+                user=admin_player(1, 123),
+            )
+        )
+    )
     monkeypatch.setattr(user_handlers, "user_service", service)
 
     await user_handlers.start_command(message, state)
 
     state.clear.assert_awaited_once()
-    service.get_by_telegram_id.assert_awaited_once_with(123)
+    service.get_start_view.assert_awaited_once_with(123)
     assert message.answer.await_count == 1
     reply_markup = message.answer.await_args.kwargs["reply_markup"]
     assert keyboards.MAIN_ADMIN in keyboard_texts(reply_markup)
@@ -692,7 +702,14 @@ async def test_historical_admin_can_open_schedule_after_start(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     user = admin_player(1, 123, role=UserRoleView.SUPERADMIN)
-    user_service = SimpleNamespace(get_by_telegram_id=AsyncMock(return_value=user))
+    user_service = SimpleNamespace(
+        get_start_view=AsyncMock(
+            return_value=UserStartView(
+                status=UserStartStatusView.REGISTERED,
+                user=user,
+            )
+        )
+    )
     tournament = tournament_view(7, date(2026, 7, 8), 1, "Баунти турнир")
     tournament_service = SimpleNamespace(
         get_schedule_for_player=AsyncMock(return_value=[tournament])
@@ -712,7 +729,7 @@ async def test_historical_admin_can_open_schedule_after_start(
     await user_handlers.start_command(start_message, state)
     await user_handlers.show_tournament_schedule(schedule_message)
 
-    user_service.get_by_telegram_id.assert_awaited_once_with(123)
+    user_service.get_start_view.assert_awaited_once_with(123)
     tournament_service.get_schedule_for_player.assert_awaited_once_with(123)
     assert start_message.answer.await_args.args[0] == "Админ 1, добро пожаловать!"
     assert schedule_message.answer.await_args.args[0] == (
@@ -767,13 +784,12 @@ async def test_club_address_is_sent_to_active_player(
         from_user=SimpleNamespace(id=123),
         answer=AsyncMock(),
     )
-    player = active_player()
-    service = SimpleNamespace(get_by_telegram_id=AsyncMock(return_value=player))
+    service = SimpleNamespace(require_active_user=AsyncMock(return_value=active_player()))
     monkeypatch.setattr(user_handlers, "user_service", service)
 
     await user_handlers.show_club_address(message)
 
-    service.get_by_telegram_id.assert_awaited_once_with(123)
+    service.require_active_user.assert_awaited_once_with(123)
     message.answer.assert_awaited_once_with(
         "📍 Орехово-Зуево, ул. Ленина, 105\n"
         "🏆 Играем исключительно на рейтинг и спортивный интерес."
@@ -787,8 +803,7 @@ async def test_rating_button_shows_four_filters(
         from_user=SimpleNamespace(id=123),
         answer=AsyncMock(),
     )
-    player = active_player()
-    service = SimpleNamespace(get_by_telegram_id=AsyncMock(return_value=player))
+    service = SimpleNamespace(require_active_user=AsyncMock(return_value=active_player()))
     monkeypatch.setattr(user_handlers, "user_service", service)
 
     await user_handlers.show_rating_menu(message)
@@ -930,8 +945,7 @@ async def test_profile_button_shows_two_filters(
         from_user=SimpleNamespace(id=123),
         answer=AsyncMock(),
     )
-    player = active_player()
-    service = SimpleNamespace(get_by_telegram_id=AsyncMock(return_value=player))
+    service = SimpleNamespace(require_active_user=AsyncMock(return_value=active_player()))
     monkeypatch.setattr(user_handlers, "user_service", service)
 
     await user_handlers.show_profile_menu(message)

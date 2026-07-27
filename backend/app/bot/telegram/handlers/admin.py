@@ -41,13 +41,13 @@ from app.services.calendar_service import (
 )
 from app.services.dto import (
     RegistrationReviewResultView,
-    TournamentResultDraftPlayerView,
-    TournamentResultDraftView,
 )
 from app.services.pagination import pagination_service
 from app.services.result_service import (
+    ResultField,
     ResultInvalidPlayerDataError,
     ResultInvalidPoolError,
+    ResultService,
     ResultTournamentNotFoundError,
     ResultUserNotFoundError,
     ResultValidationError,
@@ -698,10 +698,7 @@ async def select_result_player(
                 )
             return
 
-        player = next(
-            (player for player in draft.players if player.player_id == callback_data.player_id),
-            None,
-        )
+        player = ResultService.find_result_player(draft, callback_data.player_id)
         if player is None:
             await callback.answer(texts.admin.PLAYER_NOT_FOUND, show_alert=True)
             return
@@ -727,9 +724,7 @@ async def select_result_player(
                     page=callback_data.page,
                     player_id=callback_data.player_id,
                     field=keyboards.AdminResultField.PLACE,
-                    occupied_places={
-                        player.place for player in draft.players if player.place is not None
-                    },
+                    occupied_places=ResultService.occupied_result_places(draft),
                 ),
             )
         else:
@@ -754,7 +749,7 @@ async def select_result_field(
             admin_telegram_id=callback.from_user.id,
             tournament_id=callback_data.tournament_id,
         )
-        player = find_result_player(draft, callback_data.player_id)
+        player = ResultService.find_result_player(draft, callback_data.player_id)
         if player is None:
             await callback.answer(texts.admin.PLAYER_NOT_FOUND, show_alert=True)
             return
@@ -784,7 +779,8 @@ async def select_result_field(
                 )
             return
 
-        if not result_field_is_allowed(draft.knockout_mode, callback_data.field):
+        service_field = to_result_field(callback_data.field)
+        if not ResultService.result_field_is_allowed(draft.knockout_mode, service_field):
             await callback.answer(texts.admin.ADMIN_RESULTS_NOT_FOUND, show_alert=True)
             return
 
@@ -801,9 +797,7 @@ async def select_result_field(
                     page=callback_data.page,
                     player_id=callback_data.player_id,
                     field=callback_data.field,
-                    occupied_places={
-                        player.place for player in draft.players if player.place is not None
-                    },
+                    occupied_places=ResultService.occupied_result_places(draft),
                 ),
             )
     except AdminAccessDeniedError:
@@ -823,7 +817,7 @@ async def select_result_value(
             admin_telegram_id=callback.from_user.id,
             tournament_id=callback_data.tournament_id,
         )
-        player = find_result_player(draft, callback_data.player_id)
+        player = ResultService.find_result_player(draft, callback_data.player_id)
         if player is None:
             await callback.answer(texts.admin.PLAYER_NOT_FOUND, show_alert=True)
             return
@@ -865,7 +859,8 @@ async def select_result_value(
                     )
             return
 
-        if not result_field_is_allowed(draft.knockout_mode, callback_data.field):
+        service_field = to_result_field(callback_data.field)
+        if not ResultService.result_field_is_allowed(draft.knockout_mode, service_field):
             await callback.answer(texts.admin.ADMIN_RESULTS_NOT_FOUND, show_alert=True)
             return
 
@@ -893,14 +888,14 @@ async def select_result_value(
                 )
             return
 
-        draft = await update_result_field(
+        draft = await result_service.update_player_result_field(
             admin_telegram_id=callback.from_user.id,
             tournament_id=callback_data.tournament_id,
             player_id=callback_data.player_id,
-            field=callback_data.field,
+            field=service_field,
             value=callback_data.value,
         )
-        player = find_result_player(draft, callback_data.player_id)
+        player = ResultService.find_result_player(draft, callback_data.player_id)
         if player is None:
             await callback.answer(texts.admin.PLAYER_NOT_FOUND, show_alert=True)
             return
@@ -1653,11 +1648,11 @@ async def enter_result_manual_value(message: Message, state: FSMContext) -> None
             message.text or "",
             field=field,
         )
-        draft = await update_result_field(
+        draft = await result_service.update_player_result_field(
             admin_telegram_id=message.from_user.id,
             tournament_id=tournament_id,
             player_id=player_id,
-            field=field,
+            field=to_result_field(field),
             value=value,
         )
     except AdminAccessDeniedError:
@@ -1673,7 +1668,7 @@ async def enter_result_manual_value(message: Message, state: FSMContext) -> None
         return
 
     await state.clear()
-    player = find_result_player(draft, player_id)
+    player = ResultService.find_result_player(draft, player_id)
     if player is None:
         await message.answer(texts.admin.PLAYER_NOT_FOUND)
         return
@@ -1924,27 +1919,6 @@ def parse_result_manual_value(value: str, *, field: keyboards.AdminResultField) 
     return result
 
 
-def find_result_player(
-    draft: TournamentResultDraftView,
-    player_id: int,
-) -> TournamentResultDraftPlayerView | None:
-    return next(
-        (player for player in draft.players if player.player_id == player_id),
-        None,
-    )
-
-
-def result_field_is_allowed(
-    knockout_mode: str,
-    field: keyboards.AdminResultField,
-) -> bool:
-    if field == keyboards.AdminResultField.KNOCKOUTS:
-        return knockout_mode in {"small", "small_big"}
-    if field == keyboards.AdminResultField.BIG_KNOCKOUTS:
-        return knockout_mode == "small_big"
-    return field == keyboards.AdminResultField.PLACE
-
-
 def result_field_name(field: keyboards.AdminResultField) -> str:
     return {
         keyboards.AdminResultField.KNOCKOUTS: "🥊",
@@ -1953,42 +1927,8 @@ def result_field_name(field: keyboards.AdminResultField) -> str:
     }[field]
 
 
-async def update_result_field(
-    *,
-    admin_telegram_id: int,
-    tournament_id: int,
-    player_id: int,
-    field: keyboards.AdminResultField,
-    value: int,
-) -> TournamentResultDraftView:
-    draft = await result_service.get_or_create_draft(
-        admin_telegram_id=admin_telegram_id,
-        tournament_id=tournament_id,
-    )
-    if not result_field_is_allowed(draft.knockout_mode, field):
-        raise ValueError
-    player = find_result_player(draft, player_id)
-    if player is None:
-        raise ResultUserNotFoundError
-
-    place = player.place
-    knockouts_count = player.knockouts_count
-    big_knockouts_count = player.big_knockouts_count
-    if field == keyboards.AdminResultField.PLACE:
-        place = value
-    elif field == keyboards.AdminResultField.KNOCKOUTS:
-        knockouts_count = value
-    elif field == keyboards.AdminResultField.BIG_KNOCKOUTS:
-        big_knockouts_count = value
-
-    return await result_service.update_player_result(
-        admin_telegram_id=admin_telegram_id,
-        tournament_id=tournament_id,
-        player_id=player_id,
-        place=place,
-        knockouts_count=knockouts_count,
-        big_knockouts_count=big_knockouts_count,
-    )
+def to_result_field(field: keyboards.AdminResultField) -> ResultField:
+    return ResultField(field.value)
 
 
 def parse_nonnegative_int(value: str) -> int:
