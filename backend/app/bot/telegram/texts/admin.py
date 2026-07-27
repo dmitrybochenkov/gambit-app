@@ -1,3 +1,6 @@
+from datetime import date
+
+from app.bot.telegram.texts import common
 from app.services.dto import RegistrationReviewView
 from app.services.pagination import Page
 
@@ -64,24 +67,23 @@ REGISTRATION_ALREADY_REVIEWED = "Заявка уже обработана."
 ADMIN_CALENDAR_PROMPT = "Меню для создания сезонов и турниров в базе данных."
 ADMIN_CALENDAR_CANCELLED = "Отмена."
 ADMIN_CALENDAR_EMPTY_SEASONS = "Нет конфигураций начисления рейтинга."
-ADMIN_CALENDAR_EMPTY_TOURNAMENTS = "Нет доступных типов турниров."
+ADMIN_CALENDAR_EMPTY_TOURNAMENTS = "Не удалось создать расписание."
 ADMIN_CALENDAR_TOURNAMENT_DATE_EXISTS = "На эту дату турнир уже создан."
 ADMIN_CALENDAR_SEASON_CREATED = "Сезон создан."
 SEASON_CREATED_TITLE = "Создан новый сезон:"
-ADMIN_CALENDAR_TOURNAMENTS_CREATED = "Турнир создан."
-TOURNAMENTS_MANUAL_PROPOSAL_TITLE = "Будет создан турнир:"
-TOURNAMENTS_CREATED_TITLE = "Создан турнир:"
+SEASON_PROPOSAL_PREVIEW_TITLE = "🏆 Новый сезон"
+SEASON_NAME_LABEL = "Название"
+ADMIN_CALENDAR_TOURNAMENTS_CREATED = "Расписание создано."
+TOURNAMENTS_MANUAL_PROPOSAL_TITLE = "Будет создано расписание:"
+TOURNAMENTS_CREATED_TITLE = "Создано расписание:"
 TOURNAMENT_ENTRY_LABEL = "Вход:"
 TOURNAMENT_REBUYS_LABEL = "Ребаи:"
 TOURNAMENT_ADDON_LABEL = "Аддон:"
 ADMIN_CALENDAR_EDIT_SEASON = "Ок, не открываю сезон. Пришли правки отдельным сообщением."
 ADMIN_CALENDAR_EDIT_MENU = "Что меняем?"
-ADMIN_CALENDAR_ENTER_SEASON_NAME = "Введи название сезона."
-ADMIN_CALENDAR_ENTER_SEASON_START = "Введи дату начала в формате 1.09.2026."
-ADMIN_CALENDAR_SELECT_SCORING_CONFIG = "Выбери конфигурацию начисления рейтинга."
+ADMIN_CALENDAR_ENTER_SEASON_NEW_NAME = "Введи новое название сезона."
+ADMIN_CALENDAR_ENTER_SEASON_NEW_START = "Введи новую дату начала в формате 1.09.2026."
 ADMIN_CALENDAR_INVALID_DATE = "Дата должна быть в формате 1.09.2026."
-ADMIN_CALENDAR_ENTER_TOURNAMENT_DATE = "Введи дату турнира в формате 1.09.2026."
-ADMIN_CALENDAR_SELECT_TOURNAMENT_TYPE = "Выбери тип турнира."
 ADMIN_CALENDAR_SEASON_NAME_EXISTS = "Сезон с таким названием уже существует."
 ADMIN_CALENDAR_SCORING_CONFIG_NOT_FOUND = "Конфигурация начисления рейтинга не найдена."
 ADMIN_CALENDAR_SEASON_START_INVALID = (
@@ -97,14 +99,13 @@ CALENDAR_PROMPT_CANCELLED = "Отменено"
 CALENDAR_PROMPT_NEEDS_CHANGES = "Нужны правки. Ручное редактирование добавим в админке."
 
 SEASON_PROPOSAL_TITLE = "Нужно подготовить следующий сезон."
-SEASON_MANUAL_PROPOSAL_TITLE = "Будет создан новый сезон:"
 SEASON_PROPOSAL_LABEL = "Предложение"
 SEASON_START_LABEL = "Дата начала"
 SEASON_SCORING_CONFIG_LABEL = "Конфигурация рейтинга"
 SEASON_ACTIVE_CLOSE_WARNING = (
     "Текущий активный сезон, если он есть, будет закрыт датой за день до начала нового."
 )
-TOURNAMENTS_PROPOSAL_TITLE = "Нужно создать турнир."
+TOURNAMENTS_PROPOSAL_TITLE = "Нужно создать расписание."
 CONFIRM_CREATION_PROMPT = "Подтвердить создание?"
 REGISTRATION_MATCHES_TITLE = "Возможные совпадения с историей:"
 REGISTRATION_MATCH_TOURNAMENTS_LABEL = "турниров"
@@ -142,6 +143,12 @@ def admin_tournament_registration_player_notification(tournament: str) -> str:
     return ADMIN_TOURNAMENT_REGISTRATION_PLAYER_NOTIFICATION.format(
         tournament=tournament,
     )
+
+
+def admin_calendar_tournament_type_prompt(tournament_date: date) -> str:
+    weekday = common.WEEKDAYS[tournament_date.weekday()]
+    month = common.MONTHS[tournament_date.month]
+    return f"Выбери тип турнира:\n{weekday}, {tournament_date.day} {month}"
 
 
 def registration_list(page: Page) -> str:

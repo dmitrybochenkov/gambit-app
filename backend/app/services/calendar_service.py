@@ -27,6 +27,7 @@ from app.db.repositories.tournament_repository import TournamentRepository
 from app.db.session import SessionFactory
 from app.services.dto import (
     AdminPromptView,
+    TournamentPromptDayEditView,
     TournamentPromptItemView,
     TournamentPromptView,
     TournamentRebuyView,
@@ -78,6 +79,23 @@ class CalendarSundayTournamentTypeNotFoundError(ValueError):
     pass
 
 
+class CalendarDefaultTournamentTypeNotFoundError(ValueError):
+    pass
+
+
+class CalendarWeeklyPromptConflictError(ValueError):
+    pass
+
+
+class CalendarTournamentDateNotInPromptError(ValueError):
+    pass
+
+
+WEDNESDAY_WEEKDAY = 2
+WEDNESDAY_DEFAULT_TOURNAMENT_TYPE_CODE = "bounty"
+FRIDAY_DEFAULT_TOURNAMENT_TYPE_CODE = "freezeout"
+
+
 class CalendarService:
     def __init__(
         self,
@@ -87,29 +105,40 @@ class CalendarService:
         self.session_factory = session_factory
         self.sunday_rotation = sunday_rotation
 
-    async def create_manual_tournament_prompt(
+    async def create_weekly_tournament_prompt(
         self,
-        tournament_date: date,
-        tournament_type_id: int,
+        today: date | None = None,
     ) -> TournamentPromptView:
+        target_dates = next_complete_game_week(today or date.today())
         async with self.session_factory() as session:
-            if await TournamentRepository(session).exists_for_date(tournament_date):
-                raise CalendarTournamentDateAlreadyExistsError
-            tournament_type = await self._tournament_type_detail(
+            tournament_repository = TournamentRepository(session)
+            for tournament_date in target_dates:
+                if await tournament_repository.exists_for_date(tournament_date):
+                    raise CalendarTournamentDateAlreadyExistsError
+
+            repository = AdminPromptRepository(session)
+            key = weekly_tournaments_prompt_key(target_dates)
+            existing_prompt = await repository.get_by_key(key)
+            if existing_prompt is not None:
+                if existing_prompt.status == AdminPromptStatus.PENDING:
+                    return await self._tournament_prompt_view(session, existing_prompt)
+                raise CalendarWeeklyPromptConflictError
+
+            tournament_type_ids = await self._default_weekly_tournament_type_ids(
                 session,
-                tournament_type_id,
+                target_dates,
             )
-            if tournament_type is None:
-                raise CalendarPromptInvalidPayloadError
-            payload = self._tournament_prompt_payload(
-                tournament_date=tournament_date,
-                tournament_type_id=tournament_type.id,
+            payload = self._weekly_tournament_prompt_payload(
+                target_dates=target_dates,
+                tournament_type_ids=tournament_type_ids,
             )
-            prompt = await AdminPromptRepository(session).get_or_create_pending(
-                key=f"tournament:{tournament_date.isoformat()}",
+            prompt = AdminPrompt(
+                key=key,
                 kind=AdminPromptKind.TOURNAMENTS_PROPOSAL,
                 payload=payload,
+                status=AdminPromptStatus.PENDING,
             )
+            session.add(prompt)
             await self._commit_tournament_prompt(session)
             await session.refresh(prompt)
             return await self._tournament_prompt_view(session, prompt)
@@ -130,15 +159,7 @@ class CalendarService:
 
     async def list_tournament_type_options(self) -> list[TournamentTypeOptionView]:
         async with self.session_factory() as session:
-            result = await session.execute(
-                select(TournamentType)
-                .where(TournamentType.status == TournamentTypeStatus.ACTIVE)
-                .order_by(TournamentType.id)
-            )
-            return [
-                TournamentTypeOptionView(id=tournament_type.id, name=tournament_type.name)
-                for tournament_type in result.scalars()
-            ]
+            return await self._list_tournament_type_options(session)
 
     async def get_recommended_sunday_tournament_type(
         self,
@@ -158,6 +179,22 @@ class CalendarService:
             return TournamentTypeOptionView(
                 id=tournament_type.id,
                 name=tournament_type.name,
+            )
+
+    async def get_weekly_prompt_day_edit_options(
+        self,
+        prompt_id: int,
+        tournament_date: date,
+    ) -> TournamentPromptDayEditView:
+        async with self.session_factory() as session:
+            prompt = await self._get_pending_tournament_prompt(session, prompt_id)
+            payload = json.loads(prompt.payload)
+            self._weekly_prompt_payload_items(payload)
+            self._tournament_payload_item_by_date(payload, tournament_date)
+            return TournamentPromptDayEditView(
+                prompt_id=prompt.id,
+                tournament_date=tournament_date,
+                tournament_types=await self._list_tournament_type_options(session),
             )
 
     async def resolve_prompt(
@@ -188,43 +225,20 @@ class CalendarService:
             await session.refresh(prompt)
             return await self._tournament_prompt_view(session, prompt)
 
-    async def update_tournament_prompt_type(
+    async def update_weekly_prompt_day_type(
         self,
         prompt_id: int,
-        tournament_index: int,
+        tournament_date: date,
         tournament_type_id: int,
     ) -> TournamentPromptView:
         async with self.session_factory() as session:
             prompt = await self._get_pending_tournament_prompt(session, prompt_id)
             payload = json.loads(prompt.payload)
-            tournament = self._tournament_payload_item(payload, tournament_index)
+            tournament = self._tournament_payload_item_by_date(payload, tournament_date)
             tournament_type = await self._tournament_type_detail(session, tournament_type_id)
             if tournament_type is None:
                 raise CalendarPromptInvalidPayloadError
             tournament["tournament_type_id"] = tournament_type.id
-            prompt.payload = json.dumps(payload, ensure_ascii=False)
-            await self._commit_tournament_prompt(session)
-            await session.refresh(prompt)
-            return await self._tournament_prompt_view(session, prompt)
-
-    async def update_tournament_prompt_date(
-        self,
-        prompt_id: int,
-        tournament_date: date,
-    ) -> TournamentPromptView:
-        async with self.session_factory() as session:
-            if await TournamentRepository(session).exists_for_date(tournament_date):
-                raise CalendarTournamentDateAlreadyExistsError
-            prompt = await self._get_pending_tournament_prompt(session, prompt_id)
-            repository = AdminPromptRepository(session)
-            key = f"tournament:{tournament_date.isoformat()}"
-            existing_prompt = await repository.get_by_key(key)
-            if existing_prompt is not None and existing_prompt.id != prompt.id:
-                raise CalendarTournamentDateAlreadyExistsError
-            payload = json.loads(prompt.payload)
-            tournament = self._tournament_payload_item(payload, 0)
-            tournament["date"] = tournament_date.isoformat()
-            prompt.key = key
             prompt.payload = json.dumps(payload, ensure_ascii=False)
             await self._commit_tournament_prompt(session)
             await session.refresh(prompt)
@@ -255,27 +269,49 @@ class CalendarService:
             raise CalendarPromptUnsupportedError(prompt.kind)
         return prompt
 
-    @staticmethod
-    def _tournament_payload_item(
+    @classmethod
+    def _tournament_payload_item_by_date(
+        cls,
         payload: dict[str, object],
-        tournament_index: int,
+        tournament_date: date,
     ) -> dict[str, object]:
-        tournaments = payload["tournaments"]
-        if not isinstance(tournaments, list):
-            raise CalendarPromptInvalidPayloadError
-        try:
-            item = tournaments[tournament_index]
-        except IndexError as error:
-            raise CalendarPromptInvalidPayloadError from error
-        if not isinstance(item, dict):
-            raise CalendarPromptInvalidPayloadError
-        return item
+        for item in cls._weekly_prompt_payload_items(payload):
+            if _payload_date(item) == tournament_date:
+                return item
+        raise CalendarTournamentDateNotInPromptError
 
     @staticmethod
-    def _tournament_prompt_payload(
+    def _weekly_prompt_payload_items(
+        payload: dict[str, object],
+    ) -> list[dict[str, object]]:
+        tournaments = payload.get("tournaments")
+        if not isinstance(tournaments, list) or len(tournaments) != 3:
+            raise CalendarPromptInvalidPayloadError
+
+        items: list[dict[str, object]] = []
+        for item in tournaments:
+            if not isinstance(item, dict):
+                raise CalendarPromptInvalidPayloadError
+            if set(item) != {"date", "tournament_type_id"}:
+                raise CalendarPromptInvalidPayloadError
+            items.append(item)
+
+        dates = [_payload_date(item) for item in items]
+        wednesday = dates[0]
+        expected_dates = (
+            wednesday,
+            wednesday.fromordinal(wednesday.toordinal() + 2),
+            wednesday.fromordinal(wednesday.toordinal() + 4),
+        )
+        if wednesday.weekday() != WEDNESDAY_WEEKDAY or tuple(dates) != expected_dates:
+            raise CalendarPromptInvalidPayloadError
+        return items
+
+    @staticmethod
+    def _weekly_tournament_prompt_payload(
         *,
-        tournament_date: date,
-        tournament_type_id: int,
+        target_dates: tuple[date, date, date],
+        tournament_type_ids: tuple[int, int, int],
     ) -> str:
         return json.dumps(
             {
@@ -284,10 +320,47 @@ class CalendarService:
                         "date": tournament_date.isoformat(),
                         "tournament_type_id": tournament_type_id,
                     }
+                    for tournament_date, tournament_type_id in zip(
+                        target_dates,
+                        tournament_type_ids,
+                        strict=True,
+                    )
                 ]
             },
             ensure_ascii=False,
         )
+
+    async def _default_weekly_tournament_type_ids(
+        self,
+        session: AsyncSession,
+        target_dates: tuple[date, date, date],
+    ) -> tuple[int, int, int]:
+        repository = TournamentRepository(session)
+        wednesday_type = await repository.get_active_tournament_type_by_code(
+            WEDNESDAY_DEFAULT_TOURNAMENT_TYPE_CODE
+        )
+        friday_type = await repository.get_active_tournament_type_by_code(
+            FRIDAY_DEFAULT_TOURNAMENT_TYPE_CODE
+        )
+        sunday_type_code = self.sunday_rotation.code_for(target_dates[2])
+        sunday_type = await repository.get_active_tournament_type_by_code(sunday_type_code)
+        if wednesday_type is None or friday_type is None or sunday_type is None:
+            raise CalendarDefaultTournamentTypeNotFoundError
+        return wednesday_type.id, friday_type.id, sunday_type.id
+
+    async def _list_tournament_type_options(
+        self,
+        session: AsyncSession,
+    ) -> list[TournamentTypeOptionView]:
+        result = await session.execute(
+            select(TournamentType)
+            .where(TournamentType.status == TournamentTypeStatus.ACTIVE)
+            .order_by(TournamentType.id)
+        )
+        return [
+            TournamentTypeOptionView(id=tournament_type.id, name=tournament_type.name)
+            for tournament_type in result.scalars()
+        ]
 
     async def _tournament_type_detail(
         self,
@@ -346,14 +419,8 @@ class CalendarService:
         prompt: AdminPrompt,
     ) -> TournamentPromptView:
         payload = json.loads(prompt.payload)
-        tournaments = payload.get("tournaments")
-        if not isinstance(tournaments, list):
-            raise CalendarPromptInvalidPayloadError
-
         items: list[TournamentPromptItemView] = []
-        for item in tournaments:
-            if not isinstance(item, dict):
-                raise CalendarPromptInvalidPayloadError
+        for item in self._weekly_prompt_payload_items(payload):
             tournament_type = await self._tournament_type_detail(
                 session,
                 int(item["tournament_type_id"]),
@@ -362,7 +429,7 @@ class CalendarService:
                 raise CalendarPromptInvalidPayloadError
             items.append(
                 TournamentPromptItemView(
-                    date=date.fromisoformat(str(item["date"])),
+                    date=_payload_date(item),
                     tournament_type=tournament_type,
                 )
             )
@@ -396,13 +463,16 @@ class CalendarService:
         active_season = await season_repository.get_active()
         if active_season is None:
             raise CalendarPromptInvalidPayloadError
-        tournament_dates = [date.fromisoformat(item["date"]) for item in payload["tournaments"]]
+        prompt_items = self._weekly_prompt_payload_items(payload)
+        tournament_dates = [_payload_date(item) for item in prompt_items]
         for tournament_date in tournament_dates:
             if await tournament_repository.exists_for_date(tournament_date):
                 raise CalendarTournamentDateAlreadyExistsError
-        for item in payload["tournaments"]:
-            tournament_date = date.fromisoformat(item["date"])
+        for item in prompt_items:
+            tournament_date = _payload_date(item)
             tournament_type_id = int(item["tournament_type_id"])
+            if await self._tournament_type_detail(session, tournament_type_id) is None:
+                raise CalendarPromptInvalidPayloadError
             session.add(
                 Tournament(
                     season_id=active_season.id,
@@ -411,6 +481,23 @@ class CalendarService:
                     status=TournamentStatus.ACTIVE,
                 )
             )
+
+
+def next_complete_game_week(today: date) -> tuple[date, date, date]:
+    days_until_wednesday = (WEDNESDAY_WEEKDAY - today.weekday()) % 7
+    if days_until_wednesday == 0:
+        days_until_wednesday = 7
+    wednesday = today.fromordinal(today.toordinal() + days_until_wednesday)
+    return (
+        wednesday,
+        wednesday.fromordinal(wednesday.toordinal() + 2),
+        wednesday.fromordinal(wednesday.toordinal() + 4),
+    )
+
+
+def weekly_tournaments_prompt_key(target_dates: tuple[date, date, date]) -> str:
+    return f"tournaments:{target_dates[0].isoformat()}:{target_dates[-1].isoformat()}"
+
 
 calendar_service = CalendarService(SessionFactory)
 
@@ -427,3 +514,10 @@ def admin_prompt_view(prompt: AdminPrompt) -> AdminPromptView:
 def _is_tournament_date_integrity_error(error: IntegrityError) -> bool:
     message = str(error.orig)
     return "tournaments.date" in message or "uq_tournaments_date" in message
+
+
+def _payload_date(item: dict[str, object]) -> date:
+    try:
+        return date.fromisoformat(str(item["date"]))
+    except (KeyError, ValueError) as error:
+        raise CalendarPromptInvalidPayloadError from error

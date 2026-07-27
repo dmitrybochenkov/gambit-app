@@ -150,6 +150,14 @@ class SeasonView:
 
 
 @dataclass(frozen=True)
+class SeasonProposalView:
+    id: int
+    name: str
+    starts_at: date
+    scoring_config_id: int
+
+
+@dataclass(frozen=True)
 class ScoringConfigView:
     id: int
     place_1_coefficient: Decimal
@@ -223,6 +231,13 @@ class TournamentPromptView:
     kind: str
     status: str
     tournaments: list[TournamentPromptItemView]
+
+
+@dataclass(frozen=True)
+class TournamentPromptDayEditView:
+    prompt_id: int
+    tournament_date: date
+    tournament_types: list[TournamentTypeOptionView]
 
 
 @dataclass(frozen=True)

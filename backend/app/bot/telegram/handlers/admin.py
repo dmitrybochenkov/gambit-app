@@ -21,22 +21,24 @@ from app.bot.telegram.formatters import (
     format_admin_tournament_registration_tournament_list,
     format_created_season,
     format_created_tournaments_prompt,
-    format_season_open_confirmation,
+    format_season_proposal,
     format_tournament_label,
 )
 from app.bot.telegram.notifications import format_registration_review
 from app.bot.telegram.states import (
     AdminResultStates,
     AdminTournamentRegistrationStates,
-    CalendarSeasonOpenStates,
-    CalendarTournamentOpenStates,
+    CalendarSeasonProposalEditStates,
 )
 from app.services.calendar_service import (
+    CalendarDefaultTournamentTypeNotFoundError,
     CalendarPromptAction,
     CalendarPromptAlreadyResolvedError,
     CalendarPromptInvalidPayloadError,
     CalendarPromptNotFoundError,
     CalendarTournamentDateAlreadyExistsError,
+    CalendarTournamentDateNotInPromptError,
+    CalendarWeeklyPromptConflictError,
     calendar_service,
 )
 from app.services.dto import (
@@ -56,6 +58,11 @@ from app.services.result_service import (
 from app.services.season_service import (
     SeasonConflictError,
     SeasonNameAlreadyExistsError,
+    SeasonNameInvalidError,
+    SeasonProposalAlreadyResolvedError,
+    SeasonProposalInvalidPayloadError,
+    SeasonProposalNotFoundError,
+    SeasonScoringConfigAmbiguousError,
     SeasonScoringConfigNotFoundError,
     SeasonStartDateError,
     season_service,
@@ -1277,14 +1284,12 @@ async def review_calendar_prompt(
         await user_service.require_superadmin(callback.from_user.id)
         if callback_data.action == keyboards.CalendarPromptAction.EDIT:
             await state.clear()
-            await calendar_service.get_tournament_prompt(callback_data.prompt_id)
+            prompt = await calendar_service.get_tournament_prompt(callback_data.prompt_id)
             if callback.message is not None:
                 await _delete_callback_message(callback)
                 await callback.message.answer(
-                    texts.admin.ADMIN_CALENDAR_EDIT_MENU,
-                    reply_markup=keyboards.tournament_field_edit_keyboard(
-                        callback_data.prompt_id,
-                    ),
+                    format_admin_calendar_prompt(prompt),
+                    reply_markup=keyboards.manual_tournaments_prompt_keyboard(prompt),
                 )
             await callback.answer()
             return
@@ -1311,6 +1316,9 @@ async def review_calendar_prompt(
         await callback.answer(texts.admin.ADMIN_CALENDAR_TOURNAMENT_DATE_EXISTS)
         if callback.message is not None:
             await callback.message.answer(texts.admin.ADMIN_CALENDAR_TOURNAMENT_DATE_EXISTS)
+        return
+    except (CalendarDefaultTournamentTypeNotFoundError, CalendarWeeklyPromptConflictError):
+        await callback.answer(texts.admin.CALENDAR_PROMPT_NOT_FOUND, show_alert=True)
         return
 
     if callback_data.action == keyboards.CalendarPromptAction.CONFIRM:
@@ -1373,144 +1381,121 @@ async def select_admin_calendar_section(
 
     if callback_data.action == keyboards.AdminCalendarAction.SEASONS:
         try:
-            configs = await season_service.list_scoring_configs(callback.from_user.id)
+            proposal = await season_service.create_season_proposal(callback.from_user.id)
         except AdminAccessDeniedError:
             await state.clear()
             await callback.answer(texts.admin.INSUFFICIENT_RIGHTS, show_alert=True)
             return
-        if not configs:
+        except (SeasonScoringConfigAmbiguousError, SeasonScoringConfigNotFoundError):
             await callback.answer(texts.admin.ADMIN_CALENDAR_EMPTY_SEASONS)
             if callback.message is not None:
                 await callback.message.answer(texts.admin.ADMIN_CALENDAR_EMPTY_SEASONS)
             return
 
-        await state.set_state(CalendarSeasonOpenStates.entering_name)
-        await state.update_data(
-            season_available_scoring_config_ids=[config.id for config in configs],
-        )
+        await state.clear()
         await callback.answer()
         if callback.message is not None:
-            await callback.message.answer(texts.admin.ADMIN_CALENDAR_ENTER_SEASON_NAME)
+            await callback.message.answer(
+                format_season_proposal(proposal),
+                reply_markup=keyboards.season_open_confirmation_keyboard(proposal.id),
+            )
         return
 
-    await state.set_state(CalendarTournamentOpenStates.entering_date)
+    try:
+        prompt = await calendar_service.create_weekly_tournament_prompt()
+    except CalendarTournamentDateAlreadyExistsError:
+        await callback.answer(texts.admin.ADMIN_CALENDAR_TOURNAMENT_DATE_EXISTS)
+        if callback.message is not None:
+            await callback.message.answer(texts.admin.ADMIN_CALENDAR_TOURNAMENT_DATE_EXISTS)
+        return
+    except (CalendarDefaultTournamentTypeNotFoundError, CalendarWeeklyPromptConflictError):
+        await callback.answer(texts.admin.CALENDAR_PROMPT_NOT_FOUND, show_alert=True)
+        return
+
+    await state.clear()
     await callback.answer()
     if callback.message is not None:
-        await callback.message.answer(texts.admin.ADMIN_CALENDAR_ENTER_TOURNAMENT_DATE)
+        await callback.message.answer(
+            format_admin_calendar_prompt(prompt),
+            reply_markup=keyboards.manual_tournaments_prompt_keyboard(prompt),
+        )
 
 
-@router.message(CalendarSeasonOpenStates.entering_name)
-async def enter_season_name(message: Message, state: FSMContext) -> None:
+@router.message(CalendarSeasonProposalEditStates.entering_name)
+async def enter_season_proposal_name(message: Message, state: FSMContext) -> None:
     if message.from_user is None:
+        return
+
+    data = await state.get_data()
+    prompt_id = data.get("season_proposal_id")
+    if not isinstance(prompt_id, int):
+        await state.clear()
+        await message.answer(texts.admin.ADMIN_CALENDAR_SEASON_ALREADY_HANDLED)
         return
 
     try:
         await user_service.require_superadmin(message.from_user.id)
+        proposal = await season_service.update_season_proposal_name(
+            prompt_id=prompt_id,
+            name=message.text or "",
+        )
     except AdminAccessDeniedError:
         await state.clear()
         await message.answer(texts.admin.INSUFFICIENT_RIGHTS)
         return
-
-    name = " ".join((message.text or "").split())
-    if not name:
-        await message.answer(texts.admin.ADMIN_CALENDAR_ENTER_SEASON_NAME)
+    except SeasonNameInvalidError:
+        await message.answer(texts.admin.ADMIN_CALENDAR_ENTER_SEASON_NEW_NAME)
+        return
+    except (SeasonProposalNotFoundError, SeasonProposalAlreadyResolvedError):
+        await state.clear()
+        await message.answer(texts.admin.ADMIN_CALENDAR_SEASON_ALREADY_HANDLED)
         return
 
-    await state.set_state(CalendarSeasonOpenStates.entering_starts_at)
-    await state.update_data(season_name=name)
-    await message.answer(texts.admin.ADMIN_CALENDAR_ENTER_SEASON_START)
+    await state.clear()
+    await message.answer(
+        format_season_proposal(proposal),
+        reply_markup=keyboards.season_open_confirmation_keyboard(proposal.id),
+    )
 
 
-@router.message(CalendarSeasonOpenStates.entering_starts_at)
-async def enter_season_starts_at(message: Message, state: FSMContext) -> None:
+@router.message(CalendarSeasonProposalEditStates.entering_starts_at)
+async def enter_season_proposal_starts_at(message: Message, state: FSMContext) -> None:
     if message.from_user is None:
+        return
+
+    data = await state.get_data()
+    prompt_id = data.get("season_proposal_id")
+    if not isinstance(prompt_id, int):
+        await state.clear()
+        await message.answer(texts.admin.ADMIN_CALENDAR_SEASON_ALREADY_HANDLED)
         return
 
     try:
         await user_service.require_superadmin(message.from_user.id)
         starts_at = parse_admin_date(message.text or "")
-        configs = await season_service.list_scoring_configs(message.from_user.id)
-    except AdminAccessDeniedError:
-        await state.clear()
-        await message.answer(texts.admin.INSUFFICIENT_RIGHTS)
-        return
-    except ValueError:
-        await message.answer(texts.admin.ADMIN_CALENDAR_INVALID_DATE)
-        return
-
-    if not configs:
-        await state.clear()
-        await message.answer(texts.admin.ADMIN_CALENDAR_EMPTY_SEASONS)
-        return
-
-    await state.update_data(season_starts_at=starts_at.isoformat())
-    await message.answer(
-        texts.admin.ADMIN_CALENDAR_SELECT_SCORING_CONFIG,
-        reply_markup=keyboards.season_scoring_config_keyboard(configs),
-    )
-
-
-@router.message(CalendarTournamentOpenStates.entering_date)
-async def enter_tournament_date(message: Message, state: FSMContext) -> None:
-    if message.from_user is None:
-        return
-
-    try:
-        await user_service.require_superadmin(message.from_user.id)
-        tournament_date = parse_admin_date(message.text or "")
-        tournament_types = await calendar_service.list_tournament_type_options()
-    except AdminAccessDeniedError:
-        await state.clear()
-        await message.answer(texts.admin.INSUFFICIENT_RIGHTS)
-        return
-    except ValueError:
-        await message.answer(texts.admin.ADMIN_CALENDAR_INVALID_DATE)
-        return
-
-    if not tournament_types:
-        await state.clear()
-        await message.answer(texts.admin.ADMIN_CALENDAR_EMPTY_TOURNAMENTS)
-        return
-
-    await state.update_data(tournament_date=tournament_date.isoformat())
-    await message.answer(
-        texts.admin.ADMIN_CALENDAR_SELECT_TOURNAMENT_TYPE,
-        reply_markup=keyboards.tournament_open_type_keyboard(tournament_types),
-    )
-
-
-@router.message(CalendarTournamentOpenStates.entering_edit_date)
-async def enter_tournament_edit_date(message: Message, state: FSMContext) -> None:
-    if message.from_user is None:
-        return
-
-    data = await state.get_data()
-    try:
-        await user_service.require_superadmin(message.from_user.id)
-        tournament_date = parse_admin_date(message.text or "")
-        prompt = await calendar_service.update_tournament_prompt_date(
-            prompt_id=int(data["tournament_prompt_id"]),
-            tournament_date=tournament_date,
+        proposal = await season_service.update_season_proposal_start_date(
+            prompt_id=prompt_id,
+            starts_at=starts_at,
         )
     except AdminAccessDeniedError:
         await state.clear()
         await message.answer(texts.admin.INSUFFICIENT_RIGHTS)
         return
+    except SeasonStartDateError:
+        await message.answer(texts.admin.ADMIN_CALENDAR_SEASON_START_INVALID)
+        return
+    except (SeasonProposalNotFoundError, SeasonProposalAlreadyResolvedError):
+        await state.clear()
+        await message.answer(texts.admin.ADMIN_CALENDAR_SEASON_ALREADY_HANDLED)
+        return
     except ValueError:
         await message.answer(texts.admin.ADMIN_CALENDAR_INVALID_DATE)
-        return
-    except CalendarTournamentDateAlreadyExistsError:
-        await message.answer(texts.admin.ADMIN_CALENDAR_TOURNAMENT_DATE_EXISTS)
-        return
-    except (CalendarPromptNotFoundError, CalendarPromptAlreadyResolvedError):
-        await state.clear()
-        await message.answer(texts.admin.CALENDAR_PROMPT_ALREADY_RESOLVED)
         return
 
     await state.clear()
     await message.answer(
-        format_admin_calendar_prompt(prompt),
-        reply_markup=keyboards.manual_tournaments_prompt_keyboard(prompt.id),
+        format_season_proposal(proposal),
+        reply_markup=keyboards.season_open_confirmation_keyboard(proposal.id),
     )
 
 
@@ -1521,6 +1506,22 @@ async def select_season_open_action(
     state: FSMContext,
 ) -> None:
     if callback_data.action == keyboards.SeasonOpenAction.CANCEL:
+        try:
+            await season_service.cancel_season_proposal(
+                admin_telegram_id=callback.from_user.id,
+                prompt_id=callback_data.prompt_id,
+            )
+        except AdminAccessDeniedError:
+            await state.clear()
+            await callback.answer(texts.admin.INSUFFICIENT_RIGHTS, show_alert=True)
+            return
+        except (SeasonProposalNotFoundError, SeasonProposalAlreadyResolvedError):
+            await callback.answer(
+                texts.admin.ADMIN_CALENDAR_SEASON_ALREADY_HANDLED,
+                show_alert=True,
+            )
+            return
+
         await state.clear()
         await callback.answer(texts.admin.ADMIN_CALENDAR_CANCELLED)
         if callback.message is not None:
@@ -1528,64 +1529,64 @@ async def select_season_open_action(
             await callback.message.answer(texts.admin.ADMIN_CALENDAR_CANCELLED)
         return
 
-    try:
-        await user_service.require_superadmin(callback.from_user.id)
-    except AdminAccessDeniedError:
+    if callback_data.action == keyboards.SeasonOpenAction.CHANGE:
         await state.clear()
-        await callback.answer(texts.admin.INSUFFICIENT_RIGHTS, show_alert=True)
-        return
-
-    data = await state.get_data()
-    name = data.get("season_name")
-    starts_at_raw = data.get("season_starts_at")
-    if not isinstance(name, str) or not isinstance(starts_at_raw, str):
-        await callback.answer(texts.admin.ADMIN_CALENDAR_SEASON_ALREADY_HANDLED, show_alert=True)
-        return
-
-    if callback_data.action == keyboards.SeasonOpenAction.CONFIG:
-        try:
-            configs = await season_service.list_scoring_configs(callback.from_user.id)
-        except AdminAccessDeniedError:
-            await state.clear()
-            await callback.answer(texts.admin.INSUFFICIENT_RIGHTS, show_alert=True)
-            return
-        config = next(
-            (config for config in configs if config.id == callback_data.scoring_config_id),
-            None,
-        )
-        if config is None:
-            await callback.answer(texts.admin.ADMIN_CALENDAR_SCORING_CONFIG_NOT_FOUND)
-            return
-
-        starts_at = date.fromisoformat(starts_at_raw)
-        await state.update_data(season_scoring_config_id=config.id)
         await callback.answer()
         if callback.message is not None:
             await _delete_callback_message(callback)
             await callback.message.answer(
-                format_season_open_confirmation(
-                    name=name,
-                    starts_at=starts_at,
-                    scoring_config=config,
-                ),
-                reply_markup=keyboards.season_open_confirmation_keyboard(),
+                texts.admin.ADMIN_CALENDAR_EDIT_MENU,
+                reply_markup=keyboards.season_proposal_change_keyboard(callback_data.prompt_id),
             )
         return
 
-    scoring_config_id = data.get("season_scoring_config_id")
-    if not isinstance(scoring_config_id, int):
-        await callback.answer(texts.admin.ADMIN_CALENDAR_SCORING_CONFIG_NOT_FOUND)
+    if callback_data.action == keyboards.SeasonOpenAction.NAME:
+        await state.set_state(CalendarSeasonProposalEditStates.entering_name)
+        await state.update_data(season_proposal_id=callback_data.prompt_id)
+        await callback.answer()
+        if callback.message is not None:
+            await _delete_callback_message(callback)
+            await callback.message.answer(texts.admin.ADMIN_CALENDAR_ENTER_SEASON_NEW_NAME)
+        return
+
+    if callback_data.action == keyboards.SeasonOpenAction.STARTS_AT:
+        await state.set_state(CalendarSeasonProposalEditStates.entering_starts_at)
+        await state.update_data(season_proposal_id=callback_data.prompt_id)
+        await callback.answer()
+        if callback.message is not None:
+            await _delete_callback_message(callback)
+            await callback.message.answer(texts.admin.ADMIN_CALENDAR_ENTER_SEASON_NEW_START)
+        return
+
+    if callback_data.action == keyboards.SeasonOpenAction.BACK:
+        try:
+            proposal = await season_service.get_season_proposal(callback_data.prompt_id)
+        except (SeasonProposalNotFoundError, SeasonProposalAlreadyResolvedError):
+            await callback.answer(
+                texts.admin.ADMIN_CALENDAR_SEASON_ALREADY_HANDLED,
+                show_alert=True,
+            )
+            return
+        await state.clear()
+        await callback.answer()
+        if callback.message is not None:
+            await _delete_callback_message(callback)
+            await callback.message.answer(
+                format_season_proposal(proposal),
+                reply_markup=keyboards.season_open_confirmation_keyboard(proposal.id),
+            )
         return
 
     try:
-        season = await season_service.open_season(
+        season = await season_service.confirm_season_proposal(
             admin_telegram_id=callback.from_user.id,
-            name=name,
-            starts_at=date.fromisoformat(starts_at_raw),
-            scoring_config_id=scoring_config_id,
+            prompt_id=callback_data.prompt_id,
         )
     except SeasonNameAlreadyExistsError:
         await callback.answer(texts.admin.ADMIN_CALENDAR_SEASON_NAME_EXISTS, show_alert=True)
+        return
+    except SeasonNameInvalidError:
+        await callback.answer(texts.admin.ADMIN_CALENDAR_ENTER_SEASON_NEW_NAME, show_alert=True)
         return
     except SeasonScoringConfigNotFoundError:
         await callback.answer(
@@ -1599,6 +1600,12 @@ async def select_season_open_action(
     except SeasonConflictError:
         await callback.answer(texts.admin.ADMIN_CALENDAR_SEASON_CONFLICT, show_alert=True)
         return
+    except SeasonProposalInvalidPayloadError:
+        await callback.answer(texts.admin.ADMIN_CALENDAR_SEASON_ALREADY_HANDLED, show_alert=True)
+        return
+    except (SeasonProposalNotFoundError, SeasonProposalAlreadyResolvedError):
+        await callback.answer(texts.admin.ADMIN_CALENDAR_SEASON_ALREADY_HANDLED, show_alert=True)
+        return
     except AdminAccessDeniedError:
         await state.clear()
         await callback.answer(texts.admin.INSUFFICIENT_RIGHTS, show_alert=True)
@@ -1611,42 +1618,29 @@ async def select_season_open_action(
         await callback.message.answer(format_created_season(season))
 
 
-@router.callback_query(keyboards.TournamentOpenTypeCallback.filter())
-async def select_tournament_open_type(
+@router.callback_query(keyboards.TournamentPromptDayEditCallback.filter())
+async def select_tournament_prompt_day(
     callback: CallbackQuery,
-    callback_data: keyboards.TournamentOpenTypeCallback,
+    callback_data: keyboards.TournamentPromptDayEditCallback,
     state: FSMContext,
 ) -> None:
-    if callback_data.tournament_type_id == 0:
-        await state.clear()
-        await callback.answer(texts.admin.ADMIN_CALENDAR_CANCELLED)
-        if callback.message is not None:
-            await _delete_callback_message(callback)
-            await callback.message.answer(texts.admin.ADMIN_CALENDAR_CANCELLED)
-        return
-
-    data = await state.get_data()
-    tournament_date_raw = data.get("tournament_date")
-    if not isinstance(tournament_date_raw, str):
-        await callback.answer(texts.admin.CALENDAR_PROMPT_NOT_FOUND, show_alert=True)
-        return
-
     try:
         await user_service.require_superadmin(callback.from_user.id)
-        prompt = await calendar_service.create_manual_tournament_prompt(
-            tournament_date=date.fromisoformat(tournament_date_raw),
-            tournament_type_id=callback_data.tournament_type_id,
+        edit_view = await calendar_service.get_weekly_prompt_day_edit_options(
+            prompt_id=callback_data.prompt_id,
+            tournament_date=date.fromisoformat(callback_data.tournament_date),
         )
     except AdminAccessDeniedError:
         await state.clear()
         await callback.answer(texts.admin.INSUFFICIENT_RIGHTS, show_alert=True)
         return
-    except CalendarTournamentDateAlreadyExistsError:
-        await callback.answer(texts.admin.ADMIN_CALENDAR_TOURNAMENT_DATE_EXISTS)
-        if callback.message is not None:
-            await callback.message.answer(texts.admin.ADMIN_CALENDAR_TOURNAMENT_DATE_EXISTS)
-        return
-    except (ValueError, CalendarPromptInvalidPayloadError):
+    except (
+        ValueError,
+        CalendarPromptInvalidPayloadError,
+        CalendarPromptNotFoundError,
+        CalendarPromptAlreadyResolvedError,
+        CalendarTournamentDateNotInPromptError,
+    ):
         await callback.answer(texts.admin.CALENDAR_PROMPT_NOT_FOUND, show_alert=True)
         return
 
@@ -1655,55 +1649,9 @@ async def select_tournament_open_type(
     if callback.message is not None:
         await _delete_callback_message(callback)
         await callback.message.answer(
-            format_admin_calendar_prompt(prompt),
-            reply_markup=keyboards.manual_tournaments_prompt_keyboard(prompt.id),
+            texts.admin.admin_calendar_tournament_type_prompt(edit_view.tournament_date),
+            reply_markup=keyboards.tournament_type_edit_keyboard(edit_view),
         )
-
-
-@router.callback_query(keyboards.TournamentEditCallback.filter())
-async def select_tournament_edit_field(
-    callback: CallbackQuery,
-    callback_data: keyboards.TournamentEditCallback,
-    state: FSMContext,
-) -> None:
-    try:
-        await user_service.require_superadmin(callback.from_user.id)
-    except AdminAccessDeniedError:
-        await callback.answer(texts.admin.INSUFFICIENT_RIGHTS, show_alert=True)
-        return
-
-    await _delete_callback_message(callback)
-    if callback_data.action == keyboards.TournamentEditAction.CANCEL:
-        await state.clear()
-        await callback.answer(texts.admin.ADMIN_CALENDAR_CANCELLED)
-        if callback.message is not None:
-            await callback.message.answer(texts.admin.ADMIN_CALENDAR_CANCELLED)
-        return
-
-    if callback_data.action == keyboards.TournamentEditAction.DATE:
-        await state.set_state(CalendarTournamentOpenStates.entering_edit_date)
-        await state.update_data(tournament_prompt_id=callback_data.prompt_id)
-        await callback.answer()
-        if callback.message is not None:
-            await callback.message.answer(texts.admin.ADMIN_CALENDAR_ENTER_TOURNAMENT_DATE)
-        return
-
-    if callback_data.action == keyboards.TournamentEditAction.TYPE:
-        tournament_types = await calendar_service.list_tournament_type_options()
-        await callback.answer()
-        if callback.message is not None:
-            await callback.message.answer(
-                texts.admin.ADMIN_CALENDAR_EDIT_MENU,
-                reply_markup=keyboards.tournament_type_edit_keyboard(
-                    callback_data.prompt_id,
-                    callback_data.tournament_index,
-                    tournament_types,
-                ),
-            )
-        return
-
-    await state.clear()
-    await callback.answer(texts.admin.CALENDAR_PROMPT_NOT_FOUND, show_alert=True)
 
 
 @router.callback_query(keyboards.TournamentTypeEditCallback.filter())
@@ -1714,9 +1662,9 @@ async def select_tournament_type(
 ) -> None:
     try:
         await user_service.require_superadmin(callback.from_user.id)
-        prompt = await calendar_service.update_tournament_prompt_type(
+        prompt = await calendar_service.update_weekly_prompt_day_type(
             prompt_id=callback_data.prompt_id,
-            tournament_index=callback_data.tournament_index,
+            tournament_date=date.fromisoformat(callback_data.tournament_date),
             tournament_type_id=callback_data.tournament_type_id,
         )
     except AdminAccessDeniedError:
@@ -1728,7 +1676,11 @@ async def select_tournament_type(
             show_alert=True,
         )
         return
-    except CalendarPromptInvalidPayloadError:
+    except (
+        ValueError,
+        CalendarPromptInvalidPayloadError,
+        CalendarTournamentDateNotInPromptError,
+    ):
         await callback.answer(texts.admin.CALENDAR_PROMPT_NOT_FOUND, show_alert=True)
         return
 
@@ -1738,7 +1690,7 @@ async def select_tournament_type(
         await _delete_callback_message(callback)
         await callback.message.answer(
             format_admin_calendar_prompt(prompt),
-            reply_markup=keyboards.manual_tournaments_prompt_keyboard(prompt.id),
+            reply_markup=keyboards.manual_tournaments_prompt_keyboard(prompt),
         )
 
 

@@ -3,7 +3,7 @@ from datetime import date
 from app.bot.telegram import texts
 from app.services.dto import (
     PlayerProfileView,
-    ScoringConfigView,
+    SeasonProposalView,
     SeasonView,
     TournamentPromptItemView,
     TournamentPromptView,
@@ -282,21 +282,13 @@ def format_admin_tournament_registration_player_list(
     return "\n".join(lines)
 
 
-def format_season_open_confirmation(
-    *,
-    name: str,
-    starts_at: date,
-    scoring_config: ScoringConfigView,
-) -> str:
+def format_season_proposal(proposal: SeasonProposalView) -> str:
     return "\n".join(
         [
-            texts.admin.SEASON_MANUAL_PROPOSAL_TITLE,
-            name,
-            f"{texts.admin.SEASON_START_LABEL}: {format_numeric_date(starts_at)}",
-            f"{texts.admin.SEASON_SCORING_CONFIG_LABEL}: "
-            f"{format_scoring_config_label(scoring_config)}",
+            texts.admin.SEASON_PROPOSAL_PREVIEW_TITLE,
             "",
-            texts.admin.SEASON_ACTIVE_CLOSE_WARNING,
+            f"{texts.admin.SEASON_NAME_LABEL}: {proposal.name}",
+            f"{texts.admin.SEASON_START_LABEL}: {format_date(proposal.starts_at)}",
         ]
     )
 
@@ -309,13 +301,6 @@ def format_created_season(season: SeasonView) -> str:
             f"{texts.admin.SEASON_START_LABEL}: {format_numeric_date(season.starts_at)}",
             f"{texts.admin.SEASON_SCORING_CONFIG_LABEL}: #{season.scoring_config_id}",
         ]
-    )
-
-
-def format_scoring_config_label(config: ScoringConfigView) -> str:
-    return (
-        f"#{config.id}: 🥊 {config.knockout_small_points} | "
-        f"💥🥊 {config.knockout_big_points}"
     )
 
 

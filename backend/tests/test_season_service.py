@@ -7,16 +7,26 @@ from sqlalchemy.ext.asyncio import AsyncEngine, async_sessionmaker, create_async
 
 from app.db.base import Base
 from app.db.factories import create_user
-from app.db.models import ScoringConfig, Season, Tournament
-from app.db.models.enums import SeasonStatus, TournamentStatus, UserRole, UserStatus
+from app.db.models import AdminPrompt, ScoringConfig, Season, Tournament
+from app.db.models.enums import (
+    AdminPromptStatus,
+    SeasonStatus,
+    TournamentStatus,
+    UserRole,
+    UserStatus,
+)
 from app.db.repositories.season_repository import SeasonRepository
 from app.services.dto import SeasonStatusView
 from app.services.season_service import (
     SeasonConflictError,
     SeasonNameAlreadyExistsError,
+    SeasonNameInvalidError,
+    SeasonProposalAlreadyResolvedError,
+    SeasonScoringConfigAmbiguousError,
     SeasonScoringConfigNotFoundError,
     SeasonService,
     SeasonStartDateError,
+    season_name_for_date,
 )
 
 
@@ -61,6 +71,380 @@ async def test_open_first_season(tmp_path: Path) -> None:
         assert season.ends_at is None
         assert season.status == SeasonStatusView.ACTIVE
         assert season.scoring_config_id == config_id
+    finally:
+        await engine.dispose()
+
+
+def test_season_name_for_date_uses_quarter_names() -> None:
+    assert season_name_for_date(date(2026, 1, 15)) == "Зима 2026"
+    assert season_name_for_date(date(2026, 3, 31)) == "Зима 2026"
+    assert season_name_for_date(date(2026, 4, 1)) == "Весна 2026"
+    assert season_name_for_date(date(2026, 6, 30)) == "Весна 2026"
+    assert season_name_for_date(date(2026, 7, 1)) == "Лето 2026"
+    assert season_name_for_date(date(2026, 7, 28)) == "Лето 2026"
+    assert season_name_for_date(date(2026, 9, 30)) == "Лето 2026"
+    assert season_name_for_date(date(2026, 10, 1)) == "Осень 2026"
+    assert season_name_for_date(date(2026, 12, 31)) == "Осень 2026"
+    assert season_name_for_date(date(2027, 1, 1)) == "Зима 2027"
+
+
+async def test_create_season_proposal_uses_tomorrow_and_creates_no_season(
+    tmp_path: Path,
+) -> None:
+    service, session_factory, engine = await create_season_service(tmp_path / "season.db")
+    try:
+        config_id = await seed_admin_and_config(session_factory)
+
+        proposal = await service.create_season_proposal(
+            admin_telegram_id=100,
+            today=date(2026, 7, 27),
+        )
+
+        assert proposal.name == "Лето 2026"
+        assert proposal.starts_at == date(2026, 7, 28)
+        assert proposal.scoring_config_id == config_id
+
+        async with session_factory() as session:
+            seasons = list((await session.execute(select(Season))).scalars())
+            prompts = list((await session.execute(select(AdminPrompt))).scalars())
+
+        assert seasons == []
+        assert len(prompts) == 1
+        assert prompts[0].status == AdminPromptStatus.PENDING
+    finally:
+        await engine.dispose()
+
+
+async def test_create_season_proposal_requires_scoring_config(tmp_path: Path) -> None:
+    service, session_factory, engine = await create_season_service(tmp_path / "season.db")
+    try:
+        async with session_factory() as session:
+            session.add(
+                create_user(
+                    telegram_id=100,
+                    display_name="Админ",
+                    status=UserStatus.ACTIVE,
+                    role=UserRole.SUPERADMIN,
+                )
+            )
+            await session.commit()
+
+        with pytest.raises(SeasonScoringConfigNotFoundError):
+            await service.create_season_proposal(
+                admin_telegram_id=100,
+                today=date(2026, 7, 27),
+            )
+    finally:
+        await engine.dispose()
+
+
+async def test_create_season_proposal_rejects_ambiguous_scoring_configs(
+    tmp_path: Path,
+) -> None:
+    service, session_factory, engine = await create_season_service(tmp_path / "season.db")
+    try:
+        await seed_admin_and_config(session_factory)
+        async with session_factory() as session:
+            session.add(ScoringConfig())
+            await session.commit()
+
+        with pytest.raises(SeasonScoringConfigAmbiguousError):
+            await service.create_season_proposal(
+                admin_telegram_id=100,
+                today=date(2026, 7, 27),
+            )
+    finally:
+        await engine.dispose()
+
+
+async def test_create_season_proposal_copies_active_season_scoring_config(
+    tmp_path: Path,
+) -> None:
+    service, session_factory, engine = await create_season_service(tmp_path / "season.db")
+    try:
+        config_id = await seed_admin_and_config(session_factory)
+        await service.open_season(
+            admin_telegram_id=100,
+            name="Осень 2026",
+            starts_at=date(2026, 9, 1),
+            scoring_config_id=config_id,
+        )
+        async with session_factory() as session:
+            session.add(ScoringConfig())
+            await session.commit()
+
+        proposal = await service.create_season_proposal(
+            admin_telegram_id=100,
+            today=date(2026, 12, 1),
+        )
+
+        assert proposal.scoring_config_id == config_id
+    finally:
+        await engine.dispose()
+
+
+async def test_update_season_proposal_name_preserves_start_date(
+    tmp_path: Path,
+) -> None:
+    service, session_factory, engine = await create_season_service(tmp_path / "season.db")
+    try:
+        await seed_admin_and_config(session_factory)
+        proposal = await service.create_season_proposal(
+            admin_telegram_id=100,
+            today=date(2026, 7, 27),
+        )
+
+        updated = await service.update_season_proposal_name(
+            prompt_id=proposal.id,
+            name="  Осень   2026 ",
+        )
+
+        assert updated.name == "Осень 2026"
+        assert updated.starts_at == date(2026, 7, 28)
+        assert updated.scoring_config_id == proposal.scoring_config_id
+    finally:
+        await engine.dispose()
+
+
+async def test_update_season_proposal_rejects_blank_name(tmp_path: Path) -> None:
+    service, session_factory, engine = await create_season_service(tmp_path / "season.db")
+    try:
+        await seed_admin_and_config(session_factory)
+        proposal = await service.create_season_proposal(
+            admin_telegram_id=100,
+            today=date(2026, 7, 27),
+        )
+
+        with pytest.raises(SeasonNameInvalidError):
+            await service.update_season_proposal_name(prompt_id=proposal.id, name="   ")
+    finally:
+        await engine.dispose()
+
+
+async def test_update_season_proposal_start_date_preserves_name(
+    tmp_path: Path,
+) -> None:
+    service, session_factory, engine = await create_season_service(tmp_path / "season.db")
+    try:
+        await seed_admin_and_config(session_factory)
+        proposal = await service.create_season_proposal(
+            admin_telegram_id=100,
+            today=date(2026, 7, 27),
+        )
+
+        updated = await service.update_season_proposal_start_date(
+            prompt_id=proposal.id,
+            starts_at=date(2026, 9, 1),
+        )
+
+        assert updated.name == "Лето 2026"
+        assert updated.starts_at == date(2026, 9, 1)
+        assert updated.scoring_config_id == proposal.scoring_config_id
+    finally:
+        await engine.dispose()
+
+
+async def test_confirm_season_proposal_opens_season(tmp_path: Path) -> None:
+    service, session_factory, engine = await create_season_service(tmp_path / "season.db")
+    try:
+        await seed_admin_and_config(session_factory)
+        proposal = await service.create_season_proposal(
+            admin_telegram_id=100,
+            today=date(2026, 7, 27),
+        )
+
+        season = await service.confirm_season_proposal(
+            admin_telegram_id=100,
+            prompt_id=proposal.id,
+        )
+
+        assert season.name == "Лето 2026"
+        assert season.starts_at == date(2026, 7, 28)
+        assert season.status == SeasonStatusView.ACTIVE
+
+        async with session_factory() as session:
+            prompt = await session.get(AdminPrompt, proposal.id)
+            seasons = list((await session.execute(select(Season))).scalars())
+
+        assert prompt is not None
+        assert prompt.status == AdminPromptStatus.CONFIRMED
+        assert len(seasons) == 1
+    finally:
+        await engine.dispose()
+
+
+async def test_confirm_season_proposal_rejects_existing_active_season_without_closing_it(
+    tmp_path: Path,
+) -> None:
+    service, session_factory, engine = await create_season_service(tmp_path / "season.db")
+    try:
+        config_id = await seed_admin_and_config(session_factory)
+        active = await service.open_season(
+            admin_telegram_id=100,
+            name="Осень 2026",
+            starts_at=date(2026, 9, 1),
+            scoring_config_id=config_id,
+        )
+        proposal = await service.create_season_proposal(
+            admin_telegram_id=100,
+            today=date(2026, 12, 1),
+        )
+        await service.update_season_proposal_name(
+            prompt_id=proposal.id,
+            name="Зима 2026",
+        )
+
+        with pytest.raises(SeasonConflictError):
+            await service.confirm_season_proposal(
+                admin_telegram_id=100,
+                prompt_id=proposal.id,
+            )
+
+        async with session_factory() as session:
+            prompt = await session.get(AdminPrompt, proposal.id)
+            seasons = list((await session.execute(select(Season))).scalars())
+
+        assert prompt is not None
+        assert prompt.status == AdminPromptStatus.PENDING
+        assert [(season.id, season.status, season.ends_at) for season in seasons] == [
+            (active.id, SeasonStatus.ACTIVE, None)
+        ]
+    finally:
+        await engine.dispose()
+
+
+async def test_duplicate_season_proposal_confirmation_is_rejected(
+    tmp_path: Path,
+) -> None:
+    service, session_factory, engine = await create_season_service(tmp_path / "season.db")
+    try:
+        await seed_admin_and_config(session_factory)
+        proposal = await service.create_season_proposal(
+            admin_telegram_id=100,
+            today=date(2026, 7, 27),
+        )
+        await service.confirm_season_proposal(admin_telegram_id=100, prompt_id=proposal.id)
+
+        with pytest.raises(SeasonProposalAlreadyResolvedError):
+            await service.confirm_season_proposal(admin_telegram_id=100, prompt_id=proposal.id)
+
+        async with session_factory() as session:
+            seasons = list((await session.execute(select(Season))).scalars())
+
+        assert len(seasons) == 1
+    finally:
+        await engine.dispose()
+
+
+async def test_confirmed_season_proposal_cannot_be_edited_or_cancelled(
+    tmp_path: Path,
+) -> None:
+    service, session_factory, engine = await create_season_service(tmp_path / "season.db")
+    try:
+        await seed_admin_and_config(session_factory)
+        proposal = await service.create_season_proposal(
+            admin_telegram_id=100,
+            today=date(2026, 7, 27),
+        )
+        await service.confirm_season_proposal(admin_telegram_id=100, prompt_id=proposal.id)
+
+        with pytest.raises(SeasonProposalAlreadyResolvedError):
+            await service.update_season_proposal_name(prompt_id=proposal.id, name="Осень 2026")
+        with pytest.raises(SeasonProposalAlreadyResolvedError):
+            await service.update_season_proposal_start_date(
+                prompt_id=proposal.id,
+                starts_at=date(2026, 9, 1),
+            )
+        with pytest.raises(SeasonProposalAlreadyResolvedError):
+            await service.cancel_season_proposal(admin_telegram_id=100, prompt_id=proposal.id)
+    finally:
+        await engine.dispose()
+
+
+async def test_cancel_season_proposal_creates_no_season_and_blocks_confirmation(
+    tmp_path: Path,
+) -> None:
+    service, session_factory, engine = await create_season_service(tmp_path / "season.db")
+    try:
+        await seed_admin_and_config(session_factory)
+        proposal = await service.create_season_proposal(
+            admin_telegram_id=100,
+            today=date(2026, 7, 27),
+        )
+
+        await service.cancel_season_proposal(admin_telegram_id=100, prompt_id=proposal.id)
+
+        with pytest.raises(SeasonProposalAlreadyResolvedError):
+            await service.confirm_season_proposal(admin_telegram_id=100, prompt_id=proposal.id)
+
+        async with session_factory() as session:
+            prompt = await session.get(AdminPrompt, proposal.id)
+            seasons = list((await session.execute(select(Season))).scalars())
+
+        assert prompt is not None
+        assert prompt.status == AdminPromptStatus.CANCELLED
+        assert seasons == []
+    finally:
+        await engine.dispose()
+
+
+async def test_cancelled_season_proposal_cannot_be_edited_or_cancelled_again(
+    tmp_path: Path,
+) -> None:
+    service, session_factory, engine = await create_season_service(tmp_path / "season.db")
+    try:
+        await seed_admin_and_config(session_factory)
+        proposal = await service.create_season_proposal(
+            admin_telegram_id=100,
+            today=date(2026, 7, 27),
+        )
+
+        await service.cancel_season_proposal(admin_telegram_id=100, prompt_id=proposal.id)
+
+        with pytest.raises(SeasonProposalAlreadyResolvedError):
+            await service.update_season_proposal_name(prompt_id=proposal.id, name="Осень 2026")
+        with pytest.raises(SeasonProposalAlreadyResolvedError):
+            await service.update_season_proposal_start_date(
+                prompt_id=proposal.id,
+                starts_at=date(2026, 9, 1),
+            )
+        with pytest.raises(SeasonProposalAlreadyResolvedError):
+            await service.cancel_season_proposal(admin_telegram_id=100, prompt_id=proposal.id)
+    finally:
+        await engine.dispose()
+
+
+async def test_failed_season_proposal_confirmation_rolls_back(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    service, session_factory, engine = await create_season_service(tmp_path / "season.db")
+    try:
+        await seed_admin_and_config(session_factory)
+        proposal = await service.create_season_proposal(
+            admin_telegram_id=100,
+            today=date(2026, 7, 27),
+        )
+
+        def fail_add(self: SeasonRepository, season: Season) -> None:
+            del self, season
+            raise RuntimeError("forced failure")
+
+        monkeypatch.setattr(SeasonRepository, "add", fail_add)
+
+        with pytest.raises(RuntimeError):
+            await service.confirm_season_proposal(
+                admin_telegram_id=100,
+                prompt_id=proposal.id,
+            )
+
+        async with session_factory() as session:
+            prompt = await session.get(AdminPrompt, proposal.id)
+            seasons = list((await session.execute(select(Season))).scalars())
+
+        assert prompt is not None
+        assert prompt.status == AdminPromptStatus.PENDING
+        assert seasons == []
     finally:
         await engine.dispose()
 
