@@ -193,6 +193,39 @@ class TournamentTypeOptionView:
 
 
 @dataclass(frozen=True)
+class TournamentRebuyView:
+    fee: int
+    stack: int
+
+
+@dataclass(frozen=True)
+class TournamentTypeDetailView:
+    id: int
+    name: str
+    description: str | None
+    entry_fee: int
+    entry_stack: int
+    addon_fee: int
+    addon_stack: int
+    rebuys: list[TournamentRebuyView]
+    knockout_mode: str
+
+
+@dataclass(frozen=True)
+class TournamentPromptItemView:
+    date: date
+    tournament_type: TournamentTypeDetailView
+
+
+@dataclass(frozen=True)
+class TournamentPromptView:
+    id: int
+    kind: str
+    status: str
+    tournaments: list[TournamentPromptItemView]
+
+
+@dataclass(frozen=True)
 class PointsRatingView:
     player_id: int
     display_name: str

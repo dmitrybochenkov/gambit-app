@@ -50,6 +50,12 @@ class TournamentRepository:
         )
         return result.scalar_one_or_none() is not None
 
+    async def exists_for_date(self, tournament_date: date) -> bool:
+        result = await self.session.execute(
+            select(Tournament.id).where(Tournament.date == tournament_date)
+        )
+        return result.scalar_one_or_none() is not None
+
     async def list_active_weekly_templates(self) -> list[WeeklyTournamentTemplate]:
         result = await self.session.execute(
             select(WeeklyTournamentTemplate)

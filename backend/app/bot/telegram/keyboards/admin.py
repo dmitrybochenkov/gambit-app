@@ -1,15 +1,11 @@
-import json
-from datetime import date
 from enum import StrEnum
 
 from aiogram.filters.callback_data import CallbackData
 from aiogram.types import InlineKeyboardMarkup, KeyboardButton, ReplyKeyboardMarkup
 from aiogram.utils.keyboard import InlineKeyboardBuilder
 
-from app.bot.telegram import texts
 from app.bot.telegram.keyboards import buttons
 from app.services.dto import (
-    AdminPromptView,
     RegistrationCandidateView,
     RegistrationReviewView,
     ScoringConfigView,
@@ -230,9 +226,8 @@ class AdminTournamentRegistrationPlayerCallback(CallbackData, prefix="admin_reg_
 
 
 class TournamentEditAction(StrEnum):
+    DATE = "date"
     TYPE = "type"
-    ECONOMY = "economy"
-    REBUYS = "rebuys"
     CANCEL = "cancel"
 
 
@@ -242,20 +237,13 @@ class TournamentEditCallback(CallbackData, prefix="tournament_edit"):
     tournament_index: int
 
 
-class TournamentDayEditAction(StrEnum):
-    OPEN = "open"
-    CANCEL = "cancel"
-
-
-class TournamentDayEditCallback(CallbackData, prefix="tournament_day_edit"):
-    action: TournamentDayEditAction
-    prompt_id: int
-    tournament_index: int
-
-
 class TournamentTypeEditCallback(CallbackData, prefix="tournament_type_edit"):
     prompt_id: int
     tournament_index: int
+    tournament_type_id: int
+
+
+class TournamentOpenTypeCallback(CallbackData, prefix="tournament_open_type"):
     tournament_type_id: int
 
 
@@ -1195,60 +1183,23 @@ def scoring_config_label(config: ScoringConfigView) -> str:
     )
 
 
-def tournament_day_edit_keyboard(prompt: AdminPromptView) -> InlineKeyboardMarkup:
-    payload = json.loads(prompt.payload)
-    builder = InlineKeyboardBuilder()
-    for index, item in enumerate(payload["tournaments"]):
-        tournament_date = date.fromisoformat(item["date"])
-        builder.button(
-            text=(
-                f"{texts.common.WEEKDAYS[tournament_date.weekday()]}, "
-                f"{tournament_date.day}.{tournament_date.month:02d}."
-                f"{tournament_date.year}"
-            ),
-            callback_data=TournamentDayEditCallback(
-                action=TournamentDayEditAction.OPEN,
-                prompt_id=prompt.id,
-                tournament_index=index,
-            ),
-        )
-    builder.button(
-        text=buttons.ADMIN_CALENDAR_CANCEL,
-        callback_data=TournamentDayEditCallback(
-            action=TournamentDayEditAction.CANCEL,
-            prompt_id=prompt.id,
-            tournament_index=0,
-        ),
-    )
-    builder.adjust(1)
-    return builder.as_markup()
-
-
 def tournament_field_edit_keyboard(
     prompt_id: int,
-    tournament_index: int,
+    tournament_index: int = 0,
 ) -> InlineKeyboardMarkup:
     builder = InlineKeyboardBuilder()
+    builder.button(
+        text=buttons.ADMIN_TOURNAMENT_EDIT_DATE,
+        callback_data=TournamentEditCallback(
+            action=TournamentEditAction.DATE,
+            prompt_id=prompt_id,
+            tournament_index=tournament_index,
+        ),
+    )
     builder.button(
         text=buttons.ADMIN_TOURNAMENT_EDIT_TYPE,
         callback_data=TournamentEditCallback(
             action=TournamentEditAction.TYPE,
-            prompt_id=prompt_id,
-            tournament_index=tournament_index,
-        ),
-    )
-    builder.button(
-        text=buttons.ADMIN_TOURNAMENT_EDIT_ECONOMY,
-        callback_data=TournamentEditCallback(
-            action=TournamentEditAction.ECONOMY,
-            prompt_id=prompt_id,
-            tournament_index=tournament_index,
-        ),
-    )
-    builder.button(
-        text=buttons.ADMIN_TOURNAMENT_EDIT_REBUYS,
-        callback_data=TournamentEditCallback(
-            action=TournamentEditAction.REBUYS,
             prompt_id=prompt_id,
             tournament_index=tournament_index,
         ),
@@ -1260,6 +1211,23 @@ def tournament_field_edit_keyboard(
             prompt_id=prompt_id,
             tournament_index=tournament_index,
         ),
+    )
+    builder.adjust(1)
+    return builder.as_markup()
+
+
+def tournament_open_type_keyboard(
+    tournament_types: list[TournamentTypeOptionView],
+) -> InlineKeyboardMarkup:
+    builder = InlineKeyboardBuilder()
+    for tournament_type in tournament_types:
+        builder.button(
+            text=tournament_type.name,
+            callback_data=TournamentOpenTypeCallback(tournament_type_id=tournament_type.id),
+        )
+    builder.button(
+        text=buttons.ADMIN_CALENDAR_CANCEL,
+        callback_data=TournamentOpenTypeCallback(tournament_type_id=0),
     )
     builder.adjust(1)
     return builder.as_markup()
@@ -1289,20 +1257,4 @@ def tournament_type_edit_keyboard(
         ),
     )
     builder.adjust(1)
-    return builder.as_markup()
-
-
-def tournament_edit_cancel_keyboard(
-    prompt_id: int,
-    tournament_index: int,
-) -> InlineKeyboardMarkup:
-    builder = InlineKeyboardBuilder()
-    builder.button(
-        text=buttons.ADMIN_CALENDAR_CANCEL,
-        callback_data=TournamentEditCallback(
-            action=TournamentEditAction.CANCEL,
-            prompt_id=prompt_id,
-            tournament_index=tournament_index,
-        ),
-    )
     return builder.as_markup()

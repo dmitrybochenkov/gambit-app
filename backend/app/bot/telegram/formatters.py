@@ -1,12 +1,12 @@
-import json
 from datetime import date
 
 from app.bot.telegram import texts
 from app.services.dto import (
-    AdminPromptView,
     PlayerProfileView,
     ScoringConfigView,
     SeasonView,
+    TournamentPromptItemView,
+    TournamentPromptView,
     TournamentResultDraftPlayerView,
     TournamentResultDraftView,
     TournamentView,
@@ -56,10 +56,9 @@ def format_profile(title: str, stats: PlayerProfileView | None) -> str:
     return texts.user.profile_message(title, stats)
 
 
-def format_admin_calendar_prompt(prompt: AdminPromptView) -> str:
-    payload = json.loads(prompt.payload)
+def format_admin_calendar_prompt(prompt: TournamentPromptView) -> str:
     lines = [texts.admin.TOURNAMENTS_MANUAL_PROPOSAL_TITLE, ""]
-    for item in payload["tournaments"]:
+    for item in prompt.tournaments:
         lines.extend(_format_tournament_proposal_item(item))
         lines.append("")
     if lines[-1] == "":
@@ -320,10 +319,9 @@ def format_scoring_config_label(config: ScoringConfigView) -> str:
     )
 
 
-def format_created_tournaments_prompt(prompt: AdminPromptView) -> str:
-    payload = json.loads(prompt.payload)
+def format_created_tournaments_prompt(prompt: TournamentPromptView) -> str:
     lines = [texts.admin.TOURNAMENTS_CREATED_TITLE, ""]
-    for item in payload["tournaments"]:
+    for item in prompt.tournaments:
         lines.extend(_format_tournament_proposal_item(item))
         lines.append("")
     if lines[-1] == "":
@@ -356,32 +354,36 @@ def _page_line(page: Page) -> str:
     return f"{start}-{end} из {page.total_items}"
 
 
-def _format_tournament_proposal_item(item: dict[str, object]) -> list[str]:
+def _format_tournament_proposal_item(item: TournamentPromptItemView) -> list[str]:
     tournament = TournamentView(
         id=0,
-        tournament_type_id=int(item["tournament_type_id"]),
-        date=date.fromisoformat(str(item["date"])),
-        tournament_type_name=str(item["tournament_type_name"]),
+        tournament_type_id=item.tournament_type.id,
+        date=item.date,
+        tournament_type_name=item.tournament_type.name,
     )
-    rebuys = item.get("rebuys", [])
-    rebuy_fees = " / ".join(format_number(int(rebuy["fee"])) for rebuy in rebuys)
-    rebuy_stacks = " / ".join(format_number(int(rebuy["stack"])) for rebuy in rebuys)
-    return [
+    rebuy_fees = " / ".join(format_number(rebuy.fee) for rebuy in item.tournament_type.rebuys)
+    rebuy_stacks = " / ".join(format_number(rebuy.stack) for rebuy in item.tournament_type.rebuys)
+    lines = [
         f"• {format_tournament_label(tournament)}",
         texts.admin.TOURNAMENT_ENTRY_LABEL,
         (
-            f"{format_number(int(item['entry_fee']))} ₽ — "
-            f"{format_number(int(item['entry_stack']))} фишек"
+            f"{format_number(item.tournament_type.entry_fee)} ₽ — "
+            f"{format_number(item.tournament_type.entry_stack)} фишек"
         ),
         texts.admin.TOURNAMENT_REBUYS_LABEL,
         f"{rebuy_fees} ₽" if rebuy_fees else "—",
         f"{rebuy_stacks} фишек" if rebuy_stacks else "—",
         texts.admin.TOURNAMENT_ADDON_LABEL,
         (
-            f"{format_number(int(item['addon_fee']))} ₽ — "
-            f"{format_number(int(item['addon_stack']))} фишек"
+            f"{format_number(item.tournament_type.addon_fee)} ₽ — "
+            f"{format_number(item.tournament_type.addon_stack)} фишек"
         ),
     ]
+    if item.tournament_type.description:
+        lines.extend(["", item.tournament_type.description])
+    if item.tournament_type.knockout_mode != "none":
+        lines.extend(["", f"🥊: {item.tournament_type.knockout_mode}"])
+    return lines
 
 
 def _fallback_tournament_type_name(tournament: TournamentView) -> str:

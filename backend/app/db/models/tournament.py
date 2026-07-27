@@ -4,7 +4,7 @@ from datetime import date
 from decimal import Decimal
 from typing import TYPE_CHECKING
 
-from sqlalchemy import CheckConstraint, Date, ForeignKey, Integer, Numeric
+from sqlalchemy import CheckConstraint, Date, ForeignKey, Integer, Numeric, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.base import Base
@@ -40,6 +40,7 @@ class Tournament(TimestampMixin, Base):
     tournament_type: Mapped[TournamentType] = relationship()
 
     __table_args__ = (
+        UniqueConstraint("date", name="uq_tournaments_date"),
         CheckConstraint(
             "points_pool IS NULL OR points_pool >= 0",
             name="points_pool_nonnegative",

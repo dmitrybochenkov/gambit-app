@@ -29,14 +29,14 @@ from app.bot.telegram.states import (
     AdminResultStates,
     AdminTournamentRegistrationStates,
     CalendarSeasonOpenStates,
-    CalendarTournamentEditStates,
+    CalendarTournamentOpenStates,
 )
 from app.services.calendar_service import (
     CalendarPromptAction,
     CalendarPromptAlreadyResolvedError,
-    CalendarPromptEmptyError,
     CalendarPromptInvalidPayloadError,
     CalendarPromptNotFoundError,
+    CalendarTournamentDateAlreadyExistsError,
     calendar_service,
 )
 from app.services.dto import (
@@ -75,12 +75,6 @@ from app.services.user_service import (
 )
 
 router = Router(name="admin")
-TOURNAMENT_ECONOMY_PROMPT = "Введи вход и аддон в формате:\n600 - 20000 - 800 - 125000"
-TOURNAMENT_REBUYS_PROMPT = (
-    "Введи ребаи в формате:\n"
-    "600 / 800 / 800 / 800 / 1000 / 1000 - "
-    "30000 / 50000 / 70000 / 90000 / 100000 / 100000"
-)
 RESULT_SUMMARY_PARSE_MODE = "Markdown"
 
 
@@ -1283,12 +1277,14 @@ async def review_calendar_prompt(
         await user_service.require_superadmin(callback.from_user.id)
         if callback_data.action == keyboards.CalendarPromptAction.EDIT:
             await state.clear()
-            prompt = await calendar_service.get_prompt(callback_data.prompt_id)
+            await calendar_service.get_tournament_prompt(callback_data.prompt_id)
             if callback.message is not None:
                 await _delete_callback_message(callback)
                 await callback.message.answer(
                     texts.admin.ADMIN_CALENDAR_EDIT_MENU,
-                    reply_markup=keyboards.tournament_day_edit_keyboard(prompt),
+                    reply_markup=keyboards.tournament_field_edit_keyboard(
+                        callback_data.prompt_id,
+                    ),
                 )
             await callback.answer()
             return
@@ -1310,6 +1306,11 @@ async def review_calendar_prompt(
             texts.admin.CALENDAR_PROMPT_ALREADY_RESOLVED,
             show_alert=True,
         )
+        return
+    except CalendarTournamentDateAlreadyExistsError:
+        await callback.answer(texts.admin.ADMIN_CALENDAR_TOURNAMENT_DATE_EXISTS)
+        if callback.message is not None:
+            await callback.message.answer(texts.admin.ADMIN_CALENDAR_TOURNAMENT_DATE_EXISTS)
         return
 
     if callback_data.action == keyboards.CalendarPromptAction.CONFIRM:
@@ -1392,20 +1393,10 @@ async def select_admin_calendar_section(
             await callback.message.answer(texts.admin.ADMIN_CALENDAR_ENTER_SEASON_NAME)
         return
 
-    try:
-        prompt = await calendar_service.get_or_create_manual_tournaments_prompt()
-    except CalendarPromptEmptyError:
-        await callback.answer(texts.admin.ADMIN_CALENDAR_EMPTY_TOURNAMENTS)
-        if callback.message is not None:
-            await callback.message.answer(texts.admin.ADMIN_CALENDAR_EMPTY_TOURNAMENTS)
-        return
-
+    await state.set_state(CalendarTournamentOpenStates.entering_date)
     await callback.answer()
     if callback.message is not None:
-        await callback.message.answer(
-            format_admin_calendar_prompt(prompt),
-            reply_markup=keyboards.manual_tournaments_prompt_keyboard(prompt.id),
-        )
+        await callback.message.answer(texts.admin.ADMIN_CALENDAR_ENTER_TOURNAMENT_DATE)
 
 
 @router.message(CalendarSeasonOpenStates.entering_name)
@@ -1456,6 +1447,70 @@ async def enter_season_starts_at(message: Message, state: FSMContext) -> None:
     await message.answer(
         texts.admin.ADMIN_CALENDAR_SELECT_SCORING_CONFIG,
         reply_markup=keyboards.season_scoring_config_keyboard(configs),
+    )
+
+
+@router.message(CalendarTournamentOpenStates.entering_date)
+async def enter_tournament_date(message: Message, state: FSMContext) -> None:
+    if message.from_user is None:
+        return
+
+    try:
+        await user_service.require_superadmin(message.from_user.id)
+        tournament_date = parse_admin_date(message.text or "")
+        tournament_types = await calendar_service.list_tournament_type_options()
+    except AdminAccessDeniedError:
+        await state.clear()
+        await message.answer(texts.admin.INSUFFICIENT_RIGHTS)
+        return
+    except ValueError:
+        await message.answer(texts.admin.ADMIN_CALENDAR_INVALID_DATE)
+        return
+
+    if not tournament_types:
+        await state.clear()
+        await message.answer(texts.admin.ADMIN_CALENDAR_EMPTY_TOURNAMENTS)
+        return
+
+    await state.update_data(tournament_date=tournament_date.isoformat())
+    await message.answer(
+        texts.admin.ADMIN_CALENDAR_SELECT_TOURNAMENT_TYPE,
+        reply_markup=keyboards.tournament_open_type_keyboard(tournament_types),
+    )
+
+
+@router.message(CalendarTournamentOpenStates.entering_edit_date)
+async def enter_tournament_edit_date(message: Message, state: FSMContext) -> None:
+    if message.from_user is None:
+        return
+
+    data = await state.get_data()
+    try:
+        await user_service.require_superadmin(message.from_user.id)
+        tournament_date = parse_admin_date(message.text or "")
+        prompt = await calendar_service.update_tournament_prompt_date(
+            prompt_id=int(data["tournament_prompt_id"]),
+            tournament_date=tournament_date,
+        )
+    except AdminAccessDeniedError:
+        await state.clear()
+        await message.answer(texts.admin.INSUFFICIENT_RIGHTS)
+        return
+    except ValueError:
+        await message.answer(texts.admin.ADMIN_CALENDAR_INVALID_DATE)
+        return
+    except CalendarTournamentDateAlreadyExistsError:
+        await message.answer(texts.admin.ADMIN_CALENDAR_TOURNAMENT_DATE_EXISTS)
+        return
+    except (CalendarPromptNotFoundError, CalendarPromptAlreadyResolvedError):
+        await state.clear()
+        await message.answer(texts.admin.CALENDAR_PROMPT_ALREADY_RESOLVED)
+        return
+
+    await state.clear()
+    await message.answer(
+        format_admin_calendar_prompt(prompt),
+        reply_markup=keyboards.manual_tournaments_prompt_keyboard(prompt.id),
     )
 
 
@@ -1556,35 +1611,52 @@ async def select_season_open_action(
         await callback.message.answer(format_created_season(season))
 
 
-@router.callback_query(keyboards.TournamentDayEditCallback.filter())
-async def select_tournament_edit_day(
+@router.callback_query(keyboards.TournamentOpenTypeCallback.filter())
+async def select_tournament_open_type(
     callback: CallbackQuery,
-    callback_data: keyboards.TournamentDayEditCallback,
+    callback_data: keyboards.TournamentOpenTypeCallback,
     state: FSMContext,
 ) -> None:
-    try:
-        await user_service.require_superadmin(callback.from_user.id)
-    except AdminAccessDeniedError:
-        await callback.answer(texts.admin.INSUFFICIENT_RIGHTS, show_alert=True)
-        return
-
-    await _delete_callback_message(callback)
-    if callback_data.action == keyboards.TournamentDayEditAction.CANCEL:
+    if callback_data.tournament_type_id == 0:
         await state.clear()
         await callback.answer(texts.admin.ADMIN_CALENDAR_CANCELLED)
         if callback.message is not None:
+            await _delete_callback_message(callback)
             await callback.message.answer(texts.admin.ADMIN_CALENDAR_CANCELLED)
+        return
+
+    data = await state.get_data()
+    tournament_date_raw = data.get("tournament_date")
+    if not isinstance(tournament_date_raw, str):
+        await callback.answer(texts.admin.CALENDAR_PROMPT_NOT_FOUND, show_alert=True)
+        return
+
+    try:
+        await user_service.require_superadmin(callback.from_user.id)
+        prompt = await calendar_service.create_manual_tournament_prompt(
+            tournament_date=date.fromisoformat(tournament_date_raw),
+            tournament_type_id=callback_data.tournament_type_id,
+        )
+    except AdminAccessDeniedError:
+        await state.clear()
+        await callback.answer(texts.admin.INSUFFICIENT_RIGHTS, show_alert=True)
+        return
+    except CalendarTournamentDateAlreadyExistsError:
+        await callback.answer(texts.admin.ADMIN_CALENDAR_TOURNAMENT_DATE_EXISTS)
+        if callback.message is not None:
+            await callback.message.answer(texts.admin.ADMIN_CALENDAR_TOURNAMENT_DATE_EXISTS)
+        return
+    except (ValueError, CalendarPromptInvalidPayloadError):
+        await callback.answer(texts.admin.CALENDAR_PROMPT_NOT_FOUND, show_alert=True)
         return
 
     await state.clear()
     await callback.answer()
     if callback.message is not None:
+        await _delete_callback_message(callback)
         await callback.message.answer(
-            texts.admin.ADMIN_CALENDAR_EDIT_MENU,
-            reply_markup=keyboards.tournament_field_edit_keyboard(
-                callback_data.prompt_id,
-                callback_data.tournament_index,
-            ),
+            format_admin_calendar_prompt(prompt),
+            reply_markup=keyboards.manual_tournaments_prompt_keyboard(prompt.id),
         )
 
 
@@ -1608,6 +1680,14 @@ async def select_tournament_edit_field(
             await callback.message.answer(texts.admin.ADMIN_CALENDAR_CANCELLED)
         return
 
+    if callback_data.action == keyboards.TournamentEditAction.DATE:
+        await state.set_state(CalendarTournamentOpenStates.entering_edit_date)
+        await state.update_data(tournament_prompt_id=callback_data.prompt_id)
+        await callback.answer()
+        if callback.message is not None:
+            await callback.message.answer(texts.admin.ADMIN_CALENDAR_ENTER_TOURNAMENT_DATE)
+        return
+
     if callback_data.action == keyboards.TournamentEditAction.TYPE:
         tournament_types = await calendar_service.list_tournament_type_options()
         await callback.answer()
@@ -1622,27 +1702,8 @@ async def select_tournament_edit_field(
             )
         return
 
-    state_name = (
-        CalendarTournamentEditStates.entering_economy
-        if callback_data.action == keyboards.TournamentEditAction.ECONOMY
-        else CalendarTournamentEditStates.entering_rebuys
-    )
-    await state.set_state(state_name)
-    await state.update_data(
-        tournament_prompt_id=callback_data.prompt_id,
-        tournament_index=callback_data.tournament_index,
-    )
-    await callback.answer()
-    if callback.message is not None:
-        await callback.message.answer(
-            TOURNAMENT_ECONOMY_PROMPT
-            if callback_data.action == keyboards.TournamentEditAction.ECONOMY
-            else TOURNAMENT_REBUYS_PROMPT,
-            reply_markup=keyboards.tournament_edit_cancel_keyboard(
-                callback_data.prompt_id,
-                callback_data.tournament_index,
-            ),
-        )
+    await state.clear()
+    await callback.answer(texts.admin.CALENDAR_PROMPT_NOT_FOUND, show_alert=True)
 
 
 @router.callback_query(keyboards.TournamentTypeEditCallback.filter())
@@ -1832,80 +1893,6 @@ async def enter_result_manual_value(message: Message, state: FSMContext) -> None
     )
 
 
-@router.message(CalendarTournamentEditStates.entering_economy)
-async def enter_tournament_economy(message: Message, state: FSMContext) -> None:
-    if message.from_user is None:
-        return
-
-    try:
-        await user_service.require_superadmin(message.from_user.id)
-    except AdminAccessDeniedError:
-        await state.clear()
-        await message.answer(texts.admin.INSUFFICIENT_RIGHTS)
-        return
-
-    data = await state.get_data()
-    try:
-        entry_fee, entry_stack, addon_fee, addon_stack = parse_tournament_economy(
-            message.text or ""
-        )
-        prompt = await calendar_service.update_tournament_prompt_economy(
-            prompt_id=int(data["tournament_prompt_id"]),
-            tournament_index=int(data["tournament_index"]),
-            entry_fee=entry_fee,
-            entry_stack=entry_stack,
-            addon_fee=addon_fee,
-            addon_stack=addon_stack,
-        )
-    except ValueError:
-        await message.answer(TOURNAMENT_ECONOMY_PROMPT)
-        return
-    except (CalendarPromptNotFoundError, CalendarPromptAlreadyResolvedError):
-        await state.clear()
-        await message.answer(texts.admin.CALENDAR_PROMPT_ALREADY_RESOLVED)
-        return
-
-    await state.clear()
-    await message.answer(
-        format_admin_calendar_prompt(prompt),
-        reply_markup=keyboards.manual_tournaments_prompt_keyboard(prompt.id),
-    )
-
-
-@router.message(CalendarTournamentEditStates.entering_rebuys)
-async def enter_tournament_rebuys(message: Message, state: FSMContext) -> None:
-    if message.from_user is None:
-        return
-
-    try:
-        await user_service.require_superadmin(message.from_user.id)
-    except AdminAccessDeniedError:
-        await state.clear()
-        await message.answer(texts.admin.INSUFFICIENT_RIGHTS)
-        return
-
-    data = await state.get_data()
-    try:
-        prompt = await calendar_service.update_tournament_prompt_rebuys(
-            prompt_id=int(data["tournament_prompt_id"]),
-            tournament_index=int(data["tournament_index"]),
-            rebuys=parse_tournament_rebuys(message.text or ""),
-        )
-    except ValueError:
-        await message.answer(TOURNAMENT_REBUYS_PROMPT)
-        return
-    except (CalendarPromptNotFoundError, CalendarPromptAlreadyResolvedError):
-        await state.clear()
-        await message.answer(texts.admin.CALENDAR_PROMPT_ALREADY_RESOLVED)
-        return
-
-    await state.clear()
-    await message.answer(
-        format_admin_calendar_prompt(prompt),
-        reply_markup=keyboards.manual_tournaments_prompt_keyboard(prompt.id),
-    )
-
-
 async def _delete_callback_message(callback: CallbackQuery) -> None:
     if callback.message is None:
         return
@@ -1938,33 +1925,6 @@ def parse_admin_date(value: str) -> date:
     return date(year, month, day)
 
 
-def parse_tournament_economy(value: str) -> tuple[int, int, int, int]:
-    parts = [parse_positive_int(part) for part in re.split(r"\s*-\s*", value.strip())]
-    if len(parts) != 4:
-        raise ValueError
-    entry_fee, entry_stack, addon_fee, addon_stack = parts
-    if min(entry_fee, entry_stack, addon_fee, addon_stack) <= 0:
-        raise ValueError
-    return entry_fee, entry_stack, addon_fee, addon_stack
-
-
-def parse_tournament_rebuys(value: str) -> list[dict[str, int]]:
-    parts = re.split(r"\s*-\s*", value.strip())
-    if len(parts) != 2:
-        raise ValueError
-    fees = [parse_positive_int(part) for part in re.split(r"\s*/\s*", parts[0])]
-    stacks = [parse_positive_int(part) for part in re.split(r"\s*/\s*", parts[1])]
-    if not fees or len(fees) != len(stacks):
-        raise ValueError
-    return [
-        {
-            "fee": fee,
-            "stack": stack,
-        }
-        for fee, stack in zip(fees, stacks, strict=True)
-    ]
-
-
 def parse_positive_decimal(value: str) -> Decimal:
     normalized = re.sub(r"\s+", "", value).replace(",", ".")
     result = Decimal(normalized)
@@ -1993,13 +1953,6 @@ def to_result_field(field: keyboards.AdminResultField) -> ResultField:
 
 
 def parse_nonnegative_int(value: str) -> int:
-    normalized = re.sub(r"\s+", "", value)
-    if not normalized.isdecimal():
-        raise ValueError
-    return int(normalized)
-
-
-def parse_positive_int(value: str) -> int:
     normalized = re.sub(r"\s+", "", value)
     if not normalized.isdecimal():
         raise ValueError

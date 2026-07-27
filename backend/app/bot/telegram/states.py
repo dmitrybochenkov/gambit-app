@@ -11,9 +11,9 @@ class CalendarSeasonOpenStates(StatesGroup):
     entering_starts_at = State()
 
 
-class CalendarTournamentEditStates(StatesGroup):
-    entering_economy = State()
-    entering_rebuys = State()
+class CalendarTournamentOpenStates(StatesGroup):
+    entering_date = State()
+    entering_edit_date = State()
 
 
 class AdminResultStates(StatesGroup):

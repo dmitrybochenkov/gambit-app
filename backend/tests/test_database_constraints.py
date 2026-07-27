@@ -61,6 +61,42 @@ def test_closed_tournament_requires_points_pool(session: Session) -> None:
         session.commit()
 
 
+def test_tournament_date_must_be_unique(session: Session) -> None:
+    scoring_config = ScoringConfig()
+    session.add(scoring_config)
+    session.flush()
+    seed_tournament_types(session)
+
+    season = Season(
+        name="Season 1",
+        scoring_config_id=scoring_config.id,
+        starts_at=date(2026, 1, 1),
+        ends_at=None,
+        status=SeasonStatus.ACTIVE,
+    )
+    session.add(season)
+    session.flush()
+    session.add_all(
+        [
+            Tournament(
+                season_id=season.id,
+                tournament_type_id=tournament_type_id("bounty"),
+                date=date(2026, 7, 4),
+                status=TournamentStatus.ACTIVE,
+            ),
+            Tournament(
+                season_id=season.id,
+                tournament_type_id=tournament_type_id("classic"),
+                date=date(2026, 7, 4),
+                status=TournamentStatus.ACTIVE,
+            ),
+        ]
+    )
+
+    with pytest.raises(IntegrityError):
+        session.commit()
+
+
 def test_scoring_coefficients_must_total_one(session: Session) -> None:
     session.add(
         ScoringConfig(
