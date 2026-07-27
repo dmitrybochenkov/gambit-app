@@ -2,13 +2,12 @@ from datetime import date
 from decimal import Decimal
 from pathlib import Path
 
-from conftest import seed_tournament_types_async, tournament_type_id
+from conftest import build_player, seed_tournament_types_async, tournament_type_id
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
 from app.bot.telegram.formatters import format_profile
 from app.db.base import Base
 from app.db.models import (
-    Player,
     ScoringConfig,
     Season,
     Tournament,
@@ -77,15 +76,14 @@ async def test_profile_filters_current_season_and_all_time(tmp_path: Path) -> No
             ends_at=date(2026, 6, 30),
             status=SeasonStatus.CLOSED,
         )
-        player = Player(
+        player = build_player(
             telegram_id=100,
-            full_name="Игрок Первый",
-            nickname="Ace",
+            display_name="Игрок Первый",
             status=PlayerStatus.ACTIVE,
         )
-        player_without_results = Player(
+        player_without_results = build_player(
             telegram_id=200,
-            nickname="King",
+            display_name="King",
             status=PlayerStatus.ACTIVE,
         )
         session.add_all(
@@ -154,7 +152,7 @@ async def test_profile_filters_current_season_and_all_time(tmp_path: Path) -> No
 
         assert current_title == "Твой профиль — текущий сезон"
         assert current_stats is not None
-        assert current_stats.display_name == "Игрок Первый (Ace)"
+        assert current_stats.display_name == "Игрок Первый"
         assert current_stats.total_points == Decimal("100")
         assert current_stats.knockout_points == Decimal("20")
         assert current_stats.total_knockouts_count == 3

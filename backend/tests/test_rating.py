@@ -2,13 +2,12 @@ from datetime import date
 from decimal import Decimal
 from pathlib import Path
 
-from conftest import seed_tournament_types_async, tournament_type_id
+from conftest import build_player, seed_tournament_types_async, tournament_type_id
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
 from app.bot.telegram.formatters import format_rating
 from app.db.base import Base
 from app.db.models import (
-    Player,
     ScoringConfig,
     Season,
     Tournament,
@@ -44,20 +43,19 @@ async def test_rating_filters_current_season_and_all_time(tmp_path: Path) -> Non
             ends_at=date(2026, 6, 30),
             status=SeasonStatus.CLOSED,
         )
-        first_player = Player(
+        first_player = build_player(
             telegram_id=100,
-            full_name="Игрок Первый",
-            nickname="Ace",
+            display_name="Игрок Первый",
             status=PlayerStatus.ACTIVE,
         )
-        second_player = Player(
+        second_player = build_player(
             telegram_id=200,
-            nickname="King",
+            display_name="King",
             status=PlayerStatus.ACTIVE,
         )
-        zero_player = Player(
+        zero_player = build_player(
             telegram_id=300,
-            nickname="Zero",
+            display_name="Zero",
             status=PlayerStatus.ACTIVE,
         )
         session.add_all(
@@ -157,14 +155,14 @@ async def test_rating_filters_current_season_and_all_time(tmp_path: Path) -> Non
 
         assert [row.display_name for row in current_points] == [
             "King",
-            "Игрок Первый (Ace)",
+            "Игрок Первый",
         ]
         assert [row.total_points for row in current_points] == [
             Decimal("120"),
             Decimal("100"),
         ]
         assert [row.display_name for row in all_time_points] == [
-            "Игрок Первый (Ace)",
+            "Игрок Первый",
             "King",
         ]
         assert [row.total_points for row in all_time_points] == [
@@ -173,12 +171,12 @@ async def test_rating_filters_current_season_and_all_time(tmp_path: Path) -> Non
         ]
         assert [row.display_name for row in current_knockouts] == [
             "King",
-            "Игрок Первый (Ace)",
+            "Игрок Первый",
         ]
         assert "Zero" not in [row.display_name for row in current_points]
         assert "Zero" not in [row.display_name for row in current_knockouts]
         assert [row.display_name for row in all_time_knockouts] == [
-            "Игрок Первый (Ace)",
+            "Игрок Первый",
             "King",
         ]
         assert all_time_knockouts[0].total_knockouts_count == 6

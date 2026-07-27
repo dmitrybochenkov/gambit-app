@@ -2,13 +2,12 @@ from datetime import date
 from decimal import Decimal
 from pathlib import Path
 
-from conftest import seed_tournament_types_async, tournament_type_id
+from conftest import build_player, seed_tournament_types_async, tournament_type_id
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
 from app.db.base import Base
 from app.db.models import (
-    Player,
     ScoringConfig,
     Season,
     Tournament,
@@ -48,9 +47,9 @@ async def test_result_tournament_list_includes_open_past_tournaments(
             ends_at=date(2026, 12, 31),
             status=SeasonStatus.ACTIVE,
         )
-        admin = Player(
+        admin = build_player(
             telegram_id=100,
-            full_name="Admin",
+            display_name="Admin",
             status=PlayerStatus.ACTIVE,
             role=PlayerRole.ADMIN,
         )
@@ -129,16 +128,16 @@ async def test_result_draft_closes_tournament(tmp_path: Path) -> None:
             ends_at=date(2026, 12, 31),
             status=SeasonStatus.ACTIVE,
         )
-        admin = Player(
+        admin = build_player(
             telegram_id=100,
-            full_name="Admin",
+            display_name="Admin",
             status=PlayerStatus.ACTIVE,
             role=PlayerRole.ADMIN,
         )
         players = [
-            Player(
+            build_player(
                 telegram_id=telegram_id,
-                full_name=f"Player {telegram_id}",
+                display_name=f"Player {telegram_id}",
                 status=PlayerStatus.ACTIVE,
             )
             for telegram_id in range(101, 106)
@@ -246,15 +245,15 @@ async def test_result_draft_moves_duplicate_place_to_latest_player(
             ends_at=date(2026, 12, 31),
             status=SeasonStatus.ACTIVE,
         )
-        admin = Player(
+        admin = build_player(
             telegram_id=100,
-            full_name="Admin",
+            display_name="Admin",
             status=PlayerStatus.ACTIVE,
             role=PlayerRole.ADMIN,
         )
         players = [
-            Player(telegram_id=101, full_name="First", status=PlayerStatus.ACTIVE),
-            Player(telegram_id=102, full_name="Second", status=PlayerStatus.ACTIVE),
+            build_player(telegram_id=101, display_name="First", status=PlayerStatus.ACTIVE),
+            build_player(telegram_id=102, display_name="Second", status=PlayerStatus.ACTIVE),
         ]
         session.add_all([season, admin, *players])
         await session.flush()

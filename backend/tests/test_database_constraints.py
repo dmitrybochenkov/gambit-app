@@ -23,7 +23,7 @@ def session() -> Session:
     engine.dispose()
 
 
-def test_player_requires_name_or_nickname(session: Session) -> None:
+def test_player_requires_display_name(session: Session) -> None:
     session.add(Player(telegram_id=1))
 
     with pytest.raises(IntegrityError):
@@ -81,7 +81,8 @@ def test_tournament_result_bonus_points_must_be_nonnegative(
     scoring_config = ScoringConfig()
     player = Player(
         telegram_id=1,
-        full_name="Игрок Первый",
+        display_name="Игрок Первый",
+        display_name_normalized="игрок первыи",
         status=PlayerStatus.ACTIVE,
     )
     session.add_all([scoring_config, player])

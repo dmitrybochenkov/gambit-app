@@ -53,8 +53,7 @@ class ProfileRepository:
 
         statement = (
             select(
-                Player.full_name,
-                Player.nickname,
+                Player.display_name,
                 total_points.label("total_points"),
                 knockout_points.label("knockout_points"),
                 func.count(TournamentResult.id).label("tournaments_count"),
@@ -70,7 +69,7 @@ class ProfileRepository:
             .join(TournamentResult, TournamentResult.player_id == Player.id)
             .join(Tournament, Tournament.id == TournamentResult.tournament_id)
             .where(Player.telegram_id == telegram_id)
-            .group_by(Player.id, Player.full_name, Player.nickname)
+            .group_by(Player.id, Player.display_name)
         )
         if current_season:
             statement = statement.join(
@@ -100,7 +99,7 @@ class ProfileRepository:
             )
 
         return PlayerProfileStats(
-            display_name=self._display_name(row.full_name, row.nickname),
+            display_name=row.display_name,
             total_points=Decimal(row.total_points),
             knockout_points=Decimal(row.knockout_points),
             tournaments_count=row.tournaments_count,
@@ -119,9 +118,3 @@ class ProfileRepository:
             func.sum(case((TournamentResult.place == place, 1), else_=0)),
             0,
         )
-
-    @staticmethod
-    def _display_name(full_name: str | None, nickname: str | None) -> str:
-        if full_name and nickname:
-            return f"{full_name} ({nickname})"
-        return nickname or full_name or ""

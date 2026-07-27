@@ -59,42 +59,17 @@ class PlayerRepository:
         )
         return list(result.scalars())
 
-    async def full_name_exists(
+    async def display_name_exists(
         self,
-        full_name: str,
-        full_name_normalized: str,
+        display_name: str,
+        display_name_normalized: str,
         telegram_id: int,
     ) -> bool:
         result = await self.session.execute(
             select(Player.id).where(
                 or_(
-                    Player.full_name == full_name,
-                    Player.full_name_normalized == full_name_normalized,
-                ),
-                Player.telegram_id != telegram_id,
-                Player.telegram_id > 0,
-                Player.status.in_(
-                    [
-                        PlayerStatus.PENDING,
-                        PlayerStatus.ACTIVE,
-                        PlayerStatus.BLOCKED,
-                    ]
-                ),
-            )
-        )
-        return result.scalar_one_or_none() is not None
-
-    async def nickname_exists(
-        self,
-        nickname: str,
-        nickname_normalized: str,
-        telegram_id: int,
-    ) -> bool:
-        result = await self.session.execute(
-            select(Player.id).where(
-                or_(
-                    Player.nickname == nickname,
-                    Player.nickname_normalized == nickname_normalized,
+                    Player.display_name == display_name,
+                    Player.display_name_normalized == display_name_normalized,
                 ),
                 Player.telegram_id != telegram_id,
                 Player.telegram_id > 0,
@@ -133,28 +108,22 @@ class PlayerRepository:
     async def save_pending_registration(
         self,
         telegram_id: int,
-        full_name: str | None,
-        full_name_normalized: str | None,
-        nickname: str | None,
-        nickname_normalized: str | None,
+        display_name: str,
+        display_name_normalized: str,
     ) -> Player:
         player = await self.get_by_telegram_id(telegram_id)
         if player is None:
             player = Player(
                 telegram_id=telegram_id,
-                full_name=full_name,
-                full_name_normalized=full_name_normalized,
-                nickname=nickname,
-                nickname_normalized=nickname_normalized,
+                display_name=display_name,
+                display_name_normalized=display_name_normalized,
                 status=PlayerStatus.PENDING,
             )
             self.session.add(player)
             return player
 
-        player.full_name = full_name
-        player.full_name_normalized = full_name_normalized
-        player.nickname = nickname
-        player.nickname_normalized = nickname_normalized
+        player.display_name = display_name
+        player.display_name_normalized = display_name_normalized
         player.status = PlayerStatus.PENDING
         player.approved_at = None
         player.approved_by_admin_id = None

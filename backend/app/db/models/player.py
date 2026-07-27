@@ -1,6 +1,6 @@
 from datetime import datetime
 
-from sqlalchemy import BigInteger, CheckConstraint, DateTime, ForeignKey, Integer, String
+from sqlalchemy import BigInteger, DateTime, ForeignKey, Integer, String
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.db.base import Base
@@ -13,16 +13,10 @@ class Player(TimestampMixin, Base):
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     telegram_id: Mapped[int] = mapped_column(BigInteger, unique=True, index=True, nullable=False)
-    full_name: Mapped[str | None] = mapped_column(String(255), nullable=True)
-    full_name_normalized: Mapped[str | None] = mapped_column(
+    display_name: Mapped[str] = mapped_column(String(255), nullable=False)
+    display_name_normalized: Mapped[str] = mapped_column(
         String(255),
-        nullable=True,
-        index=True,
-    )
-    nickname: Mapped[str | None] = mapped_column(String(100), nullable=True)
-    nickname_normalized: Mapped[str | None] = mapped_column(
-        String(100),
-        nullable=True,
+        nullable=False,
         index=True,
     )
     status: Mapped[PlayerStatus] = mapped_column(
@@ -42,15 +36,3 @@ class Player(TimestampMixin, Base):
         ForeignKey("players.id", ondelete="SET NULL"),
         nullable=True,
     )
-    __table_args__ = (
-        CheckConstraint(
-            "full_name IS NOT NULL OR nickname IS NOT NULL",
-            name="identity_present",
-        ),
-    )
-
-    @property
-    def display_name(self) -> str:
-        if self.full_name and self.nickname:
-            return f"{self.full_name} ({self.nickname})"
-        return self.nickname or self.full_name or ""

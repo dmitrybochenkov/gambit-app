@@ -1,3 +1,5 @@
+import re
+
 from aiogram import F, Router
 from aiogram.exceptions import TelegramBadRequest
 from aiogram.filters import CommandStart
@@ -12,7 +14,7 @@ from app.bot.telegram.formatters import (
     format_tournament_schedule,
 )
 from app.bot.telegram.notifications import notify_admins_about_registration
-from app.bot.telegram.states import RegistrationMode, RegistrationStates
+from app.bot.telegram.states import RegistrationStates
 from app.services.pagination import pagination_service
 from app.services.player_service import (
     IdentityAlreadyExistsError,
@@ -36,23 +38,17 @@ def _clean_text(value: str) -> str:
     return " ".join(value.split())
 
 
-def _is_valid_full_name(value: str) -> bool:
-    return 3 <= len(value) <= 255 and len(value.split()) >= 2
+def _is_valid_display_name(value: str) -> bool:
+    return 1 <= len(value) <= 255 and re.fullmatch(r"[\w\s.@-]+", value) is not None
 
 
-def _is_valid_nickname(value: str) -> bool:
-    return 2 <= len(value) <= 100
-
-
-async def _send_registration_intro(message: Message) -> None:
+async def _send_registration_intro(message: Message, state: FSMContext) -> None:
     await message.answer(
         texts.user.REGISTRATION_GREETING,
         reply_markup=ReplyKeyboardRemove(),
     )
-    await message.answer(
-        texts.user.REGISTRATION_MODE_PROMPT,
-        reply_markup=keyboards.registration_mode_keyboard(),
-    )
+    await state.set_state(RegistrationStates.entering_display_name)
+    await _send_input_prompt(message, state, texts.user.REGISTRATION_DISPLAY_NAME_PROMPT)
 
 
 async def _send_confirmation(message: Message, state: FSMContext) -> None:
@@ -61,8 +57,7 @@ async def _send_confirmation(message: Message, state: FSMContext) -> None:
     await state.set_state(RegistrationStates.confirming)
     await message.answer(
         texts.user.registration_confirmation(
-            full_name=data.get("full_name"),
-            nickname=data.get("nickname"),
+            display_name=data.get("display_name", ""),
         ),
         reply_markup=keyboards.registration_confirmation_keyboard(),
     )
@@ -108,7 +103,7 @@ async def start_command(message: Message, state: FSMContext) -> None:
 
     player = await player_service.get_by_telegram_id(message.from_user.id)
     if player is None:
-        await _send_registration_intro(message)
+        await _send_registration_intro(message, state)
         return
 
     if player.is_pending:
@@ -561,86 +556,27 @@ async def cancel_tournament_cancellation_selection(
         await callback.message.answer(texts.user.TOURNAMENT_CANCELLATION_CANCELLED)
 
 
-@router.callback_query(keyboards.RegistrationModeCallback.filter())
-async def choose_registration_mode(
-    callback: CallbackQuery,
-    callback_data: keyboards.RegistrationModeCallback,
-    state: FSMContext,
-) -> None:
-    await callback.answer()
-    if callback.message is None:
-        return
-
-    await state.clear()
-    await state.update_data(mode=callback_data.mode.value)
-    await _delete_message(callback.message)
-
-    if callback_data.mode == RegistrationMode.NICKNAME:
-        await state.set_state(RegistrationStates.entering_nickname)
-        await _send_input_prompt(callback.message, state, texts.user.ENTER_NICKNAME)
-        return
-
-    await state.set_state(RegistrationStates.entering_full_name)
-    await _send_input_prompt(callback.message, state, texts.user.ENTER_FULL_NAME)
-
-
-@router.message(RegistrationStates.entering_full_name)
-async def enter_full_name(message: Message, state: FSMContext) -> None:
+@router.message(RegistrationStates.entering_display_name)
+async def enter_display_name(message: Message, state: FSMContext) -> None:
     if message.from_user is None:
         return
 
-    full_name = _clean_text(message.text or "")
-    if not _is_valid_full_name(full_name):
-        await message.answer(texts.user.INVALID_FULL_NAME)
+    display_name = _clean_text(message.text or "")
+    if not _is_valid_display_name(display_name):
+        await message.answer(texts.user.INVALID_DISPLAY_NAME)
         return
 
     try:
         await player_service.validate_unique_identity(
             telegram_id=message.from_user.id,
-            full_name=full_name,
-            nickname=None,
+            display_name=display_name,
         )
     except IdentityAlreadyExistsError:
-        await message.answer(texts.user.FULL_NAME_ALREADY_EXISTS)
+        await message.answer(texts.user.DISPLAY_NAME_ALREADY_EXISTS)
         return
 
     await _delete_prompt_and_input(message, state)
-    await state.update_data(full_name=full_name)
-    data = await state.get_data()
-    if data["mode"] == RegistrationMode.BOTH.value:
-        await state.set_state(RegistrationStates.entering_nickname)
-        await _send_input_prompt(
-            message,
-            state,
-            texts.user.ENTER_NICKNAME_AFTER_FULL_NAME,
-        )
-        return
-
-    await _send_confirmation(message, state)
-
-
-@router.message(RegistrationStates.entering_nickname)
-async def enter_nickname(message: Message, state: FSMContext) -> None:
-    if message.from_user is None:
-        return
-
-    nickname = _clean_text(message.text or "")
-    if not _is_valid_nickname(nickname):
-        await message.answer(texts.user.INVALID_NICKNAME)
-        return
-
-    try:
-        await player_service.validate_unique_identity(
-            telegram_id=message.from_user.id,
-            full_name=None,
-            nickname=nickname,
-        )
-    except IdentityAlreadyExistsError:
-        await message.answer(texts.user.NICKNAME_ALREADY_EXISTS)
-        return
-
-    await _delete_prompt_and_input(message, state)
-    await state.update_data(nickname=nickname)
+    await state.update_data(display_name=display_name)
     await _send_confirmation(message, state)
 
 
@@ -652,7 +588,7 @@ async def restart_registration(callback: CallbackQuery, state: FSMContext) -> No
 
     await _delete_message(callback.message)
     await state.clear()
-    await _send_registration_intro(callback.message)
+    await _send_registration_intro(callback.message, state)
 
 
 @router.callback_query(F.data == keyboards.CONFIRM_REGISTRATION_CALLBACK)
@@ -663,9 +599,8 @@ async def confirm_registration(callback: CallbackQuery, state: FSMContext) -> No
 
     await _delete_message(callback.message)
     data = await state.get_data()
-    full_name = data.get("full_name")
-    nickname = data.get("nickname")
-    if not full_name and not nickname:
+    display_name = data.get("display_name")
+    if not display_name:
         await state.clear()
         await callback.message.answer(texts.user.REGISTRATION_EXPIRED)
         return
@@ -673,16 +608,10 @@ async def confirm_registration(callback: CallbackQuery, state: FSMContext) -> No
     try:
         player = await player_service.submit_registration(
             telegram_id=callback.from_user.id,
-            full_name=full_name,
-            nickname=nickname,
+            display_name=display_name,
         )
-    except IdentityAlreadyExistsError as error:
-        target_state = (
-            RegistrationStates.entering_full_name
-            if error.field == "full_name"
-            else RegistrationStates.entering_nickname
-        )
-        await state.set_state(target_state)
+    except IdentityAlreadyExistsError:
+        await state.set_state(RegistrationStates.entering_display_name)
         await _send_input_prompt(
             callback.message,
             state,

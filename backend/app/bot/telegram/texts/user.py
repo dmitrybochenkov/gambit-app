@@ -11,23 +11,17 @@ REGISTRATION_GREETING = (
     "🤚 Добро пожаловать в покерный клуб Гамбит. Я бот, который поможет тебе "
     "стать участником нашего комьюнити.\n\n"
     "Чтобы я знал, как к тебе обращаться, и мог отслеживать твои достижения, "
-    "введи свои фамилию и имя и/или никнейм.\n\n"
-    "❌ Запрещено использовать ненормативную лексику!\n\n"
-    "✅ Чтобы корректно учесть твои достижения, вводи никнейм, под которым "
-    "ты играл в клубе ранее."
+    "введи имя, под которым ты будешь отображаться в клубе.\n\n"
+    "❌ Запрещено использовать ненормативную лексику!"
 )
-REGISTRATION_MODE_PROMPT = "Выбери вариант регистрации:"
+REGISTRATION_DISPLAY_NAME_PROMPT = (
+    "Введи имя, под которым ты будешь отображаться в клубе.\n\nНапример: Дима Боченков или Troy."
+)
 REGISTRATION_CONFIRMATION_TITLE = "Проверь введенные данные:"
-FULL_NAME_LABEL = "Фамилия и имя"
-NICKNAME_LABEL = "Никнейм"
-ENTER_NICKNAME = "Введи никнейм."
-ENTER_FULL_NAME = "Введи фамилию и имя."
-ENTER_NICKNAME_AFTER_FULL_NAME = "Теперь введи никнейм."
-INVALID_FULL_NAME = "Введи фамилию и имя через пробел."
-FULL_NAME_ALREADY_EXISTS = "Такие имя и фамилия уже существуют. Попробуй другие."
-INVALID_NICKNAME = "Никнейм должен содержать от 2 до 100 символов."
-NICKNAME_ALREADY_EXISTS = "Такой никнейм уже существует. Попробуй другой."
-REGISTRATION_DATA_ALREADY_EXISTS = "Эти данные уже заняты. Введи другое значение."
+DISPLAY_NAME_LABEL = "Имя игрока"
+INVALID_DISPLAY_NAME = "Имя игрока должно содержать от 1 до 255 символов."
+DISPLAY_NAME_ALREADY_EXISTS = "Такое имя игрока уже существует. Попробуй другое."
+REGISTRATION_DATA_ALREADY_EXISTS = "Это имя уже занято. Введи другое значение."
 REGISTRATION_EXPIRED = "Данные регистрации устарели. Начни заново: /start"
 REGISTRATION_NOT_ALLOWED = "Повторная регистрация недоступна."
 REGISTRATION_PENDING = "Твоя заявка на регистрацию находится на проверке."
@@ -88,13 +82,8 @@ def welcome_back(display_name: str) -> str:
     return f"{display_name}, добро пожаловать!"
 
 
-def registration_confirmation(full_name: str | None, nickname: str | None) -> str:
-    lines = [REGISTRATION_CONFIRMATION_TITLE]
-    if full_name:
-        lines.append(f"{FULL_NAME_LABEL}: {full_name}")
-    if nickname:
-        lines.append(f"{NICKNAME_LABEL}: {nickname}")
-    return "\n".join(lines)
+def registration_confirmation(display_name: str) -> str:
+    return "\n".join([REGISTRATION_CONFIRMATION_TITLE, f"{DISPLAY_NAME_LABEL}: {display_name}"])
 
 
 def registration_submitted(display_name: str) -> str:

@@ -12,6 +12,7 @@ from app.services.player_service import (
     AdminAccessDeniedError,
     IdentityAlreadyExistsError,
     PlayerService,
+    normalize_display_name,
 )
 
 
@@ -23,20 +24,26 @@ async def create_player_service(database_path: Path) -> tuple[PlayerService, Asy
     return PlayerService(session_factory), engine
 
 
+def player_identity(display_name: str) -> dict[str, str]:
+    return {
+        "display_name": display_name,
+        "display_name_normalized": normalize_display_name(display_name) or display_name,
+    }
+
+
 async def test_submit_pending_registration(tmp_path: Path) -> None:
     service, engine = await create_player_service(tmp_path / "players.db")
     try:
         player = await service.submit_registration(
             telegram_id=100,
-            full_name="Иван Иванов",
-            nickname="Ace",
+            display_name="Иван Иванов",
         )
 
         assert player.status == PlayerStatusView.PENDING
-        assert player.display_name == "Иван Иванов (Ace)"
+        assert player.display_name == "Иван Иванов"
         stored_player = await service.get_by_telegram_id(100)
         assert stored_player is not None
-        assert stored_player.nickname == "Ace"
+        assert stored_player.display_name == "Иван Иванов"
     finally:
         await engine.dispose()
 
@@ -46,18 +53,16 @@ async def test_registration_identity_must_be_unique(tmp_path: Path) -> None:
     try:
         await service.submit_registration(
             telegram_id=100,
-            full_name="Иван Иванов",
-            nickname="Ace",
+            display_name="Ace",
         )
 
         with pytest.raises(IdentityAlreadyExistsError) as error:
             await service.submit_registration(
                 telegram_id=200,
-                full_name="Петр Петров",
-                nickname="Ace",
+                display_name="Ace",
             )
 
-        assert error.value.field == "nickname"
+        assert error.value.field == "display_name"
     finally:
         await engine.dispose()
 
@@ -71,28 +76,26 @@ async def test_registration_creates_historical_match_before_approval(
         async with session_factory() as session:
             historical_player = Player(
                 telegram_id=-1,
-                full_name="Исторический Игрок",
                 status=PlayerStatus.ACTIVE,
+                **player_identity("Исторический Игрок"),
             )
             session.add(historical_player)
             await session.commit()
 
         await service.validate_unique_identity(
             telegram_id=100,
-            full_name="Исторический Игрок",
-            nickname=None,
+            display_name="Исторический Игрок",
         )
         pending_player = await service.submit_registration(
             telegram_id=100,
-            full_name="Исторический Игрок",
-            nickname=None,
+            display_name="Исторический Игрок",
         )
 
         assert pending_player.status == PlayerStatusView.PENDING
         assert pending_player.telegram_id == 100
         stored_player = await service.get_by_telegram_id(100)
         assert stored_player is not None
-        assert stored_player.full_name == "Исторический Игрок"
+        assert stored_player.display_name == "Исторический Игрок"
         async with session_factory() as session:
             historical = await session.get(Player, historical_player.id)
             assert historical is not None
@@ -111,8 +114,7 @@ async def test_approval_merges_best_historical_match(tmp_path: Path) -> None:
     try:
         admin = await service.submit_registration(
             telegram_id=100,
-            full_name="Админ Первый",
-            nickname=None,
+            display_name="Админ Первый",
         )
         session_factory = async_sessionmaker(engine, expire_on_commit=False)
         async with session_factory() as session:
@@ -122,17 +124,15 @@ async def test_approval_merges_best_historical_match(tmp_path: Path) -> None:
             stored_admin.role = PlayerRole.SUPERADMIN
             historical_player = Player(
                 telegram_id=-1,
-                full_name="Дима Боченков",
-                nickname="GambitDima",
                 status=PlayerStatus.ACTIVE,
+                **player_identity("Дима Боченков"),
             )
             session.add(historical_player)
             await session.commit()
 
         pending_player = await service.submit_registration(
             telegram_id=200,
-            full_name="Дима Боченкав",
-            nickname="gambit.dima",
+            display_name="Дима Боченкав",
         )
 
         approved = await service.approve_registration(
@@ -144,8 +144,7 @@ async def test_approval_merges_best_historical_match(tmp_path: Path) -> None:
         assert approved_player.id == historical_player.id
         assert approved_player.telegram_id == 200
         assert approved_player.status == PlayerStatusView.ACTIVE
-        assert approved_player.full_name == "Дима Боченков"
-        assert approved_player.nickname == "GambitDima"
+        assert approved_player.display_name == "Дима Боченков"
         assert [admin.telegram_id for admin in approved.admins] == [100]
         assert await service.get_by_telegram_id(200) is not None
 
@@ -161,8 +160,7 @@ async def test_approval_merges_selected_historical_match(tmp_path: Path) -> None
     try:
         admin = await service.submit_registration(
             telegram_id=100,
-            full_name="Админ Первый",
-            nickname=None,
+            display_name="Админ Первый",
         )
         session_factory = async_sessionmaker(engine, expire_on_commit=False)
         async with session_factory() as session:
@@ -172,23 +170,20 @@ async def test_approval_merges_selected_historical_match(tmp_path: Path) -> None
             stored_admin.role = PlayerRole.SUPERADMIN
             first_historical_player = Player(
                 telegram_id=-1,
-                full_name="Дима Боченков",
-                nickname="GambitDima",
                 status=PlayerStatus.ACTIVE,
+                **player_identity("Дима Боченков"),
             )
             second_historical_player = Player(
                 telegram_id=-2,
-                full_name="Дима Боченкав",
-                nickname="GambitDima2",
                 status=PlayerStatus.ACTIVE,
+                **player_identity("Дима Боченкав"),
             )
             session.add_all([first_historical_player, second_historical_player])
             await session.commit()
 
         pending_player = await service.submit_registration(
             telegram_id=200,
-            full_name="Дима Боченкав",
-            nickname="gambit.dima2",
+            display_name="Дима Боченкав",
         )
 
         approved = await service.approve_registration(
@@ -214,8 +209,7 @@ async def test_approval_can_ignore_historical_match(tmp_path: Path) -> None:
     try:
         admin = await service.submit_registration(
             telegram_id=100,
-            full_name="Админ Первый",
-            nickname=None,
+            display_name="Админ Первый",
         )
         session_factory = async_sessionmaker(engine, expire_on_commit=False)
         async with session_factory() as session:
@@ -225,17 +219,15 @@ async def test_approval_can_ignore_historical_match(tmp_path: Path) -> None:
             stored_admin.role = PlayerRole.SUPERADMIN
             historical_player = Player(
                 telegram_id=-1,
-                full_name="Дима Боченков",
-                nickname="GambitDima",
                 status=PlayerStatus.ACTIVE,
+                **player_identity("Дима Боченков"),
             )
             session.add(historical_player)
             await session.commit()
 
         pending_player = await service.submit_registration(
             telegram_id=200,
-            full_name="Дима Боченкав",
-            nickname="gambit.dima",
+            display_name="Дима Боченкав",
         )
 
         approved = await service.approve_registration(
@@ -262,8 +254,7 @@ async def test_rejection_deletes_pending_registration(tmp_path: Path) -> None:
     try:
         admin = await service.submit_registration(
             telegram_id=100,
-            full_name="Админ Первый",
-            nickname=None,
+            display_name="Админ Первый",
         )
         session_factory = async_sessionmaker(engine, expire_on_commit=False)
         async with session_factory() as session:
@@ -273,16 +264,15 @@ async def test_rejection_deletes_pending_registration(tmp_path: Path) -> None:
             stored_admin.role = PlayerRole.SUPERADMIN
             historical_player = Player(
                 telegram_id=-1,
-                full_name="Исторический Игрок",
                 status=PlayerStatus.ACTIVE,
+                **player_identity("Исторический Игрок"),
             )
             session.add(historical_player)
             await session.commit()
 
         pending_player = await service.submit_registration(
             telegram_id=200,
-            full_name="Исторический Игрок",
-            nickname=None,
+            display_name="Исторический Игрок",
         )
 
         rejected = await service.reject_registration(
@@ -307,13 +297,11 @@ async def test_superadmin_can_approve_registration(tmp_path: Path) -> None:
     try:
         admin = await service.submit_registration(
             telegram_id=100,
-            full_name="Админ Первый",
-            nickname=None,
+            display_name="Админ Первый",
         )
         player = await service.submit_registration(
             telegram_id=200,
-            full_name="Игрок Второй",
-            nickname=None,
+            display_name="Игрок Второй",
         )
 
         session_factory = async_sessionmaker(engine, expire_on_commit=False)
@@ -344,13 +332,11 @@ async def test_regular_player_cannot_review_registration(tmp_path: Path) -> None
     try:
         reviewer = await service.submit_registration(
             telegram_id=100,
-            full_name="Игрок Первый",
-            nickname=None,
+            display_name="Игрок Первый",
         )
         player = await service.submit_registration(
             telegram_id=200,
-            full_name="Игрок Второй",
-            nickname=None,
+            display_name="Игрок Второй",
         )
 
         session_factory = async_sessionmaker(engine, expire_on_commit=False)
@@ -375,13 +361,11 @@ async def test_superadmin_can_promote_active_player_to_admin(tmp_path: Path) -> 
     try:
         superadmin = await service.submit_registration(
             telegram_id=100,
-            full_name="Админ Первый",
-            nickname=None,
+            display_name="Админ Первый",
         )
         player = await service.submit_registration(
             telegram_id=200,
-            full_name="Игрок Второй",
-            nickname=None,
+            display_name="Игрок Второй",
         )
 
         session_factory = async_sessionmaker(engine, expire_on_commit=False)
@@ -396,9 +380,9 @@ async def test_superadmin_can_promote_active_player_to_admin(tmp_path: Path) -> 
             session.add(
                 Player(
                     telegram_id=-1,
-                    full_name="Исторический Игрок",
                     status=PlayerStatus.ACTIVE,
                     role=PlayerRole.USER,
+                    **player_identity("Исторический Игрок"),
                 )
             )
             await session.commit()

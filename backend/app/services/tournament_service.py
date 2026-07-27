@@ -19,8 +19,7 @@ from app.db.session import SessionFactory
 from app.services.dto import PlayerView, TournamentView
 from app.services.player_service import (
     AdminAccessDeniedError,
-    normalize_full_name,
-    normalize_nickname,
+    normalize_display_name,
     required_player_view,
 )
 
@@ -319,33 +318,21 @@ def _sort_players_by_display_name(players: list[PlayerView]) -> list[PlayerView]
 
 
 def _player_search_score(player: object, query: str) -> int:
-    full_name = getattr(player, "full_name", None)
-    nickname = getattr(player, "nickname", None)
-    normalized_queries = {
-        normalize_full_name(query),
-        normalize_nickname(query),
-    }
-    normalized_queries.discard(None)
-    if not normalized_queries:
+    normalized_query = normalize_display_name(query)
+    if not normalized_query:
         return 0
 
-    candidates = {
-        normalize_full_name(full_name),
-        normalize_nickname(nickname),
-    }
-    candidates.discard(None)
-    if not candidates:
+    display_name = getattr(player, "display_name", None)
+    display_name_normalized = getattr(player, "display_name_normalized", None)
+    candidate = display_name_normalized or normalize_display_name(display_name)
+    if not candidate:
         return 0
 
-    score = 0
-    for normalized_query in normalized_queries:
-        for candidate in candidates:
-            if normalized_query == candidate:
-                score = max(score, 300)
-            elif normalized_query in candidate:
-                score = max(score, 200 + len(normalized_query))
-            else:
-                ratio = SequenceMatcher(None, normalized_query, candidate).ratio()
-                if ratio >= 0.55:
-                    score = max(score, int(ratio * 100))
-    return score
+    if normalized_query == candidate:
+        return 300
+    if normalized_query in candidate:
+        return 200 + len(normalized_query)
+    ratio = SequenceMatcher(None, normalized_query, candidate).ratio()
+    if ratio >= 0.55:
+        return int(ratio * 100)
+    return 0

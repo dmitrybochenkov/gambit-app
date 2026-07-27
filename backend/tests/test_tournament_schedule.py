@@ -1,14 +1,13 @@
 from datetime import date
 from pathlib import Path
 
-from conftest import seed_tournament_types_async, tournament_type_id
+from conftest import build_player, seed_tournament_types_async, tournament_type_id
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
 from app.bot.telegram.formatters import format_tournament_schedule
 from app.db.base import Base
 from app.db.models import (
-    Player,
     ScoringConfig,
     Season,
     Tournament,
@@ -113,9 +112,9 @@ async def test_active_player_can_register_for_multiple_tournaments(tmp_path: Pat
             ends_at=date(2026, 12, 31),
             status=SeasonStatus.ACTIVE,
         )
-        player = Player(
+        player = build_player(
             telegram_id=100,
-            full_name="Игрок Первый",
+            display_name="Игрок Первый",
             status=PlayerStatus.ACTIVE,
         )
         session.add_all([season, player])
@@ -238,15 +237,15 @@ async def test_admin_can_register_player_for_tournament(tmp_path: Path) -> None:
             ends_at=date(2026, 12, 31),
             status=SeasonStatus.ACTIVE,
         )
-        admin = Player(
+        admin = build_player(
             telegram_id=100,
-            full_name="Админ Первый",
+            display_name="Админ Первый",
             status=PlayerStatus.ACTIVE,
             role=PlayerRole.ADMIN,
         )
-        player = Player(
+        player = build_player(
             telegram_id=101,
-            full_name="Игрок Первый",
+            display_name="Игрок Первый",
             status=PlayerStatus.ACTIVE,
         )
         session.add_all([season, admin, player])
@@ -306,31 +305,28 @@ async def test_admin_player_registration_list_is_sorted_and_searchable(
 
     session_factory = async_sessionmaker(engine, expire_on_commit=False)
     async with session_factory() as session:
-        admin = Player(
+        admin = build_player(
             telegram_id=100,
-            full_name="Админ Первый",
+            display_name="Админ Первый",
             status=PlayerStatus.ACTIVE,
             role=PlayerRole.ADMIN,
         )
         session.add_all(
             [
                 admin,
-                Player(
+                build_player(
                     telegram_id=101,
-                    full_name="Яков Третий",
-                    nickname="yakov",
+                    display_name="Яков Третий",
                     status=PlayerStatus.ACTIVE,
                 ),
-                Player(
+                build_player(
                     telegram_id=102,
-                    full_name="Анна Первая",
-                    nickname="anna_one",
+                    display_name="Анна Первая",
                     status=PlayerStatus.ACTIVE,
                 ),
-                Player(
+                build_player(
                     telegram_id=103,
-                    full_name="Борис Второй",
-                    nickname="boris_two",
+                    display_name="Борис Второй",
                     status=PlayerStatus.ACTIVE,
                 ),
             ]
@@ -342,15 +338,15 @@ async def test_admin_player_registration_list_is_sorted_and_searchable(
         players = await service.list_players_for_admin_registration(100)
         search_results = await service.search_players_for_admin_registration(
             admin_telegram_id=100,
-            query="anna",
+            query="анна",
         )
 
         assert [player.display_name for player in players] == [
             "Админ Первый",
-            "Анна Первая (anna_one)",
-            "Борис Второй (boris_two)",
-            "Яков Третий (yakov)",
+            "Анна Первая",
+            "Борис Второй",
+            "Яков Третий",
         ]
-        assert [player.display_name for player in search_results] == ["Анна Первая (anna_one)"]
+        assert [player.display_name for player in search_results] == ["Анна Первая"]
     finally:
         await engine.dispose()

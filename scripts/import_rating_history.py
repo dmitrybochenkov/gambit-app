@@ -37,8 +37,6 @@ class HistoryRow:
     tournament_date: date
     raw_player_name: str
     player_name: str
-    full_name: str | None
-    nickname: str | None
     place: int | None
     knockouts_count: int
     boss_knockouts_count: int
@@ -130,8 +128,6 @@ class PlayerMapping:
     source_row: int
     raw_name: str
     mapped_name: str
-    full_name: str | None
-    nickname: str | None
 
 
 def load_excel(
@@ -165,11 +161,8 @@ def load_excel(
         mapping = mappings.get(raw_player_name)
         if mapping:
             player_name = mapping.mapped_name
-            full_name = mapping.full_name
-            nickname = mapping.nickname
         elif allow_unmapped:
             player_name = raw_player_name
-            full_name, nickname = split_identity(player_name)
         else:
             unmapped_players[raw_player_name].append(source_row)
             continue
@@ -180,8 +173,6 @@ def load_excel(
                 tournament_date=pd.Timestamp(raw_date).date(),
                 raw_player_name=raw_player_name,
                 player_name=player_name,
-                full_name=full_name,
-                nickname=nickname,
                 place=optional_int(record.get("Место в турнире")),
                 knockouts_count=required_int(record.get("КО")),
                 boss_knockouts_count=required_int(record.get("Босс КО")),
@@ -214,7 +205,6 @@ def load_player_mappings(source: Path, sheet_name: str, pd: Any) -> dict[str, Pl
         )
 
     mappings: dict[str, PlayerMapping] = {}
-    identities_by_mapped_name: dict[str, tuple[str | None, str | None]] = {}
     for index, record in dataframe.iterrows():
         source_row = index + 2
         raw_name = clean_text(record.get("Игрок"))
@@ -224,48 +214,18 @@ def load_player_mappings(source: Path, sheet_name: str, pd: Any) -> dict[str, Pl
         if not mapped_name:
             raise SystemExit(f"Empty Очист_меппинг on {sheet_name!r} row {source_row}")
 
-        has_full_name = bool(clean_text(record.get("ф")))
-        has_nickname = bool(clean_text(record.get("н")))
-        if has_full_name and has_nickname:
-            raise SystemExit(f"Both ф and н are set on {sheet_name!r} row {source_row}")
-        if has_full_name:
-            full_name, nickname = mapped_name, None
-        elif has_nickname:
-            full_name, nickname = None, mapped_name
-        else:
-            full_name, nickname = split_identity(mapped_name)
-
         mapping = PlayerMapping(
             source_row=source_row,
             raw_name=raw_name,
             mapped_name=mapped_name,
-            full_name=full_name,
-            nickname=nickname,
         )
         existing = mappings.get(raw_name)
-        if existing and (
-            existing.mapped_name,
-            existing.full_name,
-            existing.nickname,
-        ) != (
-            mapping.mapped_name,
-            mapping.full_name,
-            mapping.nickname,
-        ):
+        if existing and existing.mapped_name != mapping.mapped_name:
             raise SystemExit(
                 f"Conflicting mappings for {raw_name!r}: rows "
                 f"{existing.source_row} and {source_row}"
             )
         mappings[raw_name] = mapping
-
-        identity = (full_name, nickname)
-        existing_identity = identities_by_mapped_name.get(mapped_name)
-        if existing_identity and existing_identity != identity:
-            raise SystemExit(
-                f"Conflicting ф/н markers for {mapped_name!r} "
-                f"on {sheet_name!r} row {source_row}"
-            )
-        identities_by_mapped_name[mapped_name] = identity
     return mappings
 
 
@@ -300,8 +260,6 @@ def load_csv(source: Path) -> tuple[list[HistoryRow], list[int]]:
                     raw_player_name=record.get("raw_player_name")
                     or record["player_name"],
                     player_name=record["player_name"],
-                    full_name=record.get("full_name") or None,
-                    nickname=record.get("nickname") or None,
                     place=int(record["place"]) if record["place"] else None,
                     knockouts_count=int(record["knockouts_count"]),
                     boss_knockouts_count=int(record["boss_knockouts_count"]),
@@ -323,8 +281,6 @@ def export_csv(path: Path, rows: list[HistoryRow]) -> None:
                 "date",
                 "raw_player_name",
                 "player_name",
-                "full_name",
-                "nickname",
                 "place",
                 "knockouts_count",
                 "boss_knockouts_count",
@@ -341,8 +297,6 @@ def export_csv(path: Path, rows: list[HistoryRow]) -> None:
                     "date": row.tournament_date.isoformat(),
                     "raw_player_name": row.raw_player_name,
                     "player_name": row.player_name,
-                    "full_name": row.full_name or "",
-                    "nickname": row.nickname or "",
                     "place": row.place or "",
                     "knockouts_count": row.knockouts_count,
                     "boss_knockouts_count": row.boss_knockouts_count,
@@ -627,15 +581,12 @@ def ensure_players(
     next_historical_telegram_id = next_negative_telegram_id(connection)
 
     for player_name in sorted({row.player_name for row in rows}):
-        full_name, nickname = identity_for_player_name(player_name, rows)
-        full_name_normalized = normalize_full_name(full_name)
-        nickname_normalized = normalize_nickname(nickname)
+        display_name = display_name_for_player_name(player_name, rows)
+        display_name_normalized = normalize_display_name(display_name)
         existing = find_existing_player(
             connection,
-            full_name=full_name,
-            full_name_normalized=full_name_normalized,
-            nickname=nickname,
-            nickname_normalized=nickname_normalized,
+            display_name=display_name,
+            display_name_normalized=display_name_normalized,
         )
         if existing:
             player_ids[player_name] = existing
@@ -645,10 +596,8 @@ def ensure_players(
             """
             INSERT INTO players (
                 telegram_id,
-                full_name,
-                full_name_normalized,
-                nickname,
-                nickname_normalized,
+                display_name,
+                display_name_normalized,
                 status,
                 role,
                 approved_at,
@@ -656,8 +605,6 @@ def ensure_players(
                 updated_at
             )
             VALUES (
-                ?,
-                ?,
                 ?,
                 ?,
                 ?,
@@ -670,10 +617,8 @@ def ensure_players(
             """,
             (
                 next_historical_telegram_id,
-                full_name,
-                full_name_normalized,
-                nickname,
-                nickname_normalized,
+                display_name,
+                display_name_normalized,
             ),
         )
         player_ids[player_name] = int(cursor.lastrowid)
@@ -681,35 +626,26 @@ def ensure_players(
     return player_ids
 
 
-def identity_for_player_name(
+def display_name_for_player_name(
     player_name: str,
     rows: list[HistoryRow],
-) -> tuple[str | None, str | None]:
-    identities = {
-        (row.full_name, row.nickname) for row in rows if row.player_name == player_name
-    }
-    if len(identities) > 1:
-        raise ValueError(f"Conflicting identities for mapped player {player_name!r}")
-    identity = next(iter(identities), (None, None))
-    if identity != (None, None):
-        return identity
-    return split_identity(player_name)
+) -> str:
+    display_names = {row.player_name for row in rows if row.player_name == player_name}
+    if len(display_names) > 1:
+        raise ValueError(f"Conflicting display names for mapped player {player_name!r}")
+    return next(iter(display_names), player_name)
 
 
 def find_existing_player(
     connection: sqlite3.Connection,
-    full_name: str | None,
-    full_name_normalized: str | None,
-    nickname: str | None,
-    nickname_normalized: str | None,
+    display_name: str,
+    display_name_normalized: str | None,
 ) -> int | None:
     filters = []
     values: list[str] = []
     for column, value in [
-        ("full_name", full_name),
-        ("full_name_normalized", full_name_normalized),
-        ("nickname", nickname),
-        ("nickname_normalized", nickname_normalized),
+        ("display_name", display_name),
+        ("display_name_normalized", display_name_normalized),
     ]:
         if value:
             filters.append(f"{column} = ?")
@@ -782,17 +718,6 @@ def next_negative_telegram_id(connection: sqlite3.Connection) -> int:
     return HISTORICAL_TELEGRAM_ID_START
 
 
-def split_identity(player_name: str) -> tuple[str | None, str | None]:
-    match = re.fullmatch(r"(.+?)\s*\((.+)\)", player_name)
-    if match:
-        full_name = clean_text(match.group(1))
-        nickname = clean_text(match.group(2))
-        return full_name or None, nickname or None
-    if len(player_name.split()) >= 2:
-        return player_name, None
-    return None, player_name
-
-
 def build_summary(rows: list[HistoryRow], skipped_rows: list[int]) -> dict[str, Any]:
     season_counts: dict[str, int] = defaultdict(int)
     for tournament_date in {row.tournament_date for row in rows}:
@@ -839,22 +764,11 @@ def clean_text(value: Any) -> str:
     return " ".join(text.split()).strip()
 
 
-def normalize_full_name(value: str | None) -> str | None:
+def normalize_display_name(value: str | None) -> str | None:
     if value is None:
         return None
-    normalized = value.casefold().replace("ё", "е")
-    normalized = re.sub(r"[^0-9a-zа-я]+", " ", normalized)
+    normalized = value.strip().casefold().replace("ё", "е")
     normalized = " ".join(normalized.split())
-    return normalized or None
-
-
-def normalize_nickname(value: str | None) -> str | None:
-    if value is None:
-        return None
-    normalized = value.casefold().replace("ё", "е").strip()
-    normalized = normalized.removeprefix("@")
-    normalized = re.sub(r"[\s._-]+", "", normalized)
-    normalized = re.sub(r"[^0-9a-zа-я]+", "", normalized)
     return normalized or None
 
 

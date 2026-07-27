@@ -41,7 +41,7 @@ ADMIN_TOURNAMENT_REGISTRATION_NO_TOURNAMENTS = "Нет активных турн
 ADMIN_TOURNAMENT_REGISTRATION_TOURNAMENT_LIST_TITLE = "Выбери турнир для регистрации игрока:"
 ADMIN_TOURNAMENT_REGISTRATION_NO_PLAYERS = "Нет активных игроков для регистрации."
 ADMIN_TOURNAMENT_REGISTRATION_PLAYER_LIST_TITLE = "Кого регистрируем?"
-ADMIN_TOURNAMENT_REGISTRATION_SEARCH_PROMPT = "Введи имя или ник игрока."
+ADMIN_TOURNAMENT_REGISTRATION_SEARCH_PROMPT = "Введи имя игрока."
 ADMIN_TOURNAMENT_REGISTRATION_SEARCH_RESULTS_TITLE = "Нашел похожих игроков:"
 ADMIN_TOURNAMENT_REGISTRATION_SEARCH_EMPTY = "Игроки не найдены."
 ADMIN_TOURNAMENT_REGISTRATION_SUCCESS = "Игрок зарегистрирован на турнир:\n{player}\n{tournament}"
@@ -54,14 +54,11 @@ REGISTRATION_LIST_TITLE = "Заявки на регистрацию"
 REGISTRATION_LIST_PAGE = "Страница {page}/{total_pages}"
 
 REGISTRATION_REVIEW_TITLE = "Новая заявка на регистрацию"
-FULL_NAME_LABEL = "Фамилия и имя"
-NICKNAME_LABEL = "Никнейм"
+DISPLAY_NAME_LABEL = "Имя игрока"
 REGISTRATION_APPROVED = "Заявка одобрена"
 REGISTRATION_APPROVED_AS_NEW = "Заявка одобрена как новый игрок"
 REGISTRATION_REJECTED = "Заявка отклонена"
-REGISTRATION_REJECTION_MESSAGE = (
-    "Ты не зарегистрирован/а. Попробуй другой никнейм или имя через /start."
-)
+REGISTRATION_REJECTION_MESSAGE = "Ты не зарегистрирован/а. Попробуй другое имя игрока через /start."
 REGISTRATION_CANCELLED = "Заявка скрыта"
 PLAYER_NOT_FOUND = "Игрок не найден."
 REGISTRATION_ALREADY_REVIEWED = "Заявка уже обработана."
@@ -159,10 +156,7 @@ def registration_review(
     matches: Sequence[RegistrationMatchView] = (),
 ) -> str:
     lines = [REGISTRATION_REVIEW_TITLE, ""]
-    if player.full_name:
-        lines.append(f"{FULL_NAME_LABEL}: {player.full_name}")
-    if player.nickname:
-        lines.append(f"{NICKNAME_LABEL}: {player.nickname}")
+    lines.append(f"{DISPLAY_NAME_LABEL}: {player.display_name}")
     if matches:
         lines.extend(["", REGISTRATION_MATCHES_TITLE])
         for position, registration_match in enumerate(

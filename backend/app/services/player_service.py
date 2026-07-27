@@ -1,4 +1,3 @@
-import re
 from datetime import UTC, datetime
 from difflib import SequenceMatcher
 
@@ -62,33 +61,21 @@ class PlayerService:
     async def validate_unique_identity(
         self,
         telegram_id: int,
-        full_name: str | None,
-        nickname: str | None,
+        display_name: str,
     ) -> None:
-        full_name_normalized = normalize_full_name(full_name)
-        nickname_normalized = normalize_nickname(nickname)
+        display_name_normalized = normalize_display_name(display_name)
         async with self.session_factory() as session:
             repository = PlayerRepository(session)
             if (
-                full_name
-                and full_name_normalized
-                and await repository.full_name_exists(
-                    full_name,
-                    full_name_normalized,
+                display_name
+                and display_name_normalized
+                and await repository.display_name_exists(
+                    display_name,
+                    display_name_normalized,
                     telegram_id,
                 )
             ):
-                raise IdentityAlreadyExistsError("full_name")
-            if (
-                nickname
-                and nickname_normalized
-                and await repository.nickname_exists(
-                    nickname,
-                    nickname_normalized,
-                    telegram_id,
-                )
-            ):
-                raise IdentityAlreadyExistsError("nickname")
+                raise IdentityAlreadyExistsError("display_name")
 
     async def get_active_admins(self) -> list[PlayerView]:
         async with self.session_factory() as session:
@@ -209,10 +196,8 @@ class PlayerService:
                     player=historical_player,
                     admin=admin,
                     telegram_id=player.telegram_id,
-                    full_name=player.full_name,
-                    full_name_normalized=player.full_name_normalized,
-                    nickname=player.nickname,
-                    nickname_normalized=player.nickname_normalized,
+                    display_name=player.display_name,
+                    display_name_normalized=player.display_name_normalized,
                 )
                 await session.commit()
                 await session.refresh(historical_player)
@@ -271,11 +256,9 @@ class PlayerService:
     async def submit_registration(
         self,
         telegram_id: int,
-        full_name: str | None,
-        nickname: str | None,
+        display_name: str,
     ) -> PlayerView:
-        full_name_normalized = normalize_full_name(full_name)
-        nickname_normalized = normalize_nickname(nickname)
+        display_name_normalized = normalize_display_name(display_name)
         async with self.session_factory() as session:
             repository = PlayerRepository(session)
             current_player = await repository.get_by_telegram_id(telegram_id)
@@ -286,32 +269,20 @@ class PlayerService:
                 raise RegistrationNotAllowedError
 
             if (
-                full_name
-                and full_name_normalized
-                and await repository.full_name_exists(
-                    full_name,
-                    full_name_normalized,
+                display_name
+                and display_name_normalized
+                and await repository.display_name_exists(
+                    display_name,
+                    display_name_normalized,
                     telegram_id,
                 )
             ):
-                raise IdentityAlreadyExistsError("full_name")
-            if (
-                nickname
-                and nickname_normalized
-                and await repository.nickname_exists(
-                    nickname,
-                    nickname_normalized,
-                    telegram_id,
-                )
-            ):
-                raise IdentityAlreadyExistsError("nickname")
+                raise IdentityAlreadyExistsError("display_name")
 
             player = await repository.save_pending_registration(
                 telegram_id=telegram_id,
-                full_name=full_name,
-                full_name_normalized=full_name_normalized,
-                nickname=nickname,
-                nickname_normalized=nickname_normalized,
+                display_name=display_name,
+                display_name_normalized=display_name_normalized or display_name,
             )
             await session.flush()
             match_candidates = await self._find_registration_match_candidates(
@@ -328,23 +299,18 @@ class PlayerService:
         player: Player,
         admin: Player,
         telegram_id: int | None = None,
-        full_name: str | None = None,
-        full_name_normalized: str | None = None,
-        nickname: str | None = None,
-        nickname_normalized: str | None = None,
+        display_name: str | None = None,
+        display_name_normalized: str | None = None,
     ) -> None:
         if telegram_id is not None:
             player.telegram_id = telegram_id
-        if full_name and not player.full_name:
-            player.full_name = full_name
-            player.full_name_normalized = full_name_normalized
-        if nickname and not player.nickname:
-            player.nickname = nickname
-            player.nickname_normalized = nickname_normalized
-        if player.full_name and not player.full_name_normalized:
-            player.full_name_normalized = normalize_full_name(player.full_name)
-        if player.nickname and not player.nickname_normalized:
-            player.nickname_normalized = normalize_nickname(player.nickname)
+        if display_name and not player.display_name:
+            player.display_name = display_name
+            player.display_name_normalized = display_name_normalized or normalize_display_name(
+                display_name
+            )
+        if player.display_name and not player.display_name_normalized:
+            player.display_name_normalized = normalize_display_name(player.display_name) or ""
         player.status = PlayerStatus.ACTIVE
         player.approved_at = datetime.now(UTC)
         player.approved_by_admin_id = admin.id
@@ -417,8 +383,6 @@ def required_player_view(player: Player) -> PlayerView:
         id=player.id,
         telegram_id=player.telegram_id,
         display_name=player.display_name,
-        full_name=player.full_name,
-        nickname=player.nickname,
         status=PlayerStatusView(player.status.value),
         role=PlayerRoleView(player.role.value),
     )
@@ -435,22 +399,10 @@ def registration_match_view(
     )
 
 
-def normalize_full_name(value: str | None) -> str | None:
+def normalize_display_name(value: str | None) -> str | None:
     if value is None:
         return None
-    normalized = value.casefold().replace("ё", "е")
-    normalized = re.sub(r"[^0-9a-zа-я]+", " ", normalized)
-    normalized = " ".join(normalized.split())
-    return normalized or None
-
-
-def normalize_nickname(value: str | None) -> str | None:
-    if value is None:
-        return None
-    normalized = value.casefold().replace("ё", "е").strip()
-    normalized = normalized.removeprefix("@")
-    normalized = re.sub(r"[\s._-]+", "", normalized)
-    normalized = re.sub(r"[^0-9a-zа-я]+", "", normalized)
+    normalized = " ".join(value.strip().casefold().replace("ё", "е").split())
     return normalized or None
 
 
@@ -458,40 +410,21 @@ def _score_registration_match(
     pending_player: Player,
     historical_player: Player,
 ) -> tuple[int, str] | None:
-    scores: list[tuple[int, str]] = []
-    pending_full_name = pending_player.full_name_normalized or normalize_full_name(
-        pending_player.full_name
+    pending_display_name = pending_player.display_name_normalized or normalize_display_name(
+        pending_player.display_name
     )
-    historical_full_name = historical_player.full_name_normalized or normalize_full_name(
-        historical_player.full_name
+    historical_display_name = historical_player.display_name_normalized or normalize_display_name(
+        historical_player.display_name
     )
-    pending_nickname = pending_player.nickname_normalized or normalize_nickname(
-        pending_player.nickname
-    )
-    historical_nickname = historical_player.nickname_normalized or normalize_nickname(
-        historical_player.nickname
-    )
-
-    if pending_nickname and historical_nickname:
-        nickname_score = _similarity_score(pending_nickname, historical_nickname)
-        if nickname_score == 100:
-            scores.append((100, "никнейм совпал"))
-        elif nickname_score >= 88:
-            scores.append((nickname_score, f"никнейм похож на {nickname_score}%"))
-
-    if pending_full_name and historical_full_name:
-        full_name_score = _similarity_score(pending_full_name, historical_full_name)
-        if full_name_score == 100:
-            scores.append((100, "имя совпало"))
-        elif full_name_score >= 82:
-            scores.append((full_name_score, f"имя похоже на {full_name_score}%"))
-
-    if not scores:
+    if not pending_display_name or not historical_display_name:
         return None
 
-    score = max(item[0] for item in scores)
-    reason = ", ".join(item[1] for item in sorted(scores, reverse=True))
-    return score, reason
+    score = _similarity_score(pending_display_name, historical_display_name)
+    if score == 100:
+        return 100, "имя игрока совпадает"
+    if score >= 88:
+        return score, f"имя игрока похоже на {score}%"
+    return None
 
 
 def _select_registration_match(

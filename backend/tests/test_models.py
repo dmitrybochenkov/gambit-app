@@ -6,11 +6,11 @@ from app.db.models import Player, TournamentResult
 def test_player_display_name() -> None:
     player = Player(
         telegram_id=123,
-        full_name="Ivan Ivanov",
-        nickname="Ace",
+        display_name="Ivan Ivanov",
+        display_name_normalized="ivan ivanov",
     )
 
-    assert player.display_name == "Ivan Ivanov (Ace)"
+    assert player.display_name == "Ivan Ivanov"
 
 
 def test_tournament_result_total_points() -> None:

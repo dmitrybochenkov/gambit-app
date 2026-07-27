@@ -107,9 +107,7 @@ from app.bot.telegram.keyboards.rating import (
 from app.bot.telegram.keyboards.registration import (
     CONFIRM_REGISTRATION_CALLBACK,
     RESTART_REGISTRATION_CALLBACK,
-    RegistrationModeCallback,
     registration_confirmation_keyboard,
-    registration_mode_keyboard,
 )
 from app.bot.telegram.keyboards.tournaments import (
     CANCEL_TOURNAMENT_CANCELLATION_CALLBACK,
@@ -184,7 +182,6 @@ __all__ = [
     "RegistrationListAction",
     "RegistrationListCallback",
     "RegistrationMatchSelectionCallback",
-    "RegistrationModeCallback",
     "RegistrationReviewAction",
     "RegistrationReviewCallback",
     "SeasonEditAction",
@@ -227,7 +224,6 @@ __all__ = [
     "registration_confirmation_keyboard",
     "registration_list_keyboard",
     "registration_match_selection_keyboard",
-    "registration_mode_keyboard",
     "registration_review_keyboard",
     "season_edit_keyboard",
     "tournament_day_edit_keyboard",

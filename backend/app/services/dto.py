@@ -21,8 +21,6 @@ class PlayerView:
     id: int
     telegram_id: int
     display_name: str
-    full_name: str | None
-    nickname: str | None
     status: PlayerStatusView
     role: PlayerRoleView
 

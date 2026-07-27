@@ -43,8 +43,6 @@ def active_player() -> PlayerView:
         id=1,
         telegram_id=123,
         display_name="Игрок Первый",
-        full_name="Игрок Первый",
-        nickname=None,
         status=PlayerStatusView.ACTIVE,
         role=PlayerRoleView.USER,
     )
@@ -542,8 +540,6 @@ def admin_player(
         id=player_id,
         telegram_id=telegram_id,
         display_name=f"Админ {player_id}",
-        full_name=f"Админ {player_id}",
-        nickname=None,
         status=PlayerStatusView.ACTIVE,
         role=role,
     )
@@ -575,8 +571,6 @@ def registration_match(player_id: int, score: int) -> RegistrationMatchView:
             id=player_id,
             telegram_id=-player_id,
             display_name=f"Исторический {player_id}",
-            full_name=f"Исторический {player_id}",
-            nickname=None,
             status=PlayerStatusView.ACTIVE,
             role=PlayerRoleView.USER,
         ),
@@ -589,8 +583,6 @@ def registration_review(player_id: int) -> RegistrationReviewView:
             id=player_id,
             telegram_id=1000 + player_id,
             display_name=f"Игрок {player_id}",
-            full_name=f"Игрок {player_id}",
-            nickname=None,
             status=PlayerStatusView.PENDING,
             role=PlayerRoleView.USER,
         ),
@@ -603,7 +595,7 @@ async def test_start_command_opens_registration(monkeypatch: pytest.MonkeyPatch)
         from_user=SimpleNamespace(id=123),
         answer=AsyncMock(),
     )
-    state = SimpleNamespace(clear=AsyncMock())
+    state = SimpleNamespace(clear=AsyncMock(), set_state=AsyncMock(), update_data=AsyncMock())
     service = SimpleNamespace(get_by_telegram_id=AsyncMock(return_value=None))
     monkeypatch.setattr(user_handlers, "player_service", service)
 
@@ -615,7 +607,8 @@ async def test_start_command_opens_registration(monkeypatch: pytest.MonkeyPatch)
     first_answer, second_answer = message.answer.await_args_list
     assert "Добро пожаловать" in first_answer.args[0]
     assert first_answer.kwargs["reply_markup"].remove_keyboard is True
-    assert second_answer.args[0] == "Выбери вариант регистрации:"
+    state.set_state.assert_awaited_once_with(user_handlers.RegistrationStates.entering_display_name)
+    assert second_answer.args[0] == user_handlers.texts.user.REGISTRATION_DISPLAY_NAME_PROMPT
 
 
 async def test_start_command_shows_admin_keyboard_for_admin(
@@ -1124,9 +1117,7 @@ async def test_pending_registration_notifies_admins(monkeypatch: pytest.MonkeyPa
     player = PlayerView(
         id=10,
         telegram_id=200,
-        display_name="Игрок Второй (Ace)",
-        full_name="Игрок Второй",
-        nickname="Ace",
+        display_name="Игрок Второй",
         status=PlayerStatusView.PENDING,
         role=PlayerRoleView.USER,
     )
@@ -1135,8 +1126,6 @@ async def test_pending_registration_notifies_admins(monkeypatch: pytest.MonkeyPa
             id=1,
             telegram_id=100,
             display_name="Админ Первый",
-            full_name="Админ Первый",
-            nickname=None,
             status=PlayerStatusView.ACTIVE,
             role=PlayerRoleView.SUPERADMIN,
         ),
@@ -1144,8 +1133,6 @@ async def test_pending_registration_notifies_admins(monkeypatch: pytest.MonkeyPa
             id=2,
             telegram_id=101,
             display_name="Админ Второй",
-            full_name="Админ Второй",
-            nickname=None,
             status=PlayerStatusView.ACTIVE,
             role=PlayerRoleView.ADMIN,
         ),
@@ -1471,7 +1458,7 @@ async def test_admin_registration_search_prompts_for_query(
     state.update_data.assert_awaited_once_with(admin_registration_tournament_id=125)
     message.delete.assert_awaited_once_with()
     answer = message.answer.await_args
-    assert answer.args[0] == "Введи имя или ник игрока."
+    assert answer.args[0] == "Введи имя игрока."
     assert [
         button.text for row in answer.kwargs["reply_markup"].inline_keyboard for button in row
     ] == ["❌ Отмена"]
@@ -1727,7 +1714,7 @@ async def test_manual_season_confirm_deletes_prompt_and_sends_created_message(
         answer=AsyncMock(),
     )
     callback = SimpleNamespace(
-        from_user=SimpleNamespace(id=100, full_name="Dima Bochenkov"),
+        from_user=SimpleNamespace(id=100, display_name="Dima Bochenkov"),
         message=message,
         answer=AsyncMock(),
     )
@@ -2223,8 +2210,6 @@ async def test_registration_review_reject_deletes_pending_and_notifies(
         id=10,
         telegram_id=200,
         display_name="Игрок Второй",
-        full_name="Игрок Второй",
-        nickname=None,
         status=PlayerStatusView.PENDING,
         role=PlayerRoleView.USER,
     )
@@ -2319,8 +2304,6 @@ async def test_selected_registration_match_is_approved_and_sent_to_other_admins(
         id=21,
         telegram_id=200,
         display_name="Исторический 21",
-        full_name="Исторический 21",
-        nickname=None,
         status=PlayerStatusView.ACTIVE,
         role=PlayerRoleView.USER,
     )
@@ -2371,8 +2354,6 @@ async def test_registration_review_result_is_sent_to_other_admins(
         id=10,
         telegram_id=200,
         display_name="Игрок Второй",
-        full_name="Игрок Второй",
-        nickname=None,
         status=PlayerStatusView.ACTIVE,
         role=PlayerRoleView.ADMIN,
     )

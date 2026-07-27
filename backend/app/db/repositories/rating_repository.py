@@ -46,14 +46,13 @@ class RatingRepository:
         statement = (
             select(
                 Player.id.label("player_id"),
-                Player.full_name,
-                Player.nickname,
+                Player.display_name,
                 total_points.label("total_points"),
                 func.count(TournamentResult.id).label("tournaments_count"),
             )
             .join(TournamentResult, TournamentResult.player_id == Player.id)
             .join(Tournament, Tournament.id == TournamentResult.tournament_id)
-            .group_by(Player.id, Player.full_name, Player.nickname)
+            .group_by(Player.id, Player.display_name)
             .having(total_points > 0)
         )
         if current_season:
@@ -66,7 +65,7 @@ class RatingRepository:
         return [
             PointsRatingRow(
                 player_id=row.player_id,
-                display_name=self._display_name(row.full_name, row.nickname),
+                display_name=row.display_name,
                 total_points=Decimal(row.total_points),
                 tournaments_count=row.tournaments_count,
             )
@@ -84,8 +83,7 @@ class RatingRepository:
         statement = (
             select(
                 Player.id.label("player_id"),
-                Player.full_name,
-                Player.nickname,
+                Player.display_name,
                 knockouts.label("knockouts_count"),
                 big_knockouts.label("big_knockouts_count"),
                 knockout_points.label("knockout_points"),
@@ -93,7 +91,7 @@ class RatingRepository:
             )
             .join(TournamentResult, TournamentResult.player_id == Player.id)
             .join(Tournament, Tournament.id == TournamentResult.tournament_id)
-            .group_by(Player.id, Player.full_name, Player.nickname)
+            .group_by(Player.id, Player.display_name)
             .having(total_knockouts > 0)
         )
         if current_season:
@@ -112,7 +110,7 @@ class RatingRepository:
         return [
             KnockoutsRatingRow(
                 player_id=row.player_id,
-                display_name=self._display_name(row.full_name, row.nickname),
+                display_name=row.display_name,
                 knockouts_count=row.knockouts_count,
                 big_knockouts_count=row.big_knockouts_count,
                 knockout_points=Decimal(row.knockout_points),
@@ -120,9 +118,3 @@ class RatingRepository:
             )
             for row in result
         ]
-
-    @staticmethod
-    def _display_name(full_name: str | None, nickname: str | None) -> str:
-        if full_name and nickname:
-            return f"{full_name} ({nickname})"
-        return nickname or full_name or ""

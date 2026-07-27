@@ -2,6 +2,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import Session
 
 from app.db.models import (
+    Player,
     TournamentEconomyConfig,
     TournamentRebuyConfig,
     TournamentType,
@@ -45,6 +46,20 @@ DOUBLE_DOUBLE_REBUYS = [
 
 def tournament_type_id(code: str) -> int:
     return TOURNAMENT_TYPE_IDS[code]
+
+
+def build_player(
+    *,
+    telegram_id: int,
+    display_name: str,
+    **kwargs: object,
+) -> Player:
+    return Player(
+        telegram_id=telegram_id,
+        display_name=display_name,
+        display_name_normalized=" ".join(display_name.strip().casefold().replace("ё", "е").split()),
+        **kwargs,
+    )
 
 
 def build_tournament_types() -> list[TournamentType]:
