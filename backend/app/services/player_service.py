@@ -3,6 +3,8 @@ from difflib import SequenceMatcher
 
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
+from app.common.normalization import normalize_display_name
+from app.db.factories import create_player
 from app.db.models import Player, RegistrationMatch
 from app.db.models.enums import PlayerRole, PlayerStatus
 from app.db.repositories.player_repository import PlayerRepository
@@ -23,6 +25,10 @@ class IdentityAlreadyExistsError(ValueError):
     def __init__(self, field: str) -> None:
         self.field = field
         super().__init__(f"{field} already exists")
+
+
+class InvalidDisplayNameError(ValueError):
+    pass
 
 
 class RegistrationNotAllowedError(ValueError):
@@ -63,7 +69,7 @@ class PlayerService:
         telegram_id: int,
         display_name: str,
     ) -> None:
-        display_name_normalized = normalize_display_name(display_name)
+        display_name_normalized = _require_valid_display_name(display_name)
         async with self.session_factory() as session:
             repository = PlayerRepository(session)
             if (
@@ -258,7 +264,7 @@ class PlayerService:
         telegram_id: int,
         display_name: str,
     ) -> PlayerView:
-        display_name_normalized = normalize_display_name(display_name)
+        display_name_normalized = _require_valid_display_name(display_name)
         async with self.session_factory() as session:
             repository = PlayerRepository(session)
             current_player = await repository.get_by_telegram_id(telegram_id)
@@ -270,7 +276,6 @@ class PlayerService:
 
             if (
                 display_name
-                and display_name_normalized
                 and await repository.display_name_exists(
                     display_name,
                     display_name_normalized,
@@ -279,11 +284,20 @@ class PlayerService:
             ):
                 raise IdentityAlreadyExistsError("display_name")
 
-            player = await repository.save_pending_registration(
-                telegram_id=telegram_id,
-                display_name=display_name,
-                display_name_normalized=display_name_normalized or display_name,
-            )
+            if current_player is None:
+                player = create_player(
+                    telegram_id=telegram_id,
+                    display_name=display_name,
+                    status=PlayerStatus.PENDING,
+                )
+                repository.add(player)
+            else:
+                player = current_player
+                self._update_pending_registration_player(
+                    player,
+                    display_name=display_name,
+                    display_name_normalized=display_name_normalized or display_name,
+                )
             await session.flush()
             match_candidates = await self._find_registration_match_candidates(
                 repository=repository,
@@ -293,6 +307,18 @@ class PlayerService:
             await session.commit()
             await session.refresh(player)
             return required_player_view(player)
+
+    @staticmethod
+    def _update_pending_registration_player(
+        player: Player,
+        display_name: str,
+        display_name_normalized: str,
+    ) -> None:
+        player.display_name = display_name
+        player.display_name_normalized = display_name_normalized
+        player.status = PlayerStatus.PENDING
+        player.approved_at = None
+        player.approved_by_admin_id = None
 
     @staticmethod
     def _approve_player(
@@ -399,11 +425,11 @@ def registration_match_view(
     )
 
 
-def normalize_display_name(value: str | None) -> str | None:
-    if value is None:
-        return None
-    normalized = " ".join(value.strip().casefold().replace("ё", "е").split())
-    return normalized or None
+def _require_valid_display_name(display_name: str) -> str:
+    display_name_normalized = normalize_display_name(display_name)
+    if display_name_normalized is None or len(display_name) > 255:
+        raise InvalidDisplayNameError
+    return display_name_normalized
 
 
 def _score_registration_match(

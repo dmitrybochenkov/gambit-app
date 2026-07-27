@@ -1,7 +1,6 @@
 from sqlalchemy import delete, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.db.factories import create_player
 from app.db.models import Player, RegistrationMatch
 from app.db.models.enums import PlayerRole, PlayerStatus, RegistrationMatchStatus
 
@@ -106,28 +105,8 @@ class PlayerRepository:
         )
         return list(result.all())
 
-    async def save_pending_registration(
-        self,
-        telegram_id: int,
-        display_name: str,
-        display_name_normalized: str,
-    ) -> Player:
-        player = await self.get_by_telegram_id(telegram_id)
-        if player is None:
-            player = create_player(
-                telegram_id=telegram_id,
-                display_name=display_name,
-                status=PlayerStatus.PENDING,
-            )
-            self.session.add(player)
-            return player
-
-        player.display_name = display_name
-        player.display_name_normalized = display_name_normalized
-        player.status = PlayerStatus.PENDING
-        player.approved_at = None
-        player.approved_by_admin_id = None
-        return player
+    def add(self, player: Player) -> None:
+        self.session.add(player)
 
     async def replace_registration_matches(
         self,

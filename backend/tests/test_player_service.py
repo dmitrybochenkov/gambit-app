@@ -12,7 +12,9 @@ from app.services.dto import PlayerStatusView
 from app.services.player_service import (
     AdminAccessDeniedError,
     IdentityAlreadyExistsError,
+    InvalidDisplayNameError,
     PlayerService,
+    RegistrationNotAllowedError,
 )
 
 
@@ -37,6 +39,67 @@ async def test_submit_pending_registration(tmp_path: Path) -> None:
         stored_player = await service.get_by_telegram_id(100)
         assert stored_player is not None
         assert stored_player.display_name == "Иван Иванов"
+    finally:
+        await engine.dispose()
+
+
+async def test_pending_registration_can_be_updated(tmp_path: Path) -> None:
+    service, engine = await create_player_service(tmp_path / "players.db")
+    try:
+        first_submission = await service.submit_registration(
+            telegram_id=100,
+            display_name="Старое Имя",
+        )
+        second_submission = await service.submit_registration(
+            telegram_id=100,
+            display_name="Новое Имя",
+        )
+
+        assert second_submission.id == first_submission.id
+        assert second_submission.status == PlayerStatusView.PENDING
+        assert second_submission.display_name == "Новое Имя"
+
+        session_factory = async_sessionmaker(engine, expire_on_commit=False)
+        async with session_factory() as session:
+            players = (await session.execute(select(Player))).scalars().all()
+            assert len(players) == 1
+            assert players[0].display_name == "Новое Имя"
+            assert players[0].display_name_normalized == "новое имя"
+    finally:
+        await engine.dispose()
+
+
+async def test_active_player_cannot_register_again(tmp_path: Path) -> None:
+    service, engine = await create_player_service(tmp_path / "players.db")
+    try:
+        player = await service.submit_registration(
+            telegram_id=100,
+            display_name="Игрок Первый",
+        )
+        session_factory = async_sessionmaker(engine, expire_on_commit=False)
+        async with session_factory() as session:
+            stored_player = await session.get(Player, player.id)
+            assert stored_player is not None
+            stored_player.status = PlayerStatus.ACTIVE
+            await session.commit()
+
+        with pytest.raises(RegistrationNotAllowedError):
+            await service.submit_registration(
+                telegram_id=100,
+                display_name="Игрок Первый Новый",
+            )
+    finally:
+        await engine.dispose()
+
+
+async def test_registration_display_name_must_not_be_empty(tmp_path: Path) -> None:
+    service, engine = await create_player_service(tmp_path / "players.db")
+    try:
+        with pytest.raises(InvalidDisplayNameError):
+            await service.submit_registration(
+                telegram_id=100,
+                display_name=" \t\n ",
+            )
     finally:
         await engine.dispose()
 
@@ -281,6 +344,42 @@ async def test_rejection_deletes_pending_registration(tmp_path: Path) -> None:
             matches = (await session.execute(select(RegistrationMatch))).scalars().all()
             assert removed_pending is None
             assert matches == []
+    finally:
+        await engine.dispose()
+
+
+async def test_player_can_register_again_after_rejection(tmp_path: Path) -> None:
+    service, engine = await create_player_service(tmp_path / "players.db")
+    try:
+        admin = await service.submit_registration(
+            telegram_id=100,
+            display_name="Админ Первый",
+        )
+        player = await service.submit_registration(
+            telegram_id=200,
+            display_name="Игрок Старый",
+        )
+        session_factory = async_sessionmaker(engine, expire_on_commit=False)
+        async with session_factory() as session:
+            stored_admin = await session.get(Player, admin.id)
+            assert stored_admin is not None
+            stored_admin.status = PlayerStatus.ACTIVE
+            stored_admin.role = PlayerRole.SUPERADMIN
+            await session.commit()
+
+        await service.reject_registration(
+            admin_telegram_id=100,
+            player_id=player.id,
+        )
+        new_submission = await service.submit_registration(
+            telegram_id=200,
+            display_name="Игрок Новый",
+        )
+
+        assert new_submission.status == PlayerStatusView.PENDING
+        assert new_submission.display_name == "Игрок Новый"
+        assert new_submission.telegram_id == 200
+        assert await service.get_by_telegram_id(200) == new_submission
     finally:
         await engine.dispose()
 
