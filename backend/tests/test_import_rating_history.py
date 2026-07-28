@@ -1,5 +1,6 @@
 import csv
 import importlib.util
+import json
 import sqlite3
 import subprocess
 import sys
@@ -288,8 +289,10 @@ def test_import_rating_history_cli_export_report_and_absolute_paths(
     )
 
     assert result.returncode == 0
-    assert (report_dir / "summary.json").exists()
+    summary = json.loads((report_dir / "summary.json").read_text(encoding="utf-8"))
+    assert summary["blank_player_rows_intentionally_skipped"] == 0
     assert (report_dir / "blank_player_rows.csv").exists()
+    assert (report_dir / "blank_players.csv").exists()
     assert (report_dir / "unresolved_users.csv").exists()
 
 

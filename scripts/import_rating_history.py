@@ -1038,6 +1038,7 @@ def report_summary(plan: ImportPlan) -> dict[str, Any]:
         "dated_source_rows": plan.source.dated_rows_count,
         "importable_result_rows": len(plan.source.result_rows),
         "blank_player_rows": len(plan.source.blank_player_rows),
+        "blank_player_rows_intentionally_skipped": len(plan.source.blank_player_rows),
         "resolved_result_rows": len(plan.resolved_rows),
         "unresolved_rows": len(plan.unresolved_users),
         "ambiguous_rows": len(plan.ambiguous_users),
@@ -1139,21 +1140,33 @@ def export_report(directory: Path, plan: ImportPlan) -> None:
     )
     write_csv_report(
         directory / "blank_player_rows.csv",
-        [
-            {
-                "source_row": item.source_row,
-                "date": item.tournament_date.isoformat(),
-                "place": item.place or "",
-                "knockouts_count": item.knockouts_count,
-                "big_knockouts_count": item.big_knockouts_count,
-                "tournament_points": money(item.tournament_points),
-                "knockout_points": money(item.knockout_points),
-                "bonus_points": money(item.bonus_points),
-                "reason": item.reason,
-            }
-            for item in plan.source.blank_player_rows
-        ],
+        blank_player_report_rows(plan),
     )
+    write_csv_report(
+        directory / "blank_players.csv",
+        blank_player_report_rows(plan),
+    )
+    export_report_rest(directory, plan)
+
+
+def blank_player_report_rows(plan: ImportPlan) -> list[dict[str, Any]]:
+    return [
+        {
+            "source_row": item.source_row,
+            "date": item.tournament_date.isoformat(),
+            "place": item.place or "",
+            "knockouts_count": item.knockouts_count,
+            "big_knockouts_count": item.big_knockouts_count,
+            "tournament_points": money(item.tournament_points),
+            "knockout_points": money(item.knockout_points),
+            "bonus_points": money(item.bonus_points),
+            "reason": item.reason,
+        }
+        for item in plan.source.blank_player_rows
+    ]
+
+
+def export_report_rest(directory: Path, plan: ImportPlan) -> None:
     write_csv_report(
         directory / "tournament_conflicts.csv",
         [
