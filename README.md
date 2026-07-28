@@ -96,6 +96,9 @@ uv run python ../scripts/import_historical_users.py ../path/to/custom.csv
 uv run python ../scripts/import_historical_users.py --input ../path/to/custom.csv
 ```
 
+The user importer is a dry-run by default. It writes to the database only with
+`--apply`. Optional reports are written with `--export-report`.
+
 Expected CSV columns:
 
 ```text
@@ -137,47 +140,84 @@ cd /opt/apps/gambit
 
 sudo systemctl stop gambit
 
-mkdir -p data/backups data/import
+mkdir -p /opt/apps/gambit/data/backups /opt/apps/gambit/data/import
 
-cp data/gambit.db \
-  data/backups/gambit-before-history-$(date +%Y%m%d-%H%M%S).db
+cp /opt/apps/gambit/data/gambit.db \
+  /opt/apps/gambit/data/backups/gambit-before-history-$(date +%Y%m%d-%H%M%S).db
 
-ls -lh data/backups/gambit-before-history-*.db
-sha256sum data/backups/gambit-before-history-*.db | tail -n 1
+ls -lh /opt/apps/gambit/data/backups/gambit-before-history-*.db
+sha256sum /opt/apps/gambit/data/backups/gambit-before-history-*.db | tail -n 1
 
 cd backend
 .venv/bin/alembic upgrade head
 cd ..
 
-backend/.venv/bin/python scripts/import_historical_users.py \
-  --db data/gambit.db
-
-backend/.venv/bin/python scripts/import_rating_history.py \
-  data/import/rating-history.xlsx \
-  --db data/gambit.db \
-  --export-report data/import/history-dry-run
+/opt/apps/gambit/backend/.venv/bin/python \
+  /opt/apps/gambit/scripts/import_historical_users.py \
+  --input /opt/apps/gambit/data/import/historical-users.csv \
+  --db /opt/apps/gambit/data/gambit.db \
+  --export-report /opt/apps/gambit/data/import/users-dry-run
 ```
 
-Compare `data/import/history-dry-run/summary.json` with the local dry-run
-`summary.json` before applying. Do not apply if tournament count, result count,
-user count, season distribution, or point sums differ.
+Compare the server user dry-run report with the local `summary.json` before
+applying:
+
+- `/opt/apps/gambit/data/import/users-dry-run/summary.json`
+
+Do not apply if the user report is not `SAFE TO APPLY` or if user counts differ.
 
 Production apply:
 
 ```bash
 cd /opt/apps/gambit
 
-backend/.venv/bin/python scripts/import_rating_history.py \
-  data/import/rating-history.xlsx \
-  --db data/gambit.db \
+/opt/apps/gambit/backend/.venv/bin/python \
+  /opt/apps/gambit/scripts/import_historical_users.py \
+  --input /opt/apps/gambit/data/import/historical-users.csv \
+  --db /opt/apps/gambit/data/gambit.db \
   --apply
 
-backend/.venv/bin/python scripts/import_rating_history.py \
-  data/import/rating-history.xlsx \
-  --db data/gambit.db \
-  --export-report data/import/history-after-apply
+/opt/apps/gambit/backend/.venv/bin/python \
+  /opt/apps/gambit/scripts/import_historical_users.py \
+  --input /opt/apps/gambit/data/import/historical-users.csv \
+  --db /opt/apps/gambit/data/gambit.db \
+  --export-report /opt/apps/gambit/data/import/users-after-apply
+```
 
-sqlite3 data/gambit.db \
+Compare `/opt/apps/gambit/data/import/users-after-apply/summary.json` with the
+local after-apply summary. It should show `create: 0`, all imported users as
+`unchanged`, and `SAFE TO APPLY`.
+
+```bash
+cd /opt/apps/gambit
+
+/opt/apps/gambit/backend/.venv/bin/python \
+  /opt/apps/gambit/scripts/import_rating_history.py \
+  /opt/apps/gambit/data/import/rating-history.xlsx \
+  --db /opt/apps/gambit/data/gambit.db \
+  --export-report /opt/apps/gambit/data/import/history-dry-run
+```
+
+Compare `/opt/apps/gambit/data/import/history-dry-run/summary.json` with the
+local rating dry-run summary before applying. Do not apply if tournament count,
+result count, season distribution, or point sums differ.
+
+```bash
+cd /opt/apps/gambit
+
+/opt/apps/gambit/backend/.venv/bin/python \
+  /opt/apps/gambit/scripts/import_rating_history.py \
+  /opt/apps/gambit/data/import/rating-history.xlsx \
+  --db /opt/apps/gambit/data/gambit.db \
+  --apply
+
+/opt/apps/gambit/backend/.venv/bin/python \
+  /opt/apps/gambit/scripts/import_rating_history.py \
+  /opt/apps/gambit/data/import/rating-history.xlsx \
+  --db /opt/apps/gambit/data/gambit.db \
+  --export-report /opt/apps/gambit/data/import/history-after-apply
+
+sqlite3 /opt/apps/gambit/data/gambit.db \
   "SELECT COUNT(*) FROM tournaments; SELECT COUNT(*) FROM tournament_results;"
 
 sudo systemctl start gambit
@@ -193,10 +233,11 @@ cd /opt/apps/gambit
 
 sudo systemctl stop gambit
 
-cp data/gambit.db \
-  data/backups/gambit-failed-history-$(date +%Y%m%d-%H%M%S).db
+cp /opt/apps/gambit/data/gambit.db \
+  /opt/apps/gambit/data/backups/gambit-failed-history-$(date +%Y%m%d-%H%M%S).db
 
-cp data/backups/gambit-before-history-YYYYMMDD-HHMMSS.db data/gambit.db
+cp /opt/apps/gambit/data/backups/gambit-before-history-YYYYMMDD-HHMMSS.db \
+  /opt/apps/gambit/data/gambit.db
 
 sudo systemctl start gambit
 sudo systemctl status gambit

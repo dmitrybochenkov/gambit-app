@@ -27,10 +27,13 @@ def create_database(path: Path) -> None:
 
 
 def write_csv(path: Path, rows: list[dict[str, str]]) -> None:
+    fieldnames = ["id", "display_name", "role", "status", "telegram_id"]
+    if any("display_name_normalized" in row for row in rows):
+        fieldnames.append("display_name_normalized")
     with path.open("w", newline="", encoding="utf-8") as file:
         writer = csv.DictWriter(
             file,
-            fieldnames=["id", "display_name", "role", "status", "telegram_id"],
+            fieldnames=fieldnames,
         )
         writer.writeheader()
         writer.writerows(rows)
@@ -43,6 +46,18 @@ def read_users(path: Path) -> list[sqlite3.Row]:
         return list(connection.execute("SELECT * FROM users ORDER BY id"))
     finally:
         connection.close()
+
+
+def count_users(path: Path) -> int:
+    connection = sqlite3.connect(path)
+    try:
+        return int(connection.execute("SELECT COUNT(*) FROM users").fetchone()[0])
+    finally:
+        connection.close()
+
+
+def build_plan(db_path: Path, csv_path: Path) -> import_historical_users.ImportPlan:
+    return import_historical_users.build_import_plan(source=csv_path, db_path=db_path)
 
 
 def test_import_historical_users_success(tmp_path: Path) -> None:
@@ -83,6 +98,120 @@ def test_import_historical_users_success(tmp_path: Path) -> None:
     ]
     assert users[0]["role"] == "superadmin"
     assert users[0]["telegram_id"] == 754076859
+
+
+def test_import_historical_users_dry_run_does_not_change_database(tmp_path: Path) -> None:
+    db_path = tmp_path / "gambit.db"
+    csv_path = tmp_path / "users.csv"
+    create_database(db_path)
+    write_csv(
+        csv_path,
+        [
+            {
+                "id": "1",
+                "display_name": "Дима Боченков",
+                "role": "SUPERADMIN",
+                "status": "ACTIVE",
+                "telegram_id": "754076859",
+            }
+        ],
+    )
+
+    plan = build_plan(db_path, csv_path)
+
+    assert plan.verdict == "SAFE TO APPLY"
+    assert len(plan.creates) == 1
+    assert count_users(db_path) == 0
+
+
+def test_import_historical_users_reports_create_and_unchanged(tmp_path: Path) -> None:
+    db_path = tmp_path / "gambit.db"
+    csv_path = tmp_path / "users.csv"
+    create_database(db_path)
+    import_historical_users.import_users(
+        db_path=db_path,
+        rows=[
+            import_historical_users.ImportUserRow(
+                source_row=2,
+                id=1,
+                display_name="Дима Боченков",
+                display_name_normalized="дима боченков",
+                role=import_historical_users.UserRole.SUPERADMIN,
+                status=import_historical_users.UserStatus.ACTIVE,
+                telegram_id=754076859,
+            )
+        ],
+    )
+    write_csv(
+        csv_path,
+        [
+            {
+                "id": "1",
+                "display_name": "Дима Боченков",
+                "role": "SUPERADMIN",
+                "status": "ACTIVE",
+                "telegram_id": "754076859",
+            },
+            {
+                "id": "2",
+                "display_name": "Antony Easy",
+                "role": "PLAYER",
+                "status": "ACTIVE",
+                "telegram_id": "",
+            },
+        ],
+    )
+
+    plan = build_plan(db_path, csv_path)
+
+    assert plan.verdict == "SAFE TO APPLY"
+    assert [action.row.id for action in plan.unchanged] == [1]
+    assert [action.row.id for action in plan.creates] == [2]
+    assert plan.role_distribution == {"player": 1, "superadmin": 1}
+    assert plan.status_distribution == {"active": 2}
+    assert plan.telegram_ids_count == 1
+
+
+def test_import_historical_users_rejects_missing_database_path(tmp_path: Path) -> None:
+    csv_path = tmp_path / "users.csv"
+    write_csv(
+        csv_path,
+        [
+            {
+                "id": "1",
+                "display_name": "Дима Боченков",
+                "role": "SUPERADMIN",
+                "status": "ACTIVE",
+                "telegram_id": "",
+            }
+        ],
+    )
+
+    with pytest.raises(import_historical_users.ImportValidationError, match="does not exist"):
+        build_plan(tmp_path / "missing.db", csv_path)
+
+    assert not (tmp_path / "missing.db").exists()
+
+
+def test_import_historical_users_rejects_missing_users_table(tmp_path: Path) -> None:
+    db_path = tmp_path / "empty.db"
+    csv_path = tmp_path / "users.csv"
+    sqlite3.connect(db_path).close()
+    write_csv(
+        csv_path,
+        [
+            {
+                "id": "1",
+                "display_name": "Дима Боченков",
+                "role": "SUPERADMIN",
+                "status": "ACTIVE",
+                "telegram_id": "",
+            }
+        ],
+    )
+
+    with pytest.raises(import_historical_users.ImportValidationError, match="users"):
+        build_plan(db_path, csv_path)
 
 
 def test_import_historical_users_keeps_empty_telegram_id_as_null(tmp_path: Path) -> None:
@@ -295,6 +424,194 @@ def test_import_historical_users_detects_id_conflict(tmp_path: Path) -> None:
         )
 
 
+def test_import_historical_users_reports_same_id_display_name_conflict(
+    tmp_path: Path,
+) -> None:
+    db_path = tmp_path / "gambit.db"
+    csv_path = tmp_path / "users.csv"
+    create_database(db_path)
+    import_historical_users.import_users(
+        db_path=db_path,
+        rows=[
+            import_historical_users.ImportUserRow(
+                source_row=2,
+                id=1,
+                display_name="Дима Боченков",
+                display_name_normalized="дима боченков",
+                role=import_historical_users.UserRole.SUPERADMIN,
+                status=import_historical_users.UserStatus.ACTIVE,
+                telegram_id=754076859,
+            )
+        ],
+    )
+    write_csv(
+        csv_path,
+        [
+            {
+                "id": "1",
+                "display_name": "Другой Игрок",
+                "role": "SUPERADMIN",
+                "status": "ACTIVE",
+                "telegram_id": "754076859",
+            }
+        ],
+    )
+
+    plan = build_plan(db_path, csv_path)
+
+    assert plan.verdict == "NOT SAFE TO APPLY"
+    assert plan.conflicts[0].reason == "same id exists with different data"
+    assert plan.conflicts[0].diff == {
+        "display_name": {"existing": "Дима Боченков", "incoming": "Другой Игрок"},
+        "display_name_normalized": {
+            "existing": "дима боченков",
+            "incoming": "другой игрок",
+        },
+    }
+
+
+def test_import_historical_users_reports_same_id_telegram_conflict(tmp_path: Path) -> None:
+    db_path = tmp_path / "gambit.db"
+    csv_path = tmp_path / "users.csv"
+    create_database(db_path)
+    import_historical_users.import_users(
+        db_path=db_path,
+        rows=[
+            import_historical_users.ImportUserRow(
+                source_row=2,
+                id=1,
+                display_name="Дима Боченков",
+                display_name_normalized="дима боченков",
+                role=import_historical_users.UserRole.SUPERADMIN,
+                status=import_historical_users.UserStatus.ACTIVE,
+                telegram_id=754076859,
+            )
+        ],
+    )
+    write_csv(
+        csv_path,
+        [
+            {
+                "id": "1",
+                "display_name": "Дима Боченков",
+                "role": "SUPERADMIN",
+                "status": "ACTIVE",
+                "telegram_id": "123",
+            }
+        ],
+    )
+
+    plan = build_plan(db_path, csv_path)
+
+    assert plan.verdict == "NOT SAFE TO APPLY"
+    assert plan.conflicts[0].diff == {"telegram_id": {"existing": 754076859, "incoming": 123}}
+
+
+def test_import_historical_users_reports_new_id_occupied_telegram_id(
+    tmp_path: Path,
+) -> None:
+    db_path = tmp_path / "gambit.db"
+    csv_path = tmp_path / "users.csv"
+    create_database(db_path)
+    import_historical_users.import_users(
+        db_path=db_path,
+        rows=[
+            import_historical_users.ImportUserRow(
+                source_row=2,
+                id=1,
+                display_name="Дима Боченков",
+                display_name_normalized="дима боченков",
+                role=import_historical_users.UserRole.SUPERADMIN,
+                status=import_historical_users.UserStatus.ACTIVE,
+                telegram_id=754076859,
+            )
+        ],
+    )
+    write_csv(
+        csv_path,
+        [
+            {
+                "id": "2",
+                "display_name": "Другой Игрок",
+                "role": "PLAYER",
+                "status": "ACTIVE",
+                "telegram_id": "754076859",
+            }
+        ],
+    )
+
+    plan = build_plan(db_path, csv_path)
+
+    assert plan.verdict == "NOT SAFE TO APPLY"
+    assert plan.conflicts[0].reason == "new id uses occupied telegram_id"
+    assert plan.conflicts[0].existing["id"] == 1
+    assert len(plan.creates) == 0
+
+
+def test_import_historical_users_reports_duplicate_id_in_csv(tmp_path: Path) -> None:
+    db_path = tmp_path / "gambit.db"
+    csv_path = tmp_path / "users.csv"
+    create_database(db_path)
+    write_csv(
+        csv_path,
+        [
+            {
+                "id": "1",
+                "display_name": "Первый Игрок",
+                "role": "PLAYER",
+                "status": "ACTIVE",
+                "telegram_id": "",
+            },
+            {
+                "id": "1",
+                "display_name": "Второй Игрок",
+                "role": "PLAYER",
+                "status": "ACTIVE",
+                "telegram_id": "",
+            },
+        ],
+    )
+
+    plan = build_plan(db_path, csv_path)
+
+    assert plan.verdict == "NOT SAFE TO APPLY"
+    assert plan.duplicate_ids[0].source_rows == (2, 3)
+    assert plan.conflicts[0].reason == "duplicate id in CSV"
+
+
+def test_import_historical_users_reports_duplicate_telegram_id_in_csv(
+    tmp_path: Path,
+) -> None:
+    db_path = tmp_path / "gambit.db"
+    csv_path = tmp_path / "users.csv"
+    create_database(db_path)
+    write_csv(
+        csv_path,
+        [
+            {
+                "id": "1",
+                "display_name": "Первый Игрок",
+                "role": "PLAYER",
+                "status": "ACTIVE",
+                "telegram_id": "111",
+            },
+            {
+                "id": "2",
+                "display_name": "Второй Игрок",
+                "role": "PLAYER",
+                "status": "ACTIVE",
+                "telegram_id": "111",
+            },
+        ],
+    )
+
+    plan = build_plan(db_path, csv_path)
+
+    assert plan.verdict == "NOT SAFE TO APPLY"
+    assert plan.duplicate_telegram_ids[0].source_rows == (2, 3)
+    assert plan.conflicts[0].reason == "duplicate telegram_id in CSV"
+
+
 def test_import_historical_users_rejects_invalid_role(tmp_path: Path) -> None:
     csv_path = tmp_path / "users.csv"
     write_csv(
@@ -312,6 +629,120 @@ def test_import_historical_users_rejects_invalid_role(tmp_path: Path) -> None:
 
     with pytest.raises(import_historical_users.ImportValidationError, match="invalid role"):
         import_historical_users.load_rows(csv_path)
+
+
+def test_import_historical_users_reports_invalid_role_in_plan(tmp_path: Path) -> None:
+    db_path = tmp_path / "gambit.db"
+    csv_path = tmp_path / "users.csv"
+    create_database(db_path)
+    write_csv(
+        csv_path,
+        [
+            {
+                "id": "1",
+                "display_name": "Дима Боченков",
+                "role": "OWNER",
+                "status": "ACTIVE",
+                "telegram_id": "",
+            }
+        ],
+    )
+
+    plan = build_plan(db_path, csv_path)
+
+    assert plan.verdict == "NOT SAFE TO APPLY"
+    assert plan.rows_read == 1
+    assert len(plan.invalid) == 1
+    assert "invalid role" in plan.invalid[0].reason
+
+
+def test_import_historical_users_reports_invalid_status_in_plan(tmp_path: Path) -> None:
+    db_path = tmp_path / "gambit.db"
+    csv_path = tmp_path / "users.csv"
+    create_database(db_path)
+    write_csv(
+        csv_path,
+        [
+            {
+                "id": "1",
+                "display_name": "Дима Боченков",
+                "role": "PLAYER",
+                "status": "PENDING",
+                "telegram_id": "",
+            }
+        ],
+    )
+
+    plan = build_plan(db_path, csv_path)
+
+    assert plan.verdict == "NOT SAFE TO APPLY"
+    assert len(plan.invalid) == 1
+    assert "invalid status" in plan.invalid[0].reason
+
+
+def test_import_historical_users_reports_invalid_normalized_name(
+    tmp_path: Path,
+) -> None:
+    db_path = tmp_path / "gambit.db"
+    csv_path = tmp_path / "users.csv"
+    create_database(db_path)
+    write_csv(
+        csv_path,
+        [
+            {
+                "id": "1",
+                "display_name": "Ёж",
+                "display_name_normalized": "ёж",
+                "role": "PLAYER",
+                "status": "ACTIVE",
+                "telegram_id": "",
+            }
+        ],
+    )
+
+    plan = build_plan(db_path, csv_path)
+
+    assert plan.verdict == "NOT SAFE TO APPLY"
+    assert len(plan.invalid) == 1
+    assert "display_name_normalized" in plan.invalid[0].reason
+
+
+def test_import_historical_users_apply_blocked_by_conflict(tmp_path: Path) -> None:
+    db_path = tmp_path / "gambit.db"
+    csv_path = tmp_path / "users.csv"
+    create_database(db_path)
+    import_historical_users.import_users(
+        db_path=db_path,
+        rows=[
+            import_historical_users.ImportUserRow(
+                source_row=2,
+                id=1,
+                display_name="Дима Боченков",
+                display_name_normalized="дима боченков",
+                role=import_historical_users.UserRole.PLAYER,
+                status=import_historical_users.UserStatus.ACTIVE,
+                telegram_id=None,
+            )
+        ],
+    )
+    write_csv(
+        csv_path,
+        [
+            {
+                "id": "1",
+                "display_name": "Другой Игрок",
+                "role": "PLAYER",
+                "status": "ACTIVE",
+                "telegram_id": "",
+            }
+        ],
+    )
+    plan = build_plan(db_path, csv_path)
+
+    with pytest.raises(import_historical_users.ImportValidationError, match="NOT SAFE"):
+        import_historical_users.apply_import_plan(plan)
+
+    assert read_users(db_path)[0]["display_name"] == "Дима Боченков"
 
 
 def test_import_historical_users_rolls_back_on_error(tmp_path: Path) -> None:
@@ -359,6 +790,151 @@ def test_import_historical_users_rolls_back_on_error(tmp_path: Path) -> None:
     assert [(user["id"], user["display_name"]) for user in read_users(db_path)] == [
         (10, "Занятый Игрок")
     ]
+
+
+def test_import_historical_users_apply_plan_success(tmp_path: Path) -> None:
+    db_path = tmp_path / "gambit.db"
+    csv_path = tmp_path / "users.csv"
+    create_database(db_path)
+    write_csv(
+        csv_path,
+        [
+            {
+                "id": "1",
+                "display_name": "Первый Игрок",
+                "role": "PLAYER",
+                "status": "ACTIVE",
+                "telegram_id": "",
+            },
+            {
+                "id": "2",
+                "display_name": "Второй Игрок",
+                "role": "ADMIN",
+                "status": "ACTIVE",
+                "telegram_id": "222",
+            },
+        ],
+    )
+    plan = build_plan(db_path, csv_path)
+
+    stats = import_historical_users.apply_import_plan(plan)
+
+    assert stats.users_created == 2
+    assert count_users(db_path) == 2
+    assert read_users(db_path)[1]["role"] == "admin"
+
+
+def test_import_historical_users_second_apply_is_idempotent(tmp_path: Path) -> None:
+    db_path = tmp_path / "gambit.db"
+    csv_path = tmp_path / "users.csv"
+    create_database(db_path)
+    write_csv(
+        csv_path,
+        [
+            {
+                "id": "1",
+                "display_name": "Первый Игрок",
+                "role": "PLAYER",
+                "status": "ACTIVE",
+                "telegram_id": "",
+            }
+        ],
+    )
+
+    first_plan = build_plan(db_path, csv_path)
+    first = import_historical_users.apply_import_plan(first_plan)
+    second_plan = build_plan(db_path, csv_path)
+    second = import_historical_users.apply_import_plan(second_plan)
+
+    assert first.users_created == 1
+    assert second_plan.verdict == "SAFE TO APPLY"
+    assert len(second_plan.creates) == 0
+    assert len(second_plan.unchanged) == 1
+    assert second.users_created == 0
+    assert second.users_skipped == 1
+    assert count_users(db_path) == 1
+
+
+def test_import_historical_users_apply_rolls_back_whole_transaction(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    db_path = tmp_path / "gambit.db"
+    csv_path = tmp_path / "users.csv"
+    create_database(db_path)
+    write_csv(
+        csv_path,
+        [
+            {
+                "id": "1",
+                "display_name": "Первый Игрок",
+                "role": "PLAYER",
+                "status": "ACTIVE",
+                "telegram_id": "",
+            },
+            {
+                "id": "2",
+                "display_name": "Второй Игрок",
+                "role": "PLAYER",
+                "status": "ACTIVE",
+                "telegram_id": "",
+            },
+        ],
+    )
+    plan = build_plan(db_path, csv_path)
+    original_insert = import_historical_users.insert_user
+
+    def failing_insert(
+        connection: sqlite3.Connection,
+        row: import_historical_users.ImportUserRow,
+    ) -> None:
+        original_insert(connection, row)
+        if row.id == 2:
+            raise RuntimeError("boom")
+
+    monkeypatch.setattr(import_historical_users, "insert_user", failing_insert)
+
+    with pytest.raises(RuntimeError, match="boom"):
+        import_historical_users.apply_import_plan(plan)
+
+    assert count_users(db_path) == 0
+
+
+def test_import_historical_users_exports_deterministic_report(tmp_path: Path) -> None:
+    db_path = tmp_path / "gambit.db"
+    csv_path = tmp_path / "users.csv"
+    first_report = tmp_path / "report-1"
+    second_report = tmp_path / "report-2"
+    create_database(db_path)
+    write_csv(
+        csv_path,
+        [
+            {
+                "id": "1",
+                "display_name": "Первый Игрок",
+                "role": "PLAYER",
+                "status": "ACTIVE",
+                "telegram_id": "",
+            }
+        ],
+    )
+    plan = build_plan(db_path, csv_path)
+
+    import_historical_users.export_report(plan, first_report)
+    import_historical_users.export_report(plan, second_report)
+
+    report_names = {
+        "summary.json",
+        "creates.csv",
+        "unchanged.csv",
+        "conflicts.csv",
+        "invalid.csv",
+    }
+    assert {path.name for path in first_report.iterdir()} == report_names
+    for name in report_names:
+        assert (first_report / name).read_text(encoding="utf-8") == (
+            second_report / name
+        ).read_text(encoding="utf-8")
 
 
 def test_import_historical_users_next_auto_id_after_import(tmp_path: Path) -> None:
