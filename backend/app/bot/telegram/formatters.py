@@ -293,8 +293,6 @@ def format_season_proposal(proposal: SeasonProposalView) -> str:
                 f"{texts.admin.SEASON_CURRENT_END_LABEL}: "
                 f"{format_numeric_date(proposal.active_season_ends_at)}",
                 f"{texts.admin.SEASON_NEW_START_LABEL}: {format_numeric_date(proposal.starts_at)}",
-                "",
-                texts.admin.SEASON_ACTIVE_CLOSE_WARNING,
             ]
         )
     return "\n".join(lines)

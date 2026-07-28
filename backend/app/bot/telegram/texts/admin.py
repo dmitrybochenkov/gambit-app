@@ -106,7 +106,6 @@ SEASON_PROPOSAL_TITLE = "Нужно подготовить следующий с
 SEASON_PROPOSAL_LABEL = "Предложение"
 SEASON_START_LABEL = "Дата начала"
 SEASON_SCORING_CONFIG_LABEL = "Конфигурация рейтинга"
-SEASON_ACTIVE_CLOSE_WARNING = "Текущий активный сезон завершится за день до начала нового."
 TOURNAMENTS_PROPOSAL_TITLE = "Нужно создать расписание."
 CONFIRM_CREATION_PROMPT = "Подтвердить создание?"
 REGISTRATION_MATCHES_TITLE = "Возможные совпадения с историей:"
