@@ -14,6 +14,7 @@ from app.db.models import (
     TournamentResult,
 )
 from app.db.models.enums import TournamentStatus, UserRole, UserStatus
+from app.services.dto import KnockoutsRatingView, PointsRatingView
 from app.services.pagination import pagination_service
 from app.services.rating_service import RatingKind, RatingService
 
@@ -178,8 +179,9 @@ async def test_rating_filters_current_season_and_all_time(tmp_path: Path) -> Non
             "King",
         ]
         assert all_time_knockouts[0].total_knockouts_count == 6
-        assert all_time_knockouts[0].knockout_points == Decimal("20")
-        assert all_time_knockouts[0].tournaments_count == 2
+        assert all_time_knockouts[0].knockout_tournaments_count == 2
+        assert all_time_knockouts[0].season_champion_titles_count == 1
+        assert all_time_knockouts[0].season_knockout_leader_titles_count == 1
         current_page = pagination_service.paginate(current_points, page=0, page_size=10)
         all_time_knockouts_page = pagination_service.paginate(
             all_time_knockouts,
@@ -192,9 +194,8 @@ async def test_rating_filters_current_season_and_all_time(tmp_path: Path) -> Non
             current_player_id=second_player.id,
         ).startswith(
             "Рейтинг — текущий сезон\n"
-            "⭐ - количество очков\n"
             "🎲 - количество турниров\n\n"
-            "🥇 *King* — ⭐120 | 🎲 1"
+            "🥇 ✅ *King* — 120 | 🎲 1"
         )
         knockout_message = format_rating(
             knockout_title,
@@ -203,13 +204,72 @@ async def test_rating_filters_current_season_and_all_time(tmp_path: Path) -> Non
         )
         assert (
             "Рейтинг по нокаутам — за всё время\n"
-            "🥊 - количество нокаутов\n"
-            "⭐🥊 - количество очков за нокауты\n"
-            "🎲 - количество турниров\n\n"
+            "🎲 - количество турниров с нокаутами\n\n"
         ) in knockout_message
-        assert "🥊 6 | ⭐🥊 20 | 🎲 2" in knockout_message
+        assert "🥇 ✅ *Игрок Первый 💍 🥊* — 6 | 🎲 2" in knockout_message
+        assert "⭐" not in knockout_message
     finally:
         await engine.dispose()
+
+
+def test_points_rating_format_uses_half_up_rounding_and_current_marker() -> None:
+    page = pagination_service.paginate(
+        [
+            PointsRatingView(
+                player_id=1,
+                display_name="King",
+                total_points=Decimal("120.5"),
+                tournaments_count=3,
+                season_champion_titles_count=1,
+            ),
+            PointsRatingView(
+                player_id=2,
+                display_name="Player",
+                total_points=Decimal("90.4"),
+                tournaments_count=2,
+            ),
+        ],
+        page=0,
+        page_size=10,
+    )
+
+    message = format_rating("Рейтинг — за всё время", page, current_player_id=1)
+
+    assert "⭐" not in message
+    assert (
+        "Рейтинг — за всё время\n"
+        "🎲 - количество турниров\n\n"
+        "🥇 ✅ *King 💍* — 121 | 🎲 3\n"
+        "🥈 Player — 90 | 🎲 2"
+    ) == message
+
+
+def test_knockout_rating_format_hides_points_and_repeats_titles() -> None:
+    page = pagination_service.paginate(
+        [
+            KnockoutsRatingView(
+                player_id=1,
+                display_name="King",
+                knockouts_count=4,
+                big_knockouts_count=2,
+                knockout_tournaments_count=2,
+                season_champion_titles_count=1,
+                season_knockout_leader_titles_count=2,
+            )
+        ],
+        page=0,
+        page_size=10,
+    )
+
+    message = format_rating("Рейтинг по нокаутам — за всё время", page, current_player_id=2)
+
+    assert "⭐🥊" not in message
+    assert "🥊 6" not in message
+    assert (
+        "Рейтинг по нокаутам — за всё время\n"
+        "🎲 - количество турниров с нокаутами\n\n"
+        "🥇 King 💍 🥊 🥊 — 6 | 🎲 2"
+    ) == message
 
 
 async def test_active_superadmin_can_open_rating_after_new_session(tmp_path: Path) -> None:
@@ -238,6 +298,180 @@ async def test_active_superadmin_can_open_rating_after_new_session(tmp_path: Pat
 
         assert rating.title == "Рейтинг — за всё время"
         assert rating.rows == []
+    finally:
+        await engine.dispose()
+
+
+async def test_knockout_games_count_and_completed_season_title_tiebreakers(
+    tmp_path: Path,
+) -> None:
+    engine = create_async_engine(f"sqlite+aiosqlite:///{tmp_path / 'rating_titles.db'}")
+    async with engine.begin() as connection:
+        await connection.run_sync(Base.metadata.create_all)
+
+    session_factory = async_sessionmaker(engine, expire_on_commit=False)
+    async with session_factory() as session:
+        config = ScoringConfig()
+        session.add(config)
+        await session.flush()
+        await seed_tournament_types_async(session)
+        completed = Season(
+            name="Completed",
+            scoring_config_id=config.id,
+            starts_at=date(2026, 1, 1),
+            ends_at=date(2026, 3, 31),
+        )
+        current = Season(
+            name="Current",
+            scoring_config_id=config.id,
+            starts_at=date(2026, 4, 1),
+            ends_at=None,
+        )
+        low_id_player = build_player(
+            telegram_id=100,
+            display_name="Low Id",
+            status=UserStatus.ACTIVE,
+        )
+        high_id_player = build_player(
+            telegram_id=200,
+            display_name="High Id",
+            status=UserStatus.ACTIVE,
+        )
+        zero_knockouts_player = build_player(
+            telegram_id=300,
+            display_name="Zero KO",
+            status=UserStatus.ACTIVE,
+        )
+        session.add_all([completed, current, low_id_player, high_id_player, zero_knockouts_player])
+        await session.flush()
+        tournaments = [
+            Tournament(
+                season_id=completed.id,
+                tournament_type_id=tournament_type_id("bounty"),
+                date=date(2026, 1, 1 + index),
+                status=TournamentStatus.CLOSED,
+                points_pool=Decimal("1000"),
+            )
+            for index in range(4)
+        ]
+        current_tournament = Tournament(
+            season_id=current.id,
+            tournament_type_id=tournament_type_id("bounty"),
+            date=date(2026, 4, 2),
+            status=TournamentStatus.CLOSED,
+            points_pool=Decimal("1000"),
+        )
+        session.add_all([*tournaments, current_tournament])
+        await session.flush()
+
+        session.add_all(
+            [
+                TournamentResult(
+                    tournament_id=tournaments[0].id,
+                    player_id=low_id_player.id,
+                    place=1,
+                    knockouts_count=2,
+                    big_knockouts_count=0,
+                    tournament_points=Decimal("100"),
+                    knockout_points=Decimal("0"),
+                    bonus_points=Decimal("20"),
+                ),
+                TournamentResult(
+                    tournament_id=tournaments[1].id,
+                    player_id=low_id_player.id,
+                    place=None,
+                    knockouts_count=0,
+                    big_knockouts_count=0,
+                    tournament_points=Decimal("0"),
+                    knockout_points=Decimal("0"),
+                    bonus_points=Decimal("0"),
+                ),
+                TournamentResult(
+                    tournament_id=tournaments[2].id,
+                    player_id=low_id_player.id,
+                    place=None,
+                    knockouts_count=0,
+                    big_knockouts_count=1,
+                    tournament_points=Decimal("0"),
+                    knockout_points=Decimal("0"),
+                    bonus_points=Decimal("0"),
+                ),
+                TournamentResult(
+                    tournament_id=tournaments[3].id,
+                    player_id=low_id_player.id,
+                    place=None,
+                    knockouts_count=0,
+                    big_knockouts_count=0,
+                    tournament_points=Decimal("0"),
+                    knockout_points=Decimal("0"),
+                    bonus_points=Decimal("0"),
+                ),
+                TournamentResult(
+                    tournament_id=tournaments[0].id,
+                    player_id=high_id_player.id,
+                    place=2,
+                    knockouts_count=3,
+                    big_knockouts_count=0,
+                    tournament_points=Decimal("120"),
+                    knockout_points=Decimal("0"),
+                    bonus_points=Decimal("0"),
+                ),
+                TournamentResult(
+                    tournament_id=tournaments[0].id,
+                    player_id=zero_knockouts_player.id,
+                    place=None,
+                    knockouts_count=0,
+                    big_knockouts_count=0,
+                    tournament_points=Decimal("0"),
+                    knockout_points=Decimal("0"),
+                    bonus_points=Decimal("0"),
+                ),
+                TournamentResult(
+                    tournament_id=current_tournament.id,
+                    player_id=high_id_player.id,
+                    place=1,
+                    knockouts_count=10,
+                    big_knockouts_count=0,
+                    tournament_points=Decimal("500"),
+                    knockout_points=Decimal("0"),
+                    bonus_points=Decimal("0"),
+                ),
+            ]
+        )
+        await session.commit()
+
+    service = RatingService(session_factory)
+    try:
+        knockout_rating = await service.get_rating_for_player(
+            telegram_id=low_id_player.telegram_id,
+            kind=RatingKind.KNOCKOUTS_ALL_TIME,
+            today=date(2026, 7, 29),
+        )
+        points_rating = await service.get_rating_for_player(
+            telegram_id=low_id_player.telegram_id,
+            kind=RatingKind.ALL_TIME,
+            today=date(2026, 7, 29),
+        )
+
+        low_id_knockouts = next(
+            row for row in knockout_rating.rows if row.player_id == low_id_player.id
+        )
+        high_id_knockouts = next(
+            row for row in knockout_rating.rows if row.player_id == high_id_player.id
+        )
+        low_id_points = next(
+            row for row in points_rating.rows if row.player_id == low_id_player.id
+        )
+        high_id_points = next(
+            row for row in points_rating.rows if row.player_id == high_id_player.id
+        )
+
+        assert low_id_knockouts.total_knockouts_count == 3
+        assert low_id_knockouts.knockout_tournaments_count == 2
+        assert low_id_knockouts.season_knockout_leader_titles_count == 1
+        assert high_id_knockouts.season_knockout_leader_titles_count == 0
+        assert low_id_points.season_champion_titles_count == 1
+        assert high_id_points.season_champion_titles_count == 0
     finally:
         await engine.dispose()
 

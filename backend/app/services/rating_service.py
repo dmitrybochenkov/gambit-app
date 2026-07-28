@@ -3,9 +3,7 @@ from enum import StrEnum
 
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
-from app.db.repositories.rating_repository import (
-    RatingRepository,
-)
+from app.db.repositories.rating_repository import RatingHonours, RatingRepository
 from app.db.repositories.season_repository import SeasonRepository
 from app.db.repositories.user_repository import UserRepository
 from app.db.session import SessionFactory
@@ -59,6 +57,7 @@ class RatingService:
         kind: RatingKind,
         today: date,
     ) -> tuple[str, list[PointsRatingView] | list[KnockoutsRatingView]]:
+        honours = await rating_repository.get_rating_honours(today)
         if kind == RatingKind.CURRENT_SEASON:
             season = await season_repository.get_for_date(today)
             if season is None:
@@ -66,7 +65,7 @@ class RatingService:
             return (
                 "Рейтинг — текущий сезон",
                 [
-                    PointsRatingView(**row.__dict__)
+                    points_rating_view(row.__dict__, honours)
                     for row in await rating_repository.get_points_rating(
                         season_id=season.id if season else None,
                     )
@@ -76,7 +75,7 @@ class RatingService:
             return (
                 "Рейтинг — за всё время",
                 [
-                    PointsRatingView(**row.__dict__)
+                    points_rating_view(row.__dict__, honours)
                     for row in await rating_repository.get_points_rating()
                 ],
             )
@@ -87,7 +86,7 @@ class RatingService:
             return (
                 "Рейтинг по нокаутам — текущий сезон",
                 [
-                    KnockoutsRatingView(**row.__dict__)
+                    knockouts_rating_view(row.__dict__, honours)
                     for row in await rating_repository.get_knockouts_rating(
                         season_id=season.id if season else None,
                     )
@@ -96,10 +95,35 @@ class RatingService:
         return (
             "Рейтинг по нокаутам — за всё время",
             [
-                KnockoutsRatingView(**row.__dict__)
+                knockouts_rating_view(row.__dict__, honours)
                 for row in await rating_repository.get_knockouts_rating()
             ],
         )
+
+
+def points_rating_view(row: dict[str, object], honours: RatingHonours) -> PointsRatingView:
+    player_id = int(row["player_id"])
+    return PointsRatingView(
+        **row,
+        season_champion_titles_count=honours.season_champion_titles_by_player_id.get(
+            player_id,
+            0,
+        ),
+    )
+
+
+def knockouts_rating_view(row: dict[str, object], honours: RatingHonours) -> KnockoutsRatingView:
+    player_id = int(row["player_id"])
+    return KnockoutsRatingView(
+        **row,
+        season_champion_titles_count=honours.season_champion_titles_by_player_id.get(
+            player_id,
+            0,
+        ),
+        season_knockout_leader_titles_count=(
+            honours.season_knockout_leader_titles_by_player_id.get(player_id, 0)
+        ),
+    )
 
 
 rating_service = RatingService(SessionFactory)

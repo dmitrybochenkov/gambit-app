@@ -979,9 +979,8 @@ async def test_rating_callback_edits_selected_rating(
     message.edit_text.assert_awaited_once()
     assert message.edit_text.await_args.args[0] == (
         "Рейтинг — текущий сезон\n"
-        "⭐ - количество очков\n"
         "🎲 - количество турниров\n\n"
-        "🥇 *Игрок Первый* — ⭐120 | 🎲 3"
+        "🥇 ✅ *Игрок Первый* — 120 | 🎲 3"
     )
     assert message.edit_text.await_args.kwargs["parse_mode"] == "Markdown"
     buttons = [

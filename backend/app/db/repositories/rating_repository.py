@@ -1,10 +1,12 @@
+from collections import Counter
 from dataclasses import dataclass
+from datetime import date
 from decimal import Decimal
 
-from sqlalchemy import func, select
+from sqlalchemy import desc, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.db.models import Tournament, TournamentResult, User
+from app.db.models import Season, Tournament, TournamentResult, User
 
 
 @dataclass(frozen=True)
@@ -21,12 +23,17 @@ class KnockoutsRatingRow:
     display_name: str
     knockouts_count: int
     big_knockouts_count: int
-    knockout_points: Decimal
-    tournaments_count: int
+    knockout_tournaments_count: int
 
     @property
     def total_knockouts_count(self) -> int:
         return self.knockouts_count + self.big_knockouts_count
+
+
+@dataclass(frozen=True)
+class RatingHonours:
+    season_champion_titles_by_player_id: dict[int, int]
+    season_knockout_leader_titles_by_player_id: dict[int, int]
 
 
 class RatingRepository:
@@ -74,16 +81,31 @@ class RatingRepository:
     ) -> list[KnockoutsRatingRow]:
         knockouts = func.sum(TournamentResult.knockouts_count)
         big_knockouts = func.sum(TournamentResult.big_knockouts_count)
-        knockout_points = func.sum(TournamentResult.knockout_points)
         total_knockouts = knockouts + big_knockouts
+        knockout_tournament_ids = (
+            select(TournamentResult.tournament_id)
+            .join(Tournament, Tournament.id == TournamentResult.tournament_id)
+            .group_by(TournamentResult.tournament_id)
+            .having(
+                func.sum(
+                    TournamentResult.knockouts_count + TournamentResult.big_knockouts_count
+                )
+                > 0
+            )
+        )
+        if season_id is not None:
+            knockout_tournament_ids = knockout_tournament_ids.where(
+                Tournament.season_id == season_id
+            )
         statement = (
             select(
                 User.id.label("player_id"),
                 User.display_name,
                 knockouts.label("knockouts_count"),
                 big_knockouts.label("big_knockouts_count"),
-                knockout_points.label("knockout_points"),
-                func.count(TournamentResult.id).label("tournaments_count"),
+                func.count(TournamentResult.id)
+                .filter(TournamentResult.tournament_id.in_(knockout_tournament_ids))
+                .label("knockout_tournaments_count"),
             )
             .join(TournamentResult, TournamentResult.player_id == User.id)
             .join(Tournament, Tournament.id == TournamentResult.tournament_id)
@@ -106,8 +128,80 @@ class RatingRepository:
                 display_name=row.display_name,
                 knockouts_count=row.knockouts_count,
                 big_knockouts_count=row.big_knockouts_count,
-                knockout_points=Decimal(row.knockout_points),
-                tournaments_count=row.tournaments_count,
+                knockout_tournaments_count=row.knockout_tournaments_count,
             )
             for row in result
         ]
+
+    async def get_rating_honours(self, today: date) -> RatingHonours:
+        return RatingHonours(
+            season_champion_titles_by_player_id=await self._get_completed_season_champion_titles(
+                today
+            ),
+            season_knockout_leader_titles_by_player_id=(
+                await self._get_completed_season_knockout_leader_titles(today)
+            ),
+        )
+
+    async def _get_completed_season_champion_titles(self, today: date) -> dict[int, int]:
+        total_points = func.sum(
+            TournamentResult.tournament_points
+            + TournamentResult.knockout_points
+            + TournamentResult.bonus_points
+        ).label("total_points")
+        ranked = (
+            select(
+                Tournament.season_id.label("season_id"),
+                TournamentResult.player_id.label("player_id"),
+                func.row_number()
+                .over(
+                    partition_by=Tournament.season_id,
+                    order_by=(desc(total_points), TournamentResult.player_id),
+                )
+                .label("rank"),
+            )
+            .join(Tournament, Tournament.id == TournamentResult.tournament_id)
+            .join(Season, Season.id == Tournament.season_id)
+            .where(Season.ends_at.is_not(None), Season.ends_at < today)
+            .group_by(Tournament.season_id, TournamentResult.player_id)
+            .having(total_points > 0)
+            .subquery()
+        )
+        result = await self.session.execute(
+            select(ranked.c.player_id).where(ranked.c.rank == 1)
+        )
+        return dict(Counter(int(player_id) for player_id in result.scalars()))
+
+    async def _get_completed_season_knockout_leader_titles(
+        self,
+        today: date,
+    ) -> dict[int, int]:
+        knockouts = func.sum(TournamentResult.knockouts_count).label("knockouts")
+        big_knockouts = func.sum(TournamentResult.big_knockouts_count).label("big_knockouts")
+        total_knockouts = (knockouts + big_knockouts).label("total_knockouts")
+        ranked = (
+            select(
+                Tournament.season_id.label("season_id"),
+                TournamentResult.player_id.label("player_id"),
+                func.row_number()
+                .over(
+                    partition_by=Tournament.season_id,
+                    order_by=(
+                        desc(total_knockouts),
+                        desc(big_knockouts),
+                        TournamentResult.player_id,
+                    ),
+                )
+                .label("rank"),
+            )
+            .join(Tournament, Tournament.id == TournamentResult.tournament_id)
+            .join(Season, Season.id == Tournament.season_id)
+            .where(Season.ends_at.is_not(None), Season.ends_at < today)
+            .group_by(Tournament.season_id, TournamentResult.player_id)
+            .having(total_knockouts > 0)
+            .subquery()
+        )
+        result = await self.session.execute(
+            select(ranked.c.player_id).where(ranked.c.rank == 1)
+        )
+        return dict(Counter(int(player_id) for player_id in result.scalars()))

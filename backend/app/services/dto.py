@@ -248,6 +248,7 @@ class PointsRatingView:
     display_name: str
     total_points: Decimal
     tournaments_count: int
+    season_champion_titles_count: int = 0
 
 
 @dataclass(frozen=True)
@@ -256,8 +257,9 @@ class KnockoutsRatingView:
     display_name: str
     knockouts_count: int
     big_knockouts_count: int
-    knockout_points: Decimal
-    tournaments_count: int
+    knockout_tournaments_count: int
+    season_champion_titles_count: int = 0
+    season_knockout_leader_titles_count: int = 0
 
     @property
     def total_knockouts_count(self) -> int:

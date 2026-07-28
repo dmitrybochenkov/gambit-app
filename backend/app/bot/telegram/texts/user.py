@@ -1,4 +1,4 @@
-from decimal import Decimal
+from decimal import ROUND_HALF_UP, Decimal
 
 from app.services.dto import (
     KnockoutsRatingView,
@@ -121,32 +121,30 @@ def rating_message(
     has_points_rows = isinstance(page.items[0], PointsRatingView)
     lines = [title]
     if has_points_rows:
-        lines.extend(["⭐ - количество очков", "🎲 - количество турниров"])
+        lines.extend(["🎲 - количество турниров"])
     else:
         lines.extend(
             [
-                "🥊 - количество нокаутов",
-                "⭐🥊 - количество очков за нокауты",
-                "🎲 - количество турниров",
+                "🎲 - количество турниров с нокаутами",
             ]
         )
     lines.append("")
     start_position = page.page * page.page_size + 1
     for position, row in enumerate(page.items, start=start_position):
         position_label = _rating_position_label(position)
+        current_marker = " ✅" if row.player_id == current_player_id else ""
         display_name = _rating_display_name(row, current_player_id)
         if isinstance(row, PointsRatingView):
-            points = _format_decimal(row.total_points)
+            points = _format_points(row.total_points)
             lines.append(
-                f"{position_label} {display_name} — ⭐{points} | 🎲 {row.tournaments_count}"
+                f"{position_label}{current_marker} {display_name} — {points} | "
+                f"🎲 {row.tournaments_count}"
             )
         else:
-            knockout_points = _format_decimal(row.knockout_points)
             lines.append(
-                f"{position_label} {display_name} — "
-                f"🥊 {row.total_knockouts_count} | "
-                f"⭐🥊 {knockout_points} | "
-                f"🎲 {row.tournaments_count}"
+                f"{position_label}{current_marker} {display_name} — "
+                f"{row.total_knockouts_count} | "
+                f"🎲 {row.knockout_tournaments_count}"
             )
     return "\n".join(lines)
 
@@ -164,10 +162,23 @@ def _rating_display_name(
     row: PointsRatingView | KnockoutsRatingView,
     current_player_id: int,
 ) -> str:
-    display_name = _escape_markdown(row.display_name)
+    display_name = _escape_markdown(_rating_display_name_with_honours(row))
     if row.player_id == current_player_id:
         return f"*{display_name}*"
     return display_name
+
+
+def _rating_display_name_with_honours(row: PointsRatingView | KnockoutsRatingView) -> str:
+    parts = [row.display_name]
+    if row.season_champion_titles_count > 0:
+        parts.extend("💍" for _ in range(row.season_champion_titles_count))
+    if isinstance(row, KnockoutsRatingView) and row.season_knockout_leader_titles_count > 0:
+        parts.extend("🥊" for _ in range(row.season_knockout_leader_titles_count))
+    return " ".join(parts)
+
+
+def _format_points(value: Decimal) -> str:
+    return str(value.quantize(Decimal("1"), rounding=ROUND_HALF_UP))
 
 
 def _escape_markdown(value: str) -> str:
