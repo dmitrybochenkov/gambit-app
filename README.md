@@ -105,6 +105,108 @@ id,display_name,role,status,telegram_id
 `role` is one of `PLAYER`, `ADMIN`, `SUPERADMIN`; `status` is one of `ACTIVE`,
 `BLOCKED`. Empty `telegram_id` is imported as `NULL`.
 
+## Historical Results Import
+
+The historical results importer reads the Excel workbook with sheets
+`Данные за все время` and `Лист12`, resolves players through the approved
+historical users and optional aliases, and imports closed `legacy_unknown`
+tournaments without recalculating historical points.
+
+Local dry-run:
+
+```bash
+cd backend
+uv run python ../scripts/import_rating_history.py ../Таблица\ рейтинга.xlsx \
+  --db ../data/gambit.db \
+  --export-report ../data/import-report
+```
+
+Local apply, only after the dry-run says `SAFE TO APPLY`:
+
+```bash
+cd backend
+uv run python ../scripts/import_rating_history.py ../Таблица\ рейтинга.xlsx \
+  --db ../data/gambit.db \
+  --apply
+```
+
+Production runbook:
+
+```bash
+cd /opt/apps/gambit
+
+sudo systemctl stop gambit
+
+mkdir -p data/backups data/import
+
+cp data/gambit.db \
+  data/backups/gambit-before-history-$(date +%Y%m%d-%H%M%S).db
+
+ls -lh data/backups/gambit-before-history-*.db
+sha256sum data/backups/gambit-before-history-*.db | tail -n 1
+
+cd backend
+.venv/bin/alembic upgrade head
+cd ..
+
+backend/.venv/bin/python scripts/import_historical_users.py \
+  --db data/gambit.db
+
+backend/.venv/bin/python scripts/import_rating_history.py \
+  data/import/rating-history.xlsx \
+  --db data/gambit.db \
+  --export-report data/import/history-dry-run
+```
+
+Compare `data/import/history-dry-run/summary.json` with the local dry-run
+`summary.json` before applying. Do not apply if tournament count, result count,
+user count, season distribution, or point sums differ.
+
+Production apply:
+
+```bash
+cd /opt/apps/gambit
+
+backend/.venv/bin/python scripts/import_rating_history.py \
+  data/import/rating-history.xlsx \
+  --db data/gambit.db \
+  --apply
+
+backend/.venv/bin/python scripts/import_rating_history.py \
+  data/import/rating-history.xlsx \
+  --db data/gambit.db \
+  --export-report data/import/history-after-apply
+
+sqlite3 data/gambit.db \
+  "SELECT COUNT(*) FROM tournaments; SELECT COUNT(*) FROM tournament_results;"
+
+sudo systemctl start gambit
+sudo systemctl status gambit
+curl --fail --silent http://127.0.0.1:8100/health
+journalctl -u gambit --no-pager --lines=100
+```
+
+Rollback:
+
+```bash
+cd /opt/apps/gambit
+
+sudo systemctl stop gambit
+
+cp data/gambit.db \
+  data/backups/gambit-failed-history-$(date +%Y%m%d-%H%M%S).db
+
+cp data/backups/gambit-before-history-YYYYMMDD-HHMMSS.db data/gambit.db
+
+sudo systemctl start gambit
+sudo systemctl status gambit
+curl --fail --silent http://127.0.0.1:8100/health
+journalctl -u gambit --no-pager --lines=100
+```
+
+After a successful import, the Excel file can be removed from
+`data/import/` on the server. Keep the database backup.
+
 The initial migration creates:
 
 - users

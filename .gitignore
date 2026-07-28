@@ -41,3 +41,4 @@ htmlcov/
 .vscode/
 
 data/*.csv
+data/import-report*/

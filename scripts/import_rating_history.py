@@ -3,15 +3,19 @@ from __future__ import annotations
 
 import argparse
 import csv
+import json
+import os
 import sqlite3
 import sys
 import unicodedata
-from collections import defaultdict
-from dataclasses import dataclass
-from datetime import date
+import zipfile
+from collections import Counter, defaultdict
+from dataclasses import asdict, dataclass, field
+from datetime import date, datetime, timedelta
 from decimal import Decimal, InvalidOperation
 from pathlib import Path
 from typing import Any
+from xml.etree import ElementTree
 
 BACKEND_ROOT = Path(__file__).resolve().parents[1] / "backend"
 if str(BACKEND_ROOT) not in sys.path:
@@ -19,753 +23,1526 @@ if str(BACKEND_ROOT) not in sys.path:
 
 from app.common.normalization import normalize_display_name  # noqa: E402
 
-DEFAULT_SHEET_NAME = "Данные за все время"
-DEFAULT_MAPPING_SHEET_NAME = "Лист12"
-DEFAULT_TOURNAMENT_TYPE_CODE = "legacy_unknown"
-
-KNOWN_SEASONS = [
+PROJECT_ROOT = Path(__file__).resolve().parents[1]
+DEFAULT_DB_PATH = PROJECT_ROOT / "data" / "gambit.db"
+DEFAULT_ALIASES_PATH = PROJECT_ROOT / "data" / "historical_result_aliases.csv"
+DEFAULT_RESULTS_SHEET = "Данные за все время"
+DEFAULT_MAPPING_SHEET = "Лист12"
+LEGACY_TOURNAMENT_TYPE_CODE = "legacy_unknown"
+EXPECTED_SOURCE_COLUMNS = (
+    "Дата",
+    "Игрок",
+    "Место в турнире",
+    "КО",
+    "Босс КО",
+    "Доп.очки",
+    "Количество очков за турнир",
+    "Количество очков за КО",
+)
+EXPECTED_TOURNAMENT_DISTRIBUTION = {
+    "Сезон 1": 0,
+    "Сезон 2": 91,
+    "Лето 2026": 39,
+}
+REQUIRED_SEASONS = (
     ("Сезон 1", date(2025, 10, 16), date(2026, 1, 25)),
     ("Сезон 2", date(2026, 1, 27), date(2026, 5, 31)),
-]
+    ("Лето 2026", date(2026, 6, 1), None),
+)
+ZERO = Decimal("0.00")
 
-SEASON_NAMES = {
-    1: "Зима",
-    2: "Весна",
-    3: "Лето",
-    4: "Осень",
-}
+
+class ImportValidationError(ValueError):
+    pass
 
 
 @dataclass(frozen=True)
-class HistoryRow:
+class SourceRow:
     source_row: int
     tournament_date: date
     raw_player_name: str
-    player_name: str
     place: int | None
     knockouts_count: int
-    boss_knockouts_count: int
+    big_knockouts_count: int
     bonus_points: Decimal
     tournament_points: Decimal
     knockout_points: Decimal
 
 
-def main() -> None:
-    parser = argparse.ArgumentParser(
-        description="Import Gambit historical tournament results into SQLite."
-    )
-    parser.add_argument("source", type=Path, help="Source .xlsx or normalized .csv file")
-    parser.add_argument(
-        "--db",
-        type=Path,
-        default=Path(__file__).resolve().parents[1] / "data" / "gambit.db",
-        help="Path to gambit.db",
-    )
-    parser.add_argument("--sheet", default=DEFAULT_SHEET_NAME, help="Excel sheet name")
-    parser.add_argument(
-        "--mapping-sheet",
-        default=DEFAULT_MAPPING_SHEET_NAME,
-        help="Excel sheet with raw player names and Очист_меппинг",
-    )
-    parser.add_argument(
-        "--allow-unmapped",
-        action="store_true",
-        help="Import players missing from the mapping sheet using their raw result names.",
-    )
-    parser.add_argument(
-        "--tournament-type-code",
-        default=DEFAULT_TOURNAMENT_TYPE_CODE,
-        help="Tournament type code for all imported historical tournaments",
-    )
-    parser.add_argument(
-        "--export-csv",
-        type=Path,
-        help="Write normalized CSV and exit unless --apply is also passed",
-    )
-    parser.add_argument(
-        "--apply",
-        action="store_true",
-        help="Write changes to the database. Without this flag only a dry run is printed.",
-    )
-    args = parser.parse_args()
-
-    rows, skipped_rows = load_rows(
-        args.source,
-        args.sheet,
-        args.mapping_sheet,
-        args.allow_unmapped,
-    )
-    if args.export_csv:
-        export_csv(args.export_csv, rows)
-
-    summary = build_summary(rows, skipped_rows)
-    print_summary(summary)
-    if not args.apply:
-        return
-
-    if not rows:
-        raise SystemExit("No rows to import.")
-    import_rows(
-        db_path=args.db,
-        rows=rows,
-        tournament_type_code=args.tournament_type_code,
-    )
-    print(f"Imported {len(rows)} rows into {args.db}")
-
-
-def load_rows(
-    source: Path,
-    sheet_name: str,
-    mapping_sheet_name: str,
-    allow_unmapped: bool,
-) -> tuple[list[HistoryRow], list[int]]:
-    if not source.exists():
-        raise SystemExit(f"Source file not found: {source}")
-    if source.suffix.lower() == ".csv":
-        return load_csv(source)
-    if source.suffix.lower() in {".xlsx", ".xlsm", ".xls"}:
-        return load_excel(source, sheet_name, mapping_sheet_name, allow_unmapped)
-    raise SystemExit(f"Unsupported source format: {source.suffix}")
+@dataclass(frozen=True)
+class BlankPlayerRow:
+    source_row: int
+    tournament_date: date
+    place: int | None
+    knockouts_count: int
+    big_knockouts_count: int
+    bonus_points: Decimal
+    tournament_points: Decimal
+    knockout_points: Decimal
+    reason: str = "blank_player"
 
 
 @dataclass(frozen=True)
-class PlayerMapping:
+class ResolvedResultRow:
     source_row: int
-    raw_name: str
+    tournament_date: date
+    raw_player_name: str
     mapped_name: str
+    user_id: int
+    display_name: str
+    place: int | None
+    knockouts_count: int
+    big_knockouts_count: int
+    bonus_points: Decimal
+    tournament_points: Decimal
+    knockout_points: Decimal
 
 
-def load_excel(
-    source: Path,
-    sheet_name: str,
-    mapping_sheet_name: str,
-    allow_unmapped: bool,
-) -> tuple[list[HistoryRow], list[int]]:
+@dataclass(frozen=True)
+class UserCandidate:
+    id: int
+    display_name: str
+    display_name_normalized: str
+
+
+@dataclass(frozen=True)
+class UnresolvedUser:
+    source_row: int
+    raw_player_name: str
+    mapped_name: str
+    display_name_normalized: str | None
+    reason: str
+
+
+@dataclass(frozen=True)
+class AmbiguousUser:
+    source_row: int
+    raw_player_name: str
+    mapped_name: str
+    display_name_normalized: str | None
+    candidates: tuple[UserCandidate, ...]
+
+
+@dataclass(frozen=True)
+class TournamentPlanItem:
+    tournament_date: date
+    season_id: int
+    season_name: str
+    tournament_type_id: int
+    points_pool: Decimal
+    action: str
+    existing_id: int | None = None
+    conflict: str | None = None
+
+
+@dataclass(frozen=True)
+class ResultPlanItem:
+    source_row: int
+    tournament_date: date
+    user_id: int
+    display_name: str
+    action: str
+    existing_id: int | None = None
+    conflict: str | None = None
+    diff: dict[str, tuple[Any, Any]] = field(default_factory=dict)
+
+
+@dataclass(frozen=True)
+class ImportSource:
+    path: Path
+    results_sheet: str
+    mapping_sheet: str
+    dated_rows_count: int
+    result_rows: tuple[SourceRow, ...]
+    blank_player_rows: tuple[BlankPlayerRow, ...]
+    mappings: dict[str, str]
+
+
+@dataclass
+class ImportPlan:
+    source: ImportSource
+    db_path: Path
+    aliases_path: Path | None
+    resolved_rows: list[ResolvedResultRow]
+    unresolved_users: list[UnresolvedUser]
+    ambiguous_users: list[AmbiguousUser]
+    tournament_items: list[TournamentPlanItem]
+    result_items: list[ResultPlanItem]
+    season_distribution: dict[str, int]
+    errors: list[str]
+    update_existing: bool = False
+
+    @property
+    def safe_to_apply(self) -> bool:
+        return (
+            not self.errors
+            and not self.unresolved_users
+            and not self.ambiguous_users
+            and not any(item.action == "conflict" for item in self.tournament_items)
+            and not any(item.action == "conflict" for item in self.result_items)
+        )
+
+
+@dataclass(frozen=True)
+class ApplyStats:
+    tournaments_created: int
+    tournaments_unchanged: int
+    results_created: int
+    results_updated: int
+    results_unchanged: int
+
+
+def main() -> None:
+    parser = argparse.ArgumentParser(
+        description="Safely import Gambit historical tournaments and results."
+    )
+    parser.add_argument("source", type=Path, help="Source .xlsx file")
+    parser.add_argument("--db", type=Path, default=default_db_path(), help="Existing SQLite DB")
+    parser.add_argument("--sheet", default=DEFAULT_RESULTS_SHEET, help="Results sheet name")
+    parser.add_argument(
+        "--mapping-sheet",
+        default=DEFAULT_MAPPING_SHEET,
+        help="Player mapping sheet name",
+    )
+    parser.add_argument(
+        "--aliases",
+        type=Path,
+        default=DEFAULT_ALIASES_PATH,
+        help="Optional CSV with source_name,user_id aliases",
+    )
+    parser.add_argument(
+        "--export-report",
+        type=Path,
+        help="Directory for JSON summary and CSV error reports",
+    )
+    parser.add_argument("--apply", action="store_true", help="Apply the safe plan")
+    parser.add_argument(
+        "--update-existing",
+        action="store_true",
+        help="Allow updating differing existing TournamentResult rows",
+    )
+    args = parser.parse_args()
+
     try:
-        import pandas as pd
-    except ImportError as error:
-        raise SystemExit(
-            "Reading Excel requires pandas/openpyxl. Export normalized CSV locally first."
-        ) from error
-
-    mappings = load_player_mappings(source, mapping_sheet_name, pd)
-    dataframe = pd.read_excel(source, sheet_name=sheet_name)
-    rows: list[HistoryRow] = []
-    skipped_rows: list[int] = []
-    unmapped_players: dict[str, list[int]] = defaultdict(list)
-    for index, record in dataframe.iterrows():
-        source_row = index + 2
-        raw_date = record.get("Дата")
-        if pd.isna(raw_date):
-            continue
-
-        raw_player_name = clean_text(record.get("Игрок"))
-        if not raw_player_name:
-            skipped_rows.append(source_row)
-            continue
-        mapping = mappings.get(raw_player_name)
-        if mapping:
-            player_name = mapping.mapped_name
-        elif allow_unmapped:
-            player_name = raw_player_name
-        else:
-            unmapped_players[raw_player_name].append(source_row)
-            continue
-
-        rows.append(
-            HistoryRow(
-                source_row=source_row,
-                tournament_date=pd.Timestamp(raw_date).date(),
-                raw_player_name=raw_player_name,
-                player_name=player_name,
-                place=optional_int(record.get("Место в турнире")),
-                knockouts_count=required_int(record.get("КО")),
-                boss_knockouts_count=required_int(record.get("Босс КО")),
-                bonus_points=required_decimal(record.get("Доп.очки")),
-                tournament_points=required_decimal(record.get("Количество очков за турнир")),
-                knockout_points=required_decimal(record.get("Количество очков за КО")),
-            )
+        plan = build_import_plan(
+            source_path=args.source,
+            db_path=args.db,
+            results_sheet=args.sheet,
+            mapping_sheet=args.mapping_sheet,
+            aliases_path=args.aliases if args.aliases.exists() else None,
+            update_existing=args.update_existing,
         )
-    if unmapped_players:
-        details = ", ".join(
-            f"{name} (rows {rows[:5]})" for name, rows in sorted(unmapped_players.items())
-        )
-        raise SystemExit(
-            "Missing player mappings on "
-            f"{mapping_sheet_name!r}: {details}. Use --allow-unmapped to import raw names."
-        )
-    validate_unique_results(rows)
-    return rows, skipped_rows
+        if args.export_report:
+            export_report(args.export_report, plan)
+        print_report(plan)
+        if args.apply:
+            stats = apply_import_plan(plan)
+            print_apply_stats(stats, args.db)
+            verification = verify_post_import(args.db, plan)
+            print_json("Post-import verification", verification)
+    except ImportValidationError as error:
+        raise SystemExit(f"Import failed: {error}") from error
 
 
-def load_player_mappings(source: Path, sheet_name: str, pd: Any) -> dict[str, PlayerMapping]:
-    dataframe = pd.read_excel(source, sheet_name=sheet_name)
-    required_columns = {"Игрок", "Очист_меппинг", "ф", "н"}
-    missing_columns = required_columns - set(dataframe.columns)
-    if missing_columns:
-        raise SystemExit(
-            f"Mapping sheet {sheet_name!r} is missing columns: {sorted(missing_columns)}"
-        )
-
-    mappings: dict[str, PlayerMapping] = {}
-    for index, record in dataframe.iterrows():
-        source_row = index + 2
-        raw_name = clean_text(record.get("Игрок"))
-        if not raw_name:
-            continue
-        mapped_name = clean_text(record.get("Очист_меппинг"))
-        if not mapped_name:
-            raise SystemExit(f"Empty Очист_меппинг on {sheet_name!r} row {source_row}")
-
-        mapping = PlayerMapping(
-            source_row=source_row,
-            raw_name=raw_name,
-            mapped_name=mapped_name,
-        )
-        existing = mappings.get(raw_name)
-        if existing and existing.mapped_name != mapping.mapped_name:
-            raise SystemExit(
-                f"Conflicting mappings for {raw_name!r}: rows "
-                f"{existing.source_row} and {source_row}"
-            )
-        mappings[raw_name] = mapping
-    return mappings
+def default_db_path() -> Path:
+    database_url = os.getenv("DATABASE_URL", "").strip()
+    if database_url.startswith("sqlite+aiosqlite:///"):
+        return Path(database_url.removeprefix("sqlite+aiosqlite:///"))
+    if database_url.startswith("sqlite:///"):
+        return Path(database_url.removeprefix("sqlite:///"))
+    return DEFAULT_DB_PATH
 
 
-def validate_unique_results(rows: list[HistoryRow]) -> None:
-    seen: dict[tuple[date, str], int] = {}
-    duplicates: list[str] = []
-    for row in rows:
-        key = (row.tournament_date, row.player_name)
-        previous_row = seen.get(key)
-        if previous_row is not None:
-            duplicates.append(
-                f"{row.tournament_date.isoformat()} {row.player_name!r} "
-                f"(rows {previous_row}, {row.source_row})"
-            )
-        else:
-            seen[key] = row.source_row
-    if duplicates:
-        raise SystemExit("Duplicate results after player mapping: " + "; ".join(duplicates[:20]))
-
-
-def load_csv(source: Path) -> tuple[list[HistoryRow], list[int]]:
-    rows: list[HistoryRow] = []
-    with source.open(encoding="utf-8", newline="") as file:
-        reader = csv.DictReader(file)
-        for record in reader:
-            rows.append(
-                HistoryRow(
-                    source_row=int(record["source_row"]),
-                    tournament_date=date.fromisoformat(record["date"]),
-                    raw_player_name=record.get("raw_player_name") or record["player_name"],
-                    player_name=record["player_name"],
-                    place=int(record["place"]) if record["place"] else None,
-                    knockouts_count=int(record["knockouts_count"]),
-                    boss_knockouts_count=int(record["boss_knockouts_count"]),
-                    bonus_points=Decimal(record["bonus_points"]),
-                    tournament_points=Decimal(record["tournament_points"]),
-                    knockout_points=Decimal(record["knockout_points"]),
-                )
-            )
-    return rows, []
-
-
-def export_csv(path: Path, rows: list[HistoryRow]) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    with path.open("w", encoding="utf-8", newline="") as file:
-        writer = csv.DictWriter(
-            file,
-            fieldnames=[
-                "source_row",
-                "date",
-                "raw_player_name",
-                "player_name",
-                "place",
-                "knockouts_count",
-                "boss_knockouts_count",
-                "bonus_points",
-                "tournament_points",
-                "knockout_points",
-            ],
-        )
-        writer.writeheader()
-        for row in rows:
-            writer.writerow(
-                {
-                    "source_row": row.source_row,
-                    "date": row.tournament_date.isoformat(),
-                    "raw_player_name": row.raw_player_name,
-                    "player_name": row.player_name,
-                    "place": row.place or "",
-                    "knockouts_count": row.knockouts_count,
-                    "boss_knockouts_count": row.boss_knockouts_count,
-                    "bonus_points": money(row.bonus_points),
-                    "tournament_points": money(row.tournament_points),
-                    "knockout_points": money(row.knockout_points),
-                }
-            )
-    print(f"Exported normalized CSV to {path}")
-
-
-def import_rows(
+def build_import_plan(
+    *,
+    source_path: Path,
     db_path: Path,
-    rows: list[HistoryRow],
-    tournament_type_code: str,
-) -> None:
-    connection = sqlite3.connect(db_path)
-    connection.execute("PRAGMA foreign_keys = ON")
+    results_sheet: str = DEFAULT_RESULTS_SHEET,
+    mapping_sheet: str = DEFAULT_MAPPING_SHEET,
+    aliases_path: Path | None = None,
+    update_existing: bool = False,
+    strict_expectations: bool = True,
+) -> ImportPlan:
+    source = load_import_source(source_path, results_sheet, mapping_sheet)
+    aliases = load_aliases(aliases_path) if aliases_path is not None else {}
+    connection = connect_existing_database(db_path)
     try:
-        with connection:
-            scoring_config_id = ensure_scoring_config(connection)
-            ensure_known_seasons(connection, scoring_config_id)
-            tournament_type_id = ensure_legacy_tournament_type(
-                connection,
-                tournament_type_code,
-            )
-            season_ids = ensure_seasons_for_rows(connection, rows, scoring_config_id)
-            tournament_ids = ensure_tournaments(
-                connection=connection,
-                rows=rows,
-                season_ids=season_ids,
-                tournament_type_id=tournament_type_id,
-            )
-            player_ids = ensure_players(connection, rows)
-            upsert_results(connection, rows, tournament_ids, player_ids)
+        validate_required_database_state(connection)
+        legacy_type_id = get_required_tournament_type_id(connection, LEGACY_TOURNAMENT_TYPE_CODE)
+        resolved_rows, unresolved_users, ambiguous_users = resolve_users(
+            connection,
+            source.result_rows,
+            source.mappings,
+            aliases,
+        )
+        tournament_items, season_distribution, season_errors = build_tournament_plan(
+            connection,
+            source,
+            resolved_rows,
+            legacy_type_id,
+            strict_expectations=strict_expectations,
+        )
+        result_items = build_result_plan(
+            connection,
+            resolved_rows,
+            tournament_items,
+            update_existing=update_existing,
+        )
+        duplicate_errors = validate_unique_result_rows(resolved_rows)
+        errors = [*season_errors, *duplicate_errors]
+        return ImportPlan(
+            source=source,
+            db_path=db_path,
+            aliases_path=aliases_path,
+            resolved_rows=resolved_rows,
+            unresolved_users=unresolved_users,
+            ambiguous_users=ambiguous_users,
+            tournament_items=tournament_items,
+            result_items=result_items,
+            season_distribution=season_distribution,
+            errors=errors,
+            update_existing=update_existing,
+        )
     finally:
         connection.close()
 
 
-def ensure_scoring_config(connection: sqlite3.Connection) -> int:
-    row = connection.execute("SELECT id FROM scoring_configs ORDER BY id LIMIT 1").fetchone()
-    if row:
-        return int(row[0])
-    cursor = connection.execute(
-        """
-        INSERT INTO scoring_configs (
-            place_1_coefficient,
-            place_2_coefficient,
-            place_3_coefficient,
-            place_4_coefficient,
-            place_5_coefficient,
-            knockout_small_points,
-            knockout_big_points,
-            created_at,
-            updated_at
-        )
-        VALUES (0.45, 0.25, 0.15, 0.10, 0.05, 15, 60, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
-        """
+def load_import_source(
+    source_path: Path,
+    results_sheet: str,
+    mapping_sheet: str,
+) -> ImportSource:
+    if not source_path.exists():
+        raise ImportValidationError(f"Source file not found: {source_path}")
+    if source_path.suffix.lower() not in {".xlsx", ".xlsm"}:
+        raise ImportValidationError("Historical result import expects an .xlsx/.xlsm source.")
+
+    workbook = XlsxWorkbook(source_path)
+    mappings = load_player_mappings(workbook, mapping_sheet)
+    result_rows: list[SourceRow] = []
+    blank_rows: list[BlankPlayerRow] = []
+    dated_rows_count = 0
+    for source_row, record in workbook.iter_records(results_sheet, EXPECTED_SOURCE_COLUMNS):
+        raw_date = record["Дата"]
+        if raw_date is None or clean_text(raw_date) == "":
+            continue
+        dated_rows_count += 1
+        tournament_date = parse_excel_date(raw_date)
+        raw_player_name = clean_text(record["Игрок"])
+        values = {
+            "source_row": source_row,
+            "tournament_date": tournament_date,
+            "place": optional_int(record["Место в турнире"]),
+            "knockouts_count": required_int(record["КО"]),
+            "big_knockouts_count": required_int(record["Босс КО"]),
+            "bonus_points": required_decimal(record["Доп.очки"]),
+            "tournament_points": required_decimal(record["Количество очков за турнир"]),
+            "knockout_points": required_decimal(record["Количество очков за КО"]),
+        }
+        if not raw_player_name:
+            blank_rows.append(BlankPlayerRow(**values))
+            continue
+        result_rows.append(SourceRow(raw_player_name=raw_player_name, **values))
+
+    return ImportSource(
+        path=source_path,
+        results_sheet=results_sheet,
+        mapping_sheet=mapping_sheet,
+        dated_rows_count=dated_rows_count,
+        result_rows=tuple(result_rows),
+        blank_player_rows=tuple(blank_rows),
+        mappings=mappings,
     )
-    return int(cursor.lastrowid)
 
 
-def ensure_known_seasons(
-    connection: sqlite3.Connection,
-    scoring_config_id: int,
-) -> None:
-    for name, starts_at, ends_at in KNOWN_SEASONS:
-        ensure_season(
-            connection=connection,
-            name=name,
-            scoring_config_id=scoring_config_id,
-            starts_at=starts_at,
-            ends_at=ends_at,
-        )
-
-
-def ensure_seasons_for_rows(
-    connection: sqlite3.Connection,
-    rows: list[HistoryRow],
-    scoring_config_id: int,
-) -> dict[date, int]:
-    season_ids: dict[date, int] = {}
-    for tournament_date in sorted({row.tournament_date for row in rows}):
-        season_id = find_season_id_for_date(connection, tournament_date)
-        if season_id is None:
-            season_id = ensure_calendar_season(
-                connection,
-                scoring_config_id,
-                tournament_date,
+def load_player_mappings(workbook: XlsxWorkbook, sheet_name: str) -> dict[str, str]:
+    mappings: dict[str, str] = {}
+    for source_row, record in workbook.iter_records(
+        sheet_name,
+        ("Игрок", "Очист_меппинг"),
+        allow_extra_columns=True,
+    ):
+        raw_name = clean_text(record["Игрок"])
+        if not raw_name:
+            continue
+        mapped_name = clean_text(record["Очист_меппинг"])
+        if not mapped_name:
+            raise ImportValidationError(f"Empty Очист_меппинг on {sheet_name} row {source_row}")
+        previous = mappings.get(raw_name)
+        if previous is not None and previous != mapped_name:
+            raise ImportValidationError(
+                f"Conflicting mappings for {raw_name!r}: {previous!r} vs {mapped_name!r}"
             )
-        season_ids[tournament_date] = season_id
-    return season_ids
+        mappings[raw_name] = mapped_name
+    return mappings
 
 
-def ensure_calendar_season(
+def load_aliases(path: Path) -> dict[str, int]:
+    if not path.exists():
+        return {}
+    with path.open(newline="", encoding="utf-8-sig") as file:
+        reader = csv.DictReader(file)
+        if reader.fieldnames is None or {"source_name", "user_id"} - set(reader.fieldnames):
+            raise ImportValidationError("Alias CSV must contain source_name,user_id columns.")
+        aliases: dict[str, int] = {}
+        for index, row in enumerate(reader, start=2):
+            source_name = clean_text(row.get("source_name"))
+            if not source_name:
+                raise ImportValidationError(f"Alias row {index} has empty source_name.")
+            try:
+                user_id = int(str(row.get("user_id", "")).strip())
+            except ValueError as error:
+                raise ImportValidationError(f"Alias row {index} has invalid user_id.") from error
+            previous = aliases.get(source_name)
+            if previous is not None and previous != user_id:
+                raise ImportValidationError(f"Conflicting aliases for {source_name!r}.")
+            aliases[source_name] = user_id
+    return aliases
+
+
+def resolve_users(
     connection: sqlite3.Connection,
-    scoring_config_id: int,
-    value: date,
-) -> int:
-    quarter = (value.month - 1) // 3 + 1
-    starts_at = date(value.year, 3 * (quarter - 1) + 1, 1)
-    if quarter == 4:
-        ends_at = date(value.year, 12, 31)
-    else:
-        ends_at = date(value.year, 3 * quarter + 1, 1).replace(day=1)
-        ends_at = date.fromordinal(ends_at.toordinal() - 1)
-    name = f"{SEASON_NAMES[quarter]} {value.year}"
-    return ensure_season(
-        connection=connection,
-        name=name,
-        scoring_config_id=scoring_config_id,
-        starts_at=starts_at,
-        ends_at=ends_at,
-    )
+    rows: tuple[SourceRow, ...],
+    mappings: dict[str, str],
+    aliases: dict[str, int],
+) -> tuple[list[ResolvedResultRow], list[UnresolvedUser], list[AmbiguousUser]]:
+    resolved: list[ResolvedResultRow] = []
+    unresolved: list[UnresolvedUser] = []
+    ambiguous: list[AmbiguousUser] = []
+    users_by_normalized = load_users_by_normalized(connection)
+    users_by_id = load_users_by_id(connection)
 
-
-def ensure_season(
-    connection: sqlite3.Connection,
-    name: str,
-    scoring_config_id: int,
-    starts_at: date,
-    ends_at: date,
-) -> int:
-    row = connection.execute("SELECT id FROM seasons WHERE name = ?", (name,)).fetchone()
-    if row:
-        connection.execute(
-            """
-            UPDATE seasons
-            SET starts_at = ?, ends_at = ?, scoring_config_id = ?
-            WHERE id = ?
-            """,
-            (starts_at.isoformat(), ends_at.isoformat(), scoring_config_id, row[0]),
-        )
-        return int(row[0])
-
-    cursor = connection.execute(
-        """
-        INSERT INTO seasons (name, scoring_config_id, starts_at, ends_at)
-        VALUES (?, ?, ?, ?)
-        """,
-        (name, scoring_config_id, starts_at.isoformat(), ends_at.isoformat()),
-    )
-    return int(cursor.lastrowid)
-
-
-def find_season_id_for_date(
-    connection: sqlite3.Connection,
-    value: date,
-) -> int | None:
-    row = connection.execute(
-        """
-        SELECT id FROM seasons
-        WHERE starts_at <= ? AND (ends_at IS NULL OR ends_at >= ?)
-        ORDER BY id
-        LIMIT 1
-        """,
-        (value.isoformat(), value.isoformat()),
-    ).fetchone()
-    return int(row[0]) if row else None
-
-
-def ensure_legacy_tournament_type(connection: sqlite3.Connection, code: str) -> int:
-    row = connection.execute(
-        "SELECT id FROM tournament_types WHERE code = ?",
-        (code,),
-    ).fetchone()
-    if row:
-        return int(row[0])
-
-    cursor = connection.execute(
-        """
-        INSERT INTO tournament_types (
-            code, name, description, status, created_at, updated_at
-        )
-        VALUES (
-            ?,
-            'Неопределенный турнир',
-            'Исторический турнир из старой таблицы результатов.',
-            'active',
-            CURRENT_TIMESTAMP,
-            CURRENT_TIMESTAMP
-        )
-        """,
-        (code,),
-    )
-    tournament_type_id = int(cursor.lastrowid)
-    connection.execute(
-        """
-        INSERT INTO tournament_type_rules (
-            tournament_type_id,
-            points_multiplier,
-            prize_place_multiplier,
-            prize_place_multiplier_places,
-            knockout_mode,
-            created_at,
-            updated_at
-        )
-        VALUES (?, 1.00, 1.00, NULL, 'none', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
-        """,
-        (tournament_type_id,),
-    )
-    return tournament_type_id
-
-
-def ensure_tournaments(
-    connection: sqlite3.Connection,
-    rows: list[HistoryRow],
-    season_ids: dict[date, int],
-    tournament_type_id: int,
-) -> dict[date, int]:
-    rows_by_date: dict[date, list[HistoryRow]] = defaultdict(list)
     for row in rows:
+        mapped_name = mappings.get(row.raw_player_name, row.raw_player_name)
+        alias_user_id = aliases.get(row.raw_player_name, aliases.get(mapped_name))
+        if alias_user_id is not None:
+            user = users_by_id.get(alias_user_id)
+            if user is None:
+                unresolved.append(
+                    UnresolvedUser(
+                        source_row=row.source_row,
+                        raw_player_name=row.raw_player_name,
+                        mapped_name=mapped_name,
+                        display_name_normalized=None,
+                        reason=f"alias_user_id_not_found:{alias_user_id}",
+                    )
+                )
+                continue
+            resolved.append(resolved_result(row, mapped_name, user))
+            continue
+
+        normalized = normalize_display_name(mapped_name)
+        if normalized is None:
+            unresolved.append(
+                UnresolvedUser(
+                    source_row=row.source_row,
+                    raw_player_name=row.raw_player_name,
+                    mapped_name=mapped_name,
+                    display_name_normalized=None,
+                    reason="empty_normalized_name",
+                )
+            )
+            continue
+        candidates = users_by_normalized.get(normalized, [])
+        if not candidates:
+            unresolved.append(
+                UnresolvedUser(
+                    source_row=row.source_row,
+                    raw_player_name=row.raw_player_name,
+                    mapped_name=mapped_name,
+                    display_name_normalized=normalized,
+                    reason="user_not_found",
+                )
+            )
+            continue
+        if len(candidates) > 1:
+            ambiguous.append(
+                AmbiguousUser(
+                    source_row=row.source_row,
+                    raw_player_name=row.raw_player_name,
+                    mapped_name=mapped_name,
+                    display_name_normalized=normalized,
+                    candidates=tuple(candidates),
+                )
+            )
+            continue
+        resolved.append(resolved_result(row, mapped_name, candidates[0]))
+
+    return resolved, unresolved, ambiguous
+
+
+def resolved_result(
+    row: SourceRow,
+    mapped_name: str,
+    user: UserCandidate,
+) -> ResolvedResultRow:
+    return ResolvedResultRow(
+        source_row=row.source_row,
+        tournament_date=row.tournament_date,
+        raw_player_name=row.raw_player_name,
+        mapped_name=mapped_name,
+        user_id=user.id,
+        display_name=user.display_name,
+        place=row.place,
+        knockouts_count=row.knockouts_count,
+        big_knockouts_count=row.big_knockouts_count,
+        bonus_points=row.bonus_points,
+        tournament_points=row.tournament_points,
+        knockout_points=row.knockout_points,
+    )
+
+
+def load_users_by_normalized(
+    connection: sqlite3.Connection,
+) -> dict[str, list[UserCandidate]]:
+    result: dict[str, list[UserCandidate]] = defaultdict(list)
+    for row in connection.execute(
+        """
+        SELECT id, display_name, display_name_normalized
+        FROM users
+        ORDER BY id
+        """
+    ):
+        normalized = normalized_user_name(row)
+        if normalized is None:
+            continue
+        result[normalized].append(
+            UserCandidate(
+                id=int(row["id"]),
+                display_name=clean_text(row["display_name"]),
+                display_name_normalized=normalized,
+            )
+        )
+    return result
+
+
+def load_users_by_id(connection: sqlite3.Connection) -> dict[int, UserCandidate]:
+    users: dict[int, UserCandidate] = {}
+    for row in connection.execute(
+        "SELECT id, display_name, display_name_normalized FROM users ORDER BY id"
+    ):
+        normalized = normalized_user_name(row)
+        if normalized is None:
+            continue
+        users[int(row["id"])] = UserCandidate(
+            id=int(row["id"]),
+            display_name=clean_text(row["display_name"]),
+            display_name_normalized=normalized,
+        )
+    return users
+
+
+def build_tournament_plan(
+    connection: sqlite3.Connection,
+    source: ImportSource,
+    resolved_rows: list[ResolvedResultRow],
+    legacy_type_id: int,
+    *,
+    strict_expectations: bool = True,
+) -> tuple[list[TournamentPlanItem], dict[str, int], list[str]]:
+    rows_by_date: dict[date, list[ResolvedResultRow]] = defaultdict(list)
+    for row in resolved_rows:
         rows_by_date[row.tournament_date].append(row)
 
-    tournament_ids: dict[date, int] = {}
-    for tournament_date, tournament_rows in rows_by_date.items():
+    season_distribution: dict[str, int] = Counter()
+    items: list[TournamentPlanItem] = []
+    errors: list[str] = []
+    for tournament_date in sorted(source_dates(source)):
+        season = find_season_for_date(connection, tournament_date)
+        if season is None:
+            errors.append(f"No existing season covers {tournament_date.isoformat()}.")
+            continue
+        season_distribution[season["name"]] += 1
         points_pool = sum(
-            (row.tournament_points for row in tournament_rows),
-            Decimal("0"),
+            (row.tournament_points for row in rows_by_date.get(tournament_date, [])),
+            ZERO,
         )
-        capacity = max(1, len(tournament_rows))
         existing = connection.execute(
-            "SELECT id FROM tournaments WHERE date = ? AND tournament_type_id = ?",
-            (tournament_date.isoformat(), tournament_type_id),
+            """
+            SELECT id, season_id, tournament_type_id, date, points_pool, status
+            FROM tournaments
+            WHERE date = ?
+            """,
+            (tournament_date.isoformat(),),
         ).fetchone()
-        if existing:
-            tournament_id = int(existing[0])
+        conflict = None
+        action = "create"
+        existing_id = None
+        if existing is not None:
+            existing_id = int(existing["id"])
+            expected = {
+                "season_id": int(season["id"]),
+                "tournament_type_id": legacy_type_id,
+                "points_pool": money(points_pool),
+                "status": "closed",
+            }
+            actual = {
+                "season_id": int(existing["season_id"]),
+                "tournament_type_id": int(existing["tournament_type_id"]),
+                "points_pool": money(decimal_from_db(existing["points_pool"])),
+                "status": str(existing["status"]),
+            }
+            if actual == expected:
+                action = "unchanged"
+            else:
+                action = "conflict"
+                conflict = json.dumps({"expected": expected, "actual": actual}, ensure_ascii=False)
+        items.append(
+            TournamentPlanItem(
+                tournament_date=tournament_date,
+                season_id=int(season["id"]),
+                season_name=str(season["name"]),
+                tournament_type_id=legacy_type_id,
+                points_pool=points_pool,
+                action=action,
+                existing_id=existing_id,
+                conflict=conflict,
+            )
+        )
+
+    expected = EXPECTED_TOURNAMENT_DISTRIBUTION
+    actual = {name: season_distribution.get(name, 0) for name in expected}
+    if strict_expectations and actual != expected:
+        errors.append(
+            f"Unexpected tournament distribution by season: expected {expected}, got {actual}."
+        )
+    return items, actual, errors
+
+
+def build_result_plan(
+    connection: sqlite3.Connection,
+    resolved_rows: list[ResolvedResultRow],
+    tournament_items: list[TournamentPlanItem],
+    *,
+    update_existing: bool,
+) -> list[ResultPlanItem]:
+    tournament_ids_by_date = {
+        item.tournament_date: item.existing_id
+        for item in tournament_items
+        if item.existing_id is not None
+    }
+    result_items: list[ResultPlanItem] = []
+    for row in resolved_rows:
+        existing_id = None
+        action = "create"
+        conflict = None
+        diff: dict[str, tuple[Any, Any]] = {}
+        tournament_id = tournament_ids_by_date.get(row.tournament_date)
+        if tournament_id is not None:
+            existing = connection.execute(
+                """
+                SELECT *
+                FROM tournament_results
+                WHERE tournament_id = ? AND player_id = ?
+                """,
+                (tournament_id, row.user_id),
+            ).fetchone()
+            if existing is not None:
+                existing_id = int(existing["id"])
+                diff = result_diff(existing, row)
+                if not diff:
+                    action = "unchanged"
+                elif update_existing:
+                    action = "update"
+                else:
+                    action = "conflict"
+                    conflict = json.dumps(diff, ensure_ascii=False, default=str)
+        result_items.append(
+            ResultPlanItem(
+                source_row=row.source_row,
+                tournament_date=row.tournament_date,
+                user_id=row.user_id,
+                display_name=row.display_name,
+                action=action,
+                existing_id=existing_id,
+                conflict=conflict,
+                diff=diff,
+            )
+        )
+    return result_items
+
+
+def result_diff(existing: sqlite3.Row, row: ResolvedResultRow) -> dict[str, tuple[Any, Any]]:
+    expected = {
+        "place": row.place,
+        "knockouts_count": row.knockouts_count,
+        "big_knockouts_count": row.big_knockouts_count,
+        "bonus_points": money(row.bonus_points),
+        "tournament_points": money(row.tournament_points),
+        "knockout_points": money(row.knockout_points),
+    }
+    actual = {
+        "place": existing["place"],
+        "knockouts_count": existing["knockouts_count"],
+        "big_knockouts_count": existing["big_knockouts_count"],
+        "bonus_points": money(decimal_from_db(existing["bonus_points"])),
+        "tournament_points": money(decimal_from_db(existing["tournament_points"])),
+        "knockout_points": money(decimal_from_db(existing["knockout_points"])),
+    }
+    return {key: (actual[key], expected[key]) for key in expected if actual[key] != expected[key]}
+
+
+def validate_unique_result_rows(rows: list[ResolvedResultRow]) -> list[str]:
+    seen: dict[tuple[date, int], int] = {}
+    errors: list[str] = []
+    for row in rows:
+        key = (row.tournament_date, row.user_id)
+        previous_row = seen.get(key)
+        if previous_row is not None:
+            errors.append(
+                "Duplicate result in import source after mapping: "
+                f"{row.tournament_date.isoformat()} user_id={row.user_id} "
+                f"rows {previous_row} and {row.source_row}."
+            )
+        else:
+            seen[key] = row.source_row
+    return errors
+
+
+def apply_import_plan(plan: ImportPlan) -> ApplyStats:
+    if not plan.safe_to_apply:
+        raise ImportValidationError("Plan is NOT SAFE TO APPLY.")
+    if not plan.db_path.is_file():
+        raise ImportValidationError(f"Database file does not exist: {plan.db_path}")
+
+    connection = connect_existing_database(plan.db_path)
+    try:
+        connection.execute("BEGIN")
+        tournament_ids = apply_tournaments(connection, plan.tournament_items)
+        stats = apply_results(
+            connection,
+            plan.resolved_rows,
+            plan.result_items,
+            tournament_ids,
+        )
+        connection.commit()
+        return ApplyStats(
+            tournaments_created=sum(1 for item in plan.tournament_items if item.action == "create"),
+            tournaments_unchanged=sum(
+                1 for item in plan.tournament_items if item.action == "unchanged"
+            ),
+            results_created=stats["created"],
+            results_updated=stats["updated"],
+            results_unchanged=stats["unchanged"],
+        )
+    except Exception:
+        connection.rollback()
+        raise
+    finally:
+        connection.close()
+
+
+def apply_tournaments(
+    connection: sqlite3.Connection,
+    items: list[TournamentPlanItem],
+) -> dict[date, int]:
+    tournament_ids: dict[date, int] = {}
+    for item in items:
+        if item.action == "unchanged":
+            assert item.existing_id is not None
+            tournament_ids[item.tournament_date] = item.existing_id
+            continue
+        if item.action != "create":
+            raise ImportValidationError(f"Cannot apply tournament action {item.action}.")
+        cursor = connection.execute(
+            """
+            INSERT INTO tournaments (
+                season_id,
+                tournament_type_id,
+                date,
+                points_pool,
+                status,
+                created_at,
+                updated_at
+            )
+            VALUES (?, ?, ?, ?, 'closed', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+            """,
+            (
+                item.season_id,
+                item.tournament_type_id,
+                item.tournament_date.isoformat(),
+                money(item.points_pool),
+            ),
+        )
+        tournament_ids[item.tournament_date] = int(cursor.lastrowid)
+    return tournament_ids
+
+
+def apply_results(
+    connection: sqlite3.Connection,
+    rows: list[ResolvedResultRow],
+    items: list[ResultPlanItem],
+    tournament_ids: dict[date, int],
+) -> dict[str, int]:
+    items_by_source_row = {item.source_row: item for item in items}
+    stats = {"created": 0, "updated": 0, "unchanged": 0}
+    for row in rows:
+        item = items_by_source_row[row.source_row]
+        tournament_id = tournament_ids[row.tournament_date]
+        if item.action == "unchanged":
+            stats["unchanged"] += 1
+            continue
+        if item.action == "create":
             connection.execute(
                 """
-                UPDATE tournaments
-                SET season_id = ?,
-                    capacity = ?,
-                    points_pool = ?,
-                    status = 'closed',
+                INSERT INTO tournament_results (
+                    tournament_id,
+                    player_id,
+                    place,
+                    knockouts_count,
+                    big_knockouts_count,
+                    tournament_points,
+                    knockout_points,
+                    bonus_points,
+                    created_at,
+                    updated_at
+                )
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+                """,
+                result_values(tournament_id, row),
+            )
+            stats["created"] += 1
+            continue
+        if item.action == "update":
+            connection.execute(
+                """
+                UPDATE tournament_results
+                SET place = ?,
+                    knockouts_count = ?,
+                    big_knockouts_count = ?,
+                    tournament_points = ?,
+                    knockout_points = ?,
+                    bonus_points = ?,
                     updated_at = CURRENT_TIMESTAMP
                 WHERE id = ?
                 """,
                 (
-                    season_ids[tournament_date],
-                    capacity,
-                    money(points_pool),
-                    tournament_id,
+                    row.place,
+                    row.knockouts_count,
+                    row.big_knockouts_count,
+                    money(row.tournament_points),
+                    money(row.knockout_points),
+                    money(row.bonus_points),
+                    item.existing_id,
                 ),
             )
-        else:
-            cursor = connection.execute(
-                """
-                INSERT INTO tournaments (
-                    season_id,
-                    tournament_type_id,
-                    date,
-                    capacity,
-                    points_pool,
-                    status,
-                    created_at,
-                    updated_at
-                )
-                VALUES (?, ?, ?, ?, ?, 'closed', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
-                """,
-                (
-                    season_ids[tournament_date],
-                    tournament_type_id,
-                    tournament_date.isoformat(),
-                    capacity,
-                    money(points_pool),
-                ),
-            )
-            tournament_id = int(cursor.lastrowid)
-        tournament_ids[tournament_date] = tournament_id
-    return tournament_ids
-
-
-def ensure_players(
-    connection: sqlite3.Connection,
-    rows: list[HistoryRow],
-) -> dict[str, int]:
-    player_ids: dict[str, int] = {}
-    for player_name in sorted({row.player_name for row in rows}):
-        display_name = display_name_for_player_name(player_name, rows)
-        display_name_normalized = normalize_display_name(display_name)
-        existing = find_existing_player(
-            connection,
-            display_name=display_name,
-            display_name_normalized=display_name_normalized,
-        )
-        if existing:
-            player_ids[player_name] = existing
+            stats["updated"] += 1
             continue
+        raise ImportValidationError(f"Cannot apply result action {item.action}.")
+    return stats
 
-        cursor = connection.execute(
-            """
-            INSERT INTO users (
-                display_name,
-                display_name_normalized,
-                status,
-                role,
-                created_at,
-                updated_at
-            )
-            VALUES (
-                ?,
-                ?,
-                'active',
-                'player',
-                CURRENT_TIMESTAMP,
-                CURRENT_TIMESTAMP
-            )
-            """,
-            (
-                display_name,
-                display_name_normalized,
+
+def result_values(tournament_id: int, row: ResolvedResultRow) -> tuple[Any, ...]:
+    return (
+        tournament_id,
+        row.user_id,
+        row.place,
+        row.knockouts_count,
+        row.big_knockouts_count,
+        money(row.tournament_points),
+        money(row.knockout_points),
+        money(row.bonus_points),
+    )
+
+
+def verify_post_import(db_path: Path, plan: ImportPlan) -> dict[str, Any]:
+    connection = connect_existing_database(db_path)
+    try:
+        source_date_count = len(source_dates(plan.source))
+        source_result_count = len(plan.resolved_rows)
+        checks: dict[str, Any] = {
+            "seasons": [
+                dict(row)
+                for row in connection.execute(
+                    "SELECT id, name, starts_at, ends_at FROM seasons ORDER BY starts_at"
+                )
+            ],
+            "tournament_count": scalar(connection, "SELECT COUNT(*) FROM tournaments"),
+            "source_date_count": source_date_count,
+            "closed_imported_tournaments": scalar(
+                connection,
+                """
+                SELECT COUNT(*)
+                FROM tournaments t
+                JOIN tournament_types tt ON tt.id = t.tournament_type_id
+                WHERE t.status = 'closed' AND tt.code = 'legacy_unknown'
+                """,
             ),
+            "duplicate_tournament_dates": scalar(
+                connection,
+                """
+                SELECT COUNT(*)
+                FROM (
+                    SELECT date
+                    FROM tournaments
+                    GROUP BY date
+                    HAVING COUNT(*) > 1
+                )
+                """,
+            ),
+            "duplicate_results": scalar(
+                connection,
+                """
+                SELECT COUNT(*)
+                FROM (
+                    SELECT tournament_id, player_id
+                    FROM tournament_results
+                    GROUP BY tournament_id, player_id
+                    HAVING COUNT(*) > 1
+                )
+                """,
+            ),
+            "orphan_results": scalar(
+                connection,
+                """
+                SELECT COUNT(*)
+                FROM tournament_results r
+                LEFT JOIN tournaments t ON t.id = r.tournament_id
+                LEFT JOIN users u ON u.id = r.player_id
+                WHERE t.id IS NULL OR u.id IS NULL
+                """,
+            ),
+            "negative_results": scalar(
+                connection,
+                """
+                SELECT COUNT(*)
+                FROM tournament_results
+                WHERE knockouts_count < 0
+                   OR big_knockouts_count < 0
+                   OR tournament_points < 0
+                   OR knockout_points < 0
+                   OR bonus_points < 0
+                """,
+            ),
+            "result_count_for_source_dates": result_count_for_plan_dates(connection, plan),
+            "source_result_count": source_result_count,
+            "plan_points": plan_points(plan.resolved_rows),
+            "db_points": db_points_for_plan_dates(connection, plan),
+            "season_distribution": tournament_distribution_for_plan_dates(connection, plan),
+            "top20_plan": top20_from_plan(plan.resolved_rows),
+            "top20_db": top20_from_db(connection),
+        }
+        checks["ok"] = (
+            len(checks["seasons"]) == 3
+            and checks["tournament_count"] >= source_date_count
+            and checks["closed_imported_tournaments"] >= source_date_count
+            and checks["duplicate_tournament_dates"] == 0
+            and checks["duplicate_results"] == 0
+            and checks["orphan_results"] == 0
+            and checks["negative_results"] == 0
+            and checks["result_count_for_source_dates"] == source_result_count
+            and checks["plan_points"] == checks["db_points"]
         )
-        player_ids[player_name] = int(cursor.lastrowid)
-    return player_ids
+        return checks
+    finally:
+        connection.close()
 
 
-def display_name_for_player_name(
-    player_name: str,
-    rows: list[HistoryRow],
-) -> str:
-    display_names = {row.player_name for row in rows if row.player_name == player_name}
-    if len(display_names) > 1:
-        raise ValueError(f"Conflicting display names for mapped player {player_name!r}")
-    return next(iter(display_names), player_name)
+def connect_existing_database(db_path: Path) -> sqlite3.Connection:
+    if not db_path.is_file():
+        raise ImportValidationError(f"Database file does not exist: {db_path}")
+    connection = sqlite3.connect(f"file:{db_path}?mode=rw", uri=True)
+    connection.row_factory = sqlite3.Row
+    connection.execute("PRAGMA foreign_keys = ON")
+    return connection
 
 
-def find_existing_player(
-    connection: sqlite3.Connection,
-    display_name: str,
-    display_name_normalized: str | None,
-) -> int | None:
-    filters = []
-    values: list[str] = []
-    for column, value in [
-        ("display_name", display_name),
-        ("display_name_normalized", display_name_normalized),
-    ]:
-        if value:
-            filters.append(f"{column} = ?")
-            values.append(value)
-    if not filters:
-        return None
+def validate_required_database_state(connection: sqlite3.Connection) -> None:
+    seasons = [
+        (row["name"], parse_date(row["starts_at"]), parse_date_or_none(row["ends_at"]))
+        for row in connection.execute("SELECT name, starts_at, ends_at FROM seasons ORDER BY id")
+    ]
+    for required in REQUIRED_SEASONS:
+        if required not in seasons:
+            raise ImportValidationError(
+                "Required season is missing or has different boundaries: "
+                f"{required[0]} {required[1]} {required[2]}."
+            )
+    get_required_tournament_type_id(connection, LEGACY_TOURNAMENT_TYPE_CODE)
 
+
+def get_required_tournament_type_id(connection: sqlite3.Connection, code: str) -> int:
     row = connection.execute(
-        f"""
-        SELECT id FROM users
-        WHERE {" OR ".join(filters)}
-        ORDER BY id
+        "SELECT id FROM tournament_types WHERE code = ?",
+        (code,),
+    ).fetchone()
+    if row is None:
+        raise ImportValidationError(f"Tournament type {code!r} does not exist.")
+    return int(row["id"])
+
+
+def find_season_for_date(connection: sqlite3.Connection, value: date) -> sqlite3.Row | None:
+    return connection.execute(
+        """
+        SELECT id, name, starts_at, ends_at
+        FROM seasons
+        WHERE starts_at <= ? AND (ends_at IS NULL OR ends_at >= ?)
+        ORDER BY starts_at DESC, id DESC
         LIMIT 1
         """,
-        values,
+        (value.isoformat(), value.isoformat()),
     ).fetchone()
-    return int(row[0]) if row else None
 
 
-def upsert_results(
-    connection: sqlite3.Connection,
-    rows: list[HistoryRow],
-    tournament_ids: dict[date, int],
-    player_ids: dict[str, int],
-) -> None:
-    for row in rows:
-        connection.execute(
-            """
-            INSERT INTO tournament_results (
-                tournament_id,
-                player_id,
-                place,
-                knockouts_count,
-                boss_knockouts_count,
-                tournament_points,
-                knockout_points,
-                bonus_points,
-                created_at,
-                updated_at
-            )
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
-            ON CONFLICT(tournament_id, player_id) DO UPDATE SET
-                place = excluded.place,
-                knockouts_count = excluded.knockouts_count,
-                boss_knockouts_count = excluded.boss_knockouts_count,
-                tournament_points = excluded.tournament_points,
-                knockout_points = excluded.knockout_points,
-                bonus_points = excluded.bonus_points,
-                updated_at = CURRENT_TIMESTAMP
-            """,
-            (
-                tournament_ids[row.tournament_date],
-                player_ids[row.player_name],
-                row.place,
-                row.knockouts_count,
-                row.boss_knockouts_count,
-                money(row.tournament_points),
-                money(row.knockout_points),
-                money(row.bonus_points),
-            ),
-        )
-
-
-def build_summary(rows: list[HistoryRow], skipped_rows: list[int]) -> dict[str, Any]:
-    season_counts: dict[str, int] = defaultdict(int)
-    for tournament_date in {row.tournament_date for row in rows}:
-        season_counts[season_name_for_date(tournament_date)] += 1
-
+def source_dates(source: ImportSource) -> set[date]:
     return {
-        "rows": len(rows),
-        "skipped_blank_player_rows": len(skipped_rows),
-        "first_skipped_blank_player_rows": skipped_rows[:20],
-        "raw_players": len({row.raw_player_name for row in rows}),
-        "players": len({row.player_name for row in rows}),
-        "dates": len({row.tournament_date for row in rows}),
-        "tournaments_by_season": dict(sorted(season_counts.items())),
-        "placed_rows": sum(1 for row in rows if row.place is not None),
-        "rows_with_points": sum(
-            1 for row in rows if row.tournament_points + row.knockout_points + row.bonus_points > 0
+        *(row.tournament_date for row in source.result_rows),
+        *(row.tournament_date for row in source.blank_player_rows),
+    }
+
+
+def print_report(plan: ImportPlan) -> None:
+    summary = report_summary(plan)
+    print_json("Historical rating import dry-run", summary)
+    if plan.unresolved_users:
+        print("\nFirst unresolved users:")
+        for item in plan.unresolved_users[:20]:
+            print(
+                f"row {item.source_row}: {item.raw_player_name!r} -> "
+                f"{item.mapped_name!r} ({item.reason})"
+            )
+    if plan.ambiguous_users:
+        print("\nFirst ambiguous users:")
+        for item in plan.ambiguous_users[:20]:
+            candidates = ", ".join(
+                f"{candidate.id}:{candidate.display_name}" for candidate in item.candidates
+            )
+            print(
+                f"row {item.source_row}: {item.raw_player_name!r} -> "
+                f"{item.mapped_name!r} candidates [{candidates}]"
+            )
+    if plan.source.blank_player_rows:
+        print("\nFirst blank-player rows:")
+        for item in plan.source.blank_player_rows[:20]:
+            print(
+                f"row {item.source_row}: {item.tournament_date.isoformat()} "
+                f"place={item.place} KO={item.knockouts_count} "
+                f"big={item.big_knockouts_count} tournament_points={money(item.tournament_points)} "
+                f"knockout_points={money(item.knockout_points)} bonus={money(item.bonus_points)}"
+            )
+    print(f"\nVerdict: {'SAFE TO APPLY' if plan.safe_to_apply else 'NOT SAFE TO APPLY'}")
+
+
+def report_summary(plan: ImportPlan) -> dict[str, Any]:
+    unique_dates = source_dates(plan.source)
+    tournament_actions = Counter(item.action for item in plan.tournament_items)
+    result_actions = Counter(item.action for item in plan.result_items)
+    return {
+        "source": str(plan.source.path),
+        "results_sheet": plan.source.results_sheet,
+        "mapping_sheet": plan.source.mapping_sheet,
+        "db_path": str(plan.db_path),
+        "date_min": min(unique_dates).isoformat() if unique_dates else None,
+        "date_max": max(unique_dates).isoformat() if unique_dates else None,
+        "unique_tournaments": len(unique_dates),
+        "dated_source_rows": plan.source.dated_rows_count,
+        "importable_result_rows": len(plan.source.result_rows),
+        "blank_player_rows": len(plan.source.blank_player_rows),
+        "resolved_result_rows": len(plan.resolved_rows),
+        "unresolved_rows": len(plan.unresolved_users),
+        "ambiguous_rows": len(plan.ambiguous_users),
+        "unique_users": len({row.user_id for row in plan.resolved_rows}),
+        "raw_players": len({row.raw_player_name for row in plan.source.result_rows}),
+        "mapped_players": len({row.mapped_name for row in plan.resolved_rows}),
+        "season_distribution": plan.season_distribution,
+        "tournaments": dict(tournament_actions),
+        "results": dict(result_actions),
+        "placed_results": sum(1 for row in plan.resolved_rows if row.place is not None),
+        "results_with_ko": sum(1 for row in plan.resolved_rows if row.knockouts_count > 0),
+        "results_with_big_ko": sum(1 for row in plan.resolved_rows if row.big_knockouts_count > 0),
+        "points": plan_points(plan.resolved_rows),
+        "errors": plan.errors[:20],
+        "verdict": "SAFE TO APPLY" if plan.safe_to_apply else "NOT SAFE TO APPLY",
+    }
+
+
+def print_apply_stats(stats: ApplyStats, db_path: Path) -> None:
+    print_json(
+        "Historical rating import apply",
+        {
+            "db_path": str(db_path),
+            **asdict(stats),
+        },
+    )
+
+
+def print_json(title: str, payload: dict[str, Any]) -> None:
+    print(title)
+    print(json.dumps(payload, ensure_ascii=False, indent=2, default=json_default))
+
+
+def export_report(directory: Path, plan: ImportPlan) -> None:
+    directory.mkdir(parents=True, exist_ok=True)
+    (directory / "summary.json").write_text(
+        json.dumps(report_summary(plan), ensure_ascii=False, indent=2, default=json_default),
+        encoding="utf-8",
+    )
+    write_csv_report(
+        directory / "unresolved_users.csv",
+        [
+            {
+                "source_row": item.source_row,
+                "raw_player_name": item.raw_player_name,
+                "mapped_name": item.mapped_name,
+                "display_name_normalized": item.display_name_normalized or "",
+                "reason": item.reason,
+            }
+            for item in plan.unresolved_users
+        ],
+    )
+    write_csv_report(
+        directory / "blank_player_rows.csv",
+        [
+            {
+                "source_row": item.source_row,
+                "date": item.tournament_date.isoformat(),
+                "place": item.place or "",
+                "knockouts_count": item.knockouts_count,
+                "big_knockouts_count": item.big_knockouts_count,
+                "tournament_points": money(item.tournament_points),
+                "knockout_points": money(item.knockout_points),
+                "bonus_points": money(item.bonus_points),
+                "reason": item.reason,
+            }
+            for item in plan.source.blank_player_rows
+        ],
+    )
+    write_csv_report(
+        directory / "tournament_conflicts.csv",
+        [
+            {
+                "date": item.tournament_date.isoformat(),
+                "existing_id": item.existing_id or "",
+                "conflict": item.conflict or "",
+            }
+            for item in plan.tournament_items
+            if item.action == "conflict"
+        ],
+    )
+    write_csv_report(
+        directory / "result_conflicts.csv",
+        [
+            {
+                "source_row": item.source_row,
+                "date": item.tournament_date.isoformat(),
+                "user_id": item.user_id,
+                "display_name": item.display_name,
+                "existing_id": item.existing_id or "",
+                "conflict": item.conflict or "",
+            }
+            for item in plan.result_items
+            if item.action == "conflict"
+        ],
+    )
+
+
+def write_csv_report(path: Path, rows: list[dict[str, Any]]) -> None:
+    fieldnames = sorted({key for row in rows for key in row}) if rows else ["empty"]
+    with path.open("w", newline="", encoding="utf-8") as file:
+        writer = csv.DictWriter(file, fieldnames=fieldnames)
+        writer.writeheader()
+        writer.writerows(rows)
+
+
+def write_runbook() -> str:
+    return """## Historical Results Import Runbook
+
+Local dry-run:
+
+```bash
+cd backend
+uv run python ../scripts/import_rating_history.py ../Таблица\\ рейтинга.xlsx \\
+  --db ../data/gambit.db \\
+  --export-report ../data/import-report
+```
+
+Production:
+
+```bash
+cd /opt/apps/gambit
+sudo systemctl stop gambit
+
+mkdir -p data/backups data/import
+
+cp data/gambit.db \\
+  data/backups/gambit-before-history-$(date +%Y%m%d-%H%M%S).db
+
+ls -lh data/backups/gambit-before-history-*.db
+shasum -a 256 data/backups/gambit-before-history-*.db | tail -n 1
+
+cd backend
+.venv/bin/alembic upgrade head
+cd ..
+
+backend/.venv/bin/python scripts/import_historical_users.py \\
+  --db data/gambit.db
+
+backend/.venv/bin/python scripts/import_rating_history.py \\
+  data/import/Таблица\\ рейтинга.xlsx \\
+  --db data/gambit.db \\
+  --export-report data/import/history-dry-run
+
+# Compare server dry-run with the local report before apply.
+# Do not apply if tournament/result/user counts or point sums differ.
+
+backend/.venv/bin/python scripts/import_rating_history.py \\
+  data/import/Таблица\\ рейтинга.xlsx \\
+  --db data/gambit.db \\
+  --apply
+
+sudo systemctl start gambit
+sudo systemctl status gambit
+curl --fail --silent http://127.0.0.1:8100/health
+```
+
+Rollback:
+
+```bash
+cd /opt/apps/gambit
+sudo systemctl stop gambit
+
+cp data/gambit.db \\
+  data/backups/gambit-failed-history-$(date +%Y%m%d-%H%M%S).db
+
+cp data/backups/gambit-before-history-YYYYMMDD-HHMMSS.db data/gambit.db
+
+sudo systemctl start gambit
+sudo systemctl status gambit
+curl --fail --silent http://127.0.0.1:8100/health
+journalctl -u gambit --no-pager --lines=100
+```
+
+After successful import, the Excel file can be removed from the server import
+directory. Keep the database backup.
+"""
+
+
+def plan_points(rows: list[ResolvedResultRow]) -> dict[str, str]:
+    return {
+        "tournament_points": money(sum((row.tournament_points for row in rows), ZERO)),
+        "knockout_points": money(sum((row.knockout_points for row in rows), ZERO)),
+        "bonus_points": money(sum((row.bonus_points for row in rows), ZERO)),
+        "total_points": money(
+            sum(
+                (row.tournament_points + row.knockout_points + row.bonus_points for row in rows),
+                ZERO,
+            )
         ),
     }
 
 
-def season_name_for_date(value: date) -> str:
-    for name, starts_at, ends_at in KNOWN_SEASONS:
-        if starts_at <= value <= ends_at:
-            return name
-    quarter = (value.month - 1) // 3 + 1
-    return f"{SEASON_NAMES[quarter]} {value.year}"
+def db_points_for_plan_dates(connection: sqlite3.Connection, plan: ImportPlan) -> dict[str, str]:
+    placeholders = ",".join("?" for _ in source_dates(plan.source))
+    row = connection.execute(
+        f"""
+        SELECT
+            COALESCE(SUM(r.tournament_points), 0) AS tournament_points,
+            COALESCE(SUM(r.knockout_points), 0) AS knockout_points,
+            COALESCE(SUM(r.bonus_points), 0) AS bonus_points
+        FROM tournament_results r
+        JOIN tournaments t ON t.id = r.tournament_id
+        WHERE t.date IN ({placeholders})
+        """,
+        [item.isoformat() for item in sorted(source_dates(plan.source))],
+    ).fetchone()
+    tournament_points = decimal_from_db(row["tournament_points"])
+    knockout_points = decimal_from_db(row["knockout_points"])
+    bonus_points = decimal_from_db(row["bonus_points"])
+    return {
+        "tournament_points": money(tournament_points),
+        "knockout_points": money(knockout_points),
+        "bonus_points": money(bonus_points),
+        "total_points": money(tournament_points + knockout_points + bonus_points),
+    }
 
 
-def print_summary(summary: dict[str, Any]) -> None:
-    print("Import summary")
-    for key, value in summary.items():
-        print(f"{key}: {value}")
+def result_count_for_plan_dates(connection: sqlite3.Connection, plan: ImportPlan) -> int:
+    placeholders = ",".join("?" for _ in source_dates(plan.source))
+    return int(
+        connection.execute(
+            f"""
+            SELECT COUNT(*)
+            FROM tournament_results r
+            JOIN tournaments t ON t.id = r.tournament_id
+            WHERE t.date IN ({placeholders})
+            """,
+            [item.isoformat() for item in sorted(source_dates(plan.source))],
+        ).fetchone()[0]
+    )
+
+
+def tournament_distribution_for_plan_dates(
+    connection: sqlite3.Connection,
+    plan: ImportPlan,
+) -> dict[str, int]:
+    placeholders = ",".join("?" for _ in source_dates(plan.source))
+    return {
+        str(row["name"]): int(row["count"])
+        for row in connection.execute(
+            f"""
+            SELECT s.name, COUNT(*) AS count
+            FROM tournaments t
+            JOIN seasons s ON s.id = t.season_id
+            WHERE t.date IN ({placeholders})
+            GROUP BY s.name
+            ORDER BY s.starts_at
+            """,
+            [item.isoformat() for item in sorted(source_dates(plan.source))],
+        )
+    }
+
+
+def top20_from_plan(rows: list[ResolvedResultRow]) -> list[dict[str, Any]]:
+    totals: dict[int, dict[str, Any]] = {}
+    for row in rows:
+        item = totals.setdefault(
+            row.user_id,
+            {"user_id": row.user_id, "display_name": row.display_name, "points": ZERO},
+        )
+        item["points"] += row.tournament_points + row.knockout_points + row.bonus_points
+    return [
+        {
+            "user_id": item["user_id"],
+            "display_name": item["display_name"],
+            "points": money(item["points"]),
+        }
+        for item in sorted(
+            totals.values(),
+            key=lambda item: (-item["points"], item["display_name"]),
+        )[:20]
+    ]
+
+
+def top20_from_db(connection: sqlite3.Connection) -> list[dict[str, Any]]:
+    return [
+        {
+            "user_id": int(row["user_id"]),
+            "display_name": str(row["display_name"]),
+            "points": money(decimal_from_db(row["points"])),
+        }
+        for row in connection.execute(
+            """
+            SELECT u.id AS user_id,
+                   u.display_name,
+                   SUM(r.tournament_points + r.knockout_points + r.bonus_points) AS points
+            FROM tournament_results r
+            JOIN users u ON u.id = r.player_id
+            GROUP BY u.id, u.display_name
+            ORDER BY points DESC, u.display_name
+            LIMIT 20
+            """
+        )
+    ]
+
+
+def scalar(connection: sqlite3.Connection, query: str) -> int:
+    return int(connection.execute(query).fetchone()[0])
 
 
 def clean_text(value: Any) -> str:
-    if value is None or is_nan(value):
+    if value is None:
+        return ""
+    if isinstance(value, float) and value != value:
         return ""
     text = str(value)
     text = "".join(char for char in text if unicodedata.category(char) not in {"Cf", "Cc"})
     return " ".join(text.split()).strip()
 
 
+def normalized_user_name(row: sqlite3.Row) -> str | None:
+    normalized = normalize_display_name(clean_text(row["display_name_normalized"]))
+    if normalized is not None:
+        return normalized
+    return normalize_display_name(clean_text(row["display_name"]))
+
+
 def optional_int(value: Any) -> int | None:
-    if value is None or is_nan(value):
+    if value is None or clean_text(value) == "":
         return None
-    return int(value)
+    return int(Decimal(str(value)))
 
 
 def required_int(value: Any) -> int:
-    if value is None or is_nan(value):
+    if value is None or clean_text(value) == "":
         return 0
-    return int(value)
+    return int(Decimal(str(value)))
 
 
 def required_decimal(value: Any) -> Decimal:
-    if value is None or is_nan(value):
-        return Decimal("0")
+    if value is None or clean_text(value) == "":
+        return ZERO
     try:
         return Decimal(str(value)).quantize(Decimal("0.01"))
     except InvalidOperation as error:
-        raise ValueError(f"Invalid decimal value: {value}") from error
+        raise ImportValidationError(f"Invalid decimal value: {value!r}") from error
 
 
-def is_nan(value: Any) -> bool:
-    return value != value
+def decimal_from_db(value: Any) -> Decimal:
+    if value is None:
+        return ZERO
+    return Decimal(str(value)).quantize(Decimal("0.01"))
 
 
 def money(value: Decimal) -> str:
     return str(value.quantize(Decimal("0.01")))
+
+
+def parse_excel_date(value: Any) -> date:
+    if isinstance(value, date) and not isinstance(value, datetime):
+        return value
+    if isinstance(value, datetime):
+        return value.date()
+    if isinstance(value, (int, float, Decimal)):
+        return date(1899, 12, 30) + timedelta(days=int(value))
+    text = clean_text(value)
+    if not text:
+        raise ImportValidationError("Empty tournament date.")
+    try:
+        return datetime.fromisoformat(text).date()
+    except ValueError:
+        try:
+            return datetime.strptime(text, "%d.%m.%Y").date()
+        except ValueError as error:
+            raise ImportValidationError(f"Invalid tournament date: {value!r}") from error
+
+
+def parse_date(value: str) -> date:
+    return date.fromisoformat(value)
+
+
+def parse_date_or_none(value: str | None) -> date | None:
+    return date.fromisoformat(value) if value else None
+
+
+def json_default(value: Any) -> Any:
+    if isinstance(value, Decimal):
+        return money(value)
+    if isinstance(value, date):
+        return value.isoformat()
+    if isinstance(value, Path):
+        return str(value)
+    if hasattr(value, "__dict__"):
+        return asdict(value)
+    return str(value)
+
+
+class XlsxWorkbook:
+    namespace = "{http://schemas.openxmlformats.org/spreadsheetml/2006/main}"
+    rel_namespace = "{http://schemas.openxmlformats.org/officeDocument/2006/relationships}"
+    package_rel_namespace = "{http://schemas.openxmlformats.org/package/2006/relationships}"
+
+    def __init__(self, path: Path) -> None:
+        self.path = path
+        self.archive = zipfile.ZipFile(path)
+        self.shared_strings = self._load_shared_strings()
+        self.sheet_paths = self._load_sheet_paths()
+
+    def iter_records(
+        self,
+        sheet_name: str,
+        required_columns: tuple[str, ...],
+        *,
+        allow_extra_columns: bool = False,
+    ) -> list[tuple[int, dict[str, Any]]]:
+        rows = list(self.iter_rows(sheet_name))
+        if not rows:
+            raise ImportValidationError(f"Sheet {sheet_name!r} is empty.")
+        header = [clean_text(value) for value in rows[0][1]]
+        missing = [column for column in required_columns if column not in header]
+        if missing:
+            raise ImportValidationError(
+                f"Sheet {sheet_name!r} is missing columns: {', '.join(missing)}"
+            )
+        if not allow_extra_columns and tuple(header[: len(required_columns)]) != required_columns:
+            raise ImportValidationError(
+                f"Sheet {sheet_name!r} must start with columns: {required_columns}"
+            )
+        indexes = {column: header.index(column) for column in required_columns}
+        records: list[tuple[int, dict[str, Any]]] = []
+        for source_row, values in rows[1:]:
+            if not any(value is not None and clean_text(value) != "" for value in values):
+                continue
+            records.append(
+                (
+                    source_row,
+                    {
+                        column: values[index] if index < len(values) else None
+                        for column, index in indexes.items()
+                    },
+                )
+            )
+        return records
+
+    def iter_rows(self, sheet_name: str) -> list[tuple[int, list[Any]]]:
+        path = self.sheet_paths.get(sheet_name)
+        if path is None:
+            raise ImportValidationError(f"Sheet not found: {sheet_name!r}")
+        root = ElementTree.fromstring(self.archive.read(path))
+        rows: list[tuple[int, list[Any]]] = []
+        for row_element in root.findall(f".//{self.namespace}sheetData/{self.namespace}row"):
+            row_index = int(row_element.attrib["r"])
+            values: dict[int, Any] = {}
+            for cell in row_element.findall(f"{self.namespace}c"):
+                reference = cell.attrib.get("r", "")
+                column_index = column_index_from_reference(reference)
+                values[column_index] = self._cell_value(cell)
+            max_column = max(values, default=-1)
+            rows.append((row_index, [values.get(index) for index in range(max_column + 1)]))
+        return rows
+
+    def _cell_value(self, cell: ElementTree.Element) -> Any:
+        cell_type = cell.attrib.get("t")
+        if cell_type == "inlineStr":
+            text_element = cell.find(f"{self.namespace}is/{self.namespace}t")
+            return text_element.text if text_element is not None else ""
+        value_element = cell.find(f"{self.namespace}v")
+        if value_element is None:
+            return None
+        raw_value = value_element.text or ""
+        if cell_type == "s":
+            return self.shared_strings[int(raw_value)]
+        if cell_type == "str":
+            return raw_value
+        try:
+            number = Decimal(raw_value)
+        except InvalidOperation:
+            return raw_value
+        if number == number.to_integral():
+            return int(number)
+        return number
+
+    def _load_shared_strings(self) -> list[str]:
+        if "xl/sharedStrings.xml" not in self.archive.namelist():
+            return []
+        root = ElementTree.fromstring(self.archive.read("xl/sharedStrings.xml"))
+        strings: list[str] = []
+        for item in root.findall(f"{self.namespace}si"):
+            parts = [text.text or "" for text in item.findall(f".//{self.namespace}t")]
+            strings.append("".join(parts))
+        return strings
+
+    def _load_sheet_paths(self) -> dict[str, str]:
+        workbook_root = ElementTree.fromstring(self.archive.read("xl/workbook.xml"))
+        rel_root = ElementTree.fromstring(self.archive.read("xl/_rels/workbook.xml.rels"))
+        relationships = {
+            rel.attrib["Id"]: rel.attrib["Target"]
+            for rel in rel_root.findall(f"{self.package_rel_namespace}Relationship")
+        }
+        sheets: dict[str, str] = {}
+        for sheet in workbook_root.findall(f".//{self.namespace}sheet"):
+            name = sheet.attrib["name"]
+            relationship_id = sheet.attrib[f"{self.rel_namespace}id"]
+            target = relationships[relationship_id]
+            sheets[name] = "xl/" + target.lstrip("/")
+        return sheets
+
+
+def column_index_from_reference(reference: str) -> int:
+    letters = "".join(char for char in reference if char.isalpha())
+    index = 0
+    for char in letters:
+        index = index * 26 + (ord(char.upper()) - ord("A") + 1)
+    return index - 1
 
 
 if __name__ == "__main__":
