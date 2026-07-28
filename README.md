@@ -98,6 +98,8 @@ uv run python ../scripts/import_historical_users.py --input ../path/to/custom.cs
 
 The user importer is a dry-run by default. It writes to the database only with
 `--apply`. Optional reports are written with `--export-report`.
+The rating importer follows the same rule: no database writes happen without
+`--apply`.
 
 Expected CSV columns:
 

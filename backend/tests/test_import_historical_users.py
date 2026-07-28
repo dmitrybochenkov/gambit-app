@@ -1,6 +1,7 @@
 import csv
 import importlib.util
 import sqlite3
+import subprocess
 import sys
 from pathlib import Path
 
@@ -12,6 +13,7 @@ from app.db.base import Base
 SCRIPT_PATH = Path(__file__).resolve().parents[2] / "scripts" / "import_historical_users.py"
 FIXTURES_DIR = Path(__file__).resolve().parent / "fixtures"
 HISTORICAL_USERS_CSV = FIXTURES_DIR / "historical_users_with_admins.csv"
+PROJECT_ROOT = SCRIPT_PATH.parents[1]
 spec = importlib.util.spec_from_file_location("import_historical_users", SCRIPT_PATH)
 assert spec is not None
 import_historical_users = importlib.util.module_from_spec(spec)
@@ -24,6 +26,13 @@ def create_database(path: Path) -> None:
     engine = create_engine(f"sqlite:///{path}")
     Base.metadata.create_all(engine)
     engine.dispose()
+    connection = sqlite3.connect(path)
+    try:
+        connection.execute("CREATE TABLE alembic_version (version_num VARCHAR(32) NOT NULL)")
+        connection.execute("INSERT INTO alembic_version (version_num) VALUES ('test-head')")
+        connection.commit()
+    finally:
+        connection.close()
 
 
 def write_csv(path: Path, rows: list[dict[str, str]]) -> None:
@@ -58,6 +67,19 @@ def count_users(path: Path) -> int:
 
 def build_plan(db_path: Path, csv_path: Path) -> import_historical_users.ImportPlan:
     return import_historical_users.build_import_plan(source=csv_path, db_path=db_path)
+
+
+def run_user_import_cli(
+    *args: str,
+    cwd: Path | None = None,
+) -> subprocess.CompletedProcess[str]:
+    return subprocess.run(
+        [sys.executable, str(SCRIPT_PATH), *args],
+        cwd=cwd or PROJECT_ROOT,
+        check=False,
+        capture_output=True,
+        text=True,
+    )
 
 
 def test_import_historical_users_success(tmp_path: Path) -> None:
@@ -122,6 +144,128 @@ def test_import_historical_users_dry_run_does_not_change_database(tmp_path: Path
     assert plan.verdict == "SAFE TO APPLY"
     assert len(plan.creates) == 1
     assert count_users(db_path) == 0
+
+
+def test_import_historical_users_cli_default_is_dry_run(tmp_path: Path) -> None:
+    db_path = tmp_path / "gambit.db"
+    csv_path = tmp_path / "users.csv"
+    create_database(db_path)
+    write_csv(
+        csv_path,
+        [
+            {
+                "id": "1",
+                "display_name": "Дима Боченков",
+                "role": "SUPERADMIN",
+                "status": "ACTIVE",
+                "telegram_id": "754076859",
+            }
+        ],
+    )
+
+    result = run_user_import_cli("--input", str(csv_path), "--db", str(db_path), cwd=PROJECT_ROOT)
+
+    assert result.returncode == 0
+    assert "create: 1" in result.stdout
+    assert "verdict: SAFE TO APPLY" in result.stdout
+    assert count_users(db_path) == 0
+
+
+def test_import_historical_users_cli_apply_changes_database(tmp_path: Path) -> None:
+    db_path = tmp_path / "gambit.db"
+    csv_path = tmp_path / "users.csv"
+    create_database(db_path)
+    write_csv(
+        csv_path,
+        [
+            {
+                "id": "1",
+                "display_name": "Дима Боченков",
+                "role": "SUPERADMIN",
+                "status": "ACTIVE",
+                "telegram_id": "754076859",
+            }
+        ],
+    )
+
+    result = run_user_import_cli(
+        "--input",
+        str(csv_path),
+        "--db",
+        str(db_path),
+        "--apply",
+        cwd=PROJECT_ROOT,
+    )
+
+    assert result.returncode == 0
+    assert "Users created: 1" in result.stdout
+    assert count_users(db_path) == 1
+
+
+def test_import_historical_users_cli_export_report_accepts_absolute_paths(
+    tmp_path: Path,
+) -> None:
+    db_path = tmp_path / "gambit.db"
+    csv_path = tmp_path / "users.csv"
+    report_dir = tmp_path / "report"
+    create_database(db_path)
+    write_csv(
+        csv_path,
+        [
+            {
+                "id": "1",
+                "display_name": "Дима Боченков",
+                "role": "SUPERADMIN",
+                "status": "ACTIVE",
+                "telegram_id": "",
+            }
+        ],
+    )
+
+    result = run_user_import_cli(
+        "--input",
+        str(csv_path.resolve()),
+        "--db",
+        str(db_path.resolve()),
+        "--export-report",
+        str(report_dir.resolve()),
+        cwd=tmp_path,
+    )
+
+    assert result.returncode == 0
+    assert {path.name for path in report_dir.iterdir()} == {
+        "summary.json",
+        "creates.csv",
+        "unchanged.csv",
+        "conflicts.csv",
+        "invalid.csv",
+    }
+    assert count_users(db_path) == 0
+
+
+def test_import_historical_users_cli_missing_db_does_not_create_file(
+    tmp_path: Path,
+) -> None:
+    csv_path = tmp_path / "users.csv"
+    missing_db = tmp_path / "missing.db"
+    write_csv(
+        csv_path,
+        [
+            {
+                "id": "1",
+                "display_name": "Дима Боченков",
+                "role": "SUPERADMIN",
+                "status": "ACTIVE",
+                "telegram_id": "",
+            }
+        ],
+    )
+
+    result = run_user_import_cli("--input", str(csv_path), "--db", str(missing_db), cwd=tmp_path)
+
+    assert result.returncode != 0
+    assert "does not exist" in result.stderr
+    assert not missing_db.exists()
 
 
 def test_import_historical_users_reports_create_and_unchanged(tmp_path: Path) -> None:
@@ -211,6 +355,29 @@ def test_import_historical_users_rejects_missing_users_table(tmp_path: Path) -> 
     )
 
     with pytest.raises(import_historical_users.ImportValidationError, match="users"):
+        build_plan(db_path, csv_path)
+
+
+def test_import_historical_users_rejects_missing_alembic_version(tmp_path: Path) -> None:
+    db_path = tmp_path / "gambit.db"
+    csv_path = tmp_path / "users.csv"
+    engine = create_engine(f"sqlite:///{db_path}")
+    Base.metadata.create_all(engine)
+    engine.dispose()
+    write_csv(
+        csv_path,
+        [
+            {
+                "id": "1",
+                "display_name": "Дима Боченков",
+                "role": "SUPERADMIN",
+                "status": "ACTIVE",
+                "telegram_id": "",
+            }
+        ],
+    )
+
+    with pytest.raises(import_historical_users.ImportValidationError, match="alembic_version"):
         build_plan(db_path, csv_path)
 
 

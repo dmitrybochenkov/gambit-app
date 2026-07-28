@@ -251,7 +251,7 @@ def build_import_plan(source: Path, db_path: Path) -> ImportPlan:
     connection = connect_existing_database(resolved_db_path)
     try:
         ensure_users_table(connection)
-        alembic_revision = get_alembic_revision(connection)
+        alembic_revision = get_required_alembic_revision(connection)
         existing_by_id = load_existing_users_by_id(connection)
         existing_by_telegram_id = load_existing_users_by_telegram_id(connection)
         creates: list[ImportAction] = []
@@ -313,7 +313,7 @@ def ensure_users_table(connection: sqlite3.Connection) -> None:
         raise ImportValidationError("Database does not contain required table: users.")
 
 
-def get_alembic_revision(connection: sqlite3.Connection) -> str | None:
+def get_required_alembic_revision(connection: sqlite3.Connection) -> str:
     version_table = connection.execute(
         """
         SELECT 1 FROM sqlite_master
@@ -321,9 +321,11 @@ def get_alembic_revision(connection: sqlite3.Connection) -> str | None:
         """
     ).fetchone()
     if version_table is None:
-        return None
+        raise ImportValidationError("Database does not contain required table: alembic_version.")
     row = connection.execute("SELECT version_num FROM alembic_version").fetchone()
-    return str(row["version_num"]) if row is not None else None
+    if row is None:
+        raise ImportValidationError("Database alembic_version is empty.")
+    return str(row["version_num"])
 
 
 def load_existing_users_by_id(connection: sqlite3.Connection) -> dict[int, ExistingUser]:
@@ -395,7 +397,7 @@ def build_import_plan_from_rows(
     connection = connect_existing_database(resolved_db_path)
     try:
         ensure_users_table(connection)
-        alembic_revision = get_alembic_revision(connection)
+        alembic_revision = get_required_alembic_revision(connection)
         existing_by_id = load_existing_users_by_id(connection)
         existing_by_telegram_id = load_existing_users_by_telegram_id(connection)
         creates: list[ImportAction] = []
@@ -587,6 +589,13 @@ def write_invalid_csv(path: Path, invalid_rows: tuple[InvalidCsvRow, ...]) -> No
 def print_plan(plan: ImportPlan) -> None:
     print(f"Database: {plan.db_path}")
     print(f"Alembic revision: {plan.alembic_revision or 'unknown'}")
+    print("Summary:")
+    print(f"  total: {plan.rows_read}")
+    print(f"  create: {len(plan.creates)}")
+    print(f"  unchanged: {len(plan.unchanged)}")
+    print(f"  conflicts: {len(plan.conflicts)}")
+    print(f"  invalid: {len(plan.invalid)}")
+    print(f"  verdict: {plan.verdict}")
     print(f"Rows read: {plan.rows_read}")
     print(f"Users to create: {len(plan.creates)}")
     print(f"Users unchanged: {len(plan.unchanged)}")

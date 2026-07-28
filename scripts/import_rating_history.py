@@ -1078,6 +1078,37 @@ def export_report(directory: Path, plan: ImportPlan) -> None:
         encoding="utf-8",
     )
     write_csv_report(
+        directory / "tournaments.csv",
+        [
+            {
+                "date": item.tournament_date.isoformat(),
+                "season_id": item.season_id,
+                "season_name": item.season_name,
+                "tournament_type_id": item.tournament_type_id,
+                "points_pool": money(item.points_pool),
+                "action": item.action,
+                "existing_id": item.existing_id or "",
+                "conflict": item.conflict or "",
+            }
+            for item in plan.tournament_items
+        ],
+    )
+    write_csv_report(
+        directory / "results.csv",
+        [
+            {
+                "source_row": item.source_row,
+                "date": item.tournament_date.isoformat(),
+                "user_id": item.user_id,
+                "display_name": item.display_name,
+                "action": item.action,
+                "existing_id": item.existing_id or "",
+                "conflict": item.conflict or "",
+            }
+            for item in plan.result_items
+        ],
+    )
+    write_csv_report(
         directory / "unresolved_users.csv",
         [
             {
@@ -1088,6 +1119,22 @@ def export_report(directory: Path, plan: ImportPlan) -> None:
                 "reason": item.reason,
             }
             for item in plan.unresolved_users
+        ],
+    )
+    write_csv_report(
+        directory / "ambiguous_users.csv",
+        [
+            {
+                "source_row": item.source_row,
+                "raw_player_name": item.raw_player_name,
+                "mapped_name": item.mapped_name,
+                "display_name_normalized": item.display_name_normalized or "",
+                "candidate_ids": ",".join(str(candidate.id) for candidate in item.candidates),
+                "candidate_names": " | ".join(
+                    candidate.display_name for candidate in item.candidates
+                ),
+            }
+            for item in plan.ambiguous_users
         ],
     )
     write_csv_report(
@@ -1142,79 +1189,6 @@ def write_csv_report(path: Path, rows: list[dict[str, Any]]) -> None:
         writer = csv.DictWriter(file, fieldnames=fieldnames)
         writer.writeheader()
         writer.writerows(rows)
-
-
-def write_runbook() -> str:
-    return """## Historical Results Import Runbook
-
-Local dry-run:
-
-```bash
-cd backend
-uv run python ../scripts/import_rating_history.py ../Таблица\\ рейтинга.xlsx \\
-  --db ../data/gambit.db \\
-  --export-report ../data/import-report
-```
-
-Production:
-
-```bash
-cd /opt/apps/gambit
-sudo systemctl stop gambit
-
-mkdir -p data/backups data/import
-
-cp data/gambit.db \\
-  data/backups/gambit-before-history-$(date +%Y%m%d-%H%M%S).db
-
-ls -lh data/backups/gambit-before-history-*.db
-shasum -a 256 data/backups/gambit-before-history-*.db | tail -n 1
-
-cd backend
-.venv/bin/alembic upgrade head
-cd ..
-
-backend/.venv/bin/python scripts/import_historical_users.py \\
-  --db data/gambit.db
-
-backend/.venv/bin/python scripts/import_rating_history.py \\
-  data/import/Таблица\\ рейтинга.xlsx \\
-  --db data/gambit.db \\
-  --export-report data/import/history-dry-run
-
-# Compare server dry-run with the local report before apply.
-# Do not apply if tournament/result/user counts or point sums differ.
-
-backend/.venv/bin/python scripts/import_rating_history.py \\
-  data/import/Таблица\\ рейтинга.xlsx \\
-  --db data/gambit.db \\
-  --apply
-
-sudo systemctl start gambit
-sudo systemctl status gambit
-curl --fail --silent http://127.0.0.1:8100/health
-```
-
-Rollback:
-
-```bash
-cd /opt/apps/gambit
-sudo systemctl stop gambit
-
-cp data/gambit.db \\
-  data/backups/gambit-failed-history-$(date +%Y%m%d-%H%M%S).db
-
-cp data/backups/gambit-before-history-YYYYMMDD-HHMMSS.db data/gambit.db
-
-sudo systemctl start gambit
-sudo systemctl status gambit
-curl --fail --silent http://127.0.0.1:8100/health
-journalctl -u gambit --no-pager --lines=100
-```
-
-After successful import, the Excel file can be removed from the server import
-directory. Keep the database backup.
-"""
 
 
 def plan_points(rows: list[ResolvedResultRow]) -> dict[str, str]:

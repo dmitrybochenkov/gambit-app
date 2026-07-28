@@ -1,8 +1,10 @@
 import csv
 import importlib.util
 import sqlite3
+import subprocess
 import sys
 import zipfile
+from datetime import date, timedelta
 from pathlib import Path
 
 import pytest
@@ -11,6 +13,7 @@ from sqlalchemy import create_engine
 from app.db.base import Base
 
 SCRIPT_PATH = Path(__file__).resolve().parents[2] / "scripts" / "import_rating_history.py"
+PROJECT_ROOT = SCRIPT_PATH.parents[1]
 spec = importlib.util.spec_from_file_location("import_rating_history", SCRIPT_PATH)
 assert spec is not None
 import_rating_history = importlib.util.module_from_spec(spec)
@@ -170,6 +173,33 @@ def escape(value: str) -> str:
     return value.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
 
 
+def run_rating_import_cli(
+    *args: str,
+    cwd: Path | None = None,
+) -> subprocess.CompletedProcess[str]:
+    return subprocess.run(
+        [sys.executable, str(SCRIPT_PATH), *args],
+        cwd=cwd or PROJECT_ROOT,
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+
+
+def strict_distribution_rows() -> list[list[object]]:
+    season_two_start = date(2026, 1, 28)
+    summer_start = date(2026, 6, 1)
+    rows = [
+        [(season_two_start + timedelta(days=index)).isoformat(), "Raw", 1, 0, 0, 0, 1, 0]
+        for index in range(91)
+    ]
+    rows.extend(
+        [(summer_start + timedelta(days=index)).isoformat(), "Raw", 1, 0, 0, 0, 1, 0]
+        for index in range(39)
+    )
+    return rows
+
+
 def build_plan(
     tmp_path: Path,
     result_rows: list[list[object]],
@@ -218,6 +248,83 @@ def test_reads_all_eight_result_columns_and_big_knockouts(tmp_path: Path) -> Non
     assert row.bonus_points == import_rating_history.Decimal("4.00")
     assert row.tournament_points == import_rating_history.Decimal("100.00")
     assert row.knockout_points == import_rating_history.Decimal("30.00")
+
+
+def test_import_rating_history_cli_default_is_dry_run(tmp_path: Path) -> None:
+    db_path = tmp_path / "gambit.db"
+    source_path = tmp_path / "history.xlsx"
+    create_database(db_path)
+    insert_user(db_path, 1, "Mapped")
+    write_workbook(source_path, strict_distribution_rows(), [["Raw", "", "Mapped", "", ""]])
+
+    result = run_rating_import_cli(str(source_path), "--db", str(db_path), cwd=PROJECT_ROOT)
+
+    assert result.returncode == 0
+    assert "Verdict: SAFE TO APPLY" in result.stdout
+    connection = sqlite3.connect(db_path)
+    try:
+        assert connection.execute("SELECT COUNT(*) FROM tournaments").fetchone()[0] == 0
+    finally:
+        connection.close()
+
+
+def test_import_rating_history_cli_export_report_and_absolute_paths(
+    tmp_path: Path,
+) -> None:
+    db_path = tmp_path / "gambit.db"
+    source_path = tmp_path / "history.xlsx"
+    report_dir = tmp_path / "report"
+    create_database(db_path)
+    insert_user(db_path, 1, "Mapped")
+    write_workbook(source_path, strict_distribution_rows(), [["Raw", "", "Mapped", "", ""]])
+
+    result = run_rating_import_cli(
+        str(source_path.resolve()),
+        "--db",
+        str(db_path.resolve()),
+        "--export-report",
+        str(report_dir.resolve()),
+        cwd=tmp_path,
+    )
+
+    assert result.returncode == 0
+    assert (report_dir / "summary.json").exists()
+    assert (report_dir / "blank_player_rows.csv").exists()
+    assert (report_dir / "unresolved_users.csv").exists()
+
+
+def test_import_rating_history_cli_apply_and_second_apply_are_idempotent(
+    tmp_path: Path,
+) -> None:
+    db_path = tmp_path / "gambit.db"
+    source_path = tmp_path / "history.xlsx"
+    create_database(db_path)
+    insert_user(db_path, 1, "Mapped")
+    write_workbook(source_path, strict_distribution_rows(), [["Raw", "", "Mapped", "", ""]])
+
+    first = run_rating_import_cli(str(source_path), "--db", str(db_path), "--apply")
+    second = run_rating_import_cli(str(source_path), "--db", str(db_path), "--apply")
+
+    assert first.returncode == 0
+    assert '"tournaments_created": 130' in first.stdout
+    assert '"results_created": 130' in first.stdout
+    assert second.returncode == 0
+    assert '"tournaments_created": 0' in second.stdout
+    assert '"results_created": 0' in second.stdout
+    assert '"tournaments_unchanged": 130' in second.stdout
+    assert '"results_unchanged": 130' in second.stdout
+
+
+def test_import_rating_history_cli_missing_db_does_not_create_file(tmp_path: Path) -> None:
+    source_path = tmp_path / "history.xlsx"
+    missing_db = tmp_path / "missing.db"
+    write_workbook(source_path, strict_distribution_rows(), [["Raw", "", "Mapped", "", ""]])
+
+    result = run_rating_import_cli(str(source_path), "--db", str(missing_db), cwd=tmp_path)
+
+    assert result.returncode != 0
+    assert "database file does not exist" in result.stderr.lower()
+    assert not missing_db.exists()
 
 
 def test_unicode_cleanup_and_mapping_sheet_resolution(tmp_path: Path) -> None:
