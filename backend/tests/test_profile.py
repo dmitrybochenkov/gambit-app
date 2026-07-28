@@ -13,7 +13,7 @@ from app.db.models import (
     Tournament,
     TournamentResult,
 )
-from app.db.models.enums import SeasonStatus, TournamentStatus, UserRole, UserStatus
+from app.db.models.enums import TournamentStatus, UserRole, UserStatus
 from app.services.dto import PlayerProfileView
 from app.services.profile_service import ProfileKind, ProfileService
 
@@ -67,14 +67,12 @@ async def test_profile_filters_current_season_and_all_time(tmp_path: Path) -> No
             scoring_config_id=config.id,
             starts_at=date(2026, 7, 1),
             ends_at=None,
-            status=SeasonStatus.ACTIVE,
         )
         previous_season = Season(
             name="Previous season",
             scoring_config_id=config.id,
             starts_at=date(2026, 1, 1),
             ends_at=date(2026, 6, 30),
-            status=SeasonStatus.CLOSED,
         )
         player = build_player(
             telegram_id=100,
@@ -217,6 +215,132 @@ async def test_active_superadmin_can_open_profile_after_new_session(tmp_path: Pa
         assert title == "Твой профиль — за всё время"
         assert stats is not None
         assert stats.display_name == "Дима Боченков"
+        assert stats.tournaments_count == 0
+    finally:
+        await engine.dispose()
+
+
+async def test_profile_current_season_switches_on_transition_date(tmp_path: Path) -> None:
+    engine = create_async_engine(f"sqlite+aiosqlite:///{tmp_path / 'profile_transition.db'}")
+    async with engine.begin() as connection:
+        await connection.run_sync(Base.metadata.create_all)
+
+    session_factory = async_sessionmaker(engine, expire_on_commit=False)
+    async with session_factory() as session:
+        config = ScoringConfig()
+        session.add(config)
+        await session.flush()
+        await seed_tournament_types_async(session)
+        old_season = Season(
+            name="Old season",
+            scoring_config_id=config.id,
+            starts_at=date(2026, 7, 1),
+            ends_at=date(2026, 8, 9),
+        )
+        future_season = Season(
+            name="Future season",
+            scoring_config_id=config.id,
+            starts_at=date(2026, 8, 10),
+            ends_at=None,
+        )
+        player = build_player(
+            telegram_id=100,
+            display_name="Игрок Первый",
+            status=UserStatus.ACTIVE,
+        )
+        session.add_all([old_season, future_season, player])
+        await session.flush()
+        old_tournament = Tournament(
+            season_id=old_season.id,
+            tournament_type_id=tournament_type_id("classic"),
+            date=date(2026, 8, 9),
+            status=TournamentStatus.ACTIVE,
+        )
+        future_tournament = Tournament(
+            season_id=future_season.id,
+            tournament_type_id=tournament_type_id("bounty"),
+            date=date(2026, 8, 10),
+            status=TournamentStatus.ACTIVE,
+        )
+        session.add_all([old_tournament, future_tournament])
+        await session.flush()
+        session.add_all(
+            [
+                TournamentResult(
+                    tournament_id=old_tournament.id,
+                    player_id=player.id,
+                    place=1,
+                    knockouts_count=1,
+                    big_knockouts_count=0,
+                    tournament_points=Decimal("100"),
+                    knockout_points=Decimal("0"),
+                    bonus_points=Decimal("0"),
+                ),
+                TournamentResult(
+                    tournament_id=future_tournament.id,
+                    player_id=player.id,
+                    place=1,
+                    knockouts_count=2,
+                    big_knockouts_count=0,
+                    tournament_points=Decimal("200"),
+                    knockout_points=Decimal("0"),
+                    bonus_points=Decimal("0"),
+                ),
+            ]
+        )
+        await session.commit()
+
+    service = ProfileService(session_factory)
+    try:
+        _title, before_transition = await service.get_profile_for_player(
+            telegram_id=100,
+            kind=ProfileKind.CURRENT_SEASON,
+            today=date(2026, 8, 9),
+        )
+        _title, on_transition = await service.get_profile_for_player(
+            telegram_id=100,
+            kind=ProfileKind.CURRENT_SEASON,
+            today=date(2026, 8, 10),
+        )
+
+        assert before_transition is not None
+        assert on_transition is not None
+        assert before_transition.total_points == Decimal("100")
+        assert on_transition.total_points == Decimal("200")
+    finally:
+        await engine.dispose()
+
+
+async def test_profile_current_season_returns_empty_profile_without_current_season(
+    tmp_path: Path,
+) -> None:
+    engine = create_async_engine(f"sqlite+aiosqlite:///{tmp_path / 'profile_no_season.db'}")
+    async with engine.begin() as connection:
+        await connection.run_sync(Base.metadata.create_all)
+
+    session_factory = async_sessionmaker(engine, expire_on_commit=False)
+    async with session_factory() as session:
+        session.add(
+            build_player(
+                telegram_id=100,
+                display_name="Игрок Первый",
+                status=UserStatus.ACTIVE,
+            )
+        )
+        await session.commit()
+
+    service = ProfileService(session_factory)
+    try:
+        title, stats = await service.get_profile_for_player(
+            telegram_id=100,
+            kind=ProfileKind.CURRENT_SEASON,
+            today=date(2026, 8, 9),
+        )
+
+        assert title == "Твой профиль — текущий сезон"
+        assert stats is not None
+        assert stats.display_name == "Игрок Первый"
+        assert stats.total_points == Decimal("0")
         assert stats.tournaments_count == 0
     finally:
         await engine.dispose()

@@ -283,14 +283,24 @@ def format_admin_tournament_registration_player_list(
 
 
 def format_season_proposal(proposal: SeasonProposalView) -> str:
-    return "\n".join(
-        [
-            texts.admin.SEASON_PROPOSAL_PREVIEW_TITLE,
-            "",
-            f"{texts.admin.SEASON_NAME_LABEL}: {proposal.name}",
-            f"{texts.admin.SEASON_START_LABEL}: {format_date(proposal.starts_at)}",
-        ]
-    )
+    lines = [
+        texts.admin.SEASON_PROPOSAL_PREVIEW_TITLE,
+        "",
+        f"{texts.admin.SEASON_NAME_LABEL}: {proposal.name}",
+        f"{texts.admin.SEASON_START_LABEL}: {format_date(proposal.starts_at)}",
+    ]
+    if proposal.active_season_ends_at is not None:
+        lines.extend(
+            [
+                "",
+                f"{texts.admin.SEASON_CURRENT_END_LABEL}: "
+                f"{format_numeric_date(proposal.active_season_ends_at)}",
+                f"{texts.admin.SEASON_NEW_START_LABEL}: {format_numeric_date(proposal.starts_at)}",
+                "",
+                texts.admin.SEASON_PROPOSAL_PREVIEW_FOOTER,
+            ]
+        )
+    return "\n".join(lines)
 
 
 def format_created_season(season: SeasonView) -> str:

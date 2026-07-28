@@ -24,8 +24,8 @@ DEFAULT_MAPPING_SHEET_NAME = "Лист12"
 DEFAULT_TOURNAMENT_TYPE_CODE = "legacy_unknown"
 
 KNOWN_SEASONS = [
-    ("Сезон 1", date(2025, 10, 16), date(2026, 1, 25), "closed"),
-    ("Сезон 2", date(2026, 1, 27), date(2026, 5, 31), "closed"),
+    ("Сезон 1", date(2025, 10, 16), date(2026, 1, 25)),
+    ("Сезон 2", date(2026, 1, 27), date(2026, 5, 31)),
 ]
 
 SEASON_NAMES = {
@@ -182,9 +182,7 @@ def load_excel(
                 knockouts_count=required_int(record.get("КО")),
                 boss_knockouts_count=required_int(record.get("Босс КО")),
                 bonus_points=required_decimal(record.get("Доп.очки")),
-                tournament_points=required_decimal(
-                    record.get("Количество очков за турнир")
-                ),
+                tournament_points=required_decimal(record.get("Количество очков за турнир")),
                 knockout_points=required_decimal(record.get("Количество очков за КО")),
             )
         )
@@ -248,9 +246,7 @@ def validate_unique_results(rows: list[HistoryRow]) -> None:
         else:
             seen[key] = row.source_row
     if duplicates:
-        raise SystemExit(
-            "Duplicate results after player mapping: " + "; ".join(duplicates[:20])
-        )
+        raise SystemExit("Duplicate results after player mapping: " + "; ".join(duplicates[:20]))
 
 
 def load_csv(source: Path) -> tuple[list[HistoryRow], list[int]]:
@@ -262,8 +258,7 @@ def load_csv(source: Path) -> tuple[list[HistoryRow], list[int]]:
                 HistoryRow(
                     source_row=int(record["source_row"]),
                     tournament_date=date.fromisoformat(record["date"]),
-                    raw_player_name=record.get("raw_player_name")
-                    or record["player_name"],
+                    raw_player_name=record.get("raw_player_name") or record["player_name"],
                     player_name=record["player_name"],
                     place=int(record["place"]) if record["place"] else None,
                     knockouts_count=int(record["knockouts_count"]),
@@ -368,14 +363,13 @@ def ensure_known_seasons(
     connection: sqlite3.Connection,
     scoring_config_id: int,
 ) -> None:
-    for name, starts_at, ends_at, status in KNOWN_SEASONS:
+    for name, starts_at, ends_at in KNOWN_SEASONS:
         ensure_season(
             connection=connection,
             name=name,
             scoring_config_id=scoring_config_id,
             starts_at=starts_at,
             ends_at=ends_at,
-            status=status,
         )
 
 
@@ -410,14 +404,12 @@ def ensure_calendar_season(
         ends_at = date(value.year, 3 * quarter + 1, 1).replace(day=1)
         ends_at = date.fromordinal(ends_at.toordinal() - 1)
     name = f"{SEASON_NAMES[quarter]} {value.year}"
-    status = "active" if starts_at <= date.today() <= ends_at else "closed"
     return ensure_season(
         connection=connection,
         name=name,
         scoring_config_id=scoring_config_id,
         starts_at=starts_at,
         ends_at=ends_at,
-        status=status,
     )
 
 
@@ -427,26 +419,25 @@ def ensure_season(
     scoring_config_id: int,
     starts_at: date,
     ends_at: date,
-    status: str,
 ) -> int:
     row = connection.execute("SELECT id FROM seasons WHERE name = ?", (name,)).fetchone()
     if row:
         connection.execute(
             """
             UPDATE seasons
-            SET starts_at = ?, ends_at = ?, scoring_config_id = ?, status = ?
+            SET starts_at = ?, ends_at = ?, scoring_config_id = ?
             WHERE id = ?
             """,
-            (starts_at.isoformat(), ends_at.isoformat(), scoring_config_id, status, row[0]),
+            (starts_at.isoformat(), ends_at.isoformat(), scoring_config_id, row[0]),
         )
         return int(row[0])
 
     cursor = connection.execute(
         """
-        INSERT INTO seasons (name, scoring_config_id, starts_at, ends_at, status)
-        VALUES (?, ?, ?, ?, ?)
+        INSERT INTO seasons (name, scoring_config_id, starts_at, ends_at)
+        VALUES (?, ?, ?, ?)
         """,
-        (name, scoring_config_id, starts_at.isoformat(), ends_at.isoformat(), status),
+        (name, scoring_config_id, starts_at.isoformat(), ends_at.isoformat()),
     )
     return int(cursor.lastrowid)
 
@@ -458,7 +449,7 @@ def find_season_id_for_date(
     row = connection.execute(
         """
         SELECT id FROM seasons
-        WHERE starts_at <= ? AND ends_at >= ?
+        WHERE starts_at <= ? AND (ends_at IS NULL OR ends_at >= ?)
         ORDER BY id
         LIMIT 1
         """,
@@ -721,15 +712,13 @@ def build_summary(rows: list[HistoryRow], skipped_rows: list[int]) -> dict[str, 
         "tournaments_by_season": dict(sorted(season_counts.items())),
         "placed_rows": sum(1 for row in rows if row.place is not None),
         "rows_with_points": sum(
-            1
-            for row in rows
-            if row.tournament_points + row.knockout_points + row.bonus_points > 0
+            1 for row in rows if row.tournament_points + row.knockout_points + row.bonus_points > 0
         ),
     }
 
 
 def season_name_for_date(value: date) -> str:
-    for name, starts_at, ends_at, _status in KNOWN_SEASONS:
+    for name, starts_at, ends_at in KNOWN_SEASONS:
         if starts_at <= value <= ends_at:
             return name
     quarter = (value.month - 1) // 3 + 1
@@ -746,9 +735,7 @@ def clean_text(value: Any) -> str:
     if value is None or is_nan(value):
         return ""
     text = str(value)
-    text = "".join(
-        char for char in text if unicodedata.category(char) not in {"Cf", "Cc"}
-    )
+    text = "".join(char for char in text if unicodedata.category(char) not in {"Cf", "Cc"})
     return " ".join(text.split()).strip()
 
 

@@ -15,7 +15,6 @@ from app.db.models import (
 )
 from app.db.models.enums import (
     RegistrationStatus,
-    SeasonStatus,
     TournamentStatus,
     UserRole,
     UserStatus,
@@ -39,7 +38,6 @@ async def test_upcoming_schedule_uses_active_tournaments(tmp_path: Path) -> None
             scoring_config_id=config.id,
             starts_at=date(2026, 7, 1),
             ends_at=None,
-            status=SeasonStatus.ACTIVE,
         )
         session.add(season)
         await session.flush()
@@ -110,7 +108,6 @@ async def test_active_player_can_register_for_multiple_tournaments(tmp_path: Pat
             scoring_config_id=config.id,
             starts_at=date(2026, 7, 1),
             ends_at=None,
-            status=SeasonStatus.ACTIVE,
         )
         player = build_player(
             telegram_id=100,
@@ -237,7 +234,6 @@ async def test_active_superadmin_can_use_player_tournament_flows_after_new_sessi
             scoring_config_id=config.id,
             starts_at=date(2026, 7, 1),
             ends_at=None,
-            status=SeasonStatus.ACTIVE,
         )
         player = build_player(
             telegram_id=100,
@@ -320,7 +316,6 @@ async def test_admin_can_register_player_for_tournament(tmp_path: Path) -> None:
             scoring_config_id=config.id,
             starts_at=date(2026, 7, 1),
             ends_at=None,
-            status=SeasonStatus.ACTIVE,
         )
         admin = build_player(
             telegram_id=100,

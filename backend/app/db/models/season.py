@@ -1,10 +1,9 @@
 from datetime import date
 
-from sqlalchemy import CheckConstraint, Date, ForeignKey, Index, Integer, String
+from sqlalchemy import CheckConstraint, Date, ForeignKey, Index, Integer, String, literal_column
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.db.base import Base
-from app.db.models.enums import SeasonStatus, SeasonStatusType
 
 
 class Season(Base):
@@ -18,29 +17,16 @@ class Season(Base):
     )
     starts_at: Mapped[date] = mapped_column(Date, nullable=False)
     ends_at: Mapped[date | None] = mapped_column(Date, nullable=True)
-    status: Mapped[SeasonStatus] = mapped_column(
-        SeasonStatusType(),
-        default=SeasonStatus.ACTIVE,
-        nullable=False,
-        index=True,
-    )
 
     __table_args__ = (
         CheckConstraint(
-            """
-            (status = 'active' AND ends_at IS NULL)
-            OR (
-                status = 'closed'
-                AND ends_at IS NOT NULL
-                AND starts_at <= ends_at
-            )
-            """,
-            name="status_dates_consistent",
+            "ends_at IS NULL OR ends_at >= starts_at",
+            name="date_range",
         ),
         Index(
-            "uq_seasons_active",
-            "status",
+            "uq_seasons_open_ended",
+            literal_column("1"),
             unique=True,
-            sqlite_where=status == SeasonStatus.ACTIVE,
+            sqlite_where=ends_at.is_(None),
         ),
     )

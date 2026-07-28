@@ -1,3 +1,4 @@
+from datetime import date
 from enum import StrEnum
 
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
@@ -5,6 +6,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from app.db.repositories.rating_repository import (
     RatingRepository,
 )
+from app.db.repositories.season_repository import SeasonRepository
 from app.db.repositories.user_repository import UserRepository
 from app.db.session import SessionFactory
 from app.services.dto import KnockoutsRatingView, PointsRatingView, RatingResultView
@@ -30,13 +32,20 @@ class RatingService:
         self,
         telegram_id: int,
         kind: RatingKind,
+        today: date | None = None,
     ) -> RatingResultView:
+        business_date = today or date.today()
         async with self.session_factory() as session:
             try:
                 player = await require_active_user(UserRepository(session), telegram_id)
             except ActiveUserRequiredError as exc:
                 raise RatingNotAllowedError from exc
-            title, rows = await self._get_rating(RatingRepository(session), kind)
+            title, rows = await self._get_rating(
+                rating_repository=RatingRepository(session),
+                season_repository=SeasonRepository(session),
+                kind=kind,
+                today=business_date,
+            )
             return RatingResultView(
                 title=title,
                 rows=rows,
@@ -45,15 +54,22 @@ class RatingService:
 
     @staticmethod
     async def _get_rating(
-        repository: RatingRepository,
+        rating_repository: RatingRepository,
+        season_repository: SeasonRepository,
         kind: RatingKind,
+        today: date,
     ) -> tuple[str, list[PointsRatingView] | list[KnockoutsRatingView]]:
         if kind == RatingKind.CURRENT_SEASON:
+            season = await season_repository.get_for_date(today)
+            if season is None:
+                return "Рейтинг — текущий сезон", []
             return (
                 "Рейтинг — текущий сезон",
                 [
                     PointsRatingView(**row.__dict__)
-                    for row in await repository.get_points_rating(current_season=True)
+                    for row in await rating_repository.get_points_rating(
+                        season_id=season.id if season else None,
+                    )
                 ],
             )
         if kind == RatingKind.ALL_TIME:
@@ -61,22 +77,27 @@ class RatingService:
                 "Рейтинг — за всё время",
                 [
                     PointsRatingView(**row.__dict__)
-                    for row in await repository.get_points_rating(current_season=False)
+                    for row in await rating_repository.get_points_rating()
                 ],
             )
         if kind == RatingKind.KNOCKOUTS_CURRENT_SEASON:
+            season = await season_repository.get_for_date(today)
+            if season is None:
+                return "Рейтинг по нокаутам — текущий сезон", []
             return (
                 "Рейтинг по нокаутам — текущий сезон",
                 [
                     KnockoutsRatingView(**row.__dict__)
-                    for row in await repository.get_knockouts_rating(current_season=True)
+                    for row in await rating_repository.get_knockouts_rating(
+                        season_id=season.id if season else None,
+                    )
                 ],
             )
         return (
             "Рейтинг по нокаутам — за всё время",
             [
                 KnockoutsRatingView(**row.__dict__)
-                for row in await repository.get_knockouts_rating(current_season=False)
+                for row in await rating_repository.get_knockouts_rating()
             ],
         )
 

@@ -4,8 +4,7 @@ from decimal import Decimal
 from sqlalchemy import case, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.db.models import Season, Tournament, TournamentResult, User
-from app.db.models.enums import SeasonStatus
+from app.db.models import Tournament, TournamentResult, User
 
 
 @dataclass(frozen=True)
@@ -34,7 +33,7 @@ class ProfileRepository:
     async def get_player_stats(
         self,
         telegram_id: int,
-        current_season: bool,
+        season_id: int | None = None,
     ) -> PlayerProfileStats | None:
         total_points = func.coalesce(
             func.sum(
@@ -71,11 +70,8 @@ class ProfileRepository:
             .where(User.telegram_id == telegram_id)
             .group_by(User.id, User.display_name)
         )
-        if current_season:
-            statement = statement.join(
-                Season,
-                Season.id == Tournament.season_id,
-            ).where(Season.status == SeasonStatus.ACTIVE)
+        if season_id is not None:
+            statement = statement.where(Tournament.season_id == season_id)
 
         row = (await self.session.execute(statement)).one_or_none()
         if row is None:

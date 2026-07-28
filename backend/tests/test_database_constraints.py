@@ -10,7 +10,7 @@ from sqlalchemy.orm import Session
 from app.db.base import Base
 from app.db.factories import create_user
 from app.db.models import ScoringConfig, Season, Tournament, TournamentResult, User
-from app.db.models.enums import SeasonStatus, TournamentStatus, UserStatus
+from app.db.models.enums import TournamentStatus, UserStatus
 
 
 @pytest.fixture
@@ -42,7 +42,6 @@ def test_closed_tournament_requires_points_pool(session: Session) -> None:
         scoring_config_id=scoring_config.id,
         starts_at=date(2026, 1, 1),
         ends_at=None,
-        status=SeasonStatus.ACTIVE,
     )
     session.add(season)
     session.commit()
@@ -72,7 +71,6 @@ def test_tournament_date_must_be_unique(session: Session) -> None:
         scoring_config_id=scoring_config.id,
         starts_at=date(2026, 1, 1),
         ends_at=None,
-        status=SeasonStatus.ACTIVE,
     )
     session.add(season)
     session.flush()
@@ -112,7 +110,7 @@ def test_scoring_coefficients_must_total_one(session: Session) -> None:
         session.commit()
 
 
-def test_active_season_requires_empty_end_date(session: Session) -> None:
+def test_season_may_have_valid_end_date(session: Session) -> None:
     scoring_config = ScoringConfig()
     session.add(scoring_config)
     session.flush()
@@ -123,15 +121,13 @@ def test_active_season_requires_empty_end_date(session: Session) -> None:
             scoring_config_id=scoring_config.id,
             starts_at=date(2026, 1, 1),
             ends_at=date(2026, 12, 31),
-            status=SeasonStatus.ACTIVE,
         )
     )
 
-    with pytest.raises(IntegrityError):
-        session.commit()
+    session.commit()
 
 
-def test_closed_season_requires_end_date(session: Session) -> None:
+def test_season_may_be_open_ended(session: Session) -> None:
     scoring_config = ScoringConfig()
     session.add(scoring_config)
     session.flush()
@@ -142,12 +138,10 @@ def test_closed_season_requires_end_date(session: Session) -> None:
             scoring_config_id=scoring_config.id,
             starts_at=date(2026, 1, 1),
             ends_at=None,
-            status=SeasonStatus.CLOSED,
         )
     )
 
-    with pytest.raises(IntegrityError):
-        session.commit()
+    session.commit()
 
 
 def test_closed_season_end_date_must_not_precede_start_date(session: Session) -> None:
@@ -161,7 +155,6 @@ def test_closed_season_end_date_must_not_precede_start_date(session: Session) ->
             scoring_config_id=scoring_config.id,
             starts_at=date(2026, 1, 2),
             ends_at=date(2026, 1, 1),
-            status=SeasonStatus.CLOSED,
         )
     )
 
@@ -169,7 +162,9 @@ def test_closed_season_end_date_must_not_precede_start_date(session: Session) ->
         session.commit()
 
 
-def test_database_rejects_multiple_active_seasons(session: Session) -> None:
+def test_database_rejects_multiple_open_ended_seasons(
+    session: Session,
+) -> None:
     scoring_config = ScoringConfig()
     session.add(scoring_config)
     session.flush()
@@ -181,14 +176,12 @@ def test_database_rejects_multiple_active_seasons(session: Session) -> None:
                 scoring_config_id=scoring_config.id,
                 starts_at=date(2026, 1, 1),
                 ends_at=None,
-                status=SeasonStatus.ACTIVE,
             ),
             Season(
                 name="Season 2",
                 scoring_config_id=scoring_config.id,
                 starts_at=date(2026, 6, 1),
                 ends_at=None,
-                status=SeasonStatus.ACTIVE,
             ),
         ]
     )
@@ -215,7 +208,6 @@ def test_tournament_result_bonus_points_must_be_nonnegative(
         scoring_config_id=scoring_config.id,
         starts_at=date(2026, 1, 1),
         ends_at=None,
-        status=SeasonStatus.ACTIVE,
     )
     session.add(season)
     session.flush()

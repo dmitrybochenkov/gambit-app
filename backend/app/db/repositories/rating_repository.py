@@ -4,8 +4,7 @@ from decimal import Decimal
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.db.models import Season, Tournament, TournamentResult, User
-from app.db.models.enums import SeasonStatus
+from app.db.models import Tournament, TournamentResult, User
 
 
 @dataclass(frozen=True)
@@ -36,7 +35,7 @@ class RatingRepository:
 
     async def get_points_rating(
         self,
-        current_season: bool,
+        season_id: int | None = None,
     ) -> list[PointsRatingRow]:
         total_points = func.sum(
             TournamentResult.tournament_points
@@ -55,11 +54,8 @@ class RatingRepository:
             .group_by(User.id, User.display_name)
             .having(total_points > 0)
         )
-        if current_season:
-            statement = statement.join(
-                Season,
-                Season.id == Tournament.season_id,
-            ).where(Season.status == SeasonStatus.ACTIVE)
+        if season_id is not None:
+            statement = statement.where(Tournament.season_id == season_id)
 
         result = await self.session.execute(statement.order_by(total_points.desc(), User.id))
         return [
@@ -74,7 +70,7 @@ class RatingRepository:
 
     async def get_knockouts_rating(
         self,
-        current_season: bool,
+        season_id: int | None = None,
     ) -> list[KnockoutsRatingRow]:
         knockouts = func.sum(TournamentResult.knockouts_count)
         big_knockouts = func.sum(TournamentResult.big_knockouts_count)
@@ -94,11 +90,8 @@ class RatingRepository:
             .group_by(User.id, User.display_name)
             .having(total_knockouts > 0)
         )
-        if current_season:
-            statement = statement.join(
-                Season,
-                Season.id == Tournament.season_id,
-            ).where(Season.status == SeasonStatus.ACTIVE)
+        if season_id is not None:
+            statement = statement.where(Tournament.season_id == season_id)
 
         result = await self.session.execute(
             statement.order_by(

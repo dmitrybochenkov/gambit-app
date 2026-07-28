@@ -15,6 +15,7 @@ from app.bot.telegram.formatters import (
     format_admin_result_close_confirmation,
     format_admin_result_menu,
     format_admin_result_players,
+    format_season_proposal,
 )
 from app.bot.telegram.handlers import admin as admin_handlers
 from app.bot.telegram.handlers import user as user_handlers
@@ -33,8 +34,8 @@ from app.services.dto import (
     RegistrationReviewResultView,
     RegistrationReviewView,
     ScoringConfigView,
+    SeasonLifecycleStateView,
     SeasonProposalView,
-    SeasonStatusView,
     SeasonView,
     TournamentPromptDayEditView,
     TournamentPromptItemView,
@@ -86,7 +87,7 @@ def season_view(season_id: int = 1) -> SeasonView:
         name="Осень 2026",
         starts_at=date(2026, 9, 1),
         ends_at=None,
-        status=SeasonStatusView.ACTIVE,
+        lifecycle_state=SeasonLifecycleStateView.CURRENT,
         scoring_config_id=1,
     )
 
@@ -839,8 +840,7 @@ async def test_historical_admin_can_open_schedule_after_start(
     tournament_service.get_schedule_for_player.assert_awaited_once_with(123)
     assert start_message.answer.await_args.args[0] == "Админ 1, добро пожаловать!"
     assert schedule_message.answer.await_args.args[0] == (
-        "Расписание турниров\n\n"
-        "• Среда, 8 июля — Баунти турнир"
+        "Расписание турниров\n\n• Среда, 8 июля — Баунти турнир"
     )
 
 
@@ -1812,14 +1812,29 @@ async def test_admin_calendar_seasons_callback_shows_generated_proposal(
     state.clear.assert_awaited_once()
     message.delete.assert_awaited_once_with()
     answer = message.answer.await_args
-    assert answer.args[0] == (
-        "🏆 Новый сезон\n\n"
-        "Название: Лето 2026\n"
-        "Дата начала: 28 июля 2026"
-    )
+    assert answer.args[0] == ("🏆 Новый сезон\n\nНазвание: Лето 2026\nДата начала: 28 июля 2026")
     assert [
         button.text for row in answer.kwargs["reply_markup"].inline_keyboard for button in row
     ] == ["✅ Создать", "✏️ Изменить", "❌ Отмена"]
+
+
+def test_season_proposal_preview_shows_active_season_transition_from_dto() -> None:
+    proposal = SeasonProposalView(
+        id=9,
+        name="Осень 2026",
+        starts_at=date(2026, 8, 10),
+        scoring_config_id=1,
+        active_season_ends_at=date(2026, 8, 9),
+    )
+
+    assert format_season_proposal(proposal) == (
+        "🏆 Новый сезон\n\n"
+        "Название: Осень 2026\n"
+        "Дата начала: 10 августа 2026\n\n"
+        "Текущий сезон завершится: 9.08.2026\n"
+        "Новый сезон начнётся: 10.08.2026\n\n"
+        "Текущий активный сезон завершится за день до начала нового."
+    )
 
 
 async def test_admin_calendar_seasons_callback_handles_missing_scoring_configs(
@@ -1935,9 +1950,7 @@ async def test_admin_calendar_prompt_denies_regular_admin(
 async def test_admin_calendar_prompt_reports_existing_tournament_date(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    user_service = SimpleNamespace(
-        require_superadmin=AsyncMock(return_value=admin_player(1, 100))
-    )
+    user_service = SimpleNamespace(require_superadmin=AsyncMock(return_value=admin_player(1, 100)))
     calendar_service = SimpleNamespace(
         resolve_prompt=AsyncMock(side_effect=CalendarTournamentDateAlreadyExistsError)
     )
@@ -1995,11 +2008,7 @@ async def test_enter_season_proposal_name_returns_preview(
     )
     state.clear.assert_awaited_once()
     answer = message.answer.await_args
-    assert answer.args[0] == (
-        "🏆 Новый сезон\n\n"
-        "Название: Осень 2026\n"
-        "Дата начала: 28 июля 2026"
-    )
+    assert answer.args[0] == ("🏆 Новый сезон\n\nНазвание: Осень 2026\nДата начала: 28 июля 2026")
     assert [
         button.text for row in answer.kwargs["reply_markup"].inline_keyboard for button in row
     ] == ["✅ Создать", "✏️ Изменить", "❌ Отмена"]
@@ -2074,9 +2083,7 @@ async def test_tournament_edit_button_returns_weekly_prompt(
 async def test_tournament_day_selection_shows_type_options(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    user_service = SimpleNamespace(
-        require_superadmin=AsyncMock(return_value=admin_player(1, 100))
-    )
+    user_service = SimpleNamespace(require_superadmin=AsyncMock(return_value=admin_player(1, 100)))
     edit_view = TournamentPromptDayEditView(
         prompt_id=8,
         tournament_date=date(2026, 7, 22),
@@ -2120,9 +2127,7 @@ async def test_tournament_day_selection_shows_type_options(
 async def test_tournament_type_selection_redraws_prompt_with_type_parameters(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    user_service = SimpleNamespace(
-        require_superadmin=AsyncMock(return_value=admin_player(1, 100))
-    )
+    user_service = SimpleNamespace(require_superadmin=AsyncMock(return_value=admin_player(1, 100)))
     updated_prompt = tournament_prompt_view(
         tournament_type=tournament_type_detail_view(
             type_id=4,
@@ -2290,11 +2295,7 @@ async def test_enter_season_proposal_start_date_returns_preview(
     )
     state.clear.assert_awaited_once()
     answer = message.answer.await_args
-    assert answer.args[0] == (
-        "🏆 Новый сезон\n\n"
-        "Название: Лето 2026\n"
-        "Дата начала: 1 сентября 2026"
-    )
+    assert answer.args[0] == ("🏆 Новый сезон\n\nНазвание: Лето 2026\nДата начала: 1 сентября 2026")
 
 
 async def test_cancel_season_proposal_discards_prompt(
@@ -2363,9 +2364,7 @@ async def test_confirm_season_proposal_name_conflict_keeps_state(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     season_service = SimpleNamespace(
-        confirm_season_proposal=AsyncMock(
-            side_effect=admin_handlers.SeasonNameAlreadyExistsError
-        )
+        confirm_season_proposal=AsyncMock(side_effect=admin_handlers.SeasonNameAlreadyExistsError)
     )
     monkeypatch.setattr(admin_handlers, "season_service", season_service)
     callback = SimpleNamespace(

@@ -406,10 +406,7 @@ class CalendarService:
             entry_stack=economy.entry_stack,
             addon_fee=economy.addon_fee,
             addon_stack=economy.addon_stack,
-            rebuys=[
-                TournamentRebuyView(fee=rebuy.fee, stack=rebuy.stack)
-                for rebuy in rebuys
-            ],
+            rebuys=[TournamentRebuyView(fee=rebuy.fee, stack=rebuy.stack) for rebuy in rebuys],
             knockout_mode=rule.knockout_mode.value if rule is not None else "none",
         )
 
@@ -460,9 +457,6 @@ class CalendarService:
         payload = json.loads(prompt.payload)
         season_repository = SeasonRepository(session)
         tournament_repository = TournamentRepository(session)
-        active_season = await season_repository.get_active()
-        if active_season is None:
-            raise CalendarPromptInvalidPayloadError
         prompt_items = self._weekly_prompt_payload_items(payload)
         tournament_dates = [_payload_date(item) for item in prompt_items]
         for tournament_date in tournament_dates:
@@ -470,12 +464,15 @@ class CalendarService:
                 raise CalendarTournamentDateAlreadyExistsError
         for item in prompt_items:
             tournament_date = _payload_date(item)
+            season = await season_repository.get_for_date(tournament_date)
+            if season is None:
+                raise CalendarPromptInvalidPayloadError
             tournament_type_id = int(item["tournament_type_id"])
             if await self._tournament_type_detail(session, tournament_type_id) is None:
                 raise CalendarPromptInvalidPayloadError
             session.add(
                 Tournament(
-                    season_id=active_season.id,
+                    season_id=season.id,
                     tournament_type_id=tournament_type_id,
                     date=tournament_date,
                     status=TournamentStatus.ACTIVE,

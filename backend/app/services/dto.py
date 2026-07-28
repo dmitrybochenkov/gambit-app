@@ -15,9 +15,10 @@ class UserRoleView(StrEnum):
     SUPERADMIN = "superadmin"
 
 
-class SeasonStatusView(StrEnum):
-    ACTIVE = "active"
-    CLOSED = "closed"
+class SeasonLifecycleStateView(StrEnum):
+    SCHEDULED = "scheduled"
+    CURRENT = "current"
+    COMPLETED = "completed"
 
 
 class UserStartStatusView(StrEnum):
@@ -145,7 +146,7 @@ class SeasonView:
     name: str
     starts_at: date
     ends_at: date | None
-    status: SeasonStatusView
+    lifecycle_state: SeasonLifecycleStateView
     scoring_config_id: int
 
 
@@ -155,6 +156,7 @@ class SeasonProposalView:
     name: str
     starts_at: date
     scoring_config_id: int
+    active_season_ends_at: date | None = None
 
 
 @dataclass(frozen=True)

@@ -57,11 +57,13 @@ from app.services.result_service import (
 )
 from app.services.season_service import (
     SeasonConflictError,
+    SeasonDateOverlapError,
     SeasonNameAlreadyExistsError,
     SeasonNameInvalidError,
     SeasonProposalAlreadyResolvedError,
     SeasonProposalInvalidPayloadError,
     SeasonProposalNotFoundError,
+    SeasonScheduledConflictError,
     SeasonScoringConfigAmbiguousError,
     SeasonScoringConfigNotFoundError,
     SeasonStartDateError,
@@ -1594,7 +1596,7 @@ async def select_season_open_action(
             show_alert=True,
         )
         return
-    except SeasonStartDateError:
+    except (SeasonDateOverlapError, SeasonScheduledConflictError, SeasonStartDateError):
         await callback.answer(texts.admin.ADMIN_CALENDAR_SEASON_START_INVALID, show_alert=True)
         return
     except SeasonConflictError:

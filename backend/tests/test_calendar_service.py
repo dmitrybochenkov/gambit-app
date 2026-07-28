@@ -13,7 +13,6 @@ from app.db.base import Base
 from app.db.models import AdminPrompt, ScoringConfig, Season, Tournament, TournamentType
 from app.db.models.enums import (
     AdminPromptStatus,
-    SeasonStatus,
     TournamentStatus,
     TournamentTypeStatus,
 )
@@ -57,7 +56,6 @@ async def seed_calendar_data(session_factory: async_sessionmaker) -> None:
                 scoring_config_id=config.id,
                 starts_at=date(2026, 6, 1),
                 ends_at=None,
-                status=SeasonStatus.ACTIVE,
             )
         )
         await session.commit()
@@ -105,7 +103,7 @@ async def test_weekly_tournament_prompt_contains_three_minimal_items(
             {
                 "date": "2026-07-26",
                 "tournament_type_id": 5,
-            }
+            },
         ]
         assert all(set(item) == {"date", "tournament_type_id"} for item in payload["tournaments"])
         assert [item.date for item in prompt.tournaments] == [
@@ -170,6 +168,49 @@ async def test_confirming_weekly_tournament_prompt_creates_all_tournaments(
             (date(2026, 7, 22), 1, TournamentStatus.ACTIVE),
             (date(2026, 7, 24), 3, TournamentStatus.ACTIVE),
             (date(2026, 7, 26), 5, TournamentStatus.ACTIVE),
+        ]
+    finally:
+        await engine.dispose()
+
+
+async def test_confirming_weekly_prompt_assigns_season_by_tournament_date(
+    tmp_path: Path,
+) -> None:
+    service, session_factory, engine = await create_calendar_service(tmp_path / "calendar.db")
+    try:
+        await seed_calendar_data(session_factory)
+        async with session_factory() as session:
+            active = (await session.execute(select(Season))).scalar_one()
+            active.ends_at = date(2026, 7, 23)
+            config = await session.get(ScoringConfig, active.scoring_config_id)
+            assert config is not None
+            scheduled = Season(
+                name="Осень 2026",
+                scoring_config_id=config.id,
+                starts_at=date(2026, 7, 24),
+                ends_at=None,
+            )
+            session.add(scheduled)
+            await session.commit()
+            active_id = active.id
+            scheduled_id = scheduled.id
+
+        prompt = await service.create_weekly_tournament_prompt(today=date(2026, 7, 21))
+        await service.resolve_prompt(
+            prompt_id=prompt.id,
+            admin_telegram_id=100,
+            action=CalendarPromptAction.CONFIRM,
+        )
+
+        async with session_factory() as session:
+            tournaments = list(
+                (await session.execute(select(Tournament).order_by(Tournament.date))).scalars()
+            )
+
+        assert [(t.date, t.season_id) for t in tournaments] == [
+            (date(2026, 7, 22), active_id),
+            (date(2026, 7, 24), scheduled_id),
+            (date(2026, 7, 26), scheduled_id),
         ]
     finally:
         await engine.dispose()
@@ -514,9 +555,7 @@ async def test_recommended_sunday_tournament_type_resolves_active_type(
     try:
         await seed_calendar_data(session_factory)
 
-        tournament_type = await service.get_recommended_sunday_tournament_type(
-            date(2026, 7, 26)
-        )
+        tournament_type = await service.get_recommended_sunday_tournament_type(date(2026, 7, 26))
 
         assert tournament_type.id == 5
         assert tournament_type.name == "Mystery Bounty"

@@ -19,7 +19,6 @@ from app.db.models import (
 from app.db.models.enums import (
     KnockoutMode,
     RegistrationStatus,
-    SeasonStatus,
     TournamentStatus,
     UserRole,
     UserStatus,
@@ -45,7 +44,6 @@ async def test_result_tournament_list_includes_open_past_tournaments(
             scoring_config_id=config.id,
             starts_at=date(2026, 7, 1),
             ends_at=None,
-            status=SeasonStatus.ACTIVE,
         )
         admin = build_player(
             telegram_id=100,
@@ -126,7 +124,6 @@ async def test_result_draft_closes_tournament(tmp_path: Path) -> None:
             scoring_config_id=config.id,
             starts_at=date(2026, 7, 1),
             ends_at=None,
-            status=SeasonStatus.ACTIVE,
         )
         admin = build_player(
             telegram_id=100,
@@ -243,7 +240,6 @@ async def test_result_draft_moves_duplicate_place_to_latest_player(
             scoring_config_id=config.id,
             starts_at=date(2026, 7, 1),
             ends_at=None,
-            status=SeasonStatus.ACTIVE,
         )
         admin = build_player(
             telegram_id=100,
