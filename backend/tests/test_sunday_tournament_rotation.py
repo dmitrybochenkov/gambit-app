@@ -5,6 +5,7 @@ import pytest
 from app.services.sunday_tournament_rotation import (
     SUNDAY_ROTATION_ANCHOR,
     SundayTournamentRotation,
+    SundayTournamentRotationCodeError,
     SundayTournamentRotationDateError,
 )
 
@@ -54,3 +55,17 @@ def test_repeated_calls_for_same_date_return_same_result() -> None:
     second = rotation.code_for(date(2026, 8, 2))
 
     assert first == second == "boss_bounty"
+
+
+def test_next_code_after_advances_rotation_order() -> None:
+    rotation = SundayTournamentRotation()
+
+    assert rotation.next_code_after("mystery_bounty") == "boss_bounty"
+    assert rotation.next_code_after("boss_bounty") == "mystery_bounty"
+
+
+def test_next_code_after_rejects_unknown_code() -> None:
+    rotation = SundayTournamentRotation()
+
+    with pytest.raises(SundayTournamentRotationCodeError):
+        rotation.next_code_after("classic")

@@ -38,7 +38,9 @@ from app.services.calendar_service import (
     CalendarPromptNotFoundError,
     CalendarTournamentDateAlreadyExistsError,
     CalendarTournamentDateNotInPromptError,
-    CalendarWeeklyPromptConflictError,
+    CalendarWeeklyPendingConflictError,
+    CalendarWeeklyPromptEmptyError,
+    CalendarWeeklyPromptIntegrityError,
     calendar_service,
 )
 from app.services.dto import (
@@ -1318,7 +1320,7 @@ async def review_calendar_prompt(
         await callback.answer(texts.admin.INSUFFICIENT_RIGHTS, show_alert=True)
         return
     except CalendarPromptNotFoundError:
-        await callback.answer(texts.admin.CALENDAR_PROMPT_NOT_FOUND, show_alert=True)
+        await callback.answer(texts.admin.CALENDAR_PROMPT_STALE, show_alert=True)
         return
     except CalendarPromptAlreadyResolvedError:
         await callback.answer(
@@ -1331,7 +1333,16 @@ async def review_calendar_prompt(
         if callback.message is not None:
             await callback.message.answer(texts.admin.ADMIN_CALENDAR_TOURNAMENT_DATE_EXISTS)
         return
-    except (CalendarDefaultTournamentTypeNotFoundError, CalendarWeeklyPromptConflictError):
+    except CalendarWeeklyPromptEmptyError:
+        await callback.answer(texts.admin.CALENDAR_WEEKLY_PROMPT_EMPTY)
+        if callback.message is not None:
+            await callback.message.answer(texts.admin.CALENDAR_WEEKLY_PROMPT_EMPTY)
+        return
+    except (
+        CalendarDefaultTournamentTypeNotFoundError,
+        CalendarWeeklyPendingConflictError,
+        CalendarWeeklyPromptIntegrityError,
+    ):
         await callback.answer(texts.admin.CALENDAR_PROMPT_NOT_FOUND, show_alert=True)
         return
 
@@ -1422,7 +1433,11 @@ async def select_admin_calendar_section(
         if callback.message is not None:
             await callback.message.answer(texts.admin.ADMIN_CALENDAR_TOURNAMENT_DATE_EXISTS)
         return
-    except (CalendarDefaultTournamentTypeNotFoundError, CalendarWeeklyPromptConflictError):
+    except (
+        CalendarDefaultTournamentTypeNotFoundError,
+        CalendarWeeklyPendingConflictError,
+        CalendarWeeklyPromptIntegrityError,
+    ):
         await callback.answer(texts.admin.CALENDAR_PROMPT_NOT_FOUND, show_alert=True)
         return
 
@@ -1655,7 +1670,7 @@ async def select_tournament_prompt_day(
         CalendarPromptAlreadyResolvedError,
         CalendarTournamentDateNotInPromptError,
     ):
-        await callback.answer(texts.admin.CALENDAR_PROMPT_NOT_FOUND, show_alert=True)
+        await callback.answer(texts.admin.CALENDAR_PROMPT_STALE, show_alert=True)
         return
 
     await state.clear()
@@ -1665,6 +1680,48 @@ async def select_tournament_prompt_day(
         await callback.message.answer(
             texts.admin.admin_calendar_tournament_type_prompt(edit_view.tournament_date),
             reply_markup=keyboards.tournament_type_edit_keyboard(edit_view),
+        )
+
+
+@router.callback_query(keyboards.TournamentPromptDayRemoveCallback.filter())
+async def remove_tournament_prompt_day(
+    callback: CallbackQuery,
+    callback_data: keyboards.TournamentPromptDayRemoveCallback,
+    state: FSMContext,
+) -> None:
+    try:
+        await user_service.require_superadmin(callback.from_user.id)
+        prompt = await calendar_service.remove_weekly_prompt_day(
+            prompt_id=callback_data.prompt_id,
+            tournament_date=date.fromisoformat(callback_data.tournament_date),
+        )
+    except AdminAccessDeniedError:
+        await state.clear()
+        await callback.answer(texts.admin.INSUFFICIENT_RIGHTS, show_alert=True)
+        return
+    except CalendarWeeklyPromptEmptyError:
+        await callback.answer(texts.admin.CALENDAR_WEEKLY_PROMPT_EMPTY)
+        if callback.message is not None:
+            await callback.message.answer(texts.admin.CALENDAR_WEEKLY_PROMPT_EMPTY)
+        return
+    except (CalendarPromptNotFoundError, CalendarPromptAlreadyResolvedError):
+        await callback.answer(texts.admin.CALENDAR_PROMPT_STALE, show_alert=True)
+        return
+    except (
+        ValueError,
+        CalendarPromptInvalidPayloadError,
+        CalendarTournamentDateNotInPromptError,
+    ):
+        await callback.answer(texts.admin.CALENDAR_PROMPT_STALE, show_alert=True)
+        return
+
+    await state.clear()
+    await callback.answer(texts.admin.CALENDAR_PROMPT_CONFIRMED)
+    if callback.message is not None:
+        await _delete_callback_message(callback)
+        await callback.message.answer(
+            format_admin_calendar_prompt(prompt),
+            reply_markup=keyboards.manual_tournaments_prompt_keyboard(prompt),
         )
 
 
@@ -1695,7 +1752,7 @@ async def select_tournament_type(
         CalendarPromptInvalidPayloadError,
         CalendarTournamentDateNotInPromptError,
     ):
-        await callback.answer(texts.admin.CALENDAR_PROMPT_NOT_FOUND, show_alert=True)
+        await callback.answer(texts.admin.CALENDAR_PROMPT_STALE, show_alert=True)
         return
 
     await state.clear()

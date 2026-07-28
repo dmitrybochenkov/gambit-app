@@ -1906,6 +1906,7 @@ async def test_admin_calendar_tournaments_callback_shows_weekly_prompt(
     calendar_service.create_weekly_tournament_prompt.assert_awaited_once_with()
     state.set_state.assert_not_awaited()
     state.clear.assert_awaited_once()
+    callback.answer.assert_awaited_once_with()
     message.delete.assert_awaited_once_with()
     answer = message.answer.await_args
     assert answer.args[0].startswith("Будет создано расписание:\n\n")
@@ -1924,6 +1925,32 @@ async def test_admin_calendar_tournaments_callback_shows_weekly_prompt(
     assert [
         button.text for row in answer.kwargs["reply_markup"].inline_keyboard for button in row
     ] == ["Изменить", "Создать", "Отмена"]
+
+
+def test_tournament_management_callback_routes_do_not_collide() -> None:
+    top_level = keyboards.AdminCalendarCallback(
+        action=keyboards.AdminCalendarAction.TOURNAMENTS
+    ).pack()
+    proposal_edit = keyboards.CalendarPromptCallback(
+        action=keyboards.CalendarPromptAction.EDIT,
+        prompt_id=8,
+    ).pack()
+    day_edit = keyboards.TournamentPromptDayEditCallback(
+        prompt_id=8,
+        tournament_date="2026-07-23",
+    ).pack()
+    type_edit = keyboards.TournamentTypeEditCallback(
+        prompt_id=8,
+        tournament_date="2026-07-23",
+        tournament_type_id=2,
+    ).pack()
+
+    assert top_level.startswith("admin_calendar:")
+    assert top_level == "admin_calendar:tournaments"
+    assert proposal_edit.startswith("calendar_prompt:")
+    assert day_edit.startswith("tour_prompt_day:")
+    assert type_edit.startswith("tournament_type_edit:")
+    assert len({top_level, proposal_edit, day_edit, type_edit}) == 4
 
 
 async def test_admin_calendar_denies_regular_admin(
@@ -2091,6 +2118,36 @@ async def test_tournament_edit_button_shows_day_options(
     assert buttons == ["Среда", "Четверг", "Пятница", "Суббота", "Воскресенье", "⬅️ Назад"]
 
 
+async def test_stale_tournament_edit_callback_returns_stale_prompt_alert(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    admin = admin_player(1, 100, UserRoleView.SUPERADMIN)
+    user_service = SimpleNamespace(require_superadmin=AsyncMock(return_value=admin))
+    calendar_service = SimpleNamespace(
+        get_tournament_prompt=AsyncMock(side_effect=admin_handlers.CalendarPromptNotFoundError)
+    )
+    monkeypatch.setattr(admin_handlers, "user_service", user_service)
+    monkeypatch.setattr(admin_handlers, "calendar_service", calendar_service)
+    state = SimpleNamespace(clear=AsyncMock())
+    callback = SimpleNamespace(
+        from_user=SimpleNamespace(id=100),
+        message=SimpleNamespace(delete=AsyncMock(), answer=AsyncMock()),
+        answer=AsyncMock(),
+    )
+    callback_data = SimpleNamespace(
+        action=keyboards.CalendarPromptAction.EDIT,
+        prompt_id=404,
+    )
+
+    await admin_handlers.review_calendar_prompt(callback, callback_data, state)
+
+    callback.answer.assert_awaited_once_with(
+        "Предложение устарело. Открой Турниры заново.",
+        show_alert=True,
+    )
+    callback.message.answer.assert_not_awaited()
+
+
 async def test_tournament_day_edit_back_button_returns_weekly_prompt(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -2166,7 +2223,7 @@ async def test_tournament_day_selection_shows_type_options(
     assert answer.args[0] == "Выбери тип турнира:\nСреда, 22 июля"
     assert [
         button.text for row in answer.kwargs["reply_markup"].inline_keyboard for button in row
-    ] == ["Баунти турнир", "Классика", "⬅️ Назад"]
+    ] == ["Баунти турнир", "Классика", "🗑 Удалить день", "⬅️ Назад"]
 
 
 async def test_tournament_type_selection_redraws_prompt_without_type_parameters(
@@ -2222,6 +2279,86 @@ async def test_tournament_type_selection_redraws_prompt_without_type_parameters(
     assert "Вход:" not in message.answer.await_args.args[0]
     assert "Ребаи:" not in message.answer.await_args.args[0]
     assert "Аддон:" not in message.answer.await_args.args[0]
+
+
+async def test_tournament_day_removal_redraws_partial_prompt(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    user_service = SimpleNamespace(require_superadmin=AsyncMock(return_value=admin_player(1, 100)))
+    updated_prompt = tournament_prompt_view(
+        tournaments=[
+            TournamentPromptItemView(
+                date=date(2026, 7, 22),
+                tournament_type=tournament_type_detail_view(type_id=1, name="Баунти турнир"),
+            ),
+            TournamentPromptItemView(
+                date=date(2026, 7, 24),
+                tournament_type=tournament_type_detail_view(type_id=3, name="Фризаут"),
+            ),
+        ]
+    )
+    calendar_service = SimpleNamespace(
+        remove_weekly_prompt_day=AsyncMock(return_value=updated_prompt)
+    )
+    monkeypatch.setattr(admin_handlers, "user_service", user_service)
+    monkeypatch.setattr(admin_handlers, "calendar_service", calendar_service)
+    state = SimpleNamespace(clear=AsyncMock())
+    message = SimpleNamespace(delete=AsyncMock(), answer=AsyncMock())
+    callback = SimpleNamespace(
+        from_user=SimpleNamespace(id=100),
+        message=message,
+        answer=AsyncMock(),
+    )
+    callback_data = SimpleNamespace(
+        prompt_id=8,
+        tournament_date="2026-07-23",
+    )
+
+    await admin_handlers.remove_tournament_prompt_day(callback, callback_data, state)
+
+    calendar_service.remove_weekly_prompt_day.assert_awaited_once_with(
+        prompt_id=8,
+        tournament_date=date(2026, 7, 23),
+    )
+    state.clear.assert_awaited_once()
+    message.delete.assert_awaited_once_with()
+    assert message.answer.await_args.args[0] == (
+        "Будет создано расписание:\n\nСреда, 22 июля — Баунти турнир\nПятница, 24 июля — Фризаут"
+    )
+    assert [
+        button.text
+        for row in message.answer.await_args.kwargs["reply_markup"].inline_keyboard
+        for button in row
+    ] == ["Изменить", "Создать", "Отмена"]
+
+
+async def test_tournament_day_removal_rejects_empty_schedule(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    user_service = SimpleNamespace(require_superadmin=AsyncMock(return_value=admin_player(1, 100)))
+    calendar_service = SimpleNamespace(
+        remove_weekly_prompt_day=AsyncMock(
+            side_effect=admin_handlers.CalendarWeeklyPromptEmptyError
+        )
+    )
+    monkeypatch.setattr(admin_handlers, "user_service", user_service)
+    monkeypatch.setattr(admin_handlers, "calendar_service", calendar_service)
+    state = SimpleNamespace(clear=AsyncMock())
+    message = SimpleNamespace(answer=AsyncMock())
+    callback = SimpleNamespace(
+        from_user=SimpleNamespace(id=100),
+        message=message,
+        answer=AsyncMock(),
+    )
+    callback_data = SimpleNamespace(
+        prompt_id=8,
+        tournament_date="2026-07-22",
+    )
+
+    await admin_handlers.remove_tournament_prompt_day(callback, callback_data, state)
+
+    callback.answer.assert_awaited_once_with("В расписании должен остаться хотя бы один турнир.")
+    message.answer.assert_awaited_once_with("В расписании должен остаться хотя бы один турнир.")
 
 
 def test_tournament_economy_fsm_callbacks_are_removed() -> None:

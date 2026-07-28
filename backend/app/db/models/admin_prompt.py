@@ -1,6 +1,6 @@
 from datetime import datetime
 
-from sqlalchemy import DateTime, Integer, String, Text, UniqueConstraint
+from sqlalchemy import DateTime, Index, Integer, String, Text, UniqueConstraint, text
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.db.base import Base
@@ -13,6 +13,7 @@ class AdminPrompt(TimestampMixin, Base):
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     key: Mapped[str] = mapped_column(String(120), unique=True, nullable=False, index=True)
+    scope_key: Mapped[str | None] = mapped_column(String(160), nullable=True, index=True)
     kind: Mapped[str] = mapped_column(String(60), nullable=False, index=True)
     payload: Mapped[str] = mapped_column(Text, nullable=False)
     status: Mapped[AdminPromptStatus] = mapped_column(
@@ -25,4 +26,15 @@ class AdminPrompt(TimestampMixin, Base):
     resolved_by_admin_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
     notified_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
-    __table_args__ = (UniqueConstraint("key", name="uq_admin_prompts_key"),)
+    __table_args__ = (
+        UniqueConstraint("key", name="uq_admin_prompts_key"),
+        Index("ix_admin_prompts_kind_scope_status", "kind", "scope_key", "status"),
+        Index(
+            "uq_admin_prompts_pending_scope",
+            "kind",
+            "scope_key",
+            unique=True,
+            sqlite_where=text("status = 'pending' AND scope_key IS NOT NULL"),
+            postgresql_where=text("status = 'pending' AND scope_key IS NOT NULL"),
+        ),
+    )

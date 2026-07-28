@@ -1,6 +1,6 @@
 from datetime import date
 
-from sqlalchemy import and_, select
+from sqlalchemy import and_, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
@@ -55,6 +55,26 @@ class TournamentRepository:
             select(Tournament.id).where(Tournament.date == tournament_date)
         )
         return result.scalar_one_or_none() is not None
+
+    async def get_latest_sunday_rotation_tournament_before(
+        self,
+        target_date: date,
+        allowed_type_codes: tuple[str, ...],
+    ) -> Tournament | None:
+        result = await self.session.execute(
+            select(Tournament)
+            .join(Tournament.tournament_type)
+            .options(selectinload(Tournament.tournament_type))
+            .where(
+                Tournament.date < target_date,
+                Tournament.status != TournamentStatus.CANCELLED,
+                TournamentType.code.in_(allowed_type_codes),
+                func.strftime("%w", Tournament.date) == "0",
+            )
+            .order_by(Tournament.date.desc(), Tournament.id.desc())
+            .limit(1)
+        )
+        return result.scalar_one_or_none()
 
     async def get_active_tournament_type_by_code(self, code: str) -> TournamentType | None:
         result = await self.session.execute(

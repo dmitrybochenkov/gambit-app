@@ -95,10 +95,12 @@ ADMIN_CALENDAR_SEASON_CONFLICT = "Не удалось открыть сезон.
 ADMIN_CALENDAR_SEASON_ALREADY_HANDLED = "Сценарий открытия сезона уже завершён."
 
 CALENDAR_PROMPT_NOT_FOUND = "Предложение не найдено."
+CALENDAR_PROMPT_STALE = "Предложение устарело. Открой Турниры заново."
 CALENDAR_PROMPT_ALREADY_RESOLVED = "Предложение уже обработано."
 CALENDAR_PROMPT_CONFIRMED = "Подтверждено"
 CALENDAR_PROMPT_CANCELLED = "Отменено"
 CALENDAR_PROMPT_NEEDS_CHANGES = "Нужны правки. Ручное редактирование добавим в админке."
+CALENDAR_WEEKLY_PROMPT_EMPTY = "В расписании должен остаться хотя бы один турнир."
 
 SEASON_PROPOSAL_TITLE = "Нужно подготовить следующий сезон."
 SEASON_PROPOSAL_LABEL = "Предложение"

@@ -235,6 +235,11 @@ class TournamentPromptDayEditCallback(CallbackData, prefix="tour_prompt_day"):
     tournament_date: str
 
 
+class TournamentPromptDayRemoveCallback(CallbackData, prefix="tour_prompt_day_remove"):
+    prompt_id: int
+    tournament_date: str
+
+
 class TournamentTypeEditCallback(CallbackData, prefix="tournament_type_edit"):
     prompt_id: int
     tournament_date: str
@@ -1217,6 +1222,13 @@ def tournament_type_edit_keyboard(
                 tournament_type_id=tournament_type.id,
             ),
         )
+    builder.button(
+        text=buttons.ADMIN_CALENDAR_REMOVE_DAY,
+        callback_data=TournamentPromptDayRemoveCallback(
+            prompt_id=edit_view.prompt_id,
+            tournament_date=edit_view.tournament_date.isoformat(),
+        ),
+    )
     builder.button(
         text=buttons.ADMIN_CALENDAR_BACK,
         callback_data=CalendarPromptCallback(

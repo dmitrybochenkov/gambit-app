@@ -16,28 +16,65 @@ class AdminPromptRepository:
         result = await self.session.execute(select(AdminPrompt).where(AdminPrompt.key == key))
         return result.scalar_one_or_none()
 
-    async def get_or_create_pending(
+    async def get_pending_by_scope(
+        self,
+        kind: str,
+        scope_key: str,
+    ) -> AdminPrompt | None:
+        result = await self.session.execute(
+            select(AdminPrompt).where(
+                AdminPrompt.kind == kind,
+                AdminPrompt.scope_key == scope_key,
+                AdminPrompt.status == AdminPromptStatus.PENDING,
+            )
+        )
+        return result.scalar_one_or_none()
+
+    async def list_by_scope(
+        self,
+        kind: str,
+        scope_key: str,
+    ) -> list[AdminPrompt]:
+        result = await self.session.execute(
+            select(AdminPrompt)
+            .where(
+                AdminPrompt.kind == kind,
+                AdminPrompt.scope_key == scope_key,
+            )
+            .order_by(AdminPrompt.id)
+        )
+        return list(result.scalars())
+
+    async def get_latest_confirmed_by_scope(
+        self,
+        kind: str,
+        scope_key: str,
+    ) -> AdminPrompt | None:
+        result = await self.session.execute(
+            select(AdminPrompt)
+            .where(
+                AdminPrompt.kind == kind,
+                AdminPrompt.scope_key == scope_key,
+                AdminPrompt.status == AdminPromptStatus.CONFIRMED,
+            )
+            .order_by(AdminPrompt.id.desc())
+            .limit(1)
+        )
+        return result.scalar_one_or_none()
+
+    async def create_prompt(
         self,
         key: str,
         kind: str,
         payload: str,
+        scope_key: str | None = None,
     ) -> AdminPrompt:
-        prompt = await self.get_by_key(key)
-        if prompt is not None:
-            prompt.kind = kind
-            prompt.payload = payload
-            prompt.status = AdminPromptStatus.PENDING
-            prompt.resolved_at = None
-            prompt.resolved_by_admin_id = None
-            prompt.notified_at = None
-            return prompt
-
         prompt = AdminPrompt(
             key=key,
+            scope_key=scope_key,
             kind=kind,
             payload=payload,
             status=AdminPromptStatus.PENDING,
         )
         self.session.add(prompt)
-        await self.session.flush()
         return prompt
