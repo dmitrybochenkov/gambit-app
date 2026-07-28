@@ -59,10 +59,7 @@ def format_profile(title: str, stats: PlayerProfileView | None) -> str:
 def format_admin_calendar_prompt(prompt: TournamentPromptView) -> str:
     lines = [texts.admin.TOURNAMENTS_MANUAL_PROPOSAL_TITLE, ""]
     for item in prompt.tournaments:
-        lines.extend(_format_tournament_proposal_item(item))
-        lines.append("")
-    if lines[-1] == "":
-        lines.pop()
+        lines.append(_format_tournament_prompt_item_label(item))
     return "\n".join(lines)
 
 
@@ -297,7 +294,7 @@ def format_season_proposal(proposal: SeasonProposalView) -> str:
                 f"{format_numeric_date(proposal.active_season_ends_at)}",
                 f"{texts.admin.SEASON_NEW_START_LABEL}: {format_numeric_date(proposal.starts_at)}",
                 "",
-                texts.admin.SEASON_PROPOSAL_PREVIEW_FOOTER,
+                texts.admin.SEASON_ACTIVE_CLOSE_WARNING,
             ]
         )
     return "\n".join(lines)
@@ -317,10 +314,7 @@ def format_created_season(season: SeasonView) -> str:
 def format_created_tournaments_prompt(prompt: TournamentPromptView) -> str:
     lines = [texts.admin.TOURNAMENTS_CREATED_TITLE, ""]
     for item in prompt.tournaments:
-        lines.extend(_format_tournament_proposal_item(item))
-        lines.append("")
-    if lines[-1] == "":
-        lines.pop()
+        lines.append(_format_tournament_prompt_item_label(item))
     return "\n".join(lines)
 
 
@@ -349,36 +343,14 @@ def _page_line(page: Page) -> str:
     return f"{start}-{end} из {page.total_items}"
 
 
-def _format_tournament_proposal_item(item: TournamentPromptItemView) -> list[str]:
+def _format_tournament_prompt_item_label(item: TournamentPromptItemView) -> str:
     tournament = TournamentView(
         id=0,
         tournament_type_id=item.tournament_type.id,
         date=item.date,
         tournament_type_name=item.tournament_type.name,
     )
-    rebuy_fees = " / ".join(format_number(rebuy.fee) for rebuy in item.tournament_type.rebuys)
-    rebuy_stacks = " / ".join(format_number(rebuy.stack) for rebuy in item.tournament_type.rebuys)
-    lines = [
-        f"• {format_tournament_label(tournament)}",
-        texts.admin.TOURNAMENT_ENTRY_LABEL,
-        (
-            f"{format_number(item.tournament_type.entry_fee)} ₽ — "
-            f"{format_number(item.tournament_type.entry_stack)} фишек"
-        ),
-        texts.admin.TOURNAMENT_REBUYS_LABEL,
-        f"{rebuy_fees} ₽" if rebuy_fees else "—",
-        f"{rebuy_stacks} фишек" if rebuy_stacks else "—",
-        texts.admin.TOURNAMENT_ADDON_LABEL,
-        (
-            f"{format_number(item.tournament_type.addon_fee)} ₽ — "
-            f"{format_number(item.tournament_type.addon_stack)} фишек"
-        ),
-    ]
-    if item.tournament_type.description:
-        lines.extend(["", item.tournament_type.description])
-    if item.tournament_type.knockout_mode != "none":
-        lines.extend(["", f"🥊: {item.tournament_type.knockout_mode}"])
-    return lines
+    return format_tournament_label(tournament)
 
 
 def _fallback_tournament_type_name(tournament: TournamentView) -> str:

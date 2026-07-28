@@ -4,7 +4,11 @@ from pathlib import Path
 from unittest.mock import AsyncMock
 
 import pytest
-from conftest import seed_tournament_configs_async, seed_tournament_types_async
+from conftest import (
+    seed_tournament_configs_async,
+    seed_tournament_types_async,
+    seed_weekly_templates_async,
+)
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncEngine, async_sessionmaker, create_async_engine
@@ -50,6 +54,7 @@ async def seed_calendar_data(session_factory: async_sessionmaker) -> None:
         await session.flush()
         await seed_tournament_types_async(session)
         await seed_tournament_configs_async(session)
+        await seed_weekly_templates_async(session)
         session.add(
             Season(
                 name="Лето 2026",
@@ -64,22 +69,38 @@ async def seed_calendar_data(session_factory: async_sessionmaker) -> None:
 def test_next_complete_game_week_starts_from_nearest_future_wednesday() -> None:
     assert next_complete_game_week(date(2026, 7, 21)) == (
         date(2026, 7, 22),
+        date(2026, 7, 23),
         date(2026, 7, 24),
+        date(2026, 7, 25),
         date(2026, 7, 26),
     )
     assert next_complete_game_week(date(2026, 7, 22)) == (
         date(2026, 7, 29),
+        date(2026, 7, 30),
         date(2026, 7, 31),
+        date(2026, 8, 1),
         date(2026, 8, 2),
     )
     assert next_complete_game_week(date(2026, 7, 26)) == (
         date(2026, 7, 29),
+        date(2026, 7, 30),
         date(2026, 7, 31),
+        date(2026, 8, 1),
         date(2026, 8, 2),
     )
 
 
-async def test_weekly_tournament_prompt_contains_three_minimal_items(
+def test_next_complete_game_week_crosses_year_boundary() -> None:
+    assert next_complete_game_week(date(2026, 12, 29)) == (
+        date(2026, 12, 30),
+        date(2026, 12, 31),
+        date(2027, 1, 1),
+        date(2027, 1, 2),
+        date(2027, 1, 3),
+    )
+
+
+async def test_weekly_tournament_prompt_contains_five_minimal_items(
     tmp_path: Path,
 ) -> None:
     service, session_factory, engine = await create_calendar_service(tmp_path / "calendar.db")
@@ -97,8 +118,16 @@ async def test_weekly_tournament_prompt_contains_three_minimal_items(
                 "tournament_type_id": 1,
             },
             {
+                "date": "2026-07-23",
+                "tournament_type_id": 2,
+            },
+            {
                 "date": "2026-07-24",
                 "tournament_type_id": 3,
+            },
+            {
+                "date": "2026-07-25",
+                "tournament_type_id": 4,
             },
             {
                 "date": "2026-07-26",
@@ -108,9 +137,12 @@ async def test_weekly_tournament_prompt_contains_three_minimal_items(
         assert all(set(item) == {"date", "tournament_type_id"} for item in payload["tournaments"])
         assert [item.date for item in prompt.tournaments] == [
             date(2026, 7, 22),
+            date(2026, 7, 23),
             date(2026, 7, 24),
+            date(2026, 7, 25),
             date(2026, 7, 26),
         ]
+        assert [item.date.weekday() for item in prompt.tournaments] == [2, 3, 4, 5, 6]
         assert prompt.tournaments[0].tournament_type.name == "Баунти турнир"
         assert prompt.tournaments[0].tournament_type.entry_fee == 600
         assert prompt.tournaments[0].tournament_type.entry_stack == 20_000
@@ -138,11 +170,13 @@ async def test_weekly_prompt_uses_deterministic_sunday_rotation(
 
         assert [item.date for item in prompt.tournaments] == [
             date(2026, 7, 29),
+            date(2026, 7, 30),
             date(2026, 7, 31),
+            date(2026, 8, 1),
             date(2026, 8, 2),
         ]
-        assert [item.tournament_type.id for item in prompt.tournaments] == [1, 3, 6]
-        assert prompt.tournaments[2].tournament_type.name == "Boss Bounty"
+        assert [item.tournament_type.id for item in prompt.tournaments] == [1, 2, 3, 4, 6]
+        assert prompt.tournaments[4].tournament_type.name == "Boss Bounty"
     finally:
         await engine.dispose()
 
@@ -166,7 +200,9 @@ async def test_confirming_weekly_tournament_prompt_creates_all_tournaments(
 
         assert [(t.date, t.tournament_type_id, t.status) for t in tournaments] == [
             (date(2026, 7, 22), 1, TournamentStatus.ACTIVE),
+            (date(2026, 7, 23), 2, TournamentStatus.ACTIVE),
             (date(2026, 7, 24), 3, TournamentStatus.ACTIVE),
+            (date(2026, 7, 25), 4, TournamentStatus.ACTIVE),
             (date(2026, 7, 26), 5, TournamentStatus.ACTIVE),
         ]
     finally:
@@ -209,7 +245,9 @@ async def test_confirming_weekly_prompt_assigns_season_by_tournament_date(
 
         assert [(t.date, t.season_id) for t in tournaments] == [
             (date(2026, 7, 22), active_id),
+            (date(2026, 7, 23), active_id),
             (date(2026, 7, 24), scheduled_id),
+            (date(2026, 7, 25), scheduled_id),
             (date(2026, 7, 26), scheduled_id),
         ]
     finally:
@@ -230,17 +268,56 @@ async def test_weekly_prompt_type_update_changes_displayed_parameters(
             tournament_type_id=4,
         )
 
-        assert updated_prompt.tournaments[1].date == date(2026, 7, 24)
-        assert updated_prompt.tournaments[1].tournament_type.name == "Double Double"
-        assert updated_prompt.tournaments[1].tournament_type.entry_fee == 800
-        assert updated_prompt.tournaments[1].tournament_type.entry_stack == 40_000
-        assert updated_prompt.tournaments[1].tournament_type.rebuys[0].fee == 800
+        assert updated_prompt.tournaments[2].date == date(2026, 7, 24)
+        assert updated_prompt.tournaments[2].tournament_type.name == "Double Double"
+        assert updated_prompt.tournaments[2].tournament_type.entry_fee == 800
+        assert updated_prompt.tournaments[2].tournament_type.entry_stack == 40_000
+        assert updated_prompt.tournaments[2].tournament_type.rebuys[0].fee == 800
 
         payload = json.loads((await service.get_prompt(prompt.id)).payload)
         assert payload["tournaments"] == [
             {"date": "2026-07-22", "tournament_type_id": 1},
+            {"date": "2026-07-23", "tournament_type_id": 2},
             {"date": "2026-07-24", "tournament_type_id": 4},
+            {"date": "2026-07-25", "tournament_type_id": 4},
             {"date": "2026-07-26", "tournament_type_id": 5},
+        ]
+    finally:
+        await engine.dispose()
+
+
+async def test_weekly_prompt_thursday_and_saturday_can_be_edited_independently(
+    tmp_path: Path,
+) -> None:
+    service, session_factory, engine = await create_calendar_service(tmp_path / "calendar.db")
+    try:
+        await seed_calendar_data(session_factory)
+
+        prompt = await service.create_weekly_tournament_prompt(today=date(2026, 7, 21))
+        thursday_prompt = await service.update_weekly_prompt_day_type(
+            prompt_id=prompt.id,
+            tournament_date=date(2026, 7, 23),
+            tournament_type_id=5,
+        )
+        saturday_prompt = await service.update_weekly_prompt_day_type(
+            prompt_id=prompt.id,
+            tournament_date=date(2026, 7, 25),
+            tournament_type_id=2,
+        )
+
+        assert [(item.date, item.tournament_type.id) for item in thursday_prompt.tournaments] == [
+            (date(2026, 7, 22), 1),
+            (date(2026, 7, 23), 5),
+            (date(2026, 7, 24), 3),
+            (date(2026, 7, 25), 4),
+            (date(2026, 7, 26), 5),
+        ]
+        assert [(item.date, item.tournament_type.id) for item in saturday_prompt.tournaments] == [
+            (date(2026, 7, 22), 1),
+            (date(2026, 7, 23), 5),
+            (date(2026, 7, 24), 3),
+            (date(2026, 7, 25), 2),
+            (date(2026, 7, 26), 5),
         ]
     finally:
         await engine.dispose()
@@ -254,6 +331,17 @@ async def test_weekly_prompt_day_edit_options_require_prompt_date(
         await seed_calendar_data(session_factory)
 
         prompt = await service.create_weekly_tournament_prompt(today=date(2026, 7, 21))
+        async with session_factory() as session:
+            session.add(
+                TournamentType(
+                    id=99,
+                    code="legacy_unknown",
+                    name="Неопределенный турнир",
+                    status=TournamentTypeStatus.ACTIVE,
+                )
+            )
+            await session.commit()
+
         edit_view = await service.get_weekly_prompt_day_edit_options(
             prompt_id=prompt.id,
             tournament_date=date(2026, 7, 22),
@@ -269,11 +357,12 @@ async def test_weekly_prompt_day_edit_options_require_prompt_date(
             "Mystery Bounty",
             "Boss Bounty",
         ]
+        assert "Неопределенный турнир" not in [option.name for option in edit_view.tournament_types]
 
         with pytest.raises(CalendarTournamentDateNotInPromptError):
             await service.get_weekly_prompt_day_edit_options(
                 prompt_id=prompt.id,
-                tournament_date=date(2026, 7, 23),
+                tournament_date=date(2026, 7, 27),
             )
     finally:
         await engine.dispose()
@@ -285,13 +374,12 @@ async def test_weekly_prompt_rejects_inactive_selected_type(
     service, session_factory, engine = await create_calendar_service(tmp_path / "calendar.db")
     try:
         await seed_calendar_data(session_factory)
+        prompt = await service.create_weekly_tournament_prompt(today=date(2026, 7, 21))
         async with session_factory() as session:
             double_double = await session.get(TournamentType, 4)
             assert double_double is not None
             double_double.status = TournamentTypeStatus.ARCHIVED
             await session.commit()
-
-        prompt = await service.create_weekly_tournament_prompt(today=date(2026, 7, 21))
 
         with pytest.raises(CalendarPromptInvalidPayloadError):
             await service.update_weekly_prompt_day_type(
@@ -359,7 +447,9 @@ async def test_creating_weekly_prompt_rejects_resolved_prompt_for_same_week(
                         {
                             "tournaments": [
                                 {"date": "2026-07-22", "tournament_type_id": 1},
+                                {"date": "2026-07-23", "tournament_type_id": 2},
                                 {"date": "2026-07-24", "tournament_type_id": 3},
+                                {"date": "2026-07-25", "tournament_type_id": 4},
                                 {"date": "2026-07-26", "tournament_type_id": 5},
                             ]
                         },
@@ -434,7 +524,7 @@ async def test_repeated_weekly_prompt_confirmation_does_not_create_second_schedu
         async with session_factory() as session:
             tournaments = list((await session.execute(select(Tournament))).scalars())
 
-        assert len(tournaments) == 3
+        assert len(tournaments) == 5
     finally:
         await engine.dispose()
 
@@ -471,6 +561,7 @@ async def test_confirming_weekly_prompt_rejects_non_weekly_payload(
                 {
                     "tournaments": [
                         {"date": "2026-07-22", "tournament_type_id": 1},
+                        {"date": "2026-07-23", "tournament_type_id": 2},
                     ]
                 },
                 ensure_ascii=False,
@@ -541,7 +632,7 @@ async def test_weekly_prompt_date_update_is_not_supported(
         with pytest.raises(CalendarTournamentDateNotInPromptError):
             await service.update_weekly_prompt_day_type(
                 prompt_id=prompt.id,
-                tournament_date=date(2026, 7, 23),
+                tournament_date=date(2026, 7, 27),
                 tournament_type_id=1,
             )
     finally:

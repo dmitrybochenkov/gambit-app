@@ -65,6 +65,7 @@ class CalendarPromptAction(StrEnum):
     CONFIRM = "confirm"
     CANCEL = "cancel"
     EDIT = "edit"
+    BACK = "back"
 
 
 class CalendarPromptCallback(CallbackData, prefix="calendar_prompt"):
@@ -1103,25 +1104,45 @@ def admin_calendar_keyboard() -> InlineKeyboardMarkup:
 
 def manual_tournaments_prompt_keyboard(prompt: TournamentPromptView) -> InlineKeyboardMarkup:
     builder = InlineKeyboardBuilder()
-    for item in prompt.tournaments:
-        builder.button(
-            text=f"✏️ {texts.common.WEEKDAYS[item.date.weekday()]}",
-            callback_data=TournamentPromptDayEditCallback(
-                prompt_id=prompt.id,
-                tournament_date=item.date.isoformat(),
-            ),
-        )
     builder.button(
-        text=buttons.ADMIN_CALENDAR_OPEN,
+        text="Изменить",
+        callback_data=CalendarPromptCallback(
+            action=CalendarPromptAction.EDIT,
+            prompt_id=prompt.id,
+        ),
+    )
+    builder.button(
+        text="Создать",
         callback_data=CalendarPromptCallback(
             action=CalendarPromptAction.CONFIRM,
             prompt_id=prompt.id,
         ),
     )
     builder.button(
-        text=buttons.ADMIN_CALENDAR_CANCEL,
+        text="Отмена",
         callback_data=CalendarPromptCallback(
             action=CalendarPromptAction.CANCEL,
+            prompt_id=prompt.id,
+        ),
+    )
+    builder.adjust(1)
+    return builder.as_markup()
+
+
+def tournament_prompt_day_edit_keyboard(prompt: TournamentPromptView) -> InlineKeyboardMarkup:
+    builder = InlineKeyboardBuilder()
+    for item in prompt.tournaments:
+        builder.button(
+            text=texts.common.WEEKDAYS[item.date.weekday()],
+            callback_data=TournamentPromptDayEditCallback(
+                prompt_id=prompt.id,
+                tournament_date=item.date.isoformat(),
+            ),
+        )
+    builder.button(
+        text=buttons.ADMIN_CALENDAR_BACK,
+        callback_data=CalendarPromptCallback(
+            action=CalendarPromptAction.BACK,
             prompt_id=prompt.id,
         ),
     )

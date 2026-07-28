@@ -60,6 +60,7 @@ from app.bot.telegram.keyboards.admin import (
     season_open_confirmation_keyboard,
     season_proposal_change_keyboard,
     superadmin_panel_keyboard,
+    tournament_prompt_day_edit_keyboard,
     tournament_type_edit_keyboard,
 )
 from app.bot.telegram.keyboards.buttons import (
@@ -226,6 +227,7 @@ __all__ = [
     "registration_start_keyboard",
     "season_open_confirmation_keyboard",
     "season_proposal_change_keyboard",
+    "tournament_prompt_day_edit_keyboard",
     "tournament_type_edit_keyboard",
     "tournament_cancellation_keyboard",
     "tournament_registration_keyboard",

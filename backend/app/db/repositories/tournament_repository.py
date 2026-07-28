@@ -1,6 +1,6 @@
 from datetime import date
 
-from sqlalchemy import select
+from sqlalchemy import and_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
@@ -70,7 +70,14 @@ class TournamentRepository:
             select(WeeklyTournamentTemplate)
             .where(WeeklyTournamentTemplate.is_active.is_(True))
             .join(WeeklyTournamentTemplate.tournament_type)
-            .where(WeeklyTournamentTemplate.tournament_type.has(status=TournamentTypeStatus.ACTIVE))
+            .where(
+                WeeklyTournamentTemplate.tournament_type.has(
+                    and_(
+                        TournamentType.status == TournamentTypeStatus.ACTIVE,
+                        TournamentType.code != "legacy_unknown",
+                    )
+                )
+            )
             .options(selectinload(WeeklyTournamentTemplate.tournament_type))
             .order_by(
                 WeeklyTournamentTemplate.weekday,

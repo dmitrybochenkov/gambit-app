@@ -1281,10 +1281,21 @@ async def review_calendar_prompt(
     callback_data: keyboards.CalendarPromptCallback,
     state: FSMContext,
 ) -> None:
-    action = CalendarPromptAction(callback_data.action.value)
     try:
         await user_service.require_superadmin(callback.from_user.id)
         if callback_data.action == keyboards.CalendarPromptAction.EDIT:
+            await state.clear()
+            prompt = await calendar_service.get_tournament_prompt(callback_data.prompt_id)
+            if callback.message is not None:
+                await _delete_callback_message(callback)
+                await callback.message.answer(
+                    texts.admin.ADMIN_CALENDAR_EDIT_MENU,
+                    reply_markup=keyboards.tournament_prompt_day_edit_keyboard(prompt),
+                )
+            await callback.answer()
+            return
+
+        if callback_data.action == keyboards.CalendarPromptAction.BACK:
             await state.clear()
             prompt = await calendar_service.get_tournament_prompt(callback_data.prompt_id)
             if callback.message is not None:
@@ -1297,6 +1308,7 @@ async def review_calendar_prompt(
             return
 
         await state.clear()
+        action = CalendarPromptAction(callback_data.action.value)
         resolved_prompt = await calendar_service.resolve_prompt(
             prompt_id=callback_data.prompt_id,
             admin_telegram_id=callback.from_user.id,

@@ -92,8 +92,9 @@ class CalendarTournamentDateNotInPromptError(ValueError):
 
 
 WEDNESDAY_WEEKDAY = 2
-WEDNESDAY_DEFAULT_TOURNAMENT_TYPE_CODE = "bounty"
-FRIDAY_DEFAULT_TOURNAMENT_TYPE_CODE = "freezeout"
+SUNDAY_WEEKDAY = 6
+WEEKLY_PLAYING_WEEKDAYS = (2, 3, 4, 5, 6)
+LEGACY_UNKNOWN_TOURNAMENT_TYPE_CODE = "legacy_unknown"
 
 
 class CalendarService:
@@ -285,7 +286,7 @@ class CalendarService:
         payload: dict[str, object],
     ) -> list[dict[str, object]]:
         tournaments = payload.get("tournaments")
-        if not isinstance(tournaments, list) or len(tournaments) != 3:
+        if not isinstance(tournaments, list) or len(tournaments) != len(WEEKLY_PLAYING_WEEKDAYS):
             raise CalendarPromptInvalidPayloadError
 
         items: list[dict[str, object]] = []
@@ -298,10 +299,9 @@ class CalendarService:
 
         dates = [_payload_date(item) for item in items]
         wednesday = dates[0]
-        expected_dates = (
-            wednesday,
-            wednesday.fromordinal(wednesday.toordinal() + 2),
-            wednesday.fromordinal(wednesday.toordinal() + 4),
+        expected_dates = tuple(
+            wednesday.fromordinal(wednesday.toordinal() + weekday - WEDNESDAY_WEEKDAY)
+            for weekday in WEEKLY_PLAYING_WEEKDAYS
         )
         if wednesday.weekday() != WEDNESDAY_WEEKDAY or tuple(dates) != expected_dates:
             raise CalendarPromptInvalidPayloadError
@@ -310,8 +310,8 @@ class CalendarService:
     @staticmethod
     def _weekly_tournament_prompt_payload(
         *,
-        target_dates: tuple[date, date, date],
-        tournament_type_ids: tuple[int, int, int],
+        target_dates: tuple[date, ...],
+        tournament_type_ids: tuple[int, ...],
     ) -> str:
         return json.dumps(
             {
@@ -333,20 +333,43 @@ class CalendarService:
     async def _default_weekly_tournament_type_ids(
         self,
         session: AsyncSession,
-        target_dates: tuple[date, date, date],
-    ) -> tuple[int, int, int]:
+        target_dates: tuple[date, ...],
+    ) -> tuple[int, ...]:
         repository = TournamentRepository(session)
-        wednesday_type = await repository.get_active_tournament_type_by_code(
-            WEDNESDAY_DEFAULT_TOURNAMENT_TYPE_CODE
-        )
-        friday_type = await repository.get_active_tournament_type_by_code(
-            FRIDAY_DEFAULT_TOURNAMENT_TYPE_CODE
-        )
-        sunday_type_code = self.sunday_rotation.code_for(target_dates[2])
-        sunday_type = await repository.get_active_tournament_type_by_code(sunday_type_code)
-        if wednesday_type is None or friday_type is None or sunday_type is None:
+        templates = await repository.list_active_weekly_templates()
+        templates_by_weekday = {
+            weekday: [template for template in templates if template.weekday == weekday]
+            for weekday in WEEKLY_PLAYING_WEEKDAYS
+        }
+        if any(not weekday_templates for weekday_templates in templates_by_weekday.values()):
             raise CalendarDefaultTournamentTypeNotFoundError
-        return wednesday_type.id, friday_type.id, sunday_type.id
+
+        tournament_type_ids: list[int] = []
+        for target_date in target_dates:
+            if target_date.weekday() == SUNDAY_WEEKDAY:
+                sunday_type_code = self.sunday_rotation.code_for(target_date)
+                sunday_template = next(
+                    (
+                        template
+                        for template in templates_by_weekday[SUNDAY_WEEKDAY]
+                        if template.tournament_type.code == sunday_type_code
+                    ),
+                    None,
+                )
+                if sunday_template is None:
+                    raise CalendarDefaultTournamentTypeNotFoundError
+                tournament_type_ids.append(sunday_template.tournament_type_id)
+                continue
+
+            weekday_templates = templates_by_weekday[target_date.weekday()]
+            if len(weekday_templates) != 1:
+                raise CalendarDefaultTournamentTypeNotFoundError
+            template = weekday_templates[0]
+            if template.tournament_type.code == LEGACY_UNKNOWN_TOURNAMENT_TYPE_CODE:
+                raise CalendarDefaultTournamentTypeNotFoundError
+            tournament_type_ids.append(template.tournament_type_id)
+
+        return tuple(tournament_type_ids)
 
     async def _list_tournament_type_options(
         self,
@@ -354,7 +377,10 @@ class CalendarService:
     ) -> list[TournamentTypeOptionView]:
         result = await session.execute(
             select(TournamentType)
-            .where(TournamentType.status == TournamentTypeStatus.ACTIVE)
+            .where(
+                TournamentType.status == TournamentTypeStatus.ACTIVE,
+                TournamentType.code != LEGACY_UNKNOWN_TOURNAMENT_TYPE_CODE,
+            )
             .order_by(TournamentType.id)
         )
         return [
@@ -371,6 +397,7 @@ class CalendarService:
             select(TournamentType).where(
                 TournamentType.id == tournament_type_id,
                 TournamentType.status == TournamentTypeStatus.ACTIVE,
+                TournamentType.code != LEGACY_UNKNOWN_TOURNAMENT_TYPE_CODE,
             )
         )
         tournament_type = type_result.scalar_one_or_none()
@@ -480,19 +507,18 @@ class CalendarService:
             )
 
 
-def next_complete_game_week(today: date) -> tuple[date, date, date]:
+def next_complete_game_week(today: date) -> tuple[date, ...]:
     days_until_wednesday = (WEDNESDAY_WEEKDAY - today.weekday()) % 7
     if days_until_wednesday == 0:
         days_until_wednesday = 7
     wednesday = today.fromordinal(today.toordinal() + days_until_wednesday)
-    return (
-        wednesday,
-        wednesday.fromordinal(wednesday.toordinal() + 2),
-        wednesday.fromordinal(wednesday.toordinal() + 4),
+    return tuple(
+        wednesday.fromordinal(wednesday.toordinal() + weekday - WEDNESDAY_WEEKDAY)
+        for weekday in WEEKLY_PLAYING_WEEKDAYS
     )
 
 
-def weekly_tournaments_prompt_key(target_dates: tuple[date, date, date]) -> str:
+def weekly_tournaments_prompt_key(target_dates: tuple[date, ...]) -> str:
     return f"tournaments:{target_dates[0].isoformat()}:{target_dates[-1].isoformat()}"
 
 

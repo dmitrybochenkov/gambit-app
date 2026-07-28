@@ -142,6 +142,13 @@ def tournament_prompt_view(
                 tournament_type=tournament_type or tournament_type_detail_view(),
             ),
             TournamentPromptItemView(
+                date=date(2026, 7, 23),
+                tournament_type=tournament_type_detail_view(
+                    type_id=2,
+                    name="Классика",
+                ),
+            ),
+            TournamentPromptItemView(
                 date=date(2026, 7, 24),
                 tournament_type=tournament_type_detail_view(
                     type_id=3,
@@ -151,6 +158,13 @@ def tournament_prompt_view(
                     addon_fee=1000,
                     addon_stack=175_000,
                     rebuys=[TournamentRebuyView(fee=1000, stack=75_000)],
+                ),
+            ),
+            TournamentPromptItemView(
+                date=date(2026, 7, 25),
+                tournament_type=tournament_type_detail_view(
+                    type_id=4,
+                    name="Double Double",
                 ),
             ),
             TournamentPromptItemView(
@@ -1895,18 +1909,21 @@ async def test_admin_calendar_tournaments_callback_shows_weekly_prompt(
     message.delete.assert_awaited_once_with()
     answer = message.answer.await_args
     assert answer.args[0].startswith("Будет создано расписание:\n\n")
-    assert "• Среда, 22 июля — Баунти турнир" in answer.args[0]
-    assert "• Пятница, 24 июля — Фризаут" in answer.args[0]
-    assert "• Воскресенье, 26 июля — Mystery Bounty" in answer.args[0]
+    assert answer.args[0] == (
+        "Будет создано расписание:\n\n"
+        "Среда, 22 июля — Баунти турнир\n"
+        "Четверг, 23 июля — Классика\n"
+        "Пятница, 24 июля — Фризаут\n"
+        "Суббота, 25 июля — Double Double\n"
+        "Воскресенье, 26 июля — Mystery Bounty"
+    )
+    assert "•" not in answer.args[0]
+    assert "Вход:" not in answer.args[0]
+    assert "Ребаи:" not in answer.args[0]
+    assert "Аддон:" not in answer.args[0]
     assert [
         button.text for row in answer.kwargs["reply_markup"].inline_keyboard for button in row
-    ] == [
-        "✏️ Среда",
-        "✏️ Пятница",
-        "✏️ Воскресенье",
-        "✅ Создать",
-        "❌ Отмена",
-    ]
+    ] == ["Изменить", "Создать", "Отмена"]
 
 
 async def test_admin_calendar_denies_regular_admin(
@@ -2039,7 +2056,7 @@ async def test_enter_season_proposal_blank_name_is_rejected(
     message.answer.assert_awaited_once_with("Введи новое название сезона.")
 
 
-async def test_tournament_edit_button_returns_weekly_prompt(
+async def test_tournament_edit_button_shows_day_options(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     admin = admin_player(1, 100, UserRoleView.SUPERADMIN)
@@ -2065,19 +2082,47 @@ async def test_tournament_edit_button_returns_weekly_prompt(
 
     calendar_service.get_tournament_prompt.assert_awaited_once_with(8)
     message.delete.assert_awaited_once_with()
-    assert message.answer.await_args.args[0].startswith("Будет создано расписание:\n\n")
+    assert message.answer.await_args.args[0] == "Что меняем?"
     buttons = [
         button.text
         for row in message.answer.await_args.kwargs["reply_markup"].inline_keyboard
         for button in row
     ]
-    assert buttons == [
-        "✏️ Среда",
-        "✏️ Пятница",
-        "✏️ Воскресенье",
-        "✅ Создать",
-        "❌ Отмена",
-    ]
+    assert buttons == ["Среда", "Четверг", "Пятница", "Суббота", "Воскресенье", "⬅️ Назад"]
+
+
+async def test_tournament_day_edit_back_button_returns_weekly_prompt(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    admin = admin_player(1, 100, UserRoleView.SUPERADMIN)
+    user_service = SimpleNamespace(require_superadmin=AsyncMock(return_value=admin))
+    calendar_service = SimpleNamespace(
+        get_tournament_prompt=AsyncMock(return_value=tournament_prompt_view())
+    )
+    monkeypatch.setattr(admin_handlers, "user_service", user_service)
+    monkeypatch.setattr(admin_handlers, "calendar_service", calendar_service)
+    state = SimpleNamespace(clear=AsyncMock())
+    message = SimpleNamespace(delete=AsyncMock(), answer=AsyncMock())
+    callback = SimpleNamespace(
+        from_user=SimpleNamespace(id=100),
+        message=message,
+        answer=AsyncMock(),
+    )
+    callback_data = SimpleNamespace(
+        action=keyboards.CalendarPromptAction.BACK,
+        prompt_id=8,
+    )
+
+    await admin_handlers.review_calendar_prompt(callback, callback_data, state)
+
+    calendar_service.get_tournament_prompt.assert_awaited_once_with(8)
+    message.delete.assert_awaited_once_with()
+    assert message.answer.await_args.args[0].startswith("Будет создано расписание:\n\n")
+    assert [
+        button.text
+        for row in message.answer.await_args.kwargs["reply_markup"].inline_keyboard
+        for button in row
+    ] == ["Изменить", "Создать", "Отмена"]
 
 
 async def test_tournament_day_selection_shows_type_options(
@@ -2124,7 +2169,7 @@ async def test_tournament_day_selection_shows_type_options(
     ] == ["Баунти турнир", "Классика", "⬅️ Назад"]
 
 
-async def test_tournament_type_selection_redraws_prompt_with_type_parameters(
+async def test_tournament_type_selection_redraws_prompt_without_type_parameters(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     user_service = SimpleNamespace(require_superadmin=AsyncMock(return_value=admin_player(1, 100)))
@@ -2166,8 +2211,17 @@ async def test_tournament_type_selection_redraws_prompt_with_type_parameters(
     )
     state.clear.assert_awaited_once()
     message.delete.assert_awaited_once_with()
-    assert message.answer.await_args.args[0].startswith("Будет создано расписание:\n\n")
-    assert "• Среда, 22 июля — Double Double" in message.answer.await_args.args[0]
+    assert message.answer.await_args.args[0] == (
+        "Будет создано расписание:\n\n"
+        "Среда, 22 июля — Double Double\n"
+        "Четверг, 23 июля — Классика\n"
+        "Пятница, 24 июля — Фризаут\n"
+        "Суббота, 25 июля — Double Double\n"
+        "Воскресенье, 26 июля — Mystery Bounty"
+    )
+    assert "Вход:" not in message.answer.await_args.args[0]
+    assert "Ребаи:" not in message.answer.await_args.args[0]
+    assert "Аддон:" not in message.answer.await_args.args[0]
 
 
 def test_tournament_economy_fsm_callbacks_are_removed() -> None:

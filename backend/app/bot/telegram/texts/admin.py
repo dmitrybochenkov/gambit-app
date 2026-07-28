@@ -72,7 +72,6 @@ ADMIN_CALENDAR_TOURNAMENT_DATE_EXISTS = "На эту дату турнир уж�
 ADMIN_CALENDAR_SEASON_CREATED = "Сезон создан."
 SEASON_CREATED_TITLE = "Создан новый сезон:"
 SEASON_PROPOSAL_PREVIEW_TITLE = "🏆 Новый сезон"
-SEASON_PROPOSAL_PREVIEW_FOOTER = "Текущий активный сезон завершится за день до начала нового."
 SEASON_NAME_LABEL = "Название"
 SEASON_CURRENT_END_LABEL = "Текущий сезон завершится"
 SEASON_NEW_START_LABEL = "Новый сезон начнётся"
@@ -105,9 +104,7 @@ SEASON_PROPOSAL_TITLE = "Нужно подготовить следующий с
 SEASON_PROPOSAL_LABEL = "Предложение"
 SEASON_START_LABEL = "Дата начала"
 SEASON_SCORING_CONFIG_LABEL = "Конфигурация рейтинга"
-SEASON_ACTIVE_CLOSE_WARNING = (
-    "Текущий активный сезон, если он есть, будет закрыт датой за день до начала нового."
-)
+SEASON_ACTIVE_CLOSE_WARNING = "Текущий активный сезон завершится за день до начала нового."
 TOURNAMENTS_PROPOSAL_TITLE = "Нужно создать расписание."
 CONFIRM_CREATION_PROMPT = "Подтвердить создание?"
 REGISTRATION_MATCHES_TITLE = "Возможные совпадения с историей:"
