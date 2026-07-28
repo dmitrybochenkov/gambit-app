@@ -17,6 +17,7 @@ from app.common.normalization import normalize_display_name  # noqa: E402
 from app.db.models.enums import UserRole, UserStatus  # noqa: E402
 
 REQUIRED_FIELDS = ("id", "display_name", "role", "status", "telegram_id")
+DEFAULT_INPUT_FILENAME = "historical_users_with_admins.csv"
 
 
 @dataclass(frozen=True)
@@ -44,7 +45,13 @@ class ImportValidationError(ValueError):
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="Import historical Gambit users into SQLite.")
-    parser.add_argument("source", type=Path, help="Source CSV file")
+    parser.add_argument("source", nargs="?", type=Path, help="Source CSV file")
+    parser.add_argument(
+        "--input",
+        dest="input_path",
+        type=Path,
+        help="Source CSV file. Defaults to ../data/historical_users_with_admins.csv.",
+    )
     parser.add_argument(
         "--db",
         type=Path,
@@ -54,7 +61,8 @@ def main() -> None:
     args = parser.parse_args()
 
     try:
-        rows = load_rows(args.source)
+        source = resolve_input_path(positional_source=args.source, option_source=args.input_path)
+        rows = load_rows(source)
         stats = import_users(db_path=args.db or default_db_path(), rows=rows)
     except ImportValidationError as exc:
         raise SystemExit(f"Import failed: {exc}") from exc
@@ -63,6 +71,20 @@ def main() -> None:
     print(f"Users created: {stats.users_created}")
     print(f"Users skipped: {stats.users_skipped}")
     print(f"Max imported ID: {stats.max_imported_id}")
+
+
+def resolve_input_path(
+    *,
+    positional_source: Path | None,
+    option_source: Path | None,
+) -> Path:
+    if positional_source is not None and option_source is not None:
+        raise ImportValidationError("Use either positional source or --input, not both.")
+    return positional_source or option_source or default_input_path()
+
+
+def default_input_path() -> Path:
+    return Path(__file__).resolve().parents[1] / "data" / DEFAULT_INPUT_FILENAME
 
 
 def load_rows(source: Path) -> list[ImportUserRow]:

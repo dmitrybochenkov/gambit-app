@@ -64,11 +64,36 @@ registration matches. Production rollback for that release must restore the
 previous application directory together with a database backup instead of
 running `alembic downgrade` through that revision.
 
-Import historical users from CSV:
+Runtime import data lives in the project-level `data/` directory. By default,
+the historical user importer reads:
+
+```text
+data/historical_users_with_admins.csv
+```
+
+Local import:
 
 ```bash
 cd backend
-uv run python ../scripts/import_historical_users.py ../historical_users_with_admins.csv
+uv run python ../scripts/import_historical_users.py
+```
+
+Server import:
+
+```bash
+cd /opt/apps/gambit/backend
+uv run python ../scripts/import_historical_users.py
+```
+
+Both commands work identically when the runtime CSV exists at
+`data/historical_users_with_admins.csv` relative to the project root.
+
+To import another file explicitly:
+
+```bash
+cd backend
+uv run python ../scripts/import_historical_users.py ../path/to/custom.csv
+uv run python ../scripts/import_historical_users.py --input ../path/to/custom.csv
 ```
 
 Expected CSV columns:

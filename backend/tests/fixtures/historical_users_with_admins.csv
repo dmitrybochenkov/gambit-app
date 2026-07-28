@@ -1,0 +1,8 @@
+id,display_name,role,status,telegram_id
+1,Fixture Superadmin,SUPERADMIN,ACTIVE,100001
+2,Fixture Admin,ADMIN,ACTIVE,100002
+3,Fixture Player,PLAYER,ACTIVE,
+4,Husband,PLAYER,ACTIVE,
+5,husband,PLAYER,ACTIVE,
+6,Еж Тестовый,PLAYER,ACTIVE,
+7,Ёж Тестовый,PLAYER,ACTIVE,

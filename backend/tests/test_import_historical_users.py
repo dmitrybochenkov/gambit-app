@@ -10,7 +10,8 @@ from sqlalchemy import create_engine, text
 from app.db.base import Base
 
 SCRIPT_PATH = Path(__file__).resolve().parents[2] / "scripts" / "import_historical_users.py"
-HISTORICAL_USERS_CSV = Path("/Users/dmitriybocenkov/Projects/historical_users_with_admins.csv")
+FIXTURES_DIR = Path(__file__).resolve().parent / "fixtures"
+HISTORICAL_USERS_CSV = FIXTURES_DIR / "historical_users_with_admins.csv"
 spec = importlib.util.spec_from_file_location("import_historical_users", SCRIPT_PATH)
 assert spec is not None
 import_historical_users = importlib.util.module_from_spec(spec)
@@ -219,6 +220,41 @@ def test_import_historical_users_imports_attached_csv(tmp_path: Path) -> None:
     assert stats.users_created == len(rows)
     assert stats.users_skipped == 0
     assert len(read_users(db_path)) == len(rows)
+
+
+def test_import_historical_users_default_input_path_is_project_relative() -> None:
+    assert import_historical_users.default_input_path() == (
+        SCRIPT_PATH.parents[1] / "data" / "historical_users_with_admins.csv"
+    )
+
+
+def test_import_historical_users_resolves_custom_input_path(tmp_path: Path) -> None:
+    csv_path = tmp_path / "custom.csv"
+
+    assert (
+        import_historical_users.resolve_input_path(
+            positional_source=csv_path,
+            option_source=None,
+        )
+        == csv_path
+    )
+    assert (
+        import_historical_users.resolve_input_path(
+            positional_source=None,
+            option_source=csv_path,
+        )
+        == csv_path
+    )
+
+
+def test_import_historical_users_rejects_two_input_paths(tmp_path: Path) -> None:
+    csv_path = tmp_path / "custom.csv"
+
+    with pytest.raises(import_historical_users.ImportValidationError, match="either"):
+        import_historical_users.resolve_input_path(
+            positional_source=csv_path,
+            option_source=csv_path,
+        )
 
 
 def test_import_historical_users_detects_id_conflict(tmp_path: Path) -> None:
