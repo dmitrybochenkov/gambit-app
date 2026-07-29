@@ -1,4 +1,4 @@
-from datetime import date
+from datetime import date, datetime
 from decimal import Decimal
 from pathlib import Path
 
@@ -22,16 +22,20 @@ from app.db.models import (
 from app.db.models.enums import (
     KnockoutMode,
     RegistrationStatus,
+    TournamentParticipantResultStatus,
     TournamentParticipantSource,
     TournamentStatus,
     UserRole,
     UserStatus,
 )
 from app.services.result_service import ResultInvalidPlayerDataError, ResultService
-from app.services.tournament_participant_service import TournamentParticipantService
+from app.services.tournament_participant_service import (
+    TournamentCheckInHasResultError,
+    TournamentParticipantService,
+)
 
 
-async def test_result_tournament_list_includes_open_past_tournaments(
+async def test_result_tournament_list_includes_only_today_open_tournaments(
     tmp_path: Path,
 ) -> None:
     engine = create_async_engine(f"sqlite+aiosqlite:///{tmp_path / 'open_results.db'}")
@@ -96,7 +100,6 @@ async def test_result_tournament_list_includes_open_past_tournaments(
     )
 
     assert [(tournament.date, tournament.tournament_type_name) for tournament in tournaments] == [
-        (date(2026, 7, 19), "Классика"),
         (date(2026, 7, 20), "Фризаут"),
     ]
     await engine.dispose()
@@ -134,7 +137,7 @@ async def test_result_draft_closes_tournament(tmp_path: Path) -> None:
             telegram_id=100,
             display_name="Admin",
             status=UserStatus.ACTIVE,
-            role=UserRole.ADMIN,
+            role=UserRole.SUPERADMIN,
         )
         players = [
             build_player(
@@ -187,6 +190,7 @@ async def test_result_draft_closes_tournament(tmp_path: Path) -> None:
     assert await service.validate_draft(100, tournament_id) == [
         "Введи пул турнира.",
         "Введи места: 1, 2, 3, 4, 5.",
+        "Введи хотя бы один 🥊 или 👑🥊.",
     ]
 
     await service.set_points_pool(100, tournament_id, Decimal("1000"))
@@ -316,7 +320,7 @@ async def test_result_draft_moves_duplicate_place_to_latest_player(
         (player_ids[0], None),
         (player_ids[1], 1),
     ]
-    assert await service.validate_draft(100, tournament_id) == ["Введи места: 2, 3, 4, 5."]
+    assert await service.validate_draft(100, tournament_id) == ["Введи места: 2."]
 
     try:
         await service.update_player_result(
@@ -416,6 +420,213 @@ async def test_result_draft_uses_participants_not_pre_registrations(tmp_path: Pa
     draft = await service.get_or_create_draft(100, tournament_id)
 
     assert [player.player_id for player in draft.players] == expected_player_ids
+    await engine.dispose()
+
+
+async def test_no_result_participant_is_hidden_from_drafts_and_final_results(
+    tmp_path: Path,
+) -> None:
+    engine = create_async_engine(f"sqlite+aiosqlite:///{tmp_path / 'no_result.db'}")
+    async with engine.begin() as connection:
+        await connection.run_sync(Base.metadata.create_all)
+
+    session_factory = async_sessionmaker(engine, expire_on_commit=False)
+    async with session_factory() as session:
+        config = ScoringConfig()
+        session.add(config)
+        await session.flush()
+        await seed_tournament_types_async(session)
+        season = Season(
+            name="Test season",
+            scoring_config_id=config.id,
+            starts_at=date(2026, 7, 1),
+            ends_at=None,
+        )
+        admin = build_player(
+            telegram_id=100,
+            display_name="Admin",
+            status=UserStatus.ACTIVE,
+            role=UserRole.SUPERADMIN,
+        )
+        players = [
+            build_player(
+                telegram_id=telegram_id,
+                display_name=f"Player {telegram_id}",
+                status=UserStatus.ACTIVE,
+            )
+            for telegram_id in range(101, 107)
+        ]
+        session.add_all([season, admin, *players])
+        await session.flush()
+        tournament = Tournament(
+            season_id=season.id,
+            tournament_type_id=tournament_type_id("classic"),
+            date=date(2026, 7, 18),
+            status=TournamentStatus.ACTIVE,
+            results_submitted_at=datetime(2026, 7, 18, 23, 0),
+            results_submitted_by_user_id=admin.id,
+        )
+        session.add(tournament)
+        await session.flush()
+        session.add_all(
+            TournamentParticipant(
+                tournament_id=tournament.id,
+                user_id=player.id,
+                source=TournamentParticipantSource.PRE_REGISTERED,
+                checked_in_by_user_id=admin.id,
+            )
+            for player in players
+        )
+        await session.commit()
+        tournament_id = tournament.id
+        player_ids = [player.id for player in players]
+
+    participant_service = TournamentParticipantService(session_factory)
+    result_service = ResultService(session_factory)
+
+    hidden = await participant_service.mark_no_result(100, tournament_id, player_ids[-1])
+    assert hidden.display_name == "Player 106"
+
+    draft = await result_service.get_or_create_draft(100, tournament_id)
+    assert draft.participant_count == 6
+    assert draft.no_result_count == 1
+    assert [player.player_id for player in draft.no_result_players] == [player_ids[-1]]
+    assert [player.player_id for player in draft.players] == player_ids[:-1]
+
+    async with session_factory() as session:
+        participant = (
+            await session.execute(
+                select(TournamentParticipant).where(TournamentParticipant.user_id == player_ids[-1])
+            )
+        ).scalar_one()
+        tournament = await session.get(Tournament, tournament_id)
+    assert participant.result_status == TournamentParticipantResultStatus.NO_RESULT
+    assert tournament is not None
+    assert tournament.results_submitted_at is None
+    assert tournament.results_submitted_by_user_id is None
+
+    for place, player_id in zip(range(1, 6), player_ids[:-1], strict=True):
+        await result_service.update_player_result(
+            100,
+            tournament_id,
+            player_id,
+            place=place,
+            knockouts_count=0,
+            big_knockouts_count=0,
+        )
+    await result_service.submit_results_by_admin(100, tournament_id)
+    await result_service.set_points_pool(100, tournament_id, Decimal("1000"))
+    await result_service.close_tournament(100, tournament_id)
+
+    async with session_factory() as session:
+        results = list((await session.execute(select(TournamentResult))).scalars())
+        participants = list((await session.execute(select(TournamentParticipant))).scalars())
+
+    assert len(results) == 5
+    assert {result.player_id for result in results} == set(player_ids[:-1])
+    assert len(participants) == 6
+    await engine.dispose()
+
+
+async def test_no_result_requires_empty_draft_and_resets_submission_only_on_change(
+    tmp_path: Path,
+) -> None:
+    engine = create_async_engine(f"sqlite+aiosqlite:///{tmp_path / 'no_result_data.db'}")
+    async with engine.begin() as connection:
+        await connection.run_sync(Base.metadata.create_all)
+
+    session_factory = async_sessionmaker(engine, expire_on_commit=False)
+    async with session_factory() as session:
+        config = ScoringConfig()
+        session.add(config)
+        await session.flush()
+        await seed_tournament_types_async(session)
+        season = Season(
+            name="Test season",
+            scoring_config_id=config.id,
+            starts_at=date(2026, 7, 1),
+            ends_at=None,
+        )
+        admin = build_player(
+            telegram_id=100,
+            display_name="Admin",
+            status=UserStatus.ACTIVE,
+            role=UserRole.ADMIN,
+        )
+        player = build_player(
+            telegram_id=101,
+            display_name="Player",
+            status=UserStatus.ACTIVE,
+        )
+        session.add_all([season, admin, player])
+        await session.flush()
+        tournament = Tournament(
+            season_id=season.id,
+            tournament_type_id=tournament_type_id("classic"),
+            date=date(2026, 7, 18),
+            status=TournamentStatus.ACTIVE,
+            results_submitted_at=datetime(2026, 7, 18, 23, 0),
+            results_submitted_by_user_id=admin.id,
+        )
+        session.add(tournament)
+        await session.flush()
+        session.add(
+            TournamentParticipant(
+                tournament_id=tournament.id,
+                user_id=player.id,
+                source=TournamentParticipantSource.PRE_REGISTERED,
+                checked_in_by_user_id=admin.id,
+            )
+        )
+        await session.commit()
+        tournament_id = tournament.id
+        player_id = player.id
+
+    result_service = ResultService(session_factory)
+    participant_service = TournamentParticipantService(session_factory)
+    await result_service.update_player_result(
+        100,
+        tournament_id,
+        player_id,
+        place=None,
+        knockouts_count=0,
+        big_knockouts_count=0,
+        bonus_points=1,
+    )
+
+    try:
+        await participant_service.mark_no_result(100, tournament_id, player_id)
+    except TournamentCheckInHasResultError:
+        pass
+    else:
+        raise AssertionError("Expected TournamentCheckInHasResultError")
+
+    await result_service.update_player_result(
+        100,
+        tournament_id,
+        player_id,
+        place=None,
+        knockouts_count=0,
+        big_knockouts_count=0,
+        bonus_points=0,
+    )
+    await participant_service.mark_no_result(100, tournament_id, player_id)
+    async with session_factory() as session:
+        tournament = await session.get(Tournament, tournament_id)
+        assert tournament is not None
+        assert tournament.results_submitted_at is None
+        assert tournament.results_submitted_by_user_id is None
+        tournament.results_submitted_at = datetime(2026, 7, 18, 23, 30)
+        tournament.results_submitted_by_user_id = player_id
+        await session.commit()
+
+    await participant_service.mark_no_result(100, tournament_id, player_id)
+    async with session_factory() as session:
+        tournament = await session.get(Tournament, tournament_id)
+
+    assert tournament is not None
+    assert tournament.results_submitted_at == datetime(2026, 7, 18, 23, 30)
+    assert tournament.results_submitted_by_user_id == player_id
     await engine.dispose()
 
 

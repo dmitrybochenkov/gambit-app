@@ -39,6 +39,11 @@ class TournamentParticipantSource(StrEnum):
     MIGRATED_RESULT = "migrated_result"
 
 
+class TournamentParticipantResultStatus(StrEnum):
+    ACTIVE = "active"
+    NO_RESULT = "no_result"
+
+
 class TournamentTypeStatus(StrEnum):
     ACTIVE = "active"
     ARCHIVED = "archived"

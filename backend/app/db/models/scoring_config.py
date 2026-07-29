@@ -5,6 +5,7 @@ from sqlalchemy.orm import Mapped, mapped_column
 
 from app.db.base import Base
 from app.db.models.mixins import TimestampMixin
+from app.domain.scoring import TournamentScoring
 
 
 class ScoringConfig(TimestampMixin, Base):
@@ -26,8 +27,16 @@ class ScoringConfig(TimestampMixin, Base):
     place_5_coefficient: Mapped[Decimal] = mapped_column(
         Numeric(5, 4), default=Decimal("0.05"), nullable=False
     )
-    knockout_small_points: Mapped[int] = mapped_column(Integer, default=15, nullable=False)
-    knockout_big_points: Mapped[int] = mapped_column(Integer, default=60, nullable=False)
+    knockout_small_points: Mapped[int] = mapped_column(
+        Integer,
+        default=TournamentScoring.KNOCKOUT_POINTS,
+        nullable=False,
+    )
+    knockout_big_points: Mapped[int] = mapped_column(
+        Integer,
+        default=TournamentScoring.BIG_KNOCKOUT_POINTS,
+        nullable=False,
+    )
 
     __table_args__ = (
         CheckConstraint(

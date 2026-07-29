@@ -1,4 +1,4 @@
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import date
 from decimal import Decimal
 from enum import StrEnum
@@ -178,6 +178,7 @@ class TournamentResultDraftPlayerView:
     place: int | None
     knockouts_count: int
     big_knockouts_count: int
+    bonus_points: int = 0
 
 
 @dataclass(frozen=True)
@@ -186,6 +187,10 @@ class TournamentResultDraftView:
     points_pool: Decimal | None
     players: list[TournamentResultDraftPlayerView]
     knockout_mode: str = "none"
+    supports_bonus_points: bool = False
+    participant_count: int = 0
+    no_result_count: int = 0
+    no_result_players: list[TournamentResultDraftPlayerView] = field(default_factory=list)
 
 
 @dataclass(frozen=True)

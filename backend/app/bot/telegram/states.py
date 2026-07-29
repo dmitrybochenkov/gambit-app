@@ -12,7 +12,6 @@ class CalendarSeasonProposalEditStates(StatesGroup):
 
 
 class AdminResultStates(StatesGroup):
-    entering_pool = State()
     entering_manual_value = State()
     entering_registered_check_in_search = State()
     entering_database_check_in_search = State()

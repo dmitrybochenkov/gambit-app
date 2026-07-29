@@ -20,20 +20,23 @@ ADMIN_RESULTS_TOURNAMENT_LIST_TITLE = "Выбери турнир для внес
 ADMIN_RESULTS_MENU_TITLE = "Внесение результатов"
 ADMIN_RESULTS_PLAYERS_TITLE = "Игроки турнира"
 ADMIN_RESULTS_PLAYERS_EMPTY = "Результаты еще не внесены."
-ADMIN_RESULTS_POOL_PROMPT = "Введи пул турнира."
-ADMIN_RESULTS_INVALID_POOL = "Пул должен быть положительным числом."
 ADMIN_RESULTS_MANUAL_VALUE_PROMPTS = {
     "ko": "Введи количество 🥊 числом.",
-    "big": "Введи количество 💥🥊 числом.",
+    "big": "Введи количество 👑🥊 числом.",
+    "bonus": "Введи бонусные очки числом.",
     "place": "Введи место числом от 1 до 5.",
 }
 ADMIN_RESULTS_INVALID_MANUAL_VALUE = {
     "ko": "🥊 должно быть неотрицательным числом.",
-    "big": "💥🥊 должно быть неотрицательным числом.",
+    "big": "👑🥊 должно быть неотрицательным числом.",
+    "bonus": "Бонус должен быть неотрицательным числом.",
     "place": "Место должно быть числом от 1 до 5.",
 }
 ADMIN_RESULTS_SAVED = "Результат сохранен."
 ADMIN_RESULTS_CLOSED = "Турнир закрыт."
+ADMIN_RESULTS_SUBMITTED = (
+    "✅ Игровые данные сохранены.\n\nТурнир ожидает проверки и закрытия суперадмином."
+)
 ADMIN_RESULTS_CHECK_FAILED = "Нужно поправить:\n{errors}"
 ADMIN_RESULTS_CHECK_FAILED_SHORT = "Нужно поправить ошибки."
 ADMIN_RESULTS_CANCELLED = "Отмена."

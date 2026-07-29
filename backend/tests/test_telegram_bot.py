@@ -14,6 +14,8 @@ from app.bot.telegram import keyboards, notifications, runtime
 from app.bot.telegram.formatters import (
     format_admin_result_close_confirmation,
     format_admin_result_menu,
+    format_admin_result_no_result_confirmation,
+    format_admin_result_no_result_players,
     format_admin_result_players,
     format_season_proposal,
 )
@@ -248,6 +250,9 @@ def test_admin_result_players_hide_ids_and_empty_places() -> None:
     assert format_admin_result_players(draft, page) == (
         "Игроки турнира\n"
         "Воскресенье, 19 июля — Классика\n\n"
+        "Игроки: 2\n"
+        "В работе: 2\n"
+        "Без результата: 0\n\n"
         "```\n"
         "| Место | Игрок\n"
         "| ----- | -----\n"
@@ -266,6 +271,7 @@ def test_admin_result_players_hide_ids_and_empty_places() -> None:
     assert buttons == [
         "Тест Игрок",
         "Илларионов Александр: 2️⃣",
+        "✅ Завершить внесение",
         "⬅️ Назад",
         "❌ Отмена",
     ]
@@ -293,6 +299,9 @@ def test_admin_result_players_show_empty_state_without_entered_results() -> None
     assert format_admin_result_players(draft, page) == (
         "Игроки турнира\n"
         "Воскресенье, 19 июля — Классика\n\n"
+        "Игроки: 1\n"
+        "В работе: 1\n"
+        "Без результата: 0\n\n"
         "```\n"
         "| Место | Игрок\n"
         "| ----- | -----\n"
@@ -338,8 +347,9 @@ def test_admin_result_player_buttons_show_entered_knockouts_and_place() -> None:
     ]
 
     assert buttons == [
-        "Илларионов Александр: 2️⃣ | 💥🥊 х1 | 🥊 х3",
+        "Илларионов Александр: 2️⃣ | 👑🥊 х1 | 🥊 х3",
         "Тест Игрок",
+        "✅ Завершить внесение",
         "⬅️ Назад",
         "❌ Отмена",
     ]
@@ -394,6 +404,9 @@ def test_admin_result_menu_shows_entered_results_under_pool() -> None:
         "Внесение результатов\n"
         "Воскресенье, 19 июля — Классика\n"
         "Пул: 2200\n"
+        "Игроки: 5\n"
+        "В работе: 5\n"
+        "Без результата: 0\n"
         "```\n"
         "| Место | Игрок\n"
         "| ----- | -----\n"
@@ -402,8 +415,7 @@ def test_admin_result_menu_shows_entered_results_under_pool() -> None:
         "|     3 | НЕ ВВЕДЕНО\n"
         "|     4 | Дима Боченков\n"
         "|     5 | Тест Игрок 7\n"
-        "```\n\n"
-        "Игроков: 5"
+        "```"
     )
 
 
@@ -449,6 +461,9 @@ def test_admin_result_menu_sorts_without_places_by_big_and_small_knockouts() -> 
         "Внесение результатов\n"
         "Воскресенье, 19 июля — Boss Bounty\n"
         "Пул: 2200\n"
+        "Игроки: 4\n"
+        "В работе: 4\n"
+        "Без результата: 0\n"
         "```\n"
         "| Место | Игрок\n"
         "| ----- | -----\n"
@@ -459,10 +474,9 @@ def test_admin_result_menu_sorts_without_places_by_big_and_small_knockouts() -> 
         "|     5 | НЕ ВВЕДЕНО\n"
         "```\n\n"
         "🥊:\n"
-        "Игрок БКО: 💥🥊 х2, 🥊 х1\n"
-        "Игрок Много КО: 💥🥊 х1, 🥊 х7\n"
-        "Игрок КО: 💥🥊 х1, 🥊 х4\n\n"
-        "Игроков: 4"
+        "Игрок БКО: 👑🥊 х2, 🥊 х1\n"
+        "Игрок Много КО: 👑🥊 х1, 🥊 х7\n"
+        "Игрок КО: 👑🥊 х1, 🥊 х4"
     )
 
 
@@ -487,6 +501,9 @@ def test_admin_result_menu_shows_empty_results_state() -> None:
         "Внесение результатов\n"
         "Воскресенье, 19 июля — Классика\n"
         "Пул: 2200\n"
+        "Игроки: 1\n"
+        "В работе: 1\n"
+        "Без результата: 0\n"
         "```\n"
         "| Место | Игрок\n"
         "| ----- | -----\n"
@@ -495,8 +512,7 @@ def test_admin_result_menu_shows_empty_results_state() -> None:
         "|     3 | НЕ ВВЕДЕНО\n"
         "|     4 | НЕ ВВЕДЕНО\n"
         "|     5 | НЕ ВВЕДЕНО\n"
-        "```\n\n"
-        "Игроков: 1"
+        "```"
     )
 
 
@@ -508,10 +524,7 @@ def test_admin_result_menu_has_close_without_check() -> None:
     ]
 
     assert buttons == [
-        "👥 Участники",
-        "💰 Пул",
         "👥 Игроки",
-        "✅ Закрыть турнир",
         "❌ Отмена",
     ]
 
@@ -545,7 +558,7 @@ def test_admin_result_close_confirmation_shows_pool_and_results() -> None:
         "Воскресенье, 19 июля — Boss Bounty\n"
         "Пул: 1800\n\n"
         "Результаты:\n"
-        "• Илларионов Александр: 2️⃣ | 💥🥊 х1 | 🥊 х3\n"
+        "• Илларионов Александр: 2️⃣ | 👑🥊 х1 | 🥊 х3\n"
         "• Тест Игрок"
     )
 
@@ -577,8 +590,9 @@ def test_admin_result_player_field_and_value_keyboards() -> None:
     ]
     assert field_buttons == [
         "🥊 КО",
-        "💥🥊 Большие КО",
+        "👑🥊 Большие КО",
         "🏁 Место",
+        "💤 Без результата",
         "✅ Готово",
         "❌ Отмена",
     ]
@@ -612,7 +626,52 @@ def test_admin_result_player_field_and_value_keyboards() -> None:
     ]
 
 
-async def test_place_only_result_player_opens_place_keyboard(
+def test_admin_result_no_result_confirmation_and_collapsed_list() -> None:
+    tournament = tournament_view(125, date(2026, 7, 19), 2, "Классика")
+    player = TournamentResultDraftPlayerView(
+        player_id=108,
+        display_name="Дмитрий",
+        place=None,
+        knockouts_count=0,
+        big_knockouts_count=0,
+    )
+    draft = TournamentResultDraftView(
+        tournament=tournament,
+        points_pool=Decimal("1800"),
+        players=[],
+        no_result_count=1,
+        no_result_players=[player],
+    )
+
+    assert format_admin_result_no_result_confirmation(player) == (
+        "Убрать Дмитрий из списка внесения результатов?\n\n"
+        "Игрок останется участником турнира, но место, нокауты и бонусные очки "
+        "по нему вносить не потребуется."
+    )
+    assert format_admin_result_no_result_players(draft) == (
+        "💤 Без результата\nВоскресенье, 19 июля — Классика\n\nДмитрий"
+    )
+
+    confirmation_buttons = [
+        button.text
+        for row in keyboards.admin_result_no_result_confirmation_keyboard(
+            tournament_id=125,
+            page=0,
+            player_id=108,
+        ).inline_keyboard
+        for button in row
+    ]
+    list_buttons = [
+        button.text
+        for row in keyboards.admin_result_no_result_players_keyboard(draft).inline_keyboard
+        for button in row
+    ]
+
+    assert confirmation_buttons == ["💤 Убрать", "↩️ Назад"]
+    assert list_buttons == ["↩️ Дмитрий", "⬅️ Назад"]
+
+
+async def test_place_only_result_player_opens_player_card(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     tournament = tournament_view(125, date(2026, 7, 19), 2, "Классика")
@@ -663,12 +722,12 @@ async def test_place_only_result_player_opens_place_keyboard(
     callback.answer.assert_awaited_once()
     message.delete.assert_awaited_once()
     message.answer.assert_awaited_once()
-    assert message.answer.await_args.args[0] == ("Илларионов Александр\n\nВыбери место:")
+    assert message.answer.await_args.args[0] == ("Результат игрока\nИлларионов Александр")
     assert [
         button.text
         for row in message.answer.await_args.kwargs["reply_markup"].inline_keyboard
         for button in row
-    ] == ["1", "✔️ 2", "3", "4", "5", "⬅️ Назад", "❌ Отмена"]
+    ] == ["🏁 Место", "💤 Без результата", "✅ Готово", "❌ Отмена"]
 
 
 def admin_player(

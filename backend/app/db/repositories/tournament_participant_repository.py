@@ -8,7 +8,12 @@ from app.db.models import (
     TournamentResultDraft,
     User,
 )
-from app.db.models.enums import RegistrationStatus, TournamentParticipantSource, UserStatus
+from app.db.models.enums import (
+    RegistrationStatus,
+    TournamentParticipantResultStatus,
+    TournamentParticipantSource,
+    UserStatus,
+)
 
 
 class TournamentParticipantRepository:
@@ -78,6 +83,7 @@ class TournamentParticipantRepository:
                     (TournamentResultDraft.place.is_not(None))
                     | (TournamentResultDraft.knockouts_count > 0)
                     | (TournamentResultDraft.big_knockouts_count > 0)
+                    | (TournamentResultDraft.bonus_points > 0)
                 ),
             )
         )
@@ -99,6 +105,7 @@ class TournamentParticipantRepository:
                 TournamentResultDraft.place.is_(None),
                 TournamentResultDraft.knockouts_count == 0,
                 TournamentResultDraft.big_knockouts_count == 0,
+                TournamentResultDraft.bonus_points == 0,
             )
         )
 
@@ -108,9 +115,11 @@ class TournamentParticipantRepository:
                 User.id.label("user_id"),
                 User.display_name,
                 TournamentParticipant.source,
+                TournamentParticipant.result_status,
                 TournamentResultDraft.place,
                 TournamentResultDraft.knockouts_count,
                 TournamentResultDraft.big_knockouts_count,
+                TournamentResultDraft.bonus_points,
             )
             .join(TournamentRegistration, TournamentRegistration.player_id == User.id)
             .outerjoin(
@@ -152,6 +161,36 @@ class TournamentParticipantRepository:
             )
         )
         return int(result.scalar_one())
+
+    async def active_participant_user_ids(self, tournament_id: int) -> list[int]:
+        result = await self.session.execute(
+            select(TournamentParticipant.user_id).where(
+                TournamentParticipant.tournament_id == tournament_id,
+                TournamentParticipant.result_status == TournamentParticipantResultStatus.ACTIVE,
+            )
+        )
+        return list(result.scalars())
+
+    async def no_result_count(self, tournament_id: int) -> int:
+        result = await self.session.execute(
+            select(func.count(TournamentParticipant.id)).where(
+                TournamentParticipant.tournament_id == tournament_id,
+                TournamentParticipant.result_status == TournamentParticipantResultStatus.NO_RESULT,
+            )
+        )
+        return int(result.scalar_one())
+
+    async def list_no_result_players(self, tournament_id: int) -> list[User]:
+        result = await self.session.execute(
+            select(User)
+            .join(TournamentParticipant, TournamentParticipant.user_id == User.id)
+            .where(
+                TournamentParticipant.tournament_id == tournament_id,
+                TournamentParticipant.result_status == TournamentParticipantResultStatus.NO_RESULT,
+            )
+            .order_by(User.display_name, User.id)
+        )
+        return list(result.scalars())
 
     async def search_registered(self, tournament_id: int) -> list[User]:
         result = await self.session.execute(

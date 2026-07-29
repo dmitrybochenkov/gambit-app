@@ -12,6 +12,7 @@ class Settings(BaseSettings):
     app_port: int = 8100
     debug: bool = False
     public_base_url: str = ""
+    club_timezone: str = "Europe/Moscow"
 
     data_dir: str = "../data"
     logs_dir: str = "../logs"

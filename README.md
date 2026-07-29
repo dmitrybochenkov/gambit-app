@@ -260,8 +260,12 @@ The initial migration creates:
 - tournament results
 
 It also inserts the initial scoring configuration with place coefficients
-`0.45`, `0.25`, `0.15`, `0.10`, `0.05`, knockout value `15`, and boss knockout
-value `60`.
+`0.45`, `0.25`, `0.15`, `0.10`, `0.05`, knockout value `15`, and big
+knockout value `60`.
+
+The authoritative default knockout values live in
+`backend/app/domain/scoring.py::TournamentScoring`; this README is only a
+reference for the current seed values.
 
 ## Server Layout
 

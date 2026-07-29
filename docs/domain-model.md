@@ -65,9 +65,12 @@ Fields:
 - `place_4_coefficient`: `0.10`
 - `place_5_coefficient`: `0.05`
 - `knockout_points`: `15`
-- `boss_knockout_points`: `60`
+- `big_knockout_points`: `60`
 - `created_at`
 - `updated_at`
+
+Authoritative default knockout values live in
+`backend/app/domain/scoring.py::TournamentScoring`.
 
 Constraint:
 
@@ -138,7 +141,7 @@ Constraint:
 Derived values:
 
 - `tournament_points` = tournament `points_pool` * coefficient for `place`
-- `knockout_points` = `knockouts_count` * config `knockout_points` + `boss_knockouts_count` * config `boss_knockout_points`
+- `knockout_points` = `knockouts_count` * config `knockout_points` + `big_knockouts_count` * config `big_knockout_points`
 - `total_points` = `tournament_points` + `knockout_points` + `bonus_points`
 - Tournament date is taken from the related tournament.
 

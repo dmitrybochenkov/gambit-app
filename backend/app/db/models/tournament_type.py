@@ -1,6 +1,15 @@
 from decimal import Decimal
 
-from sqlalchemy import CheckConstraint, ForeignKey, Integer, Numeric, String, Text, UniqueConstraint
+from sqlalchemy import (
+    Boolean,
+    CheckConstraint,
+    ForeignKey,
+    Integer,
+    Numeric,
+    String,
+    Text,
+    UniqueConstraint,
+)
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.base import Base
@@ -50,6 +59,11 @@ class TournamentTypeRule(TimestampMixin, Base):
     knockout_mode: Mapped[KnockoutMode] = mapped_column(
         database_enum(KnockoutMode, "knockout_mode"),
         default=KnockoutMode.NONE,
+        nullable=False,
+    )
+    supports_bonus_points: Mapped[bool] = mapped_column(
+        Boolean,
+        default=False,
         nullable=False,
     )
 

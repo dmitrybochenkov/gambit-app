@@ -5,10 +5,11 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from app.db.factories import create_user
-from app.db.models import RegistrationRequest, TournamentResultDraft
+from app.db.models import RegistrationRequest, Tournament, TournamentResultDraft
 from app.db.models.enums import (
     RegistrationRequestStatus,
     RegistrationRequestType,
+    TournamentParticipantResultStatus,
     TournamentParticipantSource,
     TournamentStatus,
     UserRole,
@@ -168,6 +169,72 @@ class TournamentParticipantService:
                 raise IdentityAlreadyExistsError("display_name") from exc
             return await self._check_in_view(session, tournament.id)
 
+    async def mark_no_result(
+        self,
+        admin_telegram_id: int,
+        tournament_id: int,
+        user_id: int,
+    ) -> TournamentCheckInPlayerView:
+        async with self.session_factory() as session:
+            await self._require_admin(session, admin_telegram_id)
+            tournament = await self._require_open_tournament(session, tournament_id)
+            repository = TournamentParticipantRepository(session)
+            participant = await repository.get(tournament.id, user_id)
+            if participant is None:
+                raise TournamentCheckInUserNotFoundError
+            if await repository.has_result_data(tournament.id, user_id):
+                raise TournamentCheckInHasResultError
+            if participant.result_status != TournamentParticipantResultStatus.NO_RESULT:
+                participant.result_status = TournamentParticipantResultStatus.NO_RESULT
+                await repository.delete_empty_draft(tournament.id, user_id)
+                await _reset_results_submission(session, tournament.id)
+            await session.commit()
+            user = await UserRepository(session).get_by_id(user_id)
+            if user is None:
+                raise TournamentCheckInUserNotFoundError
+            return TournamentCheckInPlayerView(
+                user_id=user.id,
+                display_name=user.display_name,
+                is_pre_registered=True,
+                is_checked_in=True,
+                source=participant.source.value,
+            )
+
+    async def restore_result_active(
+        self,
+        admin_telegram_id: int,
+        tournament_id: int,
+        user_id: int,
+    ) -> TournamentCheckInPlayerView:
+        async with self.session_factory() as session:
+            await self._require_admin(session, admin_telegram_id)
+            tournament = await self._require_open_tournament(session, tournament_id)
+            repository = TournamentParticipantRepository(session)
+            participant = await repository.get(tournament.id, user_id)
+            if participant is None:
+                raise TournamentCheckInUserNotFoundError
+            if participant.result_status != TournamentParticipantResultStatus.ACTIVE:
+                participant.result_status = TournamentParticipantResultStatus.ACTIVE
+                await _reset_results_submission(session, tournament.id)
+            await self._check_in_user(
+                session=session,
+                tournament_id=tournament.id,
+                user_id=user_id,
+                source=participant.source,
+                checked_in_by_user_id=participant.checked_in_by_user_id or 0,
+            )
+            await session.commit()
+            user = await UserRepository(session).get_by_id(user_id)
+            if user is None:
+                raise TournamentCheckInUserNotFoundError
+            return TournamentCheckInPlayerView(
+                user_id=user.id,
+                display_name=user.display_name,
+                is_pre_registered=True,
+                is_checked_in=True,
+                source=participant.source.value,
+            )
+
     async def search_registered(
         self,
         admin_telegram_id: int,
@@ -248,12 +315,15 @@ class TournamentParticipantService:
         checked_in_by_user_id: int,
     ) -> None:
         repository = TournamentParticipantRepository(session)
+        existing = await repository.get(tournament_id, user_id)
         await repository.add_if_missing(
             tournament_id=tournament_id,
             user_id=user_id,
             source=source,
             checked_in_by_user_id=checked_in_by_user_id,
         )
+        if existing is None:
+            await _reset_results_submission(session, tournament_id)
         if not await _draft_exists(session, tournament_id, user_id):
             session.add(
                 TournamentResultDraft(
@@ -262,6 +332,7 @@ class TournamentParticipantService:
                     place=None,
                     knockouts_count=0,
                     big_knockouts_count=0,
+                    bonus_points=0,
                 )
             )
         await session.flush()
@@ -278,6 +349,7 @@ class TournamentParticipantService:
         participant = await repository.get(tournament_id, user_id)
         if participant is not None:
             await repository.delete(participant)
+            await _reset_results_submission(session, tournament_id)
         await repository.delete_empty_draft(tournament_id, user_id)
         await session.flush()
 
@@ -301,7 +373,10 @@ class TournamentParticipantService:
                 is_checked_in=row.source is not None,
                 source=row.source.value if row.source is not None else None,
                 has_result_data=(
-                    row.place is not None or row.knockouts_count > 0 or row.big_knockouts_count > 0
+                    row.place is not None
+                    or row.knockouts_count > 0
+                    or row.big_knockouts_count > 0
+                    or row.bonus_points > 0
                 ),
             )
             for row in rows
@@ -326,6 +401,13 @@ async def _draft_exists(session: AsyncSession, tournament_id: int, user_id: int)
         )
     )
     return result.scalar_one_or_none() is not None
+
+
+async def _reset_results_submission(session: AsyncSession, tournament_id: int) -> None:
+    tournament = await session.get(Tournament, tournament_id)
+    if tournament is not None:
+        tournament.results_submitted_at = None
+        tournament.results_submitted_by_user_id = None
 
 
 tournament_participant_service = TournamentParticipantService(SessionFactory)

@@ -207,9 +207,11 @@ def format_admin_result_menu(draft: TournamentResultDraftView) -> str:
         texts.admin.ADMIN_RESULTS_MENU_TITLE,
         format_tournament_label(draft.tournament),
         f"Пул: {pool}",
+        f"Игроки: {draft.participant_count or len(draft.players)}",
+        f"В работе: {len(draft.players)}",
+        f"Без результата: {draft.no_result_count}",
     ]
     lines.extend(_admin_result_summary_lines(draft))
-    lines.extend(["", f"Игроков: {len(draft.players)}"])
     return "\n".join(lines)
 
 
@@ -272,13 +274,48 @@ def format_admin_result_players(
         texts.admin.ADMIN_RESULTS_PLAYERS_TITLE,
         format_tournament_label(draft.tournament),
         "",
+        f"Игроки: {draft.participant_count or len(draft.players)}",
+        f"В работе: {len(draft.players)}",
+        f"Без результата: {draft.no_result_count}",
+        "",
     ]
     lines.extend(_admin_result_summary_lines(draft))
     return "\n".join(lines)
 
 
+def format_admin_result_no_result_confirmation(
+    player: TournamentResultDraftPlayerView,
+) -> str:
+    return "\n".join(
+        [
+            f"Убрать {player.display_name} из списка внесения результатов?",
+            "",
+            "Игрок останется участником турнира, но место, нокауты и бонусные очки "
+            "по нему вносить не потребуется.",
+        ]
+    )
+
+
+def format_admin_result_no_result_players(draft: TournamentResultDraftView) -> str:
+    lines = [
+        "💤 Без результата",
+        format_tournament_label(draft.tournament),
+        "",
+    ]
+    if not draft.no_result_players:
+        lines.append("Список пуст.")
+        return "\n".join(lines)
+    lines.extend(player.display_name for player in draft.no_result_players)
+    return "\n".join(lines)
+
+
 def _admin_result_player_has_value(player: TournamentResultDraftPlayerView) -> bool:
-    return player.place is not None or player.knockouts_count > 0 or player.big_knockouts_count > 0
+    return (
+        player.place is not None
+        or player.knockouts_count > 0
+        or player.big_knockouts_count > 0
+        or player.bonus_points > 0
+    )
 
 
 def _admin_result_summary_lines(draft: TournamentResultDraftView) -> list[str]:
@@ -286,6 +323,9 @@ def _admin_result_summary_lines(draft: TournamentResultDraftView) -> list[str]:
     knockout_lines = _admin_result_knockout_lines(draft)
     if knockout_lines:
         lines.extend(["", *knockout_lines])
+    bonus_lines = _admin_result_bonus_lines(draft)
+    if bonus_lines:
+        lines.extend(["", *bonus_lines])
     return lines
 
 
@@ -324,10 +364,27 @@ def _admin_result_knockout_lines(draft: TournamentResultDraftView) -> list[str]:
             knockout_mode=draft.knockout_mode,
             knockouts_count=player.knockouts_count,
             big_knockouts_count=player.big_knockouts_count,
+            bonus_points=player.bonus_points,
             place=None,
+            supports_bonus_points=draft.supports_bonus_points,
         )
         lines.append(f"{_markdown_escape(player.display_name)}: {', '.join(result_parts)}")
     return lines
+
+
+def _admin_result_bonus_lines(draft: TournamentResultDraftView) -> list[str]:
+    if not draft.supports_bonus_points:
+        return []
+    players = sorted(
+        [player for player in draft.players if player.bonus_points > 0],
+        key=lambda player: (-player.bonus_points, player.display_name.casefold()),
+    )
+    if not players:
+        return []
+    return [
+        "Бонус:",
+        *[f"{_markdown_escape(player.display_name)}: {player.bonus_points}" for player in players],
+    ]
 
 
 def _markdown_escape(value: str) -> str:
@@ -386,18 +443,30 @@ def _admin_result_player_parts(
     knockout_mode: str,
     knockouts_count: int,
     big_knockouts_count: int,
+    bonus_points: int,
     place: int | None,
+    supports_bonus_points: bool,
 ) -> list[str]:
-    place_part = [_place_label(place)] if place is not None else []
+    parts = []
+    if place is not None:
+        parts.append(_place_label(place))
     if knockout_mode == "small_big":
-        return [
-            f"💥🥊 х{big_knockouts_count}",
-            f"🥊 х{knockouts_count}",
-            *place_part,
-        ]
+        if big_knockouts_count > 0:
+            parts.append(f"👑🥊 х{big_knockouts_count}")
+        if knockouts_count > 0:
+            parts.append(f"🥊 х{knockouts_count}")
+        if supports_bonus_points and bonus_points > 0:
+            parts.append(f"Бонус {bonus_points}")
+        return parts
     if knockout_mode == "small":
-        return [f"🥊 х{knockouts_count}", *place_part]
-    return place_part
+        if knockouts_count > 0:
+            parts.append(f"🥊 х{knockouts_count}")
+        if supports_bonus_points and bonus_points > 0:
+            parts.append(f"Бонус {bonus_points}")
+        return parts
+    if supports_bonus_points and bonus_points > 0:
+        parts.append(f"Бонус {bonus_points}")
+    return parts
 
 
 def _place_label(place: int) -> str:
@@ -412,9 +481,11 @@ def _admin_result_confirmation(
     if player.place is not None:
         result_parts.append(_place_label(player.place))
     if draft.knockout_mode == "small_big" and player.big_knockouts_count > 0:
-        result_parts.append(f"💥🥊 х{player.big_knockouts_count}")
+        result_parts.append(f"👑🥊 х{player.big_knockouts_count}")
     if draft.knockout_mode in {"small", "small_big"} and player.knockouts_count > 0:
         result_parts.append(f"🥊 х{player.knockouts_count}")
+    if draft.supports_bonus_points and player.bonus_points > 0:
+        result_parts.append(f"Бонус {player.bonus_points}")
     return " | ".join(result_parts)
 
 
@@ -430,7 +501,9 @@ def format_admin_result_player_detail(
         label = "🥊"
         lines.append(f"{label}: {player.knockouts_count}")
     if draft.knockout_mode == "small_big":
-        lines.append(f"💥🥊: {player.big_knockouts_count}")
+        lines.append(f"👑🥊: {player.big_knockouts_count}")
+    if draft.supports_bonus_points:
+        lines.append(f"Бонус: {player.bonus_points}")
     if player.place is not None:
         lines.append(f"Место: {_place_label(player.place)}")
     return "\n".join(lines)

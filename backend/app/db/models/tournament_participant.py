@@ -1,10 +1,14 @@
 from datetime import datetime
 
-from sqlalchemy import DateTime, ForeignKey, Integer, UniqueConstraint
+from sqlalchemy import DateTime, ForeignKey, Integer, String, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.db.base import Base
-from app.db.models.enums import TournamentParticipantSource, database_enum
+from app.db.models.enums import (
+    TournamentParticipantResultStatus,
+    TournamentParticipantSource,
+    database_enum,
+)
 from app.db.models.mixins import TimestampMixin, utc_now
 
 
@@ -24,6 +28,12 @@ class TournamentParticipant(TimestampMixin, Base):
     )
     source: Mapped[TournamentParticipantSource] = mapped_column(
         database_enum(TournamentParticipantSource, "tournament_participant_source"),
+        nullable=False,
+        index=True,
+    )
+    result_status: Mapped[TournamentParticipantResultStatus] = mapped_column(
+        String(20),
+        default=TournamentParticipantResultStatus.ACTIVE,
         nullable=False,
         index=True,
     )
