@@ -143,50 +143,56 @@ def rating_message(
     lines.append("")
     start_position = page.page * page.page_size + 1
     for position, row in enumerate(page.items, start=start_position):
-        position_label = _rating_position_label(position)
-        current_marker = " ✅" if row.player_id == current_player_id else ""
+        position_label = _rating_position_label(position, row.player_id == current_player_id)
         display_name = _rating_display_name(row, current_player_id)
         if isinstance(row, PointsRatingView):
             points = _format_points(row.total_points)
-            lines.append(
-                f"{position_label}{current_marker} {display_name} — {points} | "
-                f"🎲 {row.tournaments_count}"
-            )
+            lines.append(f"{position_label} {display_name} — {points} | 🎲 {row.tournaments_count}")
         else:
             lines.append(
-                f"{position_label}{current_marker} {display_name} — "
-                f"{row.total_knockouts_count} | "
+                f"{position_label} {display_name} — {row.total_knockouts_count} | "
                 f"🎲 {row.knockout_tournaments_count}"
             )
     return "\n".join(lines)
 
 
-def _rating_position_label(position: int) -> str:
+def _rating_position_label(position: int, is_current_player: bool = False) -> str:
     medals = {
         1: "🥇",
         2: "🥈",
         3: "🥉",
     }
-    return medals.get(position, f"{position}.")
+    label = medals.get(position, f"{position}.")
+    if is_current_player:
+        return f"👉 {position}."
+    return label
 
 
 def _rating_display_name(
     row: PointsRatingView | KnockoutsRatingView,
     current_player_id: int,
 ) -> str:
-    display_name = _escape_markdown(_rating_display_name_with_honours(row))
     if row.player_id == current_player_id:
+        display_name = _escape_markdown(row.display_name)
+        honours = _rating_honours(row)
+        if honours:
+            return f"*{display_name}* {honours}"
         return f"*{display_name}*"
-    return display_name
+    return _escape_markdown(_rating_display_name_with_honours(row))
 
 
 def _rating_display_name_with_honours(row: PointsRatingView | KnockoutsRatingView) -> str:
-    parts = [row.display_name]
+    honours = _rating_honours(row)
+    return f"{row.display_name} {honours}" if honours else row.display_name
+
+
+def _rating_honours(row: PointsRatingView | KnockoutsRatingView) -> str:
+    honours = []
     if row.season_champion_titles_count > 0:
-        parts.extend("💍" for _ in range(row.season_champion_titles_count))
+        honours.extend("💍" for _ in range(row.season_champion_titles_count))
     if isinstance(row, KnockoutsRatingView) and row.season_knockout_leader_titles_count > 0:
-        parts.extend("🥊" for _ in range(row.season_knockout_leader_titles_count))
-    return " ".join(parts)
+        honours.extend("🥊" for _ in range(row.season_knockout_leader_titles_count))
+    return "".join(honours)
 
 
 def _format_points(value: Decimal) -> str:

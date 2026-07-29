@@ -193,7 +193,7 @@ async def test_rating_filters_current_season_and_all_time(tmp_path: Path) -> Non
             current_page,
             current_player_id=second_player.id,
         ).startswith(
-            "Рейтинг — текущий сезон\n🎲 - количество турниров\n\n🥇 ✅ *King* — 120 | 🎲 1"
+            "Рейтинг — текущий сезон\n🎲 - количество турниров\n\n👉 1. *King* — 120 | 🎲 1"
         )
         knockout_message = format_rating(
             knockout_title,
@@ -203,8 +203,9 @@ async def test_rating_filters_current_season_and_all_time(tmp_path: Path) -> Non
         assert (
             "Рейтинг по нокаутам — за всё время\n🎲 - количество турниров с нокаутами\n\n"
         ) in knockout_message
-        assert "🥇 ✅ *Игрок Первый 💍 🥊* — 6 | 🎲 2" in knockout_message
+        assert "👉 1. *Игрок Первый* 💍🥊 — 6 | 🎲 2" in knockout_message
         assert "⭐" not in knockout_message
+        assert "✅" not in knockout_message
     finally:
         await engine.dispose()
 
@@ -236,9 +237,10 @@ def test_points_rating_format_uses_half_up_rounding_and_current_marker() -> None
     assert (
         "Рейтинг — за всё время\n"
         "🎲 - количество турниров\n\n"
-        "🥇 ✅ *King 💍* — 121 | 🎲 3\n"
+        "👉 1. *King* 💍 — 121 | 🎲 3\n"
         "🥈 Player — 90 | 🎲 2"
     ) == message
+    assert "✅" not in message
 
 
 def test_knockout_rating_format_hides_points_and_repeats_titles() -> None:
@@ -265,8 +267,70 @@ def test_knockout_rating_format_hides_points_and_repeats_titles() -> None:
     assert (
         "Рейтинг по нокаутам — за всё время\n"
         "🎲 - количество турниров с нокаутами\n\n"
-        "🥇 King 💍 🥊 🥊 — 6 | 🎲 2"
+        "🥇 King 💍🥊🥊 — 6 | 🎲 2"
     ) == message
+
+
+def test_points_rating_format_marks_current_player_without_honours() -> None:
+    page = pagination_service.paginate(
+        [
+            *(
+                PointsRatingView(
+                    player_id=player_id,
+                    display_name=f"Игрок {player_id}",
+                    total_points=Decimal(2000 - player_id),
+                    tournaments_count=1,
+                )
+                for player_id in range(1, 18)
+            ),
+            PointsRatingView(
+                player_id=18,
+                display_name="Boxing",
+                total_points=Decimal("1750"),
+                tournaments_count=14,
+            ),
+        ],
+        page=17,
+        page_size=1,
+    )
+
+    message = format_rating("Рейтинг — за всё время", page, current_player_id=18)
+
+    assert "👉 18. *Boxing* — 1750 | 🎲 14" in message
+    assert "✅" not in message
+
+
+def test_knockout_rating_format_marks_current_player_with_ring_and_knockout_title() -> None:
+    page = pagination_service.paginate(
+        [
+            KnockoutsRatingView(
+                player_id=player_id,
+                display_name=f"Игрок {player_id}",
+                knockouts_count=20 - player_id,
+                big_knockouts_count=0,
+                knockout_tournaments_count=1,
+            )
+            for player_id in range(1, 5)
+        ]
+        + [
+            KnockoutsRatingView(
+                player_id=5,
+                display_name="Дима",
+                knockouts_count=10,
+                big_knockouts_count=2,
+                knockout_tournaments_count=18,
+                season_champion_titles_count=1,
+                season_knockout_leader_titles_count=1,
+            ),
+        ],
+        page=4,
+        page_size=1,
+    )
+
+    message = format_rating("Рейтинг по нокаутам — за всё время", page, current_player_id=5)
+
+    assert "👉 5. *Дима* 💍🥊 — 12 | 🎲 18" in message
+    assert "✅" not in message
 
 
 async def test_active_superadmin_can_open_rating_after_new_session(tmp_path: Path) -> None:
