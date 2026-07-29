@@ -507,10 +507,18 @@ async def test_duplicate_season_proposal_confirmation_is_rejected(
             admin_telegram_id=100,
             today=date(2026, 7, 27),
         )
-        await service.confirm_season_proposal(admin_telegram_id=100, prompt_id=proposal.id)
+        await service.confirm_season_proposal(
+            admin_telegram_id=100,
+            prompt_id=proposal.id,
+            today=date(2026, 7, 28),
+        )
 
         with pytest.raises(SeasonProposalAlreadyResolvedError):
-            await service.confirm_season_proposal(admin_telegram_id=100, prompt_id=proposal.id)
+            await service.confirm_season_proposal(
+                admin_telegram_id=100,
+                prompt_id=proposal.id,
+                today=date(2026, 7, 28),
+            )
 
         async with session_factory() as session:
             seasons = list((await session.execute(select(Season))).scalars())
@@ -530,7 +538,11 @@ async def test_confirmed_season_proposal_cannot_be_edited_or_cancelled(
             admin_telegram_id=100,
             today=date(2026, 7, 27),
         )
-        await service.confirm_season_proposal(admin_telegram_id=100, prompt_id=proposal.id)
+        await service.confirm_season_proposal(
+            admin_telegram_id=100,
+            prompt_id=proposal.id,
+            today=date(2026, 7, 28),
+        )
 
         with pytest.raises(SeasonProposalAlreadyResolvedError):
             await service.update_season_proposal_name(prompt_id=proposal.id, name="Осень 2026")
@@ -620,6 +632,7 @@ async def test_failed_season_proposal_confirmation_rolls_back(
             await service.confirm_season_proposal(
                 admin_telegram_id=100,
                 prompt_id=proposal.id,
+                today=date(2026, 7, 28),
             )
 
         async with session_factory() as session:
