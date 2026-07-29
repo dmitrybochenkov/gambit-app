@@ -89,7 +89,7 @@ TOURNAMENT_CANCELLATION_SINGLE_HEADING = "Ты отменил запись на 
 TOURNAMENT_CANCELLATION_MULTIPLE_HEADING = "Ты отменил запись на турниры:"
 
 TOURNAMENT_SCHEDULE_TITLE = "Расписание турниров"
-TOURNAMENT_TYPE_FALLBACK = "Турнир {type_id}"
+TOURNAMENT_TYPE_FALLBACK = "Неопределённый турнир"
 
 
 def welcome_back(display_name: str) -> str:

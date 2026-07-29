@@ -1,5 +1,6 @@
 from dataclasses import dataclass
 from datetime import date
+from decimal import Decimal
 
 from sqlalchemy import and_, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -32,6 +33,7 @@ class HistoricalTournamentResultRow:
     place: int | None
     knockouts_count: int
     big_knockouts_count: int
+    total_points: Decimal
 
 
 class TournamentRepository:
@@ -191,6 +193,11 @@ class TournamentRepository:
         tournament_id: int,
     ) -> list[HistoricalTournamentResultRow]:
         total_knockouts = TournamentResult.knockouts_count + TournamentResult.big_knockouts_count
+        total_points = (
+            TournamentResult.tournament_points
+            + TournamentResult.knockout_points
+            + TournamentResult.bonus_points
+        )
         result = await self.session.execute(
             select(
                 Tournament.id.label("tournament_id"),
@@ -201,6 +208,7 @@ class TournamentRepository:
                 TournamentResult.place,
                 TournamentResult.knockouts_count,
                 TournamentResult.big_knockouts_count,
+                total_points.label("total_points"),
             )
             .join(TournamentType, TournamentType.id == Tournament.tournament_type_id)
             .join(TournamentResult, TournamentResult.tournament_id == Tournament.id)
@@ -227,6 +235,7 @@ class TournamentRepository:
                 place=row.place,
                 knockouts_count=row.knockouts_count,
                 big_knockouts_count=row.big_knockouts_count,
+                total_points=row.total_points,
             )
             for row in result
         ]

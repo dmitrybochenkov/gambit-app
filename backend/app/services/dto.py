@@ -347,6 +347,7 @@ class HistoricalTournamentResultRowView:
     place: int | None
     knockouts_count: int
     big_knockouts_count: int
+    total_points: Decimal
 
     @property
     def total_knockouts_count(self) -> int:

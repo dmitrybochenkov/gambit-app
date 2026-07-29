@@ -148,6 +148,7 @@ def historical_tournament_result_view(
                 place=row.place,
                 knockouts_count=row.knockouts_count,
                 big_knockouts_count=row.big_knockouts_count,
+                total_points=row.total_points,
             )
             for row in rows
         ],

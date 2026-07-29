@@ -404,12 +404,13 @@ def _month_name(month: int) -> str:
 def _historical_result_table_lines(
     rows: list[HistoricalTournamentResultRowView],
 ) -> list[str]:
-    lines = [f"{'Место':<5}  {'Игрок':<22} {'КО':>3} {'Босс КО':>7}"]
+    lines = [f"{'Место':<5}  {'Игрок':<20} {'🥊':>3} {'👑🥊':>4} {'Очки':>6}"]
     for row in rows:
         place = str(row.place) if row.place is not None else "—"
         lines.append(
-            f"{place:<5}  {_code_cell(row.display_name, 22):<22} "
-            f"{row.knockouts_count:>3} {row.big_knockouts_count:>7}"
+            f"{place:<5}  {_code_cell(row.display_name, 20):<20} "
+            f"{row.knockouts_count:>3} {row.big_knockouts_count:>4} "
+            f"{format_decimal(row.total_points):>6}"
         )
     return lines
 
@@ -703,5 +704,4 @@ def _split_weekly_schedule_messages(blocks: list[str]) -> list[str]:
 
 
 def _fallback_tournament_type_name(tournament: TournamentView) -> str:
-    type_id = tournament.tournament_type_id
-    return texts.user.TOURNAMENT_TYPE_FALLBACK.format(type_id=type_id)
+    return texts.user.TOURNAMENT_TYPE_FALLBACK

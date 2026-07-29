@@ -18,6 +18,7 @@ from app.bot.telegram.formatters import (
     format_admin_result_no_result_players,
     format_admin_result_players,
     format_season_proposal,
+    format_tournament_label,
 )
 from app.bot.telegram.handlers import admin as admin_handlers
 from app.bot.telegram.handlers import user as user_handlers
@@ -671,6 +672,14 @@ def test_admin_result_no_result_confirmation_and_collapsed_list() -> None:
     assert list_buttons == ["↩️ Дмитрий", "⬅️ Назад"]
 
 
+def test_tournament_label_fallback_is_unknown_tournament() -> None:
+    known = tournament_view(125, date(2026, 7, 19), 2, "Weekly Deep Stack")
+    unknown = tournament_view(126, date(2026, 7, 20), 999, None)
+
+    assert format_tournament_label(known) == "Воскресенье, 19 июля — Weekly Deep Stack"
+    assert format_tournament_label(unknown) == "Понедельник, 20 июля — Неопределённый турнир"
+
+
 async def test_place_only_result_player_opens_player_card(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -1121,6 +1130,7 @@ async def test_history_tournament_result_callback_formats_table(
                 place=1,
                 knockouts_count=3,
                 big_knockouts_count=1,
+                total_points=Decimal("42"),
             )
         ],
     )
@@ -1141,6 +1151,8 @@ async def test_history_tournament_result_callback_formats_table(
 
     message.edit_text.assert_awaited_once()
     assert "Место  Игрок" in message.edit_text.await_args.args[0]
+    assert "Очки" in message.edit_text.await_args.args[0]
+    assert "42" in message.edit_text.await_args.args[0]
     assert "Игрок Первый" in message.edit_text.await_args.args[0]
     assert message.edit_text.await_args.kwargs["parse_mode"] == "Markdown"
     assert inline_keyboard_texts(message.edit_text.await_args.kwargs["reply_markup"]) == [
@@ -1418,7 +1430,7 @@ async def test_registration_button_shows_upcoming_tournaments(
     answer = message.answer.await_args
     assert answer.args[0] == "Выбери турниры, на которые хочешь записаться."
     button = answer.kwargs["reply_markup"].inline_keyboard[0][0]
-    assert button.text == "Среда, 8 июля — Турнир 1"
+    assert button.text == "Среда, 8 июля — Неопределённый турнир"
     assert button.callback_data == "tournament_register:select:0:7"
     controls = answer.kwargs["reply_markup"].inline_keyboard[1]
     assert [button.text for button in controls] == ["✅ Подтвердить", "❌ Отмена"]
@@ -1510,7 +1522,7 @@ async def test_tournament_registration_page_callback_keeps_selection(
     state.update_data.assert_awaited_once_with(tournament_registration_selection=[1])
     callback.answer.assert_awaited_once_with()
     rows = message.edit_reply_markup.await_args.kwargs["reply_markup"].inline_keyboard
-    assert rows[0][0].text == "Вторник, 7 июля — Турнир 1"
+    assert rows[0][0].text == "Вторник, 7 июля — Неопределённый турнир"
     assert [button.text for button in rows[1]] == ["⬅️", "7-7 из 7"]
 
 

@@ -159,6 +159,9 @@ async def test_history_result_sorting_and_formatter(tmp_path: Path) -> None:
                     place=None,
                     knockouts_count=9,
                     big_knockouts_count=0,
+                    tournament_points=Decimal("0"),
+                    knockout_points=Decimal("0"),
+                    bonus_points=Decimal("0"),
                 ),
                 TournamentResult(
                     tournament_id=tournament.id,
@@ -166,6 +169,9 @@ async def test_history_result_sorting_and_formatter(tmp_path: Path) -> None:
                     place=1,
                     knockouts_count=2,
                     big_knockouts_count=2,
+                    tournament_points=Decimal("7"),
+                    knockout_points=Decimal("5"),
+                    bonus_points=Decimal("0"),
                 ),
                 TournamentResult(
                     tournament_id=tournament.id,
@@ -173,6 +179,9 @@ async def test_history_result_sorting_and_formatter(tmp_path: Path) -> None:
                     place=1,
                     knockouts_count=3,
                     big_knockouts_count=0,
+                    tournament_points=Decimal("13"),
+                    knockout_points=Decimal("0"),
+                    bonus_points=Decimal("0"),
                 ),
             ]
         )
@@ -187,12 +196,18 @@ async def test_history_result_sorting_and_formatter(tmp_path: Path) -> None:
             "Александр Очень Длинное Имя",
             "Виктор",
         ]
+        assert [row.total_points for row in result.rows] == [
+            Decimal("12.00"),
+            Decimal("13.00"),
+            Decimal("0.00"),
+        ]
         page = pagination_service.paginate(result.rows, page=0, page_size=20)
         text = format_historical_tournament_result(result, page)
-        assert "Место  Игрок" in text
+        assert "Место  Игрок                  🥊   👑🥊   Очки" in text
         assert "Борис" in text
-        assert "Александр Очень Длинн…" in text
-        assert "—      Виктор" in text
+        assert "Александр Очень Дли…" in text
+        assert "—      Виктор                 9    0      0" in text
+        assert "Борис                  2    2     12" in text
         assert text.startswith("⏳ История\n\n17 июля 2026\nКлассика\n\n```")
     finally:
         await engine.dispose()
