@@ -274,6 +274,55 @@ class RatingResultView:
 
 
 @dataclass(frozen=True)
+class HistoryYearView:
+    year: int
+
+
+@dataclass(frozen=True)
+class HistoryMonthView:
+    year: int
+    month: int
+    label: str
+
+
+@dataclass(frozen=True)
+class HistoricalTournamentView:
+    id: int
+    date: date
+    tournament_name: str
+
+
+@dataclass(frozen=True)
+class HistoricalTournamentResultRowView:
+    player_id: int
+    display_name: str
+    place: int | None
+    knockouts_count: int
+    big_knockouts_count: int
+
+    @property
+    def total_knockouts_count(self) -> int:
+        return self.knockouts_count + self.big_knockouts_count
+
+
+@dataclass(frozen=True)
+class HistoricalTournamentResultView:
+    tournament: HistoricalTournamentView
+    rows: list[HistoricalTournamentResultRowView]
+
+
+@dataclass(frozen=True)
+class HallOfFameSeasonView:
+    season_id: int
+    season_name: str
+    starts_at: date
+    champion_player_id: int | None
+    champion_display_name: str | None
+    knockout_leader_player_id: int | None
+    knockout_leader_display_name: str | None
+
+
+@dataclass(frozen=True)
 class PlayerProfileView:
     display_name: str
     total_points: Decimal

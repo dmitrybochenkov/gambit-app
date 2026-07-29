@@ -193,9 +193,7 @@ async def test_rating_filters_current_season_and_all_time(tmp_path: Path) -> Non
             current_page,
             current_player_id=second_player.id,
         ).startswith(
-            "Рейтинг — текущий сезон\n"
-            "🎲 - количество турниров\n\n"
-            "🥇 ✅ *King* — 120 | 🎲 1"
+            "Рейтинг — текущий сезон\n🎲 - количество турниров\n\n🥇 ✅ *King* — 120 | 🎲 1"
         )
         knockout_message = format_rating(
             knockout_title,
@@ -203,8 +201,7 @@ async def test_rating_filters_current_season_and_all_time(tmp_path: Path) -> Non
             current_player_id=first_player.id,
         )
         assert (
-            "Рейтинг по нокаутам — за всё время\n"
-            "🎲 - количество турниров с нокаутами\n\n"
+            "Рейтинг по нокаутам — за всё время\n🎲 - количество турниров с нокаутами\n\n"
         ) in knockout_message
         assert "🥇 ✅ *Игрок Первый 💍 🥊* — 6 | 🎲 2" in knockout_message
         assert "⭐" not in knockout_message
@@ -459,9 +456,7 @@ async def test_knockout_games_count_and_completed_season_title_tiebreakers(
         high_id_knockouts = next(
             row for row in knockout_rating.rows if row.player_id == high_id_player.id
         )
-        low_id_points = next(
-            row for row in points_rating.rows if row.player_id == low_id_player.id
-        )
+        low_id_points = next(row for row in points_rating.rows if row.player_id == low_id_player.id)
         high_id_points = next(
             row for row in points_rating.rows if row.player_id == high_id_player.id
         )

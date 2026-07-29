@@ -1,11 +1,37 @@
+from dataclasses import dataclass
 from datetime import date
 
 from sqlalchemy import and_, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
-from app.db.models import Tournament, TournamentType, WeeklyTournamentTemplate
+from app.db.models import (
+    Tournament,
+    TournamentResult,
+    TournamentType,
+    User,
+    WeeklyTournamentTemplate,
+)
 from app.db.models.enums import TournamentStatus, TournamentTypeStatus
+
+
+@dataclass(frozen=True)
+class HistoricalTournamentRow:
+    id: int
+    date: date
+    tournament_name: str
+
+
+@dataclass(frozen=True)
+class HistoricalTournamentResultRow:
+    tournament_id: int
+    tournament_date: date
+    tournament_name: str
+    player_id: int
+    display_name: str
+    place: int | None
+    knockouts_count: int
+    big_knockouts_count: int
 
 
 class TournamentRepository:
@@ -106,3 +132,101 @@ class TournamentRepository:
             )
         )
         return list(result.scalars())
+
+    async def list_result_years(self) -> list[int]:
+        result = await self.session.execute(
+            select(func.strftime("%Y", Tournament.date).label("year"))
+            .join(TournamentResult, TournamentResult.tournament_id == Tournament.id)
+            .where(Tournament.status != TournamentStatus.CANCELLED)
+            .group_by("year")
+            .order_by(func.strftime("%Y", Tournament.date).desc())
+        )
+        return [int(year) for year in result.scalars()]
+
+    async def list_result_months(self, year: int) -> list[int]:
+        result = await self.session.execute(
+            select(func.strftime("%m", Tournament.date).label("month"))
+            .join(TournamentResult, TournamentResult.tournament_id == Tournament.id)
+            .where(
+                Tournament.status != TournamentStatus.CANCELLED,
+                func.strftime("%Y", Tournament.date) == str(year),
+            )
+            .group_by("month")
+            .order_by(func.strftime("%m", Tournament.date).desc())
+        )
+        return [int(month) for month in result.scalars()]
+
+    async def list_result_tournaments(
+        self,
+        year: int,
+        month: int,
+    ) -> list[HistoricalTournamentRow]:
+        result = await self.session.execute(
+            select(
+                Tournament.id,
+                Tournament.date,
+                TournamentType.name.label("tournament_name"),
+            )
+            .join(TournamentType, TournamentType.id == Tournament.tournament_type_id)
+            .join(TournamentResult, TournamentResult.tournament_id == Tournament.id)
+            .where(
+                Tournament.status != TournamentStatus.CANCELLED,
+                func.strftime("%Y", Tournament.date) == str(year),
+                func.strftime("%m", Tournament.date) == f"{month:02d}",
+            )
+            .group_by(Tournament.id, Tournament.date, TournamentType.name)
+            .order_by(Tournament.date.desc(), Tournament.id.desc())
+        )
+        return [
+            HistoricalTournamentRow(
+                id=row.id,
+                date=row.date,
+                tournament_name=row.tournament_name,
+            )
+            for row in result
+        ]
+
+    async def get_tournament_result(
+        self,
+        tournament_id: int,
+    ) -> list[HistoricalTournamentResultRow]:
+        total_knockouts = TournamentResult.knockouts_count + TournamentResult.big_knockouts_count
+        result = await self.session.execute(
+            select(
+                Tournament.id.label("tournament_id"),
+                Tournament.date.label("tournament_date"),
+                TournamentType.name.label("tournament_name"),
+                User.id.label("player_id"),
+                User.display_name,
+                TournamentResult.place,
+                TournamentResult.knockouts_count,
+                TournamentResult.big_knockouts_count,
+            )
+            .join(TournamentType, TournamentType.id == Tournament.tournament_type_id)
+            .join(TournamentResult, TournamentResult.tournament_id == Tournament.id)
+            .join(User, User.id == TournamentResult.player_id)
+            .where(
+                Tournament.id == tournament_id,
+                Tournament.status != TournamentStatus.CANCELLED,
+            )
+            .order_by(
+                TournamentResult.place.is_(None),
+                TournamentResult.place,
+                total_knockouts.desc(),
+                TournamentResult.big_knockouts_count.desc(),
+                TournamentResult.player_id,
+            )
+        )
+        return [
+            HistoricalTournamentResultRow(
+                tournament_id=row.tournament_id,
+                tournament_date=row.tournament_date,
+                tournament_name=row.tournament_name,
+                player_id=row.player_id,
+                display_name=row.display_name,
+                place=row.place,
+                knockouts_count=row.knockouts_count,
+                big_knockouts_count=row.big_knockouts_count,
+            )
+            for row in result
+        ]

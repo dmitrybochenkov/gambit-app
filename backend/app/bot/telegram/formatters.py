@@ -2,6 +2,12 @@ from datetime import date
 
 from app.bot.telegram import texts
 from app.services.dto import (
+    HallOfFameSeasonView,
+    HistoricalTournamentResultRowView,
+    HistoricalTournamentResultView,
+    HistoricalTournamentView,
+    HistoryMonthView,
+    HistoryYearView,
     PlayerProfileView,
     SeasonProposalView,
     SeasonView,
@@ -54,6 +60,86 @@ def format_rating(
 
 def format_profile(title: str, stats: PlayerProfileView | None) -> str:
     return texts.user.profile_message(title, stats)
+
+
+def format_history_years(page: Page[HistoryYearView]) -> str:
+    lines = [texts.user.HISTORY_YEARS_PROMPT]
+    if not page.items:
+        lines.extend(["", texts.user.HISTORY_EMPTY])
+    elif page.total_pages > 1:
+        lines.extend(["", _page_line(page)])
+    return "\n".join(lines)
+
+
+def format_history_months(
+    year: int,
+    page: Page[HistoryMonthView],
+) -> str:
+    lines = [texts.user.HISTORY_MONTHS_PROMPT, f"{year} год"]
+    if page.total_pages > 1:
+        lines.extend(["", _page_line(page)])
+    return "\n".join(lines)
+
+
+def format_history_tournaments(
+    year: int,
+    month: int,
+    page: Page[HistoricalTournamentView],
+) -> str:
+    lines = [
+        texts.user.HISTORY_TOURNAMENTS_PROMPT,
+        f"{_month_name(month)} {year}",
+    ]
+    if page.total_pages > 1:
+        lines.extend(["", _page_line(page)])
+    return "\n".join(lines)
+
+
+def format_historical_tournament_result(
+    result: HistoricalTournamentResultView,
+    page: Page[HistoricalTournamentResultRowView],
+) -> str:
+    tournament = result.tournament
+    lines = [
+        "⏳ История",
+        "",
+        format_date(tournament.date),
+        _markdown_escape(tournament.tournament_name),
+        "",
+        "```",
+        *_historical_result_table_lines(page.items),
+        "```",
+    ]
+    if page.total_pages > 1:
+        lines.extend(["", _page_line(page)])
+    return "\n".join(lines)
+
+
+def format_hall_of_fame(seasons: list[HallOfFameSeasonView]) -> str:
+    lines = [
+        "🏆 Зал славы",
+        "",
+    ]
+    if not seasons:
+        lines.append(texts.user.HALL_OF_FAME_EMPTY)
+        return "\n".join(lines)
+
+    lines.extend(
+        [
+            "💍 — победитель сезона",
+            "🥊 — лучший нокаутер сезона",
+        ]
+    )
+    for season in seasons:
+        lines.extend(
+            [
+                "",
+                _markdown_escape(season.season_name),
+                _hall_of_fame_line("💍", season.champion_display_name),
+                _hall_of_fame_line("🥊", season.knockout_leader_display_name),
+            ]
+        )
+    return "\n".join(lines)
 
 
 def format_admin_calendar_prompt(prompt: TournamentPromptView) -> str:
@@ -176,6 +262,36 @@ def _markdown_escape(value: str) -> str:
         .replace("`", "\\`")
         .replace("[", "\\[")
     )
+
+
+def _month_name(month: int) -> str:
+    return texts.common.MONTHS[month].capitalize()
+
+
+def _historical_result_table_lines(
+    rows: list[HistoricalTournamentResultRowView],
+) -> list[str]:
+    lines = [f"{'Место':<5}  {'Игрок':<22} {'КО':>3} {'Босс КО':>7}"]
+    for row in rows:
+        place = str(row.place) if row.place is not None else "—"
+        lines.append(
+            f"{place:<5}  {_code_cell(row.display_name, 22):<22} "
+            f"{row.knockouts_count:>3} {row.big_knockouts_count:>7}"
+        )
+    return lines
+
+
+def _code_cell(value: str, width: int) -> str:
+    compact = " ".join(value.replace("`", "'").split())
+    if len(compact) <= width:
+        return compact
+    return f"{compact[: width - 1]}…"
+
+
+def _hall_of_fame_line(icon: str, display_name: str | None) -> str:
+    if display_name is None:
+        return f"{icon} — нет данных"
+    return f"{icon} {_markdown_escape(display_name)}"
 
 
 def _admin_result_player_sort_key(

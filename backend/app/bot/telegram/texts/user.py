@@ -48,6 +48,18 @@ PROFILE_ACTIVE_ONLY = "Профиль доступен только активн
 PROFILE_NOT_FOUND = "Профиль не найден. Нажми /start."
 PROFILE_PRIZE_PLACES_LABEL = "Количество призовых мест:"
 
+HISTORY_UNAVAILABLE = "История доступна только активным игрокам."
+HISTORY_YEARS_PROMPT = "Выберите год"
+HISTORY_MONTHS_PROMPT = "Выберите месяц"
+HISTORY_TOURNAMENTS_PROMPT = "Выберите турнир"
+HISTORY_EMPTY = "История турниров пока пуста."
+HISTORY_TOURNAMENT_UNAVAILABLE = "Этот турнир больше недоступен."
+HISTORY_CLOSED = "История закрыта"
+
+HALL_OF_FAME_UNAVAILABLE = "Зал славы доступен только активным игрокам."
+HALL_OF_FAME_EMPTY = "Пока нет завершённых сезонов с результатами."
+HALL_OF_FAME_CLOSED = "Зал славы закрыт"
+
 TOURNAMENTS_EMPTY = "Ближайших турниров пока нет."
 TOURNAMENT_REGISTRATION_UNAVAILABLE = "Запись доступна зарегистрированным игрокам. Нажми /start."
 TOURNAMENT_REGISTRATION_ACTIVE_ONLY = "Запись доступна только активным игрокам."

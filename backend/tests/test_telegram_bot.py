@@ -26,6 +26,12 @@ from app.db.models.enums import UserRole
 from app.services.calendar_service import CalendarTournamentDateAlreadyExistsError
 from app.services.dto import (
     AdminPanelView,
+    HallOfFameSeasonView,
+    HistoricalTournamentResultRowView,
+    HistoricalTournamentResultView,
+    HistoricalTournamentView,
+    HistoryMonthView,
+    HistoryYearView,
     PointsRatingView,
     RatingResultView,
     RegistrationCandidateView,
@@ -694,6 +700,10 @@ def keyboard_texts(reply_markup: object) -> list[str]:
     return [button.text for row in reply_markup.keyboard for button in row]
 
 
+def inline_keyboard_texts(reply_markup: object) -> list[str]:
+    return [button.text for row in reply_markup.inline_keyboard for button in row]
+
+
 def registration_match(player_id: int, score: int) -> RegistrationCandidateView:
     return RegistrationCandidateView(
         user=UserView(
@@ -775,6 +785,10 @@ async def test_start_command_shows_admin_keyboard_for_admin(
     assert message.answer.await_count == 1
     reply_markup = message.answer.await_args.kwargs["reply_markup"]
     assert keyboards.MAIN_ADMIN in keyboard_texts(reply_markup)
+    assert keyboards.MAIN_RATING in keyboard_texts(reply_markup)
+    assert keyboards.MAIN_HISTORY in keyboard_texts(reply_markup)
+    assert keyboards.MAIN_HALL_OF_FAME in keyboard_texts(reply_markup)
+    assert "🏆 Рейтинг" not in keyboard_texts(reply_markup)
 
 
 async def test_start_command_is_idempotent_for_imported_historical_user(
@@ -934,12 +948,221 @@ async def test_rating_button_shows_four_filters(
         button.text for row in answer.kwargs["reply_markup"].inline_keyboard for button in row
     ]
     assert buttons == [
-        "🏆 Текущий сезон",
-        "🏆⏳ За все время",
+        "🏅 Текущий сезон",
+        "🏅⏳ За все время",
         "🥊 Нокауты",
         "🥊⏳ Нокауты за все время",
         "❌ Отмена",
     ]
+
+
+async def test_history_button_shows_years(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    message = SimpleNamespace(
+        from_user=SimpleNamespace(id=123),
+        answer=AsyncMock(),
+    )
+    service = SimpleNamespace(
+        list_history_years=AsyncMock(
+            return_value=[
+                HistoryYearView(year=2026),
+                HistoryYearView(year=2025),
+            ]
+        )
+    )
+    monkeypatch.setattr(user_handlers, "user_statistics_service", service)
+
+    await user_handlers.show_history_years(message)
+
+    service.list_history_years.assert_awaited_once_with(123)
+    answer = message.answer.await_args
+    assert answer.args[0] == "Выберите год"
+    assert inline_keyboard_texts(answer.kwargs["reply_markup"]) == [
+        "2026",
+        "2025",
+        "❌ Отмена",
+    ]
+
+
+async def test_history_requires_active_user(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    message = SimpleNamespace(
+        from_user=SimpleNamespace(id=123),
+        answer=AsyncMock(),
+    )
+    service = SimpleNamespace(
+        list_history_years=AsyncMock(side_effect=user_handlers.HistoryNotAllowedError)
+    )
+    monkeypatch.setattr(user_handlers, "user_statistics_service", service)
+
+    await user_handlers.show_history_years(message)
+
+    message.answer.assert_awaited_once_with("История доступна только активным игрокам.")
+
+
+async def test_history_callbacks_edit_message(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    message = SimpleNamespace(edit_text=AsyncMock())
+    callback = SimpleNamespace(
+        from_user=SimpleNamespace(id=123),
+        message=message,
+        answer=AsyncMock(),
+    )
+    service = SimpleNamespace(
+        list_history_months=AsyncMock(
+            return_value=[
+                HistoryMonthView(year=2026, month=7, label="Июль"),
+                HistoryMonthView(year=2026, month=6, label="Июнь"),
+            ]
+        )
+    )
+    monkeypatch.setattr(user_handlers, "user_statistics_service", service)
+
+    await user_handlers.show_history_months(
+        callback,
+        SimpleNamespace(year=2026, page=0, years_page=0),
+    )
+
+    callback.answer.assert_awaited_once_with()
+    message.edit_text.assert_awaited_once()
+    assert message.edit_text.await_args.args[0] == "Выберите месяц\n2026 год"
+    assert inline_keyboard_texts(message.edit_text.await_args.kwargs["reply_markup"]) == [
+        "Июль",
+        "Июнь",
+        "↩️ К годам",
+        "❌ Отмена",
+    ]
+
+
+async def test_history_tournament_result_callback_formats_table(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    message = SimpleNamespace(edit_text=AsyncMock())
+    callback = SimpleNamespace(
+        from_user=SimpleNamespace(id=123),
+        message=message,
+        answer=AsyncMock(),
+    )
+    result = HistoricalTournamentResultView(
+        tournament=HistoricalTournamentView(
+            id=7,
+            date=date(2026, 7, 17),
+            tournament_name="Классика",
+        ),
+        rows=[
+            HistoricalTournamentResultRowView(
+                player_id=1,
+                display_name="Игрок Первый",
+                place=1,
+                knockouts_count=3,
+                big_knockouts_count=1,
+            )
+        ],
+    )
+    service = SimpleNamespace(get_historical_tournament_result=AsyncMock(return_value=result))
+    monkeypatch.setattr(user_handlers, "user_statistics_service", service)
+
+    await user_handlers.show_historical_tournament_result(
+        callback,
+        SimpleNamespace(
+            tournament_id=7,
+            year=2026,
+            month=7,
+            months_page=0,
+            tournament_page=0,
+            result_page=0,
+        ),
+    )
+
+    message.edit_text.assert_awaited_once()
+    assert "Место  Игрок" in message.edit_text.await_args.args[0]
+    assert "Игрок Первый" in message.edit_text.await_args.args[0]
+    assert message.edit_text.await_args.kwargs["parse_mode"] == "Markdown"
+    assert inline_keyboard_texts(message.edit_text.await_args.kwargs["reply_markup"]) == [
+        "↩️ К турнирам",
+        "❌ Отмена",
+    ]
+
+
+async def test_hall_of_fame_button_shows_message(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    message = SimpleNamespace(
+        from_user=SimpleNamespace(id=123),
+        answer=AsyncMock(),
+    )
+    service = SimpleNamespace(
+        get_hall_of_fame=AsyncMock(
+            return_value=[
+                HallOfFameSeasonView(
+                    season_id=1,
+                    season_name="Сезон 2026",
+                    starts_at=date(2026, 1, 1),
+                    champion_player_id=1,
+                    champion_display_name="Иван",
+                    knockout_leader_player_id=2,
+                    knockout_leader_display_name="Петр",
+                )
+            ]
+        )
+    )
+    monkeypatch.setattr(user_handlers, "user_statistics_service", service)
+
+    await user_handlers.show_hall_of_fame(message)
+
+    service.get_hall_of_fame.assert_awaited_once_with(123)
+    answer = message.answer.await_args
+    assert answer.args[0] == (
+        "🏆 Зал славы\n\n"
+        "💍 — победитель сезона\n"
+        "🥊 — лучший нокаутер сезона\n\n"
+        "Сезон 2026\n"
+        "💍 Иван\n"
+        "🥊 Петр"
+    )
+    assert inline_keyboard_texts(answer.kwargs["reply_markup"]) == ["❌ Закрыть"]
+    assert answer.kwargs["parse_mode"] == "Markdown"
+
+
+async def test_hall_of_fame_requires_active_user(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    message = SimpleNamespace(
+        from_user=SimpleNamespace(id=123),
+        answer=AsyncMock(),
+    )
+    service = SimpleNamespace(
+        get_hall_of_fame=AsyncMock(side_effect=user_handlers.HallOfFameNotAllowedError)
+    )
+    monkeypatch.setattr(user_handlers, "user_statistics_service", service)
+
+    await user_handlers.show_hall_of_fame(message)
+
+    message.answer.assert_awaited_once_with("Зал славы доступен только активным игрокам.")
+
+
+async def test_history_cancel_deletes_message_and_sends_confirmation() -> None:
+    message = SimpleNamespace(delete=AsyncMock(), answer=AsyncMock())
+    callback = SimpleNamespace(message=message, answer=AsyncMock())
+
+    await user_handlers.cancel_history(callback)
+
+    callback.answer.assert_awaited_once_with("История закрыта")
+    message.delete.assert_awaited_once()
+    message.answer.assert_awaited_once_with("История закрыта")
+
+
+async def test_hall_of_fame_close_deletes_message() -> None:
+    message = SimpleNamespace(delete=AsyncMock())
+    callback = SimpleNamespace(message=message, answer=AsyncMock())
+
+    await user_handlers.close_hall_of_fame(callback)
+
+    callback.answer.assert_awaited_once_with("Зал славы закрыт")
+    message.delete.assert_awaited_once()
 
 
 async def test_rating_callback_edits_selected_rating(
@@ -978,9 +1201,7 @@ async def test_rating_callback_edits_selected_rating(
     )
     message.edit_text.assert_awaited_once()
     assert message.edit_text.await_args.args[0] == (
-        "Рейтинг — текущий сезон\n"
-        "🎲 - количество турниров\n\n"
-        "🥇 ✅ *Игрок Первый* — 120 | 🎲 3"
+        "Рейтинг — текущий сезон\n🎲 - количество турниров\n\n🥇 ✅ *Игрок Первый* — 120 | 🎲 3"
     )
     assert message.edit_text.await_args.kwargs["parse_mode"] == "Markdown"
     buttons = [

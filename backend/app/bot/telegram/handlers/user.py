@@ -8,6 +8,11 @@ from aiogram.types import CallbackQuery, Message, ReplyKeyboardRemove
 
 from app.bot.telegram import keyboards, texts
 from app.bot.telegram.formatters import (
+    format_hall_of_fame,
+    format_historical_tournament_result,
+    format_history_months,
+    format_history_tournaments,
+    format_history_years,
     format_profile,
     format_rating,
     format_tournament_label,
@@ -34,6 +39,12 @@ from app.services.user_service import (
     RegistrationNotAllowedError,
     user_service,
 )
+from app.services.user_statistics_service import (
+    HallOfFameNotAllowedError,
+    HistoricalTournamentNotFoundError,
+    HistoryNotAllowedError,
+    user_statistics_service,
+)
 
 router = Router(name="user")
 
@@ -57,6 +68,25 @@ async def _send_registration_intro(message: Message, state: FSMContext) -> None:
 async def _delete_message(message: Message) -> None:
     try:
         await message.delete()
+    except TelegramBadRequest:
+        pass
+
+
+async def _edit_history_message(
+    callback: CallbackQuery,
+    text: str,
+    reply_markup: object,
+    parse_mode: str | None = None,
+) -> None:
+    await callback.answer()
+    if callback.message is None:
+        return
+    try:
+        await callback.message.edit_text(
+            text,
+            reply_markup=reply_markup,
+            parse_mode=parse_mode,
+        )
     except TelegramBadRequest:
         pass
 
@@ -159,6 +189,213 @@ async def show_rating_menu(message: Message) -> None:
         texts.user.RATING_MENU_PROMPT,
         reply_markup=keyboards.rating_keyboard(),
     )
+
+
+@router.message(F.text == keyboards.MAIN_HISTORY)
+async def show_history_years(message: Message) -> None:
+    if message.from_user is None:
+        return
+
+    try:
+        years = await user_statistics_service.list_history_years(message.from_user.id)
+    except HistoryNotAllowedError:
+        await message.answer(texts.user.HISTORY_UNAVAILABLE)
+        return
+
+    page = pagination_service.paginate(
+        years,
+        page=0,
+        page_size=keyboards.HISTORY_YEAR_PAGE_SIZE,
+    )
+    await message.answer(
+        format_history_years(page),
+        reply_markup=keyboards.history_years_keyboard(page),
+    )
+
+
+@router.callback_query(keyboards.HistoryYearsPageCallback.filter())
+async def show_history_years_page(
+    callback: CallbackQuery,
+    callback_data: keyboards.HistoryYearsPageCallback,
+) -> None:
+    try:
+        years = await user_statistics_service.list_history_years(callback.from_user.id)
+    except HistoryNotAllowedError:
+        await callback.answer(texts.user.HISTORY_UNAVAILABLE, show_alert=True)
+        return
+
+    page = pagination_service.paginate(
+        years,
+        page=callback_data.page,
+        page_size=keyboards.HISTORY_YEAR_PAGE_SIZE,
+    )
+    await _edit_history_message(
+        callback,
+        format_history_years(page),
+        keyboards.history_years_keyboard(page),
+    )
+
+
+@router.callback_query(keyboards.HistoryMonthsPageCallback.filter())
+async def show_history_months(
+    callback: CallbackQuery,
+    callback_data: keyboards.HistoryMonthsPageCallback,
+) -> None:
+    try:
+        months = await user_statistics_service.list_history_months(
+            telegram_id=callback.from_user.id,
+            year=callback_data.year,
+        )
+    except HistoryNotAllowedError:
+        await callback.answer(texts.user.HISTORY_UNAVAILABLE, show_alert=True)
+        return
+
+    page = pagination_service.paginate(
+        months,
+        page=callback_data.page,
+        page_size=keyboards.HISTORY_MONTH_PAGE_SIZE,
+    )
+    await _edit_history_message(
+        callback,
+        format_history_months(callback_data.year, page),
+        keyboards.history_months_keyboard(page, years_page=callback_data.years_page),
+    )
+
+
+@router.callback_query(keyboards.HistoryMonthCallback.filter())
+async def show_history_tournaments(
+    callback: CallbackQuery,
+    callback_data: keyboards.HistoryMonthCallback,
+) -> None:
+    try:
+        tournaments = await user_statistics_service.list_history_tournaments(
+            telegram_id=callback.from_user.id,
+            year=callback_data.year,
+            month=callback_data.month,
+        )
+    except HistoryNotAllowedError:
+        await callback.answer(texts.user.HISTORY_UNAVAILABLE, show_alert=True)
+        return
+
+    page = pagination_service.paginate(
+        tournaments,
+        page=0,
+        page_size=keyboards.HISTORY_TOURNAMENT_PAGE_SIZE,
+    )
+    await _edit_history_message(
+        callback,
+        format_history_tournaments(callback_data.year, callback_data.month, page),
+        keyboards.history_tournaments_keyboard(
+            page,
+            year=callback_data.year,
+            month=callback_data.month,
+            months_page=callback_data.months_page,
+        ),
+    )
+
+
+@router.callback_query(keyboards.HistoryTournamentsPageCallback.filter())
+async def show_history_tournaments_page(
+    callback: CallbackQuery,
+    callback_data: keyboards.HistoryTournamentsPageCallback,
+) -> None:
+    try:
+        tournaments = await user_statistics_service.list_history_tournaments(
+            telegram_id=callback.from_user.id,
+            year=callback_data.year,
+            month=callback_data.month,
+        )
+    except HistoryNotAllowedError:
+        await callback.answer(texts.user.HISTORY_UNAVAILABLE, show_alert=True)
+        return
+
+    page = pagination_service.paginate(
+        tournaments,
+        page=callback_data.page,
+        page_size=keyboards.HISTORY_TOURNAMENT_PAGE_SIZE,
+    )
+    await _edit_history_message(
+        callback,
+        format_history_tournaments(callback_data.year, callback_data.month, page),
+        keyboards.history_tournaments_keyboard(
+            page,
+            year=callback_data.year,
+            month=callback_data.month,
+            months_page=callback_data.months_page,
+        ),
+    )
+
+
+@router.callback_query(keyboards.HistoryTournamentCallback.filter())
+async def show_historical_tournament_result(
+    callback: CallbackQuery,
+    callback_data: keyboards.HistoryTournamentCallback,
+) -> None:
+    try:
+        result = await user_statistics_service.get_historical_tournament_result(
+            telegram_id=callback.from_user.id,
+            tournament_id=callback_data.tournament_id,
+        )
+    except HistoryNotAllowedError:
+        await callback.answer(texts.user.HISTORY_UNAVAILABLE, show_alert=True)
+        return
+    except HistoricalTournamentNotFoundError:
+        await callback.answer(texts.user.HISTORY_TOURNAMENT_UNAVAILABLE, show_alert=True)
+        return
+
+    page = pagination_service.paginate(
+        result.rows,
+        page=callback_data.result_page,
+        page_size=keyboards.HISTORY_RESULT_PAGE_SIZE,
+    )
+    await _edit_history_message(
+        callback,
+        format_historical_tournament_result(result, page),
+        keyboards.history_result_keyboard(
+            page,
+            tournament_id=callback_data.tournament_id,
+            year=callback_data.year,
+            month=callback_data.month,
+            months_page=callback_data.months_page,
+            tournament_page=callback_data.tournament_page,
+        ),
+        parse_mode="Markdown",
+    )
+
+
+@router.callback_query(keyboards.HistoryNavigationCallback.filter())
+async def cancel_history(callback: CallbackQuery) -> None:
+    await callback.answer(texts.user.HISTORY_CLOSED)
+    if callback.message is None:
+        return
+
+    await _delete_message(callback.message)
+    await callback.message.answer(texts.user.HISTORY_CLOSED)
+
+
+@router.message(F.text == keyboards.MAIN_HALL_OF_FAME)
+async def show_hall_of_fame(message: Message) -> None:
+    if message.from_user is None:
+        return
+
+    try:
+        seasons = await user_statistics_service.get_hall_of_fame(message.from_user.id)
+    except HallOfFameNotAllowedError:
+        await message.answer(texts.user.HALL_OF_FAME_UNAVAILABLE)
+        return
+
+    await message.answer(
+        format_hall_of_fame(seasons),
+        reply_markup=keyboards.hall_of_fame_keyboard(),
+        parse_mode="Markdown",
+    )
+
+
+@router.callback_query(keyboards.HallOfFameCallback.filter())
+async def close_hall_of_fame(callback: CallbackQuery) -> None:
+    await callback.answer(texts.user.HALL_OF_FAME_CLOSED)
+    if callback.message is not None:
+        await _delete_message(callback.message)
 
 
 @router.callback_query(keyboards.RatingCallback.filter())

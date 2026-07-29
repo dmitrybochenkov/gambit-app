@@ -15,6 +15,10 @@ def main_keyboard(is_admin: bool = False) -> ReplyKeyboardMarkup:
             KeyboardButton(text=buttons.MAIN_CANCEL_REGISTRATION),
         ],
         [KeyboardButton(text=buttons.MAIN_RATING), KeyboardButton(text=buttons.MAIN_PROFILE)],
+        [
+            KeyboardButton(text=buttons.MAIN_HISTORY),
+            KeyboardButton(text=buttons.MAIN_HALL_OF_FAME),
+        ],
     ]
     if is_admin:
         rows.append([KeyboardButton(text=buttons.MAIN_ADMIN)])
