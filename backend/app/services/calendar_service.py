@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import logging
 from datetime import UTC, date, datetime
+from decimal import Decimal
 from enum import StrEnum
 
 from sqlalchemy import select
@@ -19,6 +20,7 @@ from app.db.models import (
 )
 from app.db.models.enums import (
     AdminPromptStatus,
+    KnockoutMode,
     TournamentStatus,
     TournamentTypeStatus,
 )
@@ -34,6 +36,8 @@ from app.services.dto import (
     TournamentRebuyView,
     TournamentTypeDetailView,
     TournamentTypeOptionView,
+    WeeklyScheduleTournamentView,
+    WeeklyScheduleView,
 )
 from app.services.sunday_tournament_rotation import (
     SundayTournamentRotation,
@@ -247,26 +251,6 @@ class CalendarService:
                 tournament_types=await self._list_tournament_type_options(session),
             )
 
-    async def remove_weekly_prompt_day(
-        self,
-        prompt_id: int,
-        tournament_date: date,
-    ) -> TournamentPromptView:
-        async with self.session_factory() as session:
-            prompt = await self._get_pending_tournament_prompt(session, prompt_id)
-            payload = json.loads(prompt.payload)
-            prompt_items = self._weekly_prompt_payload_items(payload)
-            if len(prompt_items) == 1:
-                raise CalendarWeeklyPromptEmptyError
-            self._tournament_payload_item_by_date(payload, tournament_date)
-            payload["tournaments"] = [
-                item for item in prompt_items if _payload_date(item) != tournament_date
-            ]
-            prompt.payload = json.dumps(payload, ensure_ascii=False)
-            await self._commit_tournament_prompt(session)
-            await session.refresh(prompt)
-            return await self._tournament_prompt_view(session, prompt)
-
     async def resolve_prompt(
         self,
         prompt_id: int,
@@ -294,6 +278,20 @@ class CalendarService:
             await self._commit_tournament_prompt(session)
             await session.refresh(prompt)
             return await self._tournament_prompt_view(session, prompt)
+
+    async def get_created_weekly_schedule(
+        self,
+        prompt_id: int,
+    ) -> WeeklyScheduleView:
+        async with self.session_factory() as session:
+            prompt = await AdminPromptRepository(session).get_by_id(prompt_id)
+            if prompt is None:
+                raise CalendarPromptNotFoundError
+            if prompt.kind != AdminPromptKind.TOURNAMENTS_PROPOSAL:
+                raise CalendarPromptUnsupportedError(prompt.kind)
+            if prompt.status != AdminPromptStatus.CONFIRMED:
+                raise CalendarPromptAlreadyResolvedError
+            return await self._created_weekly_schedule_view(session, prompt)
 
     async def update_weekly_prompt_day_type(
         self,
@@ -383,7 +381,7 @@ class CalendarService:
             raise CalendarPromptInvalidPayloadError
         if not tournaments:
             raise CalendarWeeklyPromptEmptyError
-        if len(tournaments) > len(WEEKLY_PLAYING_WEEKDAYS):
+        if len(tournaments) != len(WEEKLY_PLAYING_WEEKDAYS):
             raise CalendarPromptInvalidPayloadError
 
         items: list[dict[str, object]] = []
@@ -403,7 +401,7 @@ class CalendarService:
             for weekday in WEEKLY_PLAYING_WEEKDAYS
         )
         expected_date_set = set(expected_dates)
-        if set(dates) - expected_date_set:
+        if set(dates) != expected_date_set:
             raise CalendarPromptInvalidPayloadError
         if dates != sorted(dates):
             raise CalendarPromptInvalidPayloadError
@@ -623,6 +621,108 @@ class CalendarService:
                     status=TournamentStatus.ACTIVE,
                 )
             )
+
+    async def _created_weekly_schedule_view(
+        self,
+        session: AsyncSession,
+        prompt: AdminPrompt,
+    ) -> WeeklyScheduleView:
+        payload = json.loads(prompt.payload)
+        prompt_items = self._weekly_prompt_payload_items(payload)
+        expected_keys = [
+            (_payload_date(item), int(item["tournament_type_id"])) for item in prompt_items
+        ]
+        result = await session.execute(
+            select(
+                Tournament.id,
+                Tournament.date,
+                TournamentType.id.label("tournament_type_id"),
+                TournamentType.code.label("tournament_type_code"),
+                TournamentType.name.label("tournament_type_name"),
+                TournamentType.description,
+                TournamentEconomyConfig.entry_fee,
+                TournamentEconomyConfig.entry_stack,
+                TournamentEconomyConfig.addon_fee,
+                TournamentEconomyConfig.addon_stack,
+                TournamentTypeRule.knockout_mode,
+                TournamentTypeRule.points_multiplier,
+                TournamentTypeRule.prize_place_multiplier,
+                TournamentTypeRule.prize_place_multiplier_places,
+            )
+            .join(TournamentType, TournamentType.id == Tournament.tournament_type_id)
+            .join(
+                TournamentEconomyConfig,
+                TournamentEconomyConfig.tournament_type_id == TournamentType.id,
+            )
+            .outerjoin(
+                TournamentTypeRule,
+                TournamentTypeRule.tournament_type_id == TournamentType.id,
+            )
+            .where(
+                Tournament.status != TournamentStatus.CANCELLED,
+                Tournament.date.in_([key[0] for key in expected_keys]),
+                Tournament.tournament_type_id.in_([key[1] for key in expected_keys]),
+            )
+            .order_by(Tournament.date, Tournament.id)
+        )
+        tournament_rows = list(result)
+        tournaments_by_key = {(row.date, row.tournament_type_id): row for row in tournament_rows}
+        if set(tournaments_by_key) != set(expected_keys):
+            raise CalendarWeeklyPromptIntegrityError
+
+        rebuys_by_type_id = await self._rebuys_by_type_id(
+            session,
+            tuple({type_id for _, type_id in expected_keys}),
+        )
+        return WeeklyScheduleView(
+            tournaments=[
+                WeeklyScheduleTournamentView(
+                    id=row.id,
+                    date=row.date,
+                    tournament_type_code=row.tournament_type_code,
+                    tournament_type_name=row.tournament_type_name,
+                    description=row.description,
+                    entry_fee=row.entry_fee,
+                    entry_stack=row.entry_stack,
+                    addon_fee=row.addon_fee,
+                    addon_stack=row.addon_stack,
+                    rebuys=rebuys_by_type_id.get(row.tournament_type_id, []),
+                    knockout_mode=(
+                        row.knockout_mode.value
+                        if row.knockout_mode is not None
+                        else KnockoutMode.NONE.value
+                    ),
+                    points_multiplier=row.points_multiplier or Decimal("1.00"),
+                    prize_place_multiplier=row.prize_place_multiplier or Decimal("1.00"),
+                    prize_place_multiplier_places=row.prize_place_multiplier_places,
+                )
+                for row in (tournaments_by_key[key] for key in expected_keys)
+            ]
+        )
+
+    async def _rebuys_by_type_id(
+        self,
+        session: AsyncSession,
+        tournament_type_ids: tuple[int, ...],
+    ) -> dict[int, list[TournamentRebuyView]]:
+        result = await session.execute(
+            select(
+                TournamentRebuyConfig.tournament_type_id,
+                TournamentRebuyConfig.fee,
+                TournamentRebuyConfig.stack,
+            )
+            .where(TournamentRebuyConfig.tournament_type_id.in_(tournament_type_ids))
+            .order_by(
+                TournamentRebuyConfig.tournament_type_id,
+                TournamentRebuyConfig.rebuy_order,
+            )
+        )
+        rebuys_by_type_id: dict[int, list[TournamentRebuyView]] = {}
+        for row in result:
+            rebuys_by_type_id.setdefault(row.tournament_type_id, []).append(
+                TournamentRebuyView(fee=row.fee, stack=row.stack)
+            )
+        return rebuys_by_type_id
 
     async def _confirmed_weekly_prompt_is_materialized(
         self,

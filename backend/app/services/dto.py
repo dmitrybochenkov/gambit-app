@@ -243,6 +243,29 @@ class TournamentPromptDayEditView:
 
 
 @dataclass(frozen=True)
+class WeeklyScheduleTournamentView:
+    id: int
+    date: date
+    tournament_type_code: str
+    tournament_type_name: str
+    description: str | None
+    entry_fee: int
+    entry_stack: int
+    addon_fee: int
+    addon_stack: int
+    rebuys: list[TournamentRebuyView]
+    knockout_mode: str
+    points_multiplier: Decimal
+    prize_place_multiplier: Decimal
+    prize_place_multiplier_places: str | None
+
+
+@dataclass(frozen=True)
+class WeeklyScheduleView:
+    tournaments: list[WeeklyScheduleTournamentView]
+
+
+@dataclass(frozen=True)
 class PointsRatingView:
     player_id: int
     display_name: str

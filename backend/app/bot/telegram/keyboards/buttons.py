@@ -39,7 +39,6 @@ ADMIN_CALENDAR_OPEN = "✅ Создать"
 ADMIN_CALENDAR_EDIT = "✏️ Изменить"
 ADMIN_CALENDAR_CANCEL = "❌ Отмена"
 ADMIN_CALENDAR_BACK = "⬅️ Назад"
-ADMIN_CALENDAR_REMOVE_DAY = "🗑 Удалить день"
 ADMIN_SEASON_EDIT_NAME = "✏️ Название"
 ADMIN_SEASON_EDIT_START = "📅 Дата начала"
 

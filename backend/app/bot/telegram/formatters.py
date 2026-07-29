@@ -1,3 +1,4 @@
+import json
 from datetime import date
 
 from app.bot.telegram import texts
@@ -17,9 +18,42 @@ from app.services.dto import (
     TournamentResultDraftView,
     TournamentView,
     UserView,
+    WeeklyScheduleTournamentView,
+    WeeklyScheduleView,
 )
 from app.services.pagination import Page
 
+TELEGRAM_MESSAGE_LIMIT = 4096
+WEEKLY_SCHEDULE_HEADER = "🔥 РАСПИСАНИЕ ТУРНИРОВ ПОКЕРНОГО КЛУБА «ГАМБИТ»\n🔥♠️♥️♣️♦️"
+WEEKLY_SCHEDULE_SEPARATOR = "━━━━━━━━━━━━━━"
+PUBLIC_TOURNAMENT_DESCRIPTIONS = {
+    "bounty": [
+        "💀 Динамические нокауты",
+        "• До финального стола — 15 очков за нокаут",
+        "• На финальном столе — 60 очков за нокаут",
+    ],
+    "classic": ["Дополнительные бонусы за комбинации"],
+    "freezeout": [
+        "🎯 Формат для самых скиловых игроков",
+        "• Бесплатный напиток из перечня",
+    ],
+    "double_double": [
+        "⚡️ Удвоенный рейтинг",
+        "⚡️ Увеличенные стартовые стеки",
+    ],
+    "mystery_bounty": [
+        "🎁 Награды за нокауты",
+        "• Очки в рейтинг",
+        "• Привилегии клуба",
+        "• Дополнительные фишки",
+    ],
+    "boss_bounty": [
+        "👑 Охота на Босса",
+        "• Нокаут Босса — 60 очков в рейтинг",
+        "• Босс получает +10 000 фишек к следующему ребаю",
+        "• Боссом становится лучший нокаутер предыдущего Баунти-турнира",
+    ],
+}
 PLACE_EMOJIS = {
     1: "1️⃣",
     2: "2️⃣",
@@ -147,6 +181,14 @@ def format_admin_calendar_prompt(prompt: TournamentPromptView) -> str:
     for item in prompt.tournaments:
         lines.append(_format_tournament_prompt_item_label(item))
     return "\n".join(lines)
+
+
+def format_public_weekly_schedule(schedule: WeeklyScheduleView) -> list[str]:
+    blocks = [
+        _format_public_weekly_schedule_tournament(tournament)
+        for tournament in sorted(schedule.tournaments, key=lambda item: (item.date, item.id))
+    ]
+    return _split_weekly_schedule_messages(blocks)
 
 
 def format_admin_result_tournament_list(page: Page[TournamentView]) -> str:
@@ -465,6 +507,92 @@ def _format_tournament_prompt_item_label(item: TournamentPromptItemView) -> str:
         tournament_type_name=item.tournament_type.name,
     )
     return format_tournament_label(tournament)
+
+
+def _format_public_weekly_schedule_tournament(
+    tournament: WeeklyScheduleTournamentView,
+) -> str:
+    lines = [
+        f"🗓 {texts.common.WEEKDAYS[tournament.date.weekday()].upper()} — "
+        f"{tournament.tournament_type_name.upper()}",
+    ]
+    description_lines = _public_tournament_description_lines(tournament)
+    if description_lines:
+        lines.extend(description_lines)
+        lines.append("")
+    lines.extend(
+        [
+            "💰 Условия участия",
+            f"Вход: {format_number(tournament.entry_fee)} ₽ — "
+            f"{format_number(tournament.entry_stack)} фишек",
+        ]
+    )
+    if len(tournament.rebuys) == 1:
+        rebuy = tournament.rebuys[0]
+        lines.append(f"Ребай: {format_number(rebuy.fee)} ₽ — {format_number(rebuy.stack)} фишек")
+    elif len(tournament.rebuys) > 1:
+        lines.extend(
+            [
+                "",
+                "Ребаи:",
+                f"{' / '.join(format_number(rebuy.fee) for rebuy in tournament.rebuys)} ₽",
+                f"{' / '.join(format_number(rebuy.stack) for rebuy in tournament.rebuys)} фишек",
+            ]
+        )
+    if tournament.addon_fee > 0 and tournament.addon_stack > 0:
+        lines.extend(
+            [
+                "",
+                "Аддон:",
+                f"{format_number(tournament.addon_fee)} ₽ — "
+                f"{format_number(tournament.addon_stack)} фишек",
+            ]
+        )
+    return "\n".join(lines)
+
+
+def _public_tournament_description_lines(
+    tournament: WeeklyScheduleTournamentView,
+) -> list[str]:
+    lines = list(PUBLIC_TOURNAMENT_DESCRIPTIONS.get(tournament.tournament_type_code, []))
+    if not lines and tournament.description:
+        lines.append(tournament.description)
+    if tournament.tournament_type_code == "freezeout":
+        bonus_line = _prize_multiplier_line(tournament)
+        if bonus_line is not None:
+            lines.append(bonus_line)
+    return lines
+
+
+def _prize_multiplier_line(tournament: WeeklyScheduleTournamentView) -> str | None:
+    if tournament.prize_place_multiplier <= 1 or not tournament.prize_place_multiplier_places:
+        return None
+    try:
+        places = " и ".join(
+            str(place) for place in json.loads(tournament.prize_place_multiplier_places)
+        )
+    except (TypeError, ValueError):
+        return None
+    return f"• Рейтинг за {places} место ×{format_decimal(tournament.prize_place_multiplier)}"
+
+
+def _split_weekly_schedule_messages(blocks: list[str]) -> list[str]:
+    messages: list[str] = []
+    current = WEEKLY_SCHEDULE_HEADER
+    for block in blocks:
+        candidate = (
+            f"{current}\n\n{block}"
+            if current == WEEKLY_SCHEDULE_HEADER
+            else (f"{current}\n\n{WEEKLY_SCHEDULE_SEPARATOR}\n\n{block}")
+        )
+        if len(candidate) <= TELEGRAM_MESSAGE_LIMIT:
+            current = candidate
+            continue
+        messages.append(current)
+        current = block
+    if current:
+        messages.append(current)
+    return messages
 
 
 def _fallback_tournament_type_name(tournament: TournamentView) -> str:
