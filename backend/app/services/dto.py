@@ -97,7 +97,7 @@ class RegistrationCandidateView:
 @dataclass(frozen=True)
 class RegistrationRequestView:
     id: int
-    telegram_id: int
+    telegram_id: int | None
     request_type: str
     status: str
     requested_display_name: str | None
@@ -186,6 +186,26 @@ class TournamentResultDraftView:
     points_pool: Decimal | None
     players: list[TournamentResultDraftPlayerView]
     knockout_mode: str = "none"
+
+
+@dataclass(frozen=True)
+class TournamentCheckInPlayerView:
+    user_id: int
+    display_name: str
+    is_pre_registered: bool
+    is_checked_in: bool
+    source: str | None = None
+    has_result_data: bool = False
+
+
+@dataclass(frozen=True)
+class TournamentCheckInView:
+    tournament: TournamentView
+    registered_count: int
+    participant_count: int
+    unchecked_registered_count: int
+    walk_in_count: int
+    players: list[TournamentCheckInPlayerView]
 
 
 @dataclass(frozen=True)

@@ -9,6 +9,8 @@ from app.bot.telegram.keyboards import buttons
 from app.services.dto import (
     RegistrationCandidateView,
     RegistrationReviewView,
+    TournamentCheckInPlayerView,
+    TournamentCheckInView,
     TournamentPromptDayEditView,
     TournamentPromptView,
     TournamentResultDraftPlayerView,
@@ -133,6 +135,7 @@ class AdminResultTournamentCallback(CallbackData, prefix="res_tour"):
 
 class AdminResultMenuAction(StrEnum):
     POOL = "pool"
+    PARTICIPANTS = "participants"
     PLAYERS = "players"
     CLOSE = "close"
     CANCEL = "cancel"
@@ -201,6 +204,24 @@ class AdminResultValueCallback(CallbackData, prefix="res_value"):
     player_id: int
     field: AdminResultField
     value: int
+
+
+class AdminCheckInAction(StrEnum):
+    TOGGLE_REGISTERED = "toggle_registered"
+    REGISTERED_SEARCH = "registered_search"
+    DATABASE_SEARCH = "database_search"
+    ADD_EXISTING = "add_existing"
+    NEW_PLAYER = "new_player"
+    FINISH = "finish"
+    BACK = "back"
+    CANCEL = "cancel"
+
+
+class AdminCheckInCallback(CallbackData, prefix="check_in"):
+    action: AdminCheckInAction
+    tournament_id: int
+    page: int = 0
+    player_id: int = 0
 
 
 class AdminTournamentRegistrationTournamentAction(StrEnum):
@@ -475,6 +496,13 @@ def admin_result_tournament_list_keyboard(
 def admin_result_menu_keyboard(tournament_id: int) -> InlineKeyboardMarkup:
     builder = InlineKeyboardBuilder()
     builder.button(
+        text=buttons.ADMIN_RESULTS_PARTICIPANTS,
+        callback_data=AdminResultMenuCallback(
+            action=AdminResultMenuAction.PARTICIPANTS,
+            tournament_id=tournament_id,
+        ),
+    )
+    builder.button(
         text=buttons.ADMIN_RESULTS_POOL,
         callback_data=AdminResultMenuCallback(
             action=AdminResultMenuAction.POOL,
@@ -499,6 +527,98 @@ def admin_result_menu_keyboard(tournament_id: int) -> InlineKeyboardMarkup:
         text=buttons.ADMIN_CANCEL,
         callback_data=AdminResultMenuCallback(
             action=AdminResultMenuAction.CANCEL,
+            tournament_id=tournament_id,
+        ),
+    )
+    builder.adjust(1)
+    return builder.as_markup()
+
+
+def admin_check_in_keyboard(
+    view: TournamentCheckInView,
+    page: Page[TournamentCheckInPlayerView],
+) -> InlineKeyboardMarkup:
+    builder = InlineKeyboardBuilder()
+    builder.button(
+        text="🔍 Найти среди зарегистрированных",
+        callback_data=AdminCheckInCallback(
+            action=AdminCheckInAction.REGISTERED_SEARCH,
+            tournament_id=view.tournament.id,
+            page=page.page,
+        ),
+    )
+    builder.button(
+        text="🔎 Добавить игрока из базы",
+        callback_data=AdminCheckInCallback(
+            action=AdminCheckInAction.DATABASE_SEARCH,
+            tournament_id=view.tournament.id,
+            page=page.page,
+        ),
+    )
+    builder.button(
+        text="➕ Новый игрок",
+        callback_data=AdminCheckInCallback(
+            action=AdminCheckInAction.NEW_PLAYER,
+            tournament_id=view.tournament.id,
+            page=page.page,
+        ),
+    )
+    for player in page.items:
+        marker = "☑️" if player.is_checked_in else "⬜"
+        builder.button(
+            text=f"{marker} {player.display_name}",
+            callback_data=AdminCheckInCallback(
+                action=AdminCheckInAction.TOGGLE_REGISTERED,
+                tournament_id=view.tournament.id,
+                page=page.page,
+                player_id=player.user_id,
+            ),
+        )
+    _add_check_in_page_buttons(builder, page, view.tournament.id)
+    builder.button(
+        text="✅ Завершить",
+        callback_data=AdminCheckInCallback(
+            action=AdminCheckInAction.FINISH,
+            tournament_id=view.tournament.id,
+            page=page.page,
+        ),
+    )
+    builder.button(
+        text="↩️ Назад",
+        callback_data=AdminCheckInCallback(
+            action=AdminCheckInAction.BACK,
+            tournament_id=view.tournament.id,
+            page=page.page,
+        ),
+    )
+    builder.adjust(1)
+    return builder.as_markup()
+
+
+def admin_check_in_search_results_keyboard(
+    *,
+    tournament_id: int,
+    players: list[TournamentCheckInPlayerView] | list[UserView],
+    action: AdminCheckInAction,
+) -> InlineKeyboardMarkup:
+    builder = InlineKeyboardBuilder()
+    for player in players:
+        is_check_in_player = isinstance(player, TournamentCheckInPlayerView)
+        user_id = player.user_id if is_check_in_player else player.id
+        display_name = player.display_name
+        marker = "☑️ " if is_check_in_player and player.is_checked_in else ""
+        builder.button(
+            text=f"{marker}{display_name}",
+            callback_data=AdminCheckInCallback(
+                action=action,
+                tournament_id=tournament_id,
+                player_id=user_id,
+            ),
+        )
+    builder.button(
+        text="↩️ Назад",
+        callback_data=AdminCheckInCallback(
+            action=AdminCheckInAction.BACK,
             tournament_id=tournament_id,
         ),
     )
@@ -1008,6 +1128,41 @@ def _add_result_player_page_buttons(
                 tournament_id=tournament_id,
                 page=page.next_page,
                 player_id=0,
+            ),
+        )
+
+
+def _add_check_in_page_buttons(
+    builder: InlineKeyboardBuilder,
+    page: Page[TournamentCheckInPlayerView],
+    tournament_id: int,
+) -> None:
+    if page.total_pages <= 1:
+        return
+    if page.has_previous:
+        builder.button(
+            text="⬅️",
+            callback_data=AdminCheckInCallback(
+                action=AdminCheckInAction.BACK,
+                tournament_id=tournament_id,
+                page=page.previous_page,
+            ),
+        )
+    builder.button(
+        text=_admin_candidate_page_label(page),
+        callback_data=AdminCheckInCallback(
+            action=AdminCheckInAction.BACK,
+            tournament_id=tournament_id,
+            page=page.page,
+        ),
+    )
+    if page.has_next:
+        builder.button(
+            text="➡️",
+            callback_data=AdminCheckInCallback(
+                action=AdminCheckInAction.BACK,
+                tournament_id=tournament_id,
+                page=page.next_page,
             ),
         )
 

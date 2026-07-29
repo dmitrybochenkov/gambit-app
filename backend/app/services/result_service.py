@@ -11,7 +11,7 @@ from app.db.models import (
     ScoringConfig,
     Season,
     Tournament,
-    TournamentRegistration,
+    TournamentParticipant,
     TournamentResult,
     TournamentResultDraft,
     TournamentTypeRule,
@@ -19,7 +19,6 @@ from app.db.models import (
 )
 from app.db.models.enums import (
     KnockoutMode,
-    RegistrationStatus,
     TournamentStatus,
     UserRole,
     UserStatus,
@@ -280,13 +279,12 @@ class ResultService:
         return tournament
 
     async def _ensure_drafts(self, session: AsyncSession, tournament_id: int) -> None:
-        registered = await session.execute(
-            select(TournamentRegistration.player_id).where(
-                TournamentRegistration.tournament_id == tournament_id,
-                TournamentRegistration.status == RegistrationStatus.REGISTERED,
+        participants = await session.execute(
+            select(TournamentParticipant.user_id).where(
+                TournamentParticipant.tournament_id == tournament_id,
             )
         )
-        player_ids = list(registered.scalars())
+        player_ids = list(participants.scalars())
         existing = await session.execute(
             select(TournamentResultDraft.player_id).where(
                 TournamentResultDraft.tournament_id == tournament_id
@@ -364,7 +362,7 @@ class ResultService:
         if draft.points_pool is None or draft.points_pool <= 0:
             errors.append("Введи пул турнира.")
         if not draft.players:
-            errors.append("Нет зарегистрированных игроков.")
+            errors.append("Нет участников турнира.")
         places = [player.place for player in draft.players if player.place is not None]
         missing_places = sorted({1, 2, 3, 4, 5} - set(places))
         if missing_places:

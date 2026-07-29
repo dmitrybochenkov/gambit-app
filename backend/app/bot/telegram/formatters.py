@@ -12,6 +12,7 @@ from app.services.dto import (
     PlayerProfileView,
     SeasonProposalView,
     SeasonView,
+    TournamentCheckInView,
     TournamentPromptItemView,
     TournamentPromptView,
     TournamentResultDraftPlayerView,
@@ -210,6 +211,39 @@ def format_admin_result_menu(draft: TournamentResultDraftView) -> str:
     lines.extend(_admin_result_summary_lines(draft))
     lines.extend(["", f"Игроков: {len(draft.players)}"])
     return "\n".join(lines)
+
+
+def format_tournament_check_in(view: TournamentCheckInView) -> str:
+    lines = [
+        "👥 Участники турнира",
+        "",
+        format_tournament_label(view.tournament),
+        "",
+        f"Зарегистрированы заранее: {view.registered_count}",
+        f"Пришли: {view.participant_count}",
+        f"Ещё не отмечены: {view.unchecked_registered_count}",
+        f"Без предварительной регистрации: {view.walk_in_count}",
+    ]
+    if view.players:
+        lines.append("")
+        for player in view.players:
+            marker = "☑️" if player.is_checked_in else "⬜"
+            lines.append(f"{marker} {player.display_name}")
+    return "\n".join(lines)
+
+
+def format_tournament_check_in_finished(view: TournamentCheckInView) -> str:
+    checked_registered = view.registered_count - view.unchecked_registered_count
+    return "\n".join(
+        [
+            "✅ Состав турнира сохранён",
+            "",
+            f"Участников: {view.participant_count}",
+            f"Из предварительных регистраций: {checked_registered}",
+            f"Без предварительной регистрации: {view.walk_in_count}",
+            f"Не пришли: {view.unchecked_registered_count}",
+        ]
+    )
 
 
 def format_admin_result_close_confirmation(draft: TournamentResultDraftView) -> str:

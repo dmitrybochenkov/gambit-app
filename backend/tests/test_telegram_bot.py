@@ -508,6 +508,7 @@ def test_admin_result_menu_has_close_without_check() -> None:
     ]
 
     assert buttons == [
+        "👥 Участники",
         "💰 Пул",
         "👥 Игроки",
         "✅ Закрыть турнир",

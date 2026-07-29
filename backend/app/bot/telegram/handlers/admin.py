@@ -23,6 +23,8 @@ from app.bot.telegram.formatters import (
     format_created_tournaments_prompt,
     format_public_weekly_schedule,
     format_season_proposal,
+    format_tournament_check_in,
+    format_tournament_check_in_finished,
     format_tournament_label,
 )
 from app.bot.telegram.notifications import format_registration_review
@@ -71,6 +73,14 @@ from app.services.season_service import (
     SeasonScoringConfigNotFoundError,
     SeasonStartDateError,
     season_service,
+)
+from app.services.tournament_participant_service import (
+    TournamentCheckInClosedError,
+    TournamentCheckInHasResultError,
+    TournamentCheckInNotFoundError,
+    TournamentCheckInRegistrationNotFoundError,
+    TournamentCheckInUserNotFoundError,
+    tournament_participant_service,
 )
 from app.services.tournament_service import (
     TournamentUnavailableError,
@@ -543,6 +553,25 @@ async def select_result_menu_action(
                 )
             return
 
+        if callback_data.action == keyboards.AdminResultMenuAction.PARTICIPANTS:
+            view = await tournament_participant_service.get_check_in(
+                admin_telegram_id=callback.from_user.id,
+                tournament_id=callback_data.tournament_id,
+            )
+            page = pagination_service.paginate(
+                view.players,
+                page=0,
+                page_size=keyboards.ADMIN_RESULT_PAGE_SIZE,
+            )
+            await callback.answer()
+            if callback.message is not None:
+                await _delete_callback_message(callback)
+                await callback.message.answer(
+                    format_tournament_check_in(view),
+                    reply_markup=keyboards.admin_check_in_keyboard(view, page),
+                )
+            return
+
         if callback_data.action == keyboards.AdminResultMenuAction.PLAYERS:
             draft = await result_service.get_or_create_draft(
                 admin_telegram_id=callback.from_user.id,
@@ -590,9 +619,157 @@ async def select_result_menu_action(
     except AdminAccessDeniedError:
         await callback.answer(texts.admin.ACCESS_DENIED, show_alert=True)
         return
-    except ResultTournamentNotFoundError:
+    except (
+        ResultTournamentNotFoundError,
+        TournamentCheckInNotFoundError,
+        TournamentCheckInClosedError,
+    ):
         await callback.answer(texts.admin.ADMIN_RESULTS_NOT_FOUND, show_alert=True)
         return
+
+
+@router.callback_query(keyboards.AdminCheckInCallback.filter())
+async def select_check_in_action(
+    callback: CallbackQuery,
+    callback_data: keyboards.AdminCheckInCallback,
+    state: FSMContext,
+) -> None:
+    try:
+        if callback_data.action == keyboards.AdminCheckInAction.CANCEL:
+            await state.clear()
+            await callback.answer(texts.admin.ADMIN_RESULTS_CANCELLED)
+            if callback.message is not None:
+                await _delete_callback_message(callback)
+                await callback.message.answer(texts.admin.ADMIN_RESULTS_CANCELLED)
+            return
+
+        if callback_data.action == keyboards.AdminCheckInAction.BACK:
+            await state.clear()
+            view = await tournament_participant_service.get_check_in(
+                admin_telegram_id=callback.from_user.id,
+                tournament_id=callback_data.tournament_id,
+            )
+            page = pagination_service.paginate(
+                view.players,
+                page=callback_data.page,
+                page_size=keyboards.ADMIN_RESULT_PAGE_SIZE,
+            )
+            await callback.answer()
+            if callback.message is not None:
+                await _delete_callback_message(callback)
+                await callback.message.answer(
+                    format_tournament_check_in(view),
+                    reply_markup=keyboards.admin_check_in_keyboard(view, page),
+                )
+            return
+
+        if callback_data.action == keyboards.AdminCheckInAction.FINISH:
+            await state.clear()
+            view = await tournament_participant_service.get_check_in(
+                admin_telegram_id=callback.from_user.id,
+                tournament_id=callback_data.tournament_id,
+            )
+            draft = await result_service.get_or_create_draft(
+                admin_telegram_id=callback.from_user.id,
+                tournament_id=callback_data.tournament_id,
+            )
+            await callback.answer("Состав сохранён")
+            if callback.message is not None:
+                await _delete_callback_message(callback)
+                await callback.message.answer(format_tournament_check_in_finished(view))
+                await callback.message.answer(
+                    format_admin_result_menu(draft),
+                    reply_markup=keyboards.admin_result_menu_keyboard(draft.tournament.id),
+                    parse_mode=RESULT_SUMMARY_PARSE_MODE,
+                )
+            return
+
+        if callback_data.action == keyboards.AdminCheckInAction.REGISTERED_SEARCH:
+            await state.set_state(AdminResultStates.entering_registered_check_in_search)
+            await state.update_data(check_in_tournament_id=callback_data.tournament_id)
+            await callback.answer()
+            if callback.message is not None:
+                await _delete_callback_message(callback)
+                await callback.message.answer(
+                    "Введи имя зарегистрированного игрока.",
+                    reply_markup=keyboards.admin_result_cancel_keyboard(
+                        callback_data.tournament_id
+                    ),
+                )
+            return
+
+        if callback_data.action == keyboards.AdminCheckInAction.DATABASE_SEARCH:
+            await state.set_state(AdminResultStates.entering_database_check_in_search)
+            await state.update_data(check_in_tournament_id=callback_data.tournament_id)
+            await callback.answer()
+            if callback.message is not None:
+                await _delete_callback_message(callback)
+                await callback.message.answer(
+                    "Введи имя игрока из базы.",
+                    reply_markup=keyboards.admin_result_cancel_keyboard(
+                        callback_data.tournament_id
+                    ),
+                )
+            return
+
+        if callback_data.action == keyboards.AdminCheckInAction.NEW_PLAYER:
+            await state.set_state(AdminResultStates.entering_new_check_in_player)
+            await state.update_data(check_in_tournament_id=callback_data.tournament_id)
+            await callback.answer()
+            if callback.message is not None:
+                await _delete_callback_message(callback)
+                await callback.message.answer(
+                    "Введи имя нового игрока.",
+                    reply_markup=keyboards.admin_result_cancel_keyboard(
+                        callback_data.tournament_id
+                    ),
+                )
+            return
+
+        if callback_data.action == keyboards.AdminCheckInAction.TOGGLE_REGISTERED:
+            view = await tournament_participant_service.toggle_registered(
+                admin_telegram_id=callback.from_user.id,
+                tournament_id=callback_data.tournament_id,
+                user_id=callback_data.player_id,
+            )
+        else:
+            view = await tournament_participant_service.check_in_existing_user(
+                admin_telegram_id=callback.from_user.id,
+                tournament_id=callback_data.tournament_id,
+                user_id=callback_data.player_id,
+            )
+    except AdminAccessDeniedError:
+        await state.clear()
+        await callback.answer(texts.admin.ACCESS_DENIED, show_alert=True)
+        return
+    except (
+        TournamentCheckInNotFoundError,
+        TournamentCheckInClosedError,
+        TournamentCheckInRegistrationNotFoundError,
+        TournamentCheckInUserNotFoundError,
+    ):
+        await callback.answer(texts.admin.ADMIN_RESULTS_NOT_FOUND, show_alert=True)
+        return
+    except TournamentCheckInHasResultError:
+        await callback.answer("Для игрока уже введён результат.", show_alert=True)
+        if callback.message is not None:
+            await callback.message.answer(
+                "Для игрока уже введён результат.\nСначала очистите его игровые данные."
+            )
+        return
+
+    await state.clear()
+    page = pagination_service.paginate(
+        view.players,
+        page=callback_data.page,
+        page_size=keyboards.ADMIN_RESULT_PAGE_SIZE,
+    )
+    await callback.answer(texts.admin.ADMIN_RESULTS_SAVED)
+    if callback.message is not None:
+        await callback.message.edit_text(
+            format_tournament_check_in(view),
+            reply_markup=keyboards.admin_check_in_keyboard(view, page),
+        )
 
 
 @router.callback_query(keyboards.AdminResultCloseCallback.filter())
@@ -1878,6 +2055,113 @@ async def enter_result_manual_value(message: Message, state: FSMContext) -> None
             player,
             page_number,
         ),
+    )
+
+
+@router.message(AdminResultStates.entering_registered_check_in_search)
+async def enter_registered_check_in_search(message: Message, state: FSMContext) -> None:
+    if message.from_user is None:
+        return
+    data = await state.get_data()
+    tournament_id = int(data["check_in_tournament_id"])
+    try:
+        players = await tournament_participant_service.search_registered(
+            admin_telegram_id=message.from_user.id,
+            tournament_id=tournament_id,
+            query=message.text or "",
+        )
+    except AdminAccessDeniedError:
+        await state.clear()
+        await message.answer(texts.admin.ACCESS_DENIED)
+        return
+    except (TournamentCheckInNotFoundError, TournamentCheckInClosedError):
+        await state.clear()
+        await message.answer(texts.admin.ADMIN_RESULTS_NOT_FOUND)
+        return
+
+    await state.clear()
+    if not players:
+        await message.answer("Игроки не найдены.")
+        return
+    await message.answer(
+        "Нашел среди зарегистрированных:",
+        reply_markup=keyboards.admin_check_in_search_results_keyboard(
+            tournament_id=tournament_id,
+            players=players,
+            action=keyboards.AdminCheckInAction.TOGGLE_REGISTERED,
+        ),
+    )
+
+
+@router.message(AdminResultStates.entering_database_check_in_search)
+async def enter_database_check_in_search(message: Message, state: FSMContext) -> None:
+    if message.from_user is None:
+        return
+    data = await state.get_data()
+    tournament_id = int(data["check_in_tournament_id"])
+    try:
+        players = await tournament_participant_service.search_users(
+            admin_telegram_id=message.from_user.id,
+            tournament_id=tournament_id,
+            query=message.text or "",
+        )
+    except AdminAccessDeniedError:
+        await state.clear()
+        await message.answer(texts.admin.ACCESS_DENIED)
+        return
+    except (TournamentCheckInNotFoundError, TournamentCheckInClosedError):
+        await state.clear()
+        await message.answer(texts.admin.ADMIN_RESULTS_NOT_FOUND)
+        return
+
+    await state.clear()
+    if not players:
+        await message.answer("Игроки не найдены.")
+        return
+    await message.answer(
+        "Нашел игроков в базе:",
+        reply_markup=keyboards.admin_check_in_search_results_keyboard(
+            tournament_id=tournament_id,
+            players=players,
+            action=keyboards.AdminCheckInAction.ADD_EXISTING,
+        ),
+    )
+
+
+@router.message(AdminResultStates.entering_new_check_in_player)
+async def enter_new_check_in_player(message: Message, state: FSMContext) -> None:
+    if message.from_user is None:
+        return
+    data = await state.get_data()
+    tournament_id = int(data["check_in_tournament_id"])
+    try:
+        view = await tournament_participant_service.create_user_and_check_in(
+            admin_telegram_id=message.from_user.id,
+            tournament_id=tournament_id,
+            display_name=message.text or "",
+        )
+    except AdminAccessDeniedError:
+        await state.clear()
+        await message.answer(texts.admin.ACCESS_DENIED)
+        return
+    except (TournamentCheckInNotFoundError, TournamentCheckInClosedError):
+        await state.clear()
+        await message.answer(texts.admin.ADMIN_RESULTS_NOT_FOUND)
+        return
+    except ValueError:
+        await message.answer("Имя игрока некорректное.")
+        return
+
+    await state.clear()
+    page = pagination_service.paginate(
+        view.players,
+        page=0,
+        page_size=keyboards.ADMIN_RESULT_PAGE_SIZE,
+    )
+    await message.answer("Игрок добавлен в состав турнира.")
+    await message.answer(
+        format_tournament_check_in(view),
+        reply_markup=keyboards.admin_check_in_keyboard(view, page),
     )
 
 

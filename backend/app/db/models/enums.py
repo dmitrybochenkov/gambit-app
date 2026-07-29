@@ -32,6 +32,13 @@ class RegistrationStatus(StrEnum):
     CANCELLED = "cancelled"
 
 
+class TournamentParticipantSource(StrEnum):
+    PRE_REGISTERED = "pre_registered"
+    DATABASE_WALK_IN = "database_walk_in"
+    ADMIN_CREATED = "admin_created"
+    MIGRATED_RESULT = "migrated_result"
+
+
 class TournamentTypeStatus(StrEnum):
     ACTIVE = "active"
     ARCHIVED = "archived"
@@ -40,6 +47,7 @@ class TournamentTypeStatus(StrEnum):
 class RegistrationRequestType(StrEnum):
     NEW_PLAYER = "new_player"
     LINK_EXISTING_PLAYER = "link_existing_player"
+    ADMIN_CREATED_PLAYER_REVIEW = "admin_created_player_review"
 
 
 class RegistrationRequestStatus(StrEnum):
