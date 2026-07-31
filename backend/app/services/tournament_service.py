@@ -7,9 +7,13 @@ from app.common.normalization import normalize_display_name
 from app.db.models import Tournament, TournamentRegistration
 from app.db.models.enums import (
     RegistrationStatus,
+    TournamentParticipantSource,
     TournamentStatus,
     UserRole,
     UserStatus,
+)
+from app.db.repositories.tournament_participant_repository import (
+    TournamentParticipantRepository,
 )
 from app.db.repositories.tournament_registration_repository import (
     TournamentRegistrationRepository,
@@ -118,23 +122,40 @@ class TournamentService:
             )
             return [tournament_view(tournament) for tournament in tournaments]
 
-    async def list_players_for_admin_registration(
+    async def get_admin_registration_players(
         self,
         admin_telegram_id: int,
-    ) -> list[UserView]:
+        tournament_id: int,
+        from_date: date | None = None,
+    ) -> tuple[TournamentView, list[UserView]]:
         async with self.session_factory() as session:
             await self._require_admin(session, admin_telegram_id)
+            tournament = await self._require_registration_tournament(
+                session,
+                tournament_id,
+                from_date=from_date,
+            )
             players = await UserRepository(session).list_active_players()
-            return _sort_players_by_display_name([required_user_view(player) for player in players])
+            return (
+                tournament_view(tournament),
+                _sort_players_by_display_name([required_user_view(player) for player in players]),
+            )
 
-    async def search_players_for_admin_registration(
+    async def search_admin_registration_players(
         self,
         admin_telegram_id: int,
+        tournament_id: int,
         query: str,
         limit: int = 10,
-    ) -> list[UserView]:
+        from_date: date | None = None,
+    ) -> tuple[TournamentView, list[UserView]]:
         async with self.session_factory() as session:
             await self._require_admin(session, admin_telegram_id)
+            tournament = await self._require_registration_tournament(
+                session,
+                tournament_id,
+                from_date=from_date,
+            )
             players = await UserRepository(session).list_active_players()
             scored_players = [
                 (score, required_user_view(player))
@@ -144,7 +165,7 @@ class TournamentService:
             scored_players.sort(
                 key=lambda item: (-item[0], item[1].display_name.casefold(), item[1].id)
             )
-            return [player for _, player in scored_players[:limit]]
+            return tournament_view(tournament), [player for _, player in scored_players[:limit]]
 
     async def register_player_for_tournament_by_admin(
         self,
@@ -154,15 +175,13 @@ class TournamentService:
         from_date: date | None = None,
     ) -> tuple[TournamentView, UserView]:
         async with self.session_factory() as session:
-            await self._require_admin(session, admin_telegram_id)
             today = from_date or date.today()
-            tournament = await TournamentRepository(session).get_by_id(tournament_id)
-            if (
-                tournament is None
-                or tournament.status != TournamentStatus.ACTIVE
-                or tournament.date < today
-            ):
-                raise TournamentUnavailableError
+            admin = await self._require_admin(session, admin_telegram_id)
+            tournament = await self._require_registration_tournament(
+                session,
+                tournament_id,
+                from_date=today,
+            )
 
             player = await UserRepository(session).get_by_id(player_id)
             if (
@@ -188,6 +207,14 @@ class TournamentService:
                 registration.status = RegistrationStatus.REGISTERED
                 registration.registered_at = now
                 registration.cancelled_at = None
+
+            if tournament.date == today:
+                await TournamentParticipantRepository(session).add_if_missing(
+                    tournament_id=tournament.id,
+                    user_id=player.id,
+                    source=TournamentParticipantSource.PRE_REGISTERED,
+                    checked_in_by_user_id=admin.id,
+                )
 
             await session.commit()
             return tournament_view(tournament), required_user_view(player)
@@ -296,7 +323,7 @@ class TournamentService:
     async def _require_admin(
         session: AsyncSession,
         telegram_id: int,
-    ) -> None:
+    ):
         admin = await UserRepository(session).get_by_telegram_id(telegram_id)
         if (
             admin is None
@@ -304,6 +331,22 @@ class TournamentService:
             or admin.role not in {UserRole.ADMIN, UserRole.SUPERADMIN}
         ):
             raise AdminAccessDeniedError
+        return admin
+
+    @staticmethod
+    async def _require_registration_tournament(
+        session: AsyncSession,
+        tournament_id: int,
+        from_date: date | None = None,
+    ) -> Tournament:
+        tournament = await TournamentRepository(session).get_by_id(tournament_id)
+        if (
+            tournament is None
+            or tournament.status != TournamentStatus.ACTIVE
+            or tournament.date < (from_date or date.today())
+        ):
+            raise TournamentUnavailableError
+        return tournament
 
 
 tournament_service = TournamentService(SessionFactory)

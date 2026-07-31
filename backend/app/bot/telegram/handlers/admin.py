@@ -272,14 +272,18 @@ async def select_admin_registration_tournament(
                 await callback.message.answer(texts.admin.ADMIN_TOURNAMENT_REGISTRATION_CANCELLED)
             return
 
-        tournaments = await tournament_service.list_registration_tournaments_for_admin(
-            callback.from_user.id
-        )
     except AdminAccessDeniedError:
         await callback.answer(texts.admin.ACCESS_DENIED, show_alert=True)
         return
 
     if callback_data.action == keyboards.AdminTournamentRegistrationTournamentAction.PAGE:
+        try:
+            tournaments = await tournament_service.list_registration_tournaments_for_admin(
+                callback.from_user.id
+            )
+        except AdminAccessDeniedError:
+            await callback.answer(texts.admin.ACCESS_DENIED, show_alert=True)
+            return
         page = pagination_service.paginate(
             tournaments,
             page=callback_data.page,
@@ -293,23 +297,19 @@ async def select_admin_registration_tournament(
             )
         return
 
-    tournament = next(
-        (tournament for tournament in tournaments if tournament.id == callback_data.tournament_id),
-        None,
-    )
-    if tournament is None:
+    try:
+        tournament, players = await tournament_service.get_admin_registration_players(
+            admin_telegram_id=callback.from_user.id,
+            tournament_id=callback_data.tournament_id,
+        )
+    except AdminAccessDeniedError:
+        await callback.answer(texts.admin.ACCESS_DENIED, show_alert=True)
+        return
+    except TournamentUnavailableError:
         await callback.answer(
             texts.admin.ADMIN_TOURNAMENT_REGISTRATION_NOT_FOUND,
             show_alert=True,
         )
-        return
-
-    try:
-        players = await tournament_service.list_players_for_admin_registration(
-            callback.from_user.id
-        )
-    except AdminAccessDeniedError:
-        await callback.answer(texts.admin.ACCESS_DENIED, show_alert=True)
         return
 
     if not players:
@@ -370,26 +370,9 @@ async def select_admin_registration_player(
                 )
             return
 
-        tournaments = await tournament_service.list_registration_tournaments_for_admin(
-            callback.from_user.id
-        )
-        tournament = next(
-            (
-                tournament
-                for tournament in tournaments
-                if tournament.id == callback_data.tournament_id
-            ),
-            None,
-        )
-        if tournament is None:
-            await callback.answer(
-                texts.admin.ADMIN_TOURNAMENT_REGISTRATION_NOT_FOUND,
-                show_alert=True,
-            )
-            return
-
-        players = await tournament_service.list_players_for_admin_registration(
-            callback.from_user.id
+        tournament, players = await tournament_service.get_admin_registration_players(
+            admin_telegram_id=callback.from_user.id,
+            tournament_id=callback_data.tournament_id,
         )
         if callback_data.action == keyboards.AdminTournamentRegistrationPlayerAction.SEARCH:
             await state.set_state(AdminTournamentRegistrationStates.entering_player_search)
@@ -450,14 +433,17 @@ async def select_admin_registration_player(
             )
         )
 
-    try:
-        await callback.bot.send_message(
-            chat_id=player.telegram_id,
-            text=texts.admin.admin_tournament_registration_player_notification(tournament_label),
-            reply_markup=keyboards.main_keyboard_for_player(player),
-        )
-    except (TelegramBadRequest, TelegramForbiddenError):
-        pass
+    if player.telegram_id is not None:
+        try:
+            await callback.bot.send_message(
+                chat_id=player.telegram_id,
+                text=texts.admin.admin_tournament_registration_player_notification(
+                    tournament_label
+                ),
+                reply_markup=keyboards.main_keyboard_for_player(player),
+            )
+        except (TelegramBadRequest, TelegramForbiddenError):
+            pass
 
 
 @router.callback_query(keyboards.AdminResultTournamentCallback.filter())
@@ -1978,18 +1964,9 @@ async def enter_admin_registration_player_search(
         return
 
     try:
-        tournaments = await tournament_service.list_registration_tournaments_for_admin(
-            message.from_user.id
-        )
-        tournament = next(
-            (tournament for tournament in tournaments if tournament.id == tournament_id),
-            None,
-        )
-        if tournament is None:
-            raise TournamentUnavailableError
-
-        players = await tournament_service.search_players_for_admin_registration(
+        tournament, players = await tournament_service.search_admin_registration_players(
             admin_telegram_id=message.from_user.id,
+            tournament_id=tournament_id,
             query=query,
         )
     except AdminAccessDeniedError:

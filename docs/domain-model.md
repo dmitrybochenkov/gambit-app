@@ -2,42 +2,32 @@
 
 ## Entities
 
-### Player
+### User
 
-Represents both the Telegram user and club player profile.
+Represents a Telegram user, historical player, or offline player profile.
 
 Fields:
 
 - `id`
 - `telegram_id`
-- `full_name`
-- `nickname`
-- `status`: `pending`, `active`, `rejected`, `blocked`
-- `role`: `user`, `admin`, `superadmin`
+- `display_name`
+- `display_name_normalized`
+- `status`: `active`, `blocked`
+- `role`: `player`, `admin`, `superadmin`
 - `approved_at`
 - `approved_by_admin_id`
-- `rejected_at`
-- `rejected_by_admin_id`
-- `rejection_reason`
 - `created_at`
 - `updated_at`
 
-Uniqueness:
+Identity:
 
-- `nickname` unique when not empty.
-- `full_name` unique when not empty.
-
-Display name rule:
-
-- If both `full_name` and `nickname` exist: `Full Name (NICKNAME)`.
-- If only `nickname` exists: `NICKNAME`.
-- If only `full_name` exists: `Full Name`.
-
-`display_name` should not be stored in MVP. It is derived from `full_name` and `nickname`.
+- `id` is the stable internal identity.
+- `telegram_id` links a Telegram account when it exists.
+- `display_name_normalized` is used for search and matching, not as a database identity.
 
 ### Admin
 
-Admin is a player with `role` set to `admin` or `superadmin`.
+Admin is a user with `role` set to `admin` or `superadmin`.
 
 ### Season
 
@@ -101,7 +91,7 @@ Rules:
 
 ### TournamentRegistration
 
-Player registration for a tournament.
+Player intent to join a tournament before the tournament starts.
 
 Fields:
 
@@ -115,6 +105,43 @@ Fields:
 Constraint:
 
 - One active registration per player per tournament.
+
+Rules:
+
+- User self-registration and admin registration create or restore a
+  `registered` row.
+- User cancellation changes the row to `cancelled`.
+- A cancelled row can be restored by a new registration.
+- `TournamentRegistration` is not the final tournament composition. It is the
+  source list for check-in.
+
+### TournamentParticipant
+
+Actual tournament composition and result-status container.
+
+Fields:
+
+- `id`
+- `tournament_id`
+- `user_id`
+- `source`: `pre_registered`, `database_walk_in`, `admin_created`, `migrated_result`
+- `result_status`: `active`, `no_result`
+- `checked_in_by_user_id`
+- `checked_in_at`
+
+Constraint:
+
+- One participant per user per tournament.
+
+Rules:
+
+- Registered players are moved into the actual composition during check-in.
+- An admin can add an existing unregistered player as a walk-in.
+- An admin can create an offline player and check them in immediately.
+- Removing a participant is allowed only while no result data exists.
+- Starting result entry uses `TournamentParticipant` as the actual player list.
+- Admin registration for the current tournament also creates the matching
+  `pre_registered` participant, keeping check-in and result entry consistent.
 
 ### TournamentResult
 
@@ -147,11 +174,7 @@ Derived values:
 
 ## Status Lifecycles
 
-### Player
-
-`pending` -> `active`
-
-`pending` -> `rejected`
+### User
 
 `active` -> `blocked`
 
@@ -164,3 +187,15 @@ Derived values:
 ### Tournament Registration
 
 `registered` -> `cancelled`
+
+`cancelled` -> `registered`
+
+### Tournament Participant
+
+No row -> `active`
+
+`active` -> `no_result`
+
+`no_result` -> `active`
+
+`active` -> row removed
