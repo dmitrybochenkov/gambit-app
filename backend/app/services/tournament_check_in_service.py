@@ -170,7 +170,7 @@ class TournamentCheckInService:
         async with self.session_factory() as session:
             await self._require_admin(session, admin_telegram_id)
             tournament = await self._require_today_tournament(session, tournament_id)
-            user = await self._require_active_player(session, user_id)
+            user = await self._require_active_user(session, user_id)
             return CheckInResultView(tournament_view(tournament), required_user_view(user), False)
 
     async def get_new_user_check_in_confirmation(
@@ -202,7 +202,7 @@ class TournamentCheckInService:
             )
             if registration is None:
                 raise TournamentCheckInUserNotFoundError
-            user = await self._require_active_player(session, user_id)
+            user = await self._require_active_user(session, user_id)
             created = await self._create_result(
                 session,
                 tournament_id=tournament.id,
@@ -301,6 +301,12 @@ class TournamentCheckInService:
             raise TournamentCheckInUserNotFoundError
         return user
 
+    async def _require_active_user(self, session: AsyncSession, user_id: int):
+        user = await UserRepository(session).get_by_id(user_id)
+        if user is None or user.status != UserStatus.ACTIVE:
+            raise TournamentCheckInUserNotFoundError
+        return user
+
     async def _registered_candidates(
         self,
         session: AsyncSession,
@@ -313,7 +319,6 @@ class TournamentCheckInService:
             .where(
                 TournamentRegistration.tournament_id == tournament_id,
                 User.status == UserStatus.ACTIVE,
-                User.role == UserRole.PLAYER,
                 User.id.not_in(checked_in_ids),
             )
             .order_by(User.display_name, User.id)
@@ -401,7 +406,6 @@ class TournamentCheckInService:
             .where(
                 TournamentRegistration.tournament_id == tournament_id,
                 User.status == UserStatus.ACTIVE,
-                User.role == UserRole.PLAYER,
             )
             .order_by(User.display_name, User.id)
         )

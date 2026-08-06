@@ -3,6 +3,7 @@ from decimal import Decimal
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
+from zoneinfo import ZoneInfo
 
 import pytest
 from aiogram import Bot
@@ -10,6 +11,7 @@ from aiogram.types import (
     Chat,
     Message,
 )
+from conftest import build_player, seed_tournament_types_async, tournament_type_id
 from fastapi import HTTPException
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
@@ -29,6 +31,7 @@ from app.bot.telegram.handlers import admin as admin_handlers
 from app.bot.telegram.handlers import superadmin as superadmin_handlers
 from app.bot.telegram.handlers import user as user_handlers
 from app.bot.telegram.handlers.admin import calendar as admin_calendar_handlers
+from app.bot.telegram.handlers.admin import check_in as admin_check_in_handlers
 from app.bot.telegram.handlers.admin import panel as admin_panel_handlers
 from app.bot.telegram.handlers.admin import results as admin_result_handlers
 from app.bot.telegram.handlers.admin import schedule as admin_schedule_handlers
@@ -43,10 +46,18 @@ from app.bot.telegram.handlers.user import rating as user_rating_handlers
 from app.bot.telegram.handlers.user import registration as user_registration_handlers
 from app.bot.telegram.handlers.user import start as user_start_handlers
 from app.bot.telegram.handlers.user import tournaments as user_tournament_handlers
+from app.common.clock import FixedClock
 from app.db.base import Base
 from app.db.factories import create_user
-from app.db.models import User
-from app.db.models.enums import UserRole
+from app.db.models import (
+    ScoringConfig,
+    Season,
+    Tournament,
+    TournamentRegistration,
+    TournamentResult,
+    User,
+)
+from app.db.models.enums import TournamentResultSource, TournamentStatus, UserRole, UserStatus
 from app.services.calendar_service import CalendarTournamentDateAlreadyExistsError
 from app.services.dto import (
     AdminPanelView,
@@ -87,6 +98,7 @@ from app.services.dto import (
 from app.services.pagination import Page
 from app.services.profile_service import ProfileKind
 from app.services.rating_service import RatingKind
+from app.services.tournament_check_in_service import TournamentCheckInService
 from app.services.user_service import AdminAccessDeniedError, UserService
 
 
@@ -769,6 +781,29 @@ def inline_keyboard_texts(reply_markup: object) -> list[str]:
     return [button.text for row in reply_markup.inline_keyboard for button in row]
 
 
+class MutableState:
+    def __init__(self) -> None:
+        self.data: dict[str, object] = {}
+        self.state: object | None = None
+        self.clear = AsyncMock(side_effect=self._clear)
+        self.set_state = AsyncMock(side_effect=self._set_state)
+        self.update_data = AsyncMock(side_effect=self._update_data)
+        self.get_data = AsyncMock(side_effect=self._get_data)
+
+    async def _clear(self) -> None:
+        self.data.clear()
+        self.state = None
+
+    async def _set_state(self, state: object) -> None:
+        self.state = state
+
+    async def _update_data(self, **kwargs: object) -> None:
+        self.data.update(kwargs)
+
+    async def _get_data(self) -> dict[str, object]:
+        return dict(self.data)
+
+
 def registration_match(player_id: int, score: int) -> RegistrationCandidateView:
     return RegistrationCandidateView(
         user=UserView(
@@ -797,6 +832,294 @@ def registration_review(player_id: int) -> RegistrationReviewView:
         ),
         candidates=[],
     )
+
+
+async def test_admin_check_in_registered_user_flow_creates_result(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    engine = create_async_engine(f"sqlite+aiosqlite:///{tmp_path / 'telegram_check_in.db'}")
+    async with engine.begin() as connection:
+        await connection.run_sync(Base.metadata.create_all)
+
+    session_factory = async_sessionmaker(engine, expire_on_commit=False)
+    async with session_factory() as session:
+        config = ScoringConfig()
+        session.add(config)
+        await session.flush()
+        await seed_tournament_types_async(session)
+        season = Season(
+            name="Test season",
+            scoring_config_id=config.id,
+            starts_at=date(2026, 7, 1),
+            ends_at=None,
+        )
+        admin = build_player(
+            telegram_id=100,
+            display_name="Админ Первый",
+            status=UserStatus.ACTIVE,
+            role=UserRole.ADMIN,
+        )
+        registered_user = build_player(
+            telegram_id=101,
+            display_name="Игрок Админ",
+            status=UserStatus.ACTIVE,
+            role=UserRole.SUPERADMIN,
+        )
+        session.add_all([season, admin, registered_user])
+        await session.flush()
+        tournament = Tournament(
+            season_id=season.id,
+            tournament_type_id=tournament_type_id("classic"),
+            date=date(2026, 7, 9),
+            status=TournamentStatus.ACTIVE,
+        )
+        session.add(tournament)
+        await session.flush()
+        session.add(
+            TournamentRegistration(
+                tournament_id=tournament.id,
+                player_id=registered_user.id,
+            )
+        )
+        await session.commit()
+        tournament_id = tournament.id
+        registered_user_id = registered_user.id
+
+    service = TournamentCheckInService(
+        session_factory,
+        clock=FixedClock(datetime(2026, 7, 9, 12, tzinfo=ZoneInfo("Europe/Moscow"))),
+    )
+    monkeypatch.setattr(admin_check_in_handlers, "tournament_check_in_service", service)
+    try:
+        open_message = SimpleNamespace(
+            from_user=SimpleNamespace(id=100),
+            answer=AsyncMock(),
+        )
+
+        await admin_check_in_handlers.show_admin_check_in(open_message)
+
+        opened_text = open_message.answer.await_args.args[0]
+        assert "Зарегистрированы заранее: 1" in opened_text
+        assert "Ещё не отмечены: 1" in opened_text
+
+        state = MutableState()
+        search_prompt_message = SimpleNamespace(delete=AsyncMock(), answer=AsyncMock())
+        search_prompt_callback = SimpleNamespace(
+            from_user=SimpleNamespace(id=100),
+            message=search_prompt_message,
+            answer=AsyncMock(),
+        )
+        await admin_check_in_handlers.select_check_in_action(
+            search_prompt_callback,
+            keyboards.AdminCheckInCallback(
+                action=keyboards.AdminCheckInAction.REGISTERED_SEARCH,
+                tournament_id=tournament_id,
+            ),
+            state,
+        )
+
+        search_message = SimpleNamespace(
+            from_user=SimpleNamespace(id=100),
+            text="Игрок",
+            answer=AsyncMock(),
+        )
+        await admin_check_in_handlers.enter_registered_check_in_search(search_message, state)
+
+        search_answer = search_message.answer.await_args
+        assert search_answer.args[0] == "Нашел среди зарегистрированных:"
+        assert inline_keyboard_texts(search_answer.kwargs["reply_markup"])[:1] == ["Игрок Админ"]
+
+        confirmation_message = SimpleNamespace(edit_text=AsyncMock())
+        confirmation_callback = SimpleNamespace(
+            from_user=SimpleNamespace(id=100),
+            message=confirmation_message,
+            answer=AsyncMock(),
+        )
+        await admin_check_in_handlers.select_check_in_action(
+            confirmation_callback,
+            keyboards.AdminCheckInCallback(
+                action=keyboards.AdminCheckInAction.CONFIRM_REGISTERED,
+                tournament_id=tournament_id,
+                player_id=registered_user_id,
+            ),
+            state,
+        )
+
+        confirmation_message.edit_text.assert_awaited_once()
+        assert (
+            "Добавить Игрок Админ в сегодняшний турнир?"
+            in (confirmation_message.edit_text.await_args.args[0])
+        )
+        assert inline_keyboard_texts(
+            confirmation_message.edit_text.await_args.kwargs["reply_markup"]
+        ) == ["✅ Подтвердить", "↩️ Назад", "❌ Отмена"]
+
+        final_message = SimpleNamespace(edit_text=AsyncMock())
+        final_callback = SimpleNamespace(
+            from_user=SimpleNamespace(id=100),
+            message=final_message,
+            answer=AsyncMock(),
+            bot=SimpleNamespace(send_message=AsyncMock()),
+        )
+        await admin_check_in_handlers.select_check_in_action(
+            final_callback,
+            keyboards.AdminCheckInCallback(
+                action=keyboards.AdminCheckInAction.ADD_REGISTERED,
+                tournament_id=tournament_id,
+                player_id=registered_user_id,
+            ),
+            state,
+        )
+
+        final_callback.answer.assert_awaited_once_with("Результат сохранен.")
+        final_message.edit_text.assert_awaited_once()
+        assert "Пришли: 1" in final_message.edit_text.await_args.args[0]
+        async with session_factory() as session:
+            results = list((await session.execute(select(TournamentResult))).scalars())
+        assert len(results) == 1
+        assert results[0].tournament_id == tournament_id
+        assert results[0].player_id == registered_user_id
+        assert results[0].source == TournamentResultSource.REGISTERED
+    finally:
+        await engine.dispose()
+
+
+async def test_admin_check_in_registered_user_dispatcher_flow_creates_result(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    engine = create_async_engine(
+        f"sqlite+aiosqlite:///{tmp_path / 'telegram_check_in_dispatcher.db'}"
+    )
+    async with engine.begin() as connection:
+        await connection.run_sync(Base.metadata.create_all)
+
+    session_factory = async_sessionmaker(engine, expire_on_commit=False)
+    async with session_factory() as session:
+        config = ScoringConfig()
+        session.add(config)
+        await session.flush()
+        await seed_tournament_types_async(session)
+        season = Season(
+            name="Test season",
+            scoring_config_id=config.id,
+            starts_at=date(2026, 7, 1),
+            ends_at=None,
+        )
+        admin = build_player(
+            telegram_id=100,
+            display_name="Админ Первый",
+            status=UserStatus.ACTIVE,
+            role=UserRole.ADMIN,
+        )
+        player = build_player(
+            telegram_id=101,
+            display_name="Игрок Первый",
+            status=UserStatus.ACTIVE,
+        )
+        session.add_all([season, admin, player])
+        await session.flush()
+        tournament = Tournament(
+            season_id=season.id,
+            tournament_type_id=tournament_type_id("classic"),
+            date=date(2026, 7, 9),
+            status=TournamentStatus.ACTIVE,
+        )
+        session.add(tournament)
+        await session.flush()
+        session.add(TournamentRegistration(tournament_id=tournament.id, player_id=player.id))
+        await session.commit()
+        tournament_id = tournament.id
+        player_id = player.id
+
+    service = TournamentCheckInService(
+        session_factory,
+        clock=FixedClock(datetime(2026, 7, 9, 12, tzinfo=ZoneInfo("Europe/Moscow"))),
+    )
+    monkeypatch.setattr(admin_check_in_handlers, "tournament_check_in_service", service)
+    bot = RecordingBot()
+
+    def callback_update(update_id: int, data: str, message_id: int = 10) -> dict[str, object]:
+        return {
+            "update_id": update_id,
+            "callback_query": {
+                "id": f"callback-{update_id}",
+                "from": {"id": 100, "is_bot": False, "first_name": "Админ"},
+                "message": {
+                    "message_id": message_id,
+                    "date": 1783598400,
+                    "chat": {"id": 100, "type": "private"},
+                    "text": "check-in",
+                },
+                "chat_instance": "chat-instance",
+                "data": data,
+            },
+        }
+
+    def message_update(update_id: int, text: str) -> dict[str, object]:
+        return {
+            "update_id": update_id,
+            "message": {
+                "message_id": update_id + 100,
+                "date": 1783598400,
+                "chat": {"id": 100, "type": "private"},
+                "from": {"id": 100, "is_bot": False, "first_name": "Админ"},
+                "text": text,
+            },
+        }
+
+    try:
+        await runtime.telegram_dispatcher.feed_raw_update(
+            bot,
+            callback_update(
+                1,
+                keyboards.AdminCheckInCallback(
+                    action=keyboards.AdminCheckInAction.REGISTERED_SEARCH,
+                    tournament_id=tournament_id,
+                ).pack(),
+            ),
+        )
+        await runtime.telegram_dispatcher.feed_raw_update(bot, message_update(2, "Игрок"))
+        await runtime.telegram_dispatcher.feed_raw_update(
+            bot,
+            callback_update(
+                3,
+                keyboards.AdminCheckInCallback(
+                    action=keyboards.AdminCheckInAction.CONFIRM_REGISTERED,
+                    tournament_id=tournament_id,
+                    player_id=player_id,
+                ).pack(),
+            ),
+        )
+        await runtime.telegram_dispatcher.feed_raw_update(
+            bot,
+            callback_update(
+                4,
+                keyboards.AdminCheckInCallback(
+                    action=keyboards.AdminCheckInAction.ADD_REGISTERED,
+                    tournament_id=tournament_id,
+                    player_id=player_id,
+                ).pack(),
+            ),
+        )
+
+        method_names = [call.__class__.__name__ for call in bot.calls]
+        assert "EditMessageText" in method_names
+        edited_texts = [
+            call.text for call in bot.calls if call.__class__.__name__ == "EditMessageText"
+        ]
+        assert any("Добавить Игрок Первый в сегодняшний турнир?" in text for text in edited_texts)
+        assert any("Пришли: 1" in text for text in edited_texts)
+        async with session_factory() as session:
+            results = list((await session.execute(select(TournamentResult))).scalars())
+        assert len(results) == 1
+        assert results[0].tournament_id == tournament_id
+        assert results[0].player_id == player_id
+        assert results[0].source == TournamentResultSource.REGISTERED
+    finally:
+        await bot.session.close()
+        await engine.dispose()
 
 
 async def test_start_command_opens_registration(monkeypatch: pytest.MonkeyPatch) -> None:
