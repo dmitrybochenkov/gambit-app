@@ -267,6 +267,12 @@ The authoritative default knockout values live in
 `backend/app/domain/scoring.py::TournamentScoring`; this README is only a
 reference for the current seed values.
 
+The pre-production strict tournament schema migration intentionally clears
+gameplay tables (`admin_prompts`, `tournaments`, `tournament_registrations`,
+and `tournament_results`) while preserving users and scoring configuration.
+After applying it, refill game data from the current source sheets/import
+flows rather than relying on stale draft/check-in state.
+
 ## Server Layout
 
 The production project root is `/opt/apps/gambit`:

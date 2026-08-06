@@ -190,7 +190,7 @@ class TournamentResultPlayerView:
 @dataclass(frozen=True)
 class TournamentResultsView:
     tournament: TournamentView
-    tournament_fund: Decimal | None
+    tournament_fund: int | None
     players: list[TournamentResultPlayerView]
     knockout_mode: str = "none"
     supports_bonus_points: bool = False

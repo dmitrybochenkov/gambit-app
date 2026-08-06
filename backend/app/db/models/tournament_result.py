@@ -5,6 +5,7 @@ from sqlalchemy import (
     CheckConstraint,
     DateTime,
     ForeignKey,
+    Index,
     Integer,
     Numeric,
     String,
@@ -60,11 +61,7 @@ class TournamentResult(TimestampMixin, Base):
         default=Decimal("0"),
         nullable=False,
     )
-    bonus_points: Mapped[Decimal] = mapped_column(
-        Numeric(12, 2),
-        default=Decimal("0"),
-        nullable=False,
-    )
+    bonus_points: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
 
     __table_args__ = (
         UniqueConstraint(
@@ -72,7 +69,11 @@ class TournamentResult(TimestampMixin, Base):
             "player_id",
             name="uq_tournament_results_tournament_player",
         ),
-        CheckConstraint("place IS NULL OR place > 0", name="place_positive"),
+        CheckConstraint(
+            "source IN ('registered', 'walk_in_existing', 'walk_in_new')",
+            name="source",
+        ),
+        CheckConstraint("place IS NULL OR (place >= 1 AND place <= 5)", name="place_range"),
         CheckConstraint("knockouts_count >= 0", name="knockouts_count_nonnegative"),
         CheckConstraint(
             "big_knockouts_count >= 0",
@@ -81,8 +82,15 @@ class TournamentResult(TimestampMixin, Base):
         CheckConstraint("tournament_points >= 0", name="tournament_points_nonnegative"),
         CheckConstraint("knockout_points >= 0", name="knockout_points_nonnegative"),
         CheckConstraint("bonus_points >= 0", name="bonus_points_nonnegative"),
+        Index(
+            "uq_tournament_results_tournament_place",
+            "tournament_id",
+            "place",
+            unique=True,
+            sqlite_where=place.is_not(None),
+        ),
     )
 
     @property
     def total_points(self) -> Decimal:
-        return self.tournament_points + self.knockout_points + self.bonus_points
+        return self.tournament_points + self.knockout_points + Decimal(self.bonus_points)

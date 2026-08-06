@@ -78,7 +78,7 @@ async def test_today_result_entry_uses_only_today_active_tournament(
                     season_id=season.id,
                     tournament_type_id=tournament_type_id("double_double"),
                     date=date(2026, 7, 18),
-                    tournament_fund=Decimal("1000"),
+                    tournament_fund=1000,
                     status=TournamentStatus.CLOSED,
                 ),
             ]
@@ -135,7 +135,7 @@ async def test_today_result_entry_rejects_when_today_has_no_active_tournament(
                     season_id=season.id,
                     tournament_type_id=tournament_type_id("freezeout"),
                     date=date(2026, 7, 20),
-                    tournament_fund=Decimal("1000"),
+                    tournament_fund=1000,
                     status=TournamentStatus.CLOSED,
                 ),
             ]
@@ -257,7 +257,7 @@ async def test_result_rows_are_edited_directly_and_close_tournament(
         )
     closed = await service.close_tournament(100, tournament_id, 1000)
 
-    assert closed.tournament_fund == Decimal("1000.00")
+    assert closed.tournament_fund == 1000
     async with session_factory() as session:
         stored_results = list(
             (
@@ -326,7 +326,7 @@ async def test_closeable_tournaments_use_business_date_and_status(
             tournament_type_id=tournament_type_id("double_double"),
             date=date(2026, 7, 19),
             status=TournamentStatus.CLOSED,
-            tournament_fund=Decimal("1000"),
+            tournament_fund=1000,
         )
         cancelled = Tournament(
             season_id=season.id,
@@ -460,7 +460,6 @@ async def test_result_moves_duplicate_place_to_latest_player(
             tournament_type_id=tournament_type_id("classic"),
             date=date(2026, 7, 18),
             status=TournamentStatus.ACTIVE,
-            tournament_fund=Decimal("1000"),
         )
         session.add(tournament)
         await session.flush()

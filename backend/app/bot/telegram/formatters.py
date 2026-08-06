@@ -1,7 +1,10 @@
-import json
 from datetime import date
 
 from app.bot.telegram import texts
+from app.domain.prize_multiplier_places import (
+    PrizeMultiplierPlacesError,
+    parse_prize_multiplier_places,
+)
 from app.services.dto import (
     HallOfFameSeasonView,
     HistoricalTournamentResultRowView,
@@ -739,9 +742,10 @@ def _prize_multiplier_line(tournament: WeeklyScheduleTournamentView) -> str | No
         return None
     try:
         places = " и ".join(
-            str(place) for place in json.loads(tournament.prize_place_multiplier_places)
+            str(place)
+            for place in parse_prize_multiplier_places(tournament.prize_place_multiplier_places)
         )
-    except (TypeError, ValueError):
+    except PrizeMultiplierPlacesError:
         return None
     return f"• Рейтинг за {places} место ×{format_decimal(tournament.prize_place_multiplier)}"
 

@@ -52,14 +52,14 @@ async def test_history_lists_only_periods_and_tournaments_with_results(
             season_id=season.id,
             tournament_type_id=tournament_type_id("classic"),
             date=date(2026, 7, 17),
-            tournament_fund=Decimal("1000"),
+            tournament_fund=1000,
             status=TournamentStatus.CLOSED,
         )
         august_tournament = Tournament(
             season_id=season.id,
             tournament_type_id=tournament_type_id("bounty"),
             date=date(2026, 8, 3),
-            tournament_fund=Decimal("1000"),
+            tournament_fund=1000,
             status=TournamentStatus.CLOSED,
         )
         cancelled_tournament = Tournament(
@@ -95,7 +95,7 @@ async def test_history_lists_only_periods_and_tournaments_with_results(
                 TournamentResult(
                     tournament_id=july_tournament.id,
                     player_id=result_user.id,
-                    place=1,
+                    place=2,
                     tournament_points=Decimal("100"),
                 ),
                 TournamentResult(
@@ -168,7 +168,7 @@ async def test_history_result_sorting_and_formatter(tmp_path: Path) -> None:
             season_id=season.id,
             tournament_type_id=tournament_type_id("classic"),
             date=date(2026, 7, 17),
-            tournament_fund=Decimal("1000"),
+            tournament_fund=1000,
             status=TournamentStatus.CLOSED,
         )
         session.add(tournament)
@@ -183,7 +183,7 @@ async def test_history_result_sorting_and_formatter(tmp_path: Path) -> None:
                     big_knockouts_count=0,
                     tournament_points=Decimal("0"),
                     knockout_points=Decimal("0"),
-                    bonus_points=Decimal("0"),
+                    bonus_points=0,
                 ),
                 TournamentResult(
                     tournament_id=tournament.id,
@@ -193,17 +193,17 @@ async def test_history_result_sorting_and_formatter(tmp_path: Path) -> None:
                     big_knockouts_count=2,
                     tournament_points=Decimal("7"),
                     knockout_points=Decimal("5"),
-                    bonus_points=Decimal("0"),
+                    bonus_points=0,
                 ),
                 TournamentResult(
                     tournament_id=tournament.id,
                     player_id=first.id,
-                    place=1,
+                    place=2,
                     knockouts_count=3,
                     big_knockouts_count=0,
                     tournament_points=Decimal("13"),
                     knockout_points=Decimal("0"),
-                    bonus_points=Decimal("0"),
+                    bonus_points=0,
                 ),
             ]
         )

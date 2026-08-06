@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 from datetime import date
-from decimal import Decimal
 from typing import TYPE_CHECKING
 
 from sqlalchemy import (
@@ -9,7 +8,6 @@ from sqlalchemy import (
     Date,
     ForeignKey,
     Integer,
-    Numeric,
     UniqueConstraint,
 )
 from sqlalchemy.orm import Mapped, mapped_column, relationship
@@ -37,7 +35,7 @@ class Tournament(TimestampMixin, Base):
         index=True,
     )
     date: Mapped[date] = mapped_column(Date, nullable=False, index=True)
-    tournament_fund: Mapped[Decimal | None] = mapped_column(Numeric(12, 2), nullable=True)
+    tournament_fund: Mapped[int | None] = mapped_column(Integer, nullable=True)
     status: Mapped[TournamentStatus] = mapped_column(
         database_enum(TournamentStatus, "tournament_status"),
         default=TournamentStatus.ACTIVE,
@@ -49,11 +47,12 @@ class Tournament(TimestampMixin, Base):
     __table_args__ = (
         UniqueConstraint("date", name="uq_tournaments_date"),
         CheckConstraint(
-            "tournament_fund IS NULL OR tournament_fund >= 0",
-            name="tournament_fund_nonnegative",
+            "tournament_fund IS NULL OR (tournament_fund > 0 AND tournament_fund % 10 = 0)",
+            name="tournament_fund",
         ),
         CheckConstraint(
-            "status != 'closed' OR tournament_fund IS NOT NULL",
-            name="closed_has_tournament_fund",
+            "(status = 'closed' AND tournament_fund IS NOT NULL) "
+            "OR (status != 'closed' AND tournament_fund IS NULL)",
+            name="tournament_fund_status",
         ),
     )

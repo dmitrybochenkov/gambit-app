@@ -1,4 +1,3 @@
-import json
 import logging
 from decimal import ROUND_HALF_UP, Decimal
 
@@ -21,6 +20,10 @@ from app.db.models.enums import (
 )
 from app.db.repositories.tournament_repository import TournamentRepository
 from app.db.session import SessionFactory
+from app.domain.prize_multiplier_places import (
+    PrizeMultiplierPlacesError,
+    parse_prize_multiplier_places,
+)
 from app.domain.tournament_close_policy import is_tournament_closeable
 from app.services.access_policy import access_policy
 from app.services.dto import (
@@ -67,6 +70,10 @@ class ResultValidationError(ValueError):
     def __init__(self, errors: list[str]) -> None:
         self.errors = errors
         super().__init__("\n".join(errors))
+
+
+class ResultInvalidTournamentTypeRuleError(ValueError):
+    pass
 
 
 class ResultService:
@@ -167,10 +174,11 @@ class ResultService:
                 )
                 for other_result in occupied.scalars():
                     other_result.place = None
+                await session.flush()
             result.place = place
             result.knockouts_count = knockouts_count
             result.big_knockouts_count = big_knockouts_count
-            result.bonus_points = Decimal(bonus_points)
+            result.bonus_points = bonus_points
             await session.commit()
             return await self._results_view(session, tournament.id)
 
@@ -214,13 +222,14 @@ class ResultService:
                 )
                 for other_result in occupied.scalars():
                     other_result.place = None
+                await session.flush()
                 result.place = value
             elif field == ResultField.KNOCKOUTS:
                 result.knockouts_count = value
             elif field == ResultField.BIG_KNOCKOUTS:
                 result.big_knockouts_count = value
             elif field == ResultField.BONUS:
-                result.bonus_points = Decimal(value)
+                result.bonus_points = value
 
             await session.commit()
             return await self._results_view(session, tournament.id)
@@ -242,12 +251,13 @@ class ResultService:
 
             scoring_config, rule = await self._scoring(session, tournament)
             tournament.tournament_fund = fund
+            tournament.status = TournamentStatus.CLOSED
             result = await session.execute(
                 select(TournamentResult).where(TournamentResult.tournament_id == tournament.id)
             )
             for item in result.scalars():
                 item.tournament_points = self._tournament_points(
-                    tournament_fund=fund,
+                    tournament_fund=Decimal(fund),
                     place=item.place,
                     scoring_config=scoring_config,
                     rule=rule,
@@ -258,7 +268,6 @@ class ResultService:
                     scoring_config=scoring_config,
                     rule=rule,
                 )
-            tournament.status = TournamentStatus.CLOSED
             await session.commit()
             return await self._results_view(session, tournament.id)
 
@@ -427,14 +436,14 @@ class ResultService:
         return errors
 
     @staticmethod
-    def validate_tournament_fund(value: int | Decimal) -> Decimal:
+    def validate_tournament_fund(value: int | Decimal) -> int:
         try:
             fund = Decimal(value)
         except Exception as exc:
             raise ResultInvalidFundError from exc
         if fund != fund.to_integral_value() or fund <= 0 or fund % Decimal("10") != 0:
             raise ResultInvalidFundError
-        return fund.quantize(Decimal("0.01"))
+        return int(fund)
 
     async def _scoring(
         self,
@@ -466,7 +475,10 @@ class ResultService:
         coefficient = getattr(scoring_config, f"place_{place}_coefficient")
         multiplier = rule.points_multiplier if rule is not None else Decimal("1")
         if rule is not None and rule.prize_place_multiplier_places:
-            places = set(json.loads(rule.prize_place_multiplier_places))
+            try:
+                places = set(parse_prize_multiplier_places(rule.prize_place_multiplier_places))
+            except PrizeMultiplierPlacesError as exc:
+                raise ResultInvalidTournamentTypeRuleError from exc
             if place in places:
                 multiplier *= rule.prize_place_multiplier
         return (tournament_fund * coefficient * multiplier).quantize(

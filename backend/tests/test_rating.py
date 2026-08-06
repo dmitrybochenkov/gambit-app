@@ -72,14 +72,14 @@ async def test_rating_filters_current_season_and_all_time(tmp_path: Path) -> Non
             tournament_type_id=tournament_type_id("bounty"),
             date=date(2026, 7, 8),
             status=TournamentStatus.CLOSED,
-            tournament_fund=Decimal("1000"),
+            tournament_fund=1000,
         )
         previous_tournament = Tournament(
             season_id=previous_season.id,
             tournament_type_id=tournament_type_id("classic"),
             date=date(2026, 6, 20),
             status=TournamentStatus.CLOSED,
-            tournament_fund=Decimal("1000"),
+            tournament_fund=1000,
         )
         active_tournament = Tournament(
             season_id=current_season.id,
@@ -112,7 +112,7 @@ async def test_rating_filters_current_season_and_all_time(tmp_path: Path) -> Non
                     big_knockouts_count=1,
                     tournament_points=Decimal("70"),
                     knockout_points=Decimal("20"),
-                    bonus_points=Decimal("10"),
+                    bonus_points=10,
                 ),
                 TournamentResult(
                     tournament_id=current_tournament.id,
@@ -122,7 +122,7 @@ async def test_rating_filters_current_season_and_all_time(tmp_path: Path) -> Non
                     big_knockouts_count=0,
                     tournament_points=Decimal("100"),
                     knockout_points=Decimal("20"),
-                    bonus_points=Decimal("0"),
+                    bonus_points=0,
                 ),
                 TournamentResult(
                     tournament_id=previous_tournament.id,
@@ -132,7 +132,7 @@ async def test_rating_filters_current_season_and_all_time(tmp_path: Path) -> Non
                     big_knockouts_count=0,
                     tournament_points=Decimal("50"),
                     knockout_points=Decimal("0"),
-                    bonus_points=Decimal("0"),
+                    bonus_points=0,
                 ),
                 TournamentResult(
                     tournament_id=current_tournament.id,
@@ -142,7 +142,7 @@ async def test_rating_filters_current_season_and_all_time(tmp_path: Path) -> Non
                     big_knockouts_count=0,
                     tournament_points=Decimal("0"),
                     knockout_points=Decimal("0"),
-                    bonus_points=Decimal("0"),
+                    bonus_points=0,
                 ),
                 TournamentResult(
                     tournament_id=active_tournament.id,
@@ -152,7 +152,7 @@ async def test_rating_filters_current_season_and_all_time(tmp_path: Path) -> Non
                     big_knockouts_count=99,
                     tournament_points=Decimal("999"),
                     knockout_points=Decimal("999"),
-                    bonus_points=Decimal("999"),
+                    bonus_points=999,
                 ),
                 TournamentResult(
                     tournament_id=cancelled_tournament.id,
@@ -162,7 +162,7 @@ async def test_rating_filters_current_season_and_all_time(tmp_path: Path) -> Non
                     big_knockouts_count=99,
                     tournament_points=Decimal("999"),
                     knockout_points=Decimal("999"),
-                    bonus_points=Decimal("999"),
+                    bonus_points=999,
                 ),
             ]
         )
@@ -452,7 +452,7 @@ async def test_knockout_games_count_and_completed_season_title_tiebreakers(
                 tournament_type_id=tournament_type_id("bounty"),
                 date=date(2026, 1, 1 + index),
                 status=TournamentStatus.CLOSED,
-                tournament_fund=Decimal("1000"),
+                tournament_fund=1000,
             )
             for index in range(4)
         ]
@@ -461,7 +461,7 @@ async def test_knockout_games_count_and_completed_season_title_tiebreakers(
             tournament_type_id=tournament_type_id("bounty"),
             date=date(2026, 4, 2),
             status=TournamentStatus.CLOSED,
-            tournament_fund=Decimal("1000"),
+            tournament_fund=1000,
         )
         session.add_all([*tournaments, current_tournament])
         await session.flush()
@@ -476,7 +476,7 @@ async def test_knockout_games_count_and_completed_season_title_tiebreakers(
                     big_knockouts_count=0,
                     tournament_points=Decimal("100"),
                     knockout_points=Decimal("0"),
-                    bonus_points=Decimal("20"),
+                    bonus_points=20,
                 ),
                 TournamentResult(
                     tournament_id=tournaments[1].id,
@@ -486,7 +486,7 @@ async def test_knockout_games_count_and_completed_season_title_tiebreakers(
                     big_knockouts_count=0,
                     tournament_points=Decimal("0"),
                     knockout_points=Decimal("0"),
-                    bonus_points=Decimal("0"),
+                    bonus_points=0,
                 ),
                 TournamentResult(
                     tournament_id=tournaments[2].id,
@@ -496,7 +496,7 @@ async def test_knockout_games_count_and_completed_season_title_tiebreakers(
                     big_knockouts_count=1,
                     tournament_points=Decimal("0"),
                     knockout_points=Decimal("0"),
-                    bonus_points=Decimal("0"),
+                    bonus_points=0,
                 ),
                 TournamentResult(
                     tournament_id=tournaments[3].id,
@@ -506,7 +506,7 @@ async def test_knockout_games_count_and_completed_season_title_tiebreakers(
                     big_knockouts_count=0,
                     tournament_points=Decimal("0"),
                     knockout_points=Decimal("0"),
-                    bonus_points=Decimal("0"),
+                    bonus_points=0,
                 ),
                 TournamentResult(
                     tournament_id=tournaments[0].id,
@@ -516,7 +516,7 @@ async def test_knockout_games_count_and_completed_season_title_tiebreakers(
                     big_knockouts_count=0,
                     tournament_points=Decimal("120"),
                     knockout_points=Decimal("0"),
-                    bonus_points=Decimal("0"),
+                    bonus_points=0,
                 ),
                 TournamentResult(
                     tournament_id=tournaments[0].id,
@@ -526,7 +526,7 @@ async def test_knockout_games_count_and_completed_season_title_tiebreakers(
                     big_knockouts_count=0,
                     tournament_points=Decimal("0"),
                     knockout_points=Decimal("0"),
-                    bonus_points=Decimal("0"),
+                    bonus_points=0,
                 ),
                 TournamentResult(
                     tournament_id=current_tournament.id,
@@ -536,7 +536,7 @@ async def test_knockout_games_count_and_completed_season_title_tiebreakers(
                     big_knockouts_count=0,
                     tournament_points=Decimal("500"),
                     knockout_points=Decimal("0"),
-                    bonus_points=Decimal("0"),
+                    bonus_points=0,
                 ),
             ]
         )
@@ -613,14 +613,14 @@ async def test_rating_current_season_uses_season_covering_supplied_date(
             tournament_type_id=tournament_type_id("classic"),
             date=date(2026, 8, 9),
             status=TournamentStatus.CLOSED,
-            tournament_fund=Decimal("1000"),
+            tournament_fund=1000,
         )
         future_tournament = Tournament(
             season_id=future_season.id,
             tournament_type_id=tournament_type_id("bounty"),
             date=date(2026, 8, 10),
             status=TournamentStatus.CLOSED,
-            tournament_fund=Decimal("1000"),
+            tournament_fund=1000,
         )
         session.add_all([old_tournament, future_tournament])
         await session.flush()
@@ -634,7 +634,7 @@ async def test_rating_current_season_uses_season_covering_supplied_date(
                     big_knockouts_count=0,
                     tournament_points=Decimal("100"),
                     knockout_points=Decimal("0"),
-                    bonus_points=Decimal("0"),
+                    bonus_points=0,
                 ),
                 TournamentResult(
                     tournament_id=future_tournament.id,
@@ -644,7 +644,7 @@ async def test_rating_current_season_uses_season_covering_supplied_date(
                     big_knockouts_count=0,
                     tournament_points=Decimal("200"),
                     knockout_points=Decimal("0"),
-                    bonus_points=Decimal("0"),
+                    bonus_points=0,
                 ),
             ]
         )

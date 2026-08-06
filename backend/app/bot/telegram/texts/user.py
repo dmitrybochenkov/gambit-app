@@ -84,6 +84,9 @@ TOURNAMENT_CANCELLATION_ACTIVE_ONLY = "Отмена записи доступн�
 TOURNAMENT_CANCELLATION_EMPTY = "Ты не записан ни на один турнир."
 TOURNAMENT_CANCELLATION_PROMPT = "Выбери турниры, с которых хочешь снять запись."
 TOURNAMENT_CANCELLATION_UNAVAILABLE_ITEM = "Одна из записей уже недоступна для отмены."
+TOURNAMENT_CANCELLATION_ALREADY_CHECKED_IN = (
+    "Вы уже прошли check-in на этот турнир.\nОтменить запись после check-in нельзя."
+)
 TOURNAMENT_CANCELLATION_CANCELLED = "Отмена"
 TOURNAMENT_CANCELLATION_SINGLE_HEADING = "Ты отменил запись на турнир:"
 TOURNAMENT_CANCELLATION_MULTIPLE_HEADING = "Ты отменил запись на турниры:"

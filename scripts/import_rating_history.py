@@ -64,7 +64,7 @@ class SourceRow:
     place: int | None
     knockouts_count: int
     big_knockouts_count: int
-    bonus_points: Decimal
+    bonus_points: int
     tournament_points: Decimal
     knockout_points: Decimal
 
@@ -76,7 +76,7 @@ class BlankPlayerRow:
     place: int | None
     knockouts_count: int
     big_knockouts_count: int
-    bonus_points: Decimal
+    bonus_points: int
     tournament_points: Decimal
     knockout_points: Decimal
     reason: str = "blank_player"
@@ -93,7 +93,7 @@ class ResolvedResultRow:
     place: int | None
     knockouts_count: int
     big_knockouts_count: int
-    bonus_points: Decimal
+    bonus_points: int
     tournament_points: Decimal
     knockout_points: Decimal
 
@@ -129,7 +129,7 @@ class TournamentPlanItem:
     season_id: int
     season_name: str
     tournament_type_id: int
-    tournament_fund: Decimal
+    tournament_fund: int
     action: str
     existing_id: int | None = None
     conflict: str | None = None
@@ -288,8 +288,8 @@ def build_import_plan(
             tournament_items,
             update_existing=update_existing,
         )
-        duplicate_errors = validate_unique_result_rows(resolved_rows)
-        errors = [*season_errors, *duplicate_errors]
+        result_errors = validate_result_rows(resolved_rows)
+        errors = [*season_errors, *result_errors]
         return ImportPlan(
             source=source,
             db_path=db_path,
@@ -335,7 +335,7 @@ def load_import_source(
             "place": optional_int(record["Место в турнире"]),
             "knockouts_count": required_int(record["КО"]),
             "big_knockouts_count": required_int(record["Босс КО"]),
-            "bonus_points": required_decimal(record["Доп.очки"]),
+            "bonus_points": required_int(record["Доп.очки"]),
             "tournament_points": required_decimal(record["Количество очков за турнир"]),
             "knockout_points": required_decimal(record["Количество очков за КО"]),
         }
@@ -543,6 +543,7 @@ def build_tournament_plan(
     rows_by_date: dict[date, list[ResolvedResultRow]] = defaultdict(list)
     for row in resolved_rows:
         rows_by_date[row.tournament_date].append(row)
+    source_funds_by_date = tournament_funds_by_date(source)
 
     season_distribution: dict[str, int] = Counter()
     items: list[TournamentPlanItem] = []
@@ -553,10 +554,8 @@ def build_tournament_plan(
             errors.append(f"No existing season covers {tournament_date.isoformat()}.")
             continue
         season_distribution[season["name"]] += 1
-        tournament_fund = sum(
-            (row.tournament_points for row in rows_by_date.get(tournament_date, [])),
-            ZERO,
-        )
+        tournament_fund_decimal = source_funds_by_date[tournament_date]
+        tournament_fund = required_fund(tournament_fund_decimal, tournament_date)
         existing = connection.execute(
             """
             SELECT id, season_id, tournament_type_id, date, tournament_fund, status
@@ -573,13 +572,13 @@ def build_tournament_plan(
             expected = {
                 "season_id": int(season["id"]),
                 "tournament_type_id": legacy_type_id,
-                "tournament_fund": money(tournament_fund),
+                "tournament_fund": str(tournament_fund),
                 "status": "closed",
             }
             actual = {
                 "season_id": int(existing["season_id"]),
                 "tournament_type_id": int(existing["tournament_type_id"]),
-                "tournament_fund": money(decimal_from_db(existing["tournament_fund"])),
+                "tournament_fund": str(required_int(existing["tournament_fund"])),
                 "status": str(existing["status"]),
             }
             if actual == expected:
@@ -667,7 +666,7 @@ def result_diff(existing: sqlite3.Row, row: ResolvedResultRow) -> dict[str, tupl
         "place": row.place,
         "knockouts_count": row.knockouts_count,
         "big_knockouts_count": row.big_knockouts_count,
-        "bonus_points": money(row.bonus_points),
+        "bonus_points": str(row.bonus_points),
         "tournament_points": money(row.tournament_points),
         "knockout_points": money(row.knockout_points),
     }
@@ -675,17 +674,23 @@ def result_diff(existing: sqlite3.Row, row: ResolvedResultRow) -> dict[str, tupl
         "place": existing["place"],
         "knockouts_count": existing["knockouts_count"],
         "big_knockouts_count": existing["big_knockouts_count"],
-        "bonus_points": money(decimal_from_db(existing["bonus_points"])),
+        "bonus_points": str(required_int(existing["bonus_points"])),
         "tournament_points": money(decimal_from_db(existing["tournament_points"])),
         "knockout_points": money(decimal_from_db(existing["knockout_points"])),
     }
     return {key: (actual[key], expected[key]) for key in expected if actual[key] != expected[key]}
 
 
-def validate_unique_result_rows(rows: list[ResolvedResultRow]) -> list[str]:
+def validate_result_rows(rows: list[ResolvedResultRow]) -> list[str]:
     seen: dict[tuple[date, int], int] = {}
+    places_by_tournament: dict[tuple[date, int], int] = {}
     errors: list[str] = []
     for row in rows:
+        if row.place is not None and row.place not in {1, 2, 3, 4, 5}:
+            errors.append(
+                f"Invalid place in import source: row {row.source_row}, "
+                f"{row.tournament_date.isoformat()}, place={row.place}."
+            )
         key = (row.tournament_date, row.user_id)
         previous_row = seen.get(key)
         if previous_row is not None:
@@ -696,6 +701,17 @@ def validate_unique_result_rows(rows: list[ResolvedResultRow]) -> list[str]:
             )
         else:
             seen[key] = row.source_row
+        if row.place is not None:
+            place_key = (row.tournament_date, row.place)
+            previous_place_row = places_by_tournament.get(place_key)
+            if previous_place_row is not None:
+                errors.append(
+                    "Duplicate prize place in import source: "
+                    f"{row.tournament_date.isoformat()} place={row.place} "
+                    f"rows {previous_place_row} and {row.source_row}."
+                )
+            else:
+                places_by_tournament[place_key] = row.source_row
     return errors
 
 
@@ -761,7 +777,7 @@ def apply_tournaments(
                 item.season_id,
                 item.tournament_type_id,
                 item.tournament_date.isoformat(),
-                money(item.tournament_fund),
+                item.tournament_fund,
             ),
         )
         tournament_ids[item.tournament_date] = int(cursor.lastrowid)
@@ -827,7 +843,7 @@ def apply_results(
                     row.big_knockouts_count,
                     money(row.tournament_points),
                     money(row.knockout_points),
-                    money(row.bonus_points),
+                    row.bonus_points,
                     item.existing_id,
                 ),
             )
@@ -847,7 +863,7 @@ def result_values(tournament_id: int, row: ResolvedResultRow) -> tuple[Any, ...]
         row.big_knockouts_count,
         money(row.tournament_points),
         money(row.knockout_points),
-        money(row.bonus_points),
+        row.bonus_points,
     )
 
 
@@ -995,6 +1011,15 @@ def source_dates(source: ImportSource) -> set[date]:
         *(row.tournament_date for row in source.result_rows),
         *(row.tournament_date for row in source.blank_player_rows),
     }
+
+
+def tournament_funds_by_date(source: ImportSource) -> dict[date, Decimal]:
+    funds: dict[date, Decimal] = defaultdict(lambda: ZERO)
+    for row in source.result_rows:
+        funds[row.tournament_date] += row.tournament_points
+    for row in source.blank_player_rows:
+        funds[row.tournament_date] += row.tournament_points
+    return funds
 
 
 def print_report(plan: ImportPlan) -> None:
@@ -1352,13 +1377,27 @@ def normalized_user_name(row: sqlite3.Row) -> str | None:
 def optional_int(value: Any) -> int | None:
     if value is None or clean_text(value) == "":
         return None
-    return int(Decimal(str(value)))
+    return required_int(value)
 
 
 def required_int(value: Any) -> int:
     if value is None or clean_text(value) == "":
         return 0
-    return int(Decimal(str(value)))
+    try:
+        number = Decimal(str(value))
+    except InvalidOperation as error:
+        raise ImportValidationError(f"Invalid integer value: {value!r}") from error
+    if number != number.to_integral_value():
+        raise ImportValidationError(f"Invalid integer value: {value!r}")
+    return int(number)
+
+
+def required_fund(value: Decimal, tournament_date: date) -> int:
+    if value != value.to_integral_value() or value <= 0 or value % Decimal("10") != 0:
+        raise ImportValidationError(
+            f"Invalid tournament fund for {tournament_date.isoformat()}: {value!r}"
+        )
+    return int(value)
 
 
 def required_decimal(value: Any) -> Decimal:
@@ -1376,8 +1415,8 @@ def decimal_from_db(value: Any) -> Decimal:
     return Decimal(str(value)).quantize(Decimal("0.01"))
 
 
-def money(value: Decimal) -> str:
-    return str(value.quantize(Decimal("0.01")))
+def money(value: Decimal | int) -> str:
+    return str(Decimal(value).quantize(Decimal("0.01")))
 
 
 def parse_excel_date(value: Any) -> date:

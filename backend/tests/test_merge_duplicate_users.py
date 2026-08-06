@@ -200,7 +200,7 @@ def test_merge_deduplicates_identical_related_rows(tmp_path: Path) -> None:
                 tournament_points, knockout_points, bonus_points, created_at, updated_at
             )
             VALUES (
-                1, ?, 'walk_in_existing', CURRENT_TIMESTAMP, 1, 0, 0,
+                1, ?, 'walk_in_existing', CURRENT_TIMESTAMP, NULL, 0, 0,
                 100, 0, 0, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
             )
             """,
@@ -232,7 +232,7 @@ def test_merge_blocks_different_unique_related_rows(tmp_path: Path) -> None:
                 tournament_points, knockout_points, bonus_points, created_at, updated_at
             )
             VALUES (
-                1, ?, 'walk_in_existing', CURRENT_TIMESTAMP, 1, 0, 0,
+                1, ?, 'walk_in_existing', CURRENT_TIMESTAMP, NULL, 0, 0,
                 ?, 0, 0, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
             )
             """,

@@ -20,7 +20,7 @@ def test_tournament_result_total_points() -> None:
         place=1,
         tournament_points=Decimal("45"),
         knockout_points=Decimal("30"),
-        bonus_points=Decimal("5"),
+        bonus_points=5,
     )
 
     assert result.total_points == Decimal("80")

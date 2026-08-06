@@ -502,12 +502,7 @@ class UserService:
     @staticmethod
     async def _require_link_candidate(repository: UserRepository, user_id: int) -> User:
         user = await repository.get_by_id(user_id)
-        if (
-            user is None
-            or user.role != UserRole.PLAYER
-            or user.status != UserStatus.ACTIVE
-            or user.telegram_id is not None
-        ):
+        if user is None or user.status != UserStatus.ACTIVE or user.telegram_id is not None:
             raise RegistrationCandidateNotFoundError
         return user
 

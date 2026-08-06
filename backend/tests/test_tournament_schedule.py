@@ -3,6 +3,7 @@ from decimal import Decimal
 from pathlib import Path
 from zoneinfo import ZoneInfo
 
+import pytest
 from conftest import build_player, seed_tournament_types_async, tournament_type_id
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
@@ -30,7 +31,10 @@ from app.services.dto import (
     WeeklyScheduleView,
 )
 from app.services.tournament_check_in_service import TournamentCheckInService
-from app.services.tournament_service import TournamentService
+from app.services.tournament_service import (
+    TournamentRegistrationAlreadyCheckedInError,
+    TournamentService,
+)
 
 
 async def test_upcoming_schedule_uses_active_tournaments(tmp_path: Path) -> None:
@@ -345,10 +349,12 @@ async def test_active_player_can_register_for_multiple_tournaments(tmp_path: Pat
         await engine.dispose()
 
 
-async def test_active_superadmin_can_use_player_tournament_flows_after_new_session(
+@pytest.mark.parametrize("role", [UserRole.ADMIN, UserRole.SUPERADMIN])
+async def test_active_admin_roles_can_use_player_tournament_flows_after_new_session(
     tmp_path: Path,
+    role: UserRole,
 ) -> None:
-    engine = create_async_engine(f"sqlite+aiosqlite:///{tmp_path / 'superadmin_flow.db'}")
+    engine = create_async_engine(f"sqlite+aiosqlite:///{tmp_path / f'{role.value}_flow.db'}")
     async with engine.begin() as connection:
         await connection.run_sync(Base.metadata.create_all)
 
@@ -368,7 +374,7 @@ async def test_active_superadmin_can_use_player_tournament_flows_after_new_sessi
             telegram_id=100,
             display_name="Дима Боченков",
             status=UserStatus.ACTIVE,
-            role=UserRole.SUPERADMIN,
+            role=role,
         )
         session.add_all([season, player])
         await session.flush()
@@ -516,6 +522,83 @@ async def test_check_in_registered_player_creates_result_without_new_registratio
         assert results[0].player_id == player_id
         assert results[0].source == TournamentResultSource.REGISTERED
         assert results[0].checked_in_by_user_id == admin_id
+    finally:
+        await engine.dispose()
+
+
+async def test_cannot_cancel_tournament_registration_after_check_in(
+    tmp_path: Path,
+) -> None:
+    engine = create_async_engine(f"sqlite+aiosqlite:///{tmp_path / 'cancel_after_check_in.db'}")
+    async with engine.begin() as connection:
+        await connection.run_sync(Base.metadata.create_all)
+
+    session_factory = async_sessionmaker(engine, expire_on_commit=False)
+    async with session_factory() as session:
+        config = ScoringConfig()
+        session.add(config)
+        await session.flush()
+        await seed_tournament_types_async(session)
+        season = Season(
+            name="Test season",
+            scoring_config_id=config.id,
+            starts_at=date(2026, 7, 1),
+            ends_at=None,
+        )
+        session.add(season)
+        await session.flush()
+        admin = build_player(
+            telegram_id=100,
+            display_name="Админ Первый",
+            status=UserStatus.ACTIVE,
+            role=UserRole.ADMIN,
+        )
+        player = build_player(
+            telegram_id=101,
+            display_name="Игрок Первый",
+            status=UserStatus.ACTIVE,
+        )
+        tournament = Tournament(
+            season_id=season.id,
+            tournament_type_id=tournament_type_id("classic"),
+            date=date(2026, 7, 9),
+            status=TournamentStatus.ACTIVE,
+        )
+        session.add_all([admin, player, tournament])
+        await session.flush()
+        session.add(TournamentRegistration(tournament_id=tournament.id, player_id=player.id))
+        await session.commit()
+        tournament_id = tournament.id
+        player_id = player.id
+
+    check_in_service = TournamentCheckInService(
+        session_factory,
+        clock=FixedClock(datetime(2026, 7, 9, 12, tzinfo=ZoneInfo("Europe/Moscow"))),
+    )
+    tournament_service = TournamentService(
+        session_factory,
+        clock=FixedClock(datetime(2026, 7, 9, 12, tzinfo=ZoneInfo("Europe/Moscow"))),
+    )
+    try:
+        await check_in_service.check_in_registered(
+            admin_telegram_id=100,
+            tournament_id=tournament_id,
+            user_id=player_id,
+        )
+
+        with pytest.raises(TournamentRegistrationAlreadyCheckedInError):
+            await tournament_service.cancel_player_tournament_registrations(
+                telegram_id=101,
+                tournament_ids=[tournament_id],
+                from_date=date(2026, 7, 9),
+            )
+
+        async with session_factory() as session:
+            registration = await session.scalar(select(TournamentRegistration))
+            result = await session.scalar(select(TournamentResult))
+
+        assert registration is not None
+        assert result is not None
     finally:
         await engine.dispose()
 
@@ -730,5 +813,86 @@ async def test_check_in_existing_player_search_is_sorted_and_excludes_checked_in
 
         assert [player.display_name for player in search_results] == ["Анна Первая"]
         assert after_check_in == []
+    finally:
+        await engine.dispose()
+
+
+async def test_check_in_existing_user_search_includes_admin_roles(
+    tmp_path: Path,
+) -> None:
+    engine = create_async_engine(f"sqlite+aiosqlite:///{tmp_path / 'admin_player_search.db'}")
+    async with engine.begin() as connection:
+        await connection.run_sync(Base.metadata.create_all)
+
+    session_factory = async_sessionmaker(engine, expire_on_commit=False)
+    async with session_factory() as session:
+        config = ScoringConfig()
+        session.add(config)
+        await session.flush()
+        await seed_tournament_types_async(session)
+        season = Season(
+            name="Test season",
+            scoring_config_id=config.id,
+            starts_at=date(2026, 7, 1),
+            ends_at=None,
+        )
+        session.add(season)
+        await session.flush()
+        operator = build_player(
+            telegram_id=100,
+            display_name="Оператор",
+            status=UserStatus.ACTIVE,
+            role=UserRole.ADMIN,
+        )
+        admin_player = build_player(
+            telegram_id=101,
+            display_name="Админ Игрок",
+            status=UserStatus.ACTIVE,
+            role=UserRole.ADMIN,
+        )
+        superadmin_player = build_player(
+            telegram_id=102,
+            display_name="Супер Игрок",
+            status=UserStatus.ACTIVE,
+            role=UserRole.SUPERADMIN,
+        )
+        blocked_player = build_player(
+            telegram_id=103,
+            display_name="Блок Игрок",
+            status=UserStatus.BLOCKED,
+        )
+        tournament = Tournament(
+            season_id=season.id,
+            tournament_type_id=tournament_type_id("classic"),
+            date=date(2026, 7, 9),
+            status=TournamentStatus.ACTIVE,
+        )
+        session.add_all(
+            [
+                operator,
+                admin_player,
+                superadmin_player,
+                blocked_player,
+                tournament,
+            ]
+        )
+        await session.commit()
+        tournament_id = tournament.id
+
+    check_in_service = TournamentCheckInService(
+        session_factory,
+        clock=FixedClock(datetime(2026, 7, 9, 12, tzinfo=ZoneInfo("Europe/Moscow"))),
+    )
+    try:
+        search_results = await check_in_service.search_users(
+            admin_telegram_id=100,
+            tournament_id=tournament_id,
+            query="игрок",
+        )
+
+        assert [user.display_name for user in search_results] == [
+            "Админ Игрок",
+            "Супер Игрок",
+        ]
     finally:
         await engine.dispose()

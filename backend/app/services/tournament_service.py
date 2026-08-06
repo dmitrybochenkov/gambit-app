@@ -1,10 +1,10 @@
 from datetime import date
 
-from sqlalchemy import delete
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from app.common.clock import Clock, club_clock
-from app.db.models import Tournament, TournamentRegistration
+from app.db.models import Tournament, TournamentRegistration, TournamentResult
 from app.db.models.enums import TournamentStatus
 from app.db.repositories.tournament_registration_repository import (
     TournamentRegistrationRepository,
@@ -32,6 +32,10 @@ class TournamentUnavailableError(ValueError):
 
 
 class TournamentCancellationUnavailableError(ValueError):
+    pass
+
+
+class TournamentRegistrationAlreadyCheckedInError(ValueError):
     pass
 
 
@@ -166,6 +170,7 @@ class TournamentService:
 
             today = from_date or self.clock.today()
             tournament_repository = TournamentRepository(session)
+            registration_repository = TournamentRegistrationRepository(session)
             tournaments_by_id: dict[int, Tournament] = {}
             for tournament_id in unique_tournament_ids:
                 tournament = await tournament_repository.get_by_id(tournament_id)
@@ -176,12 +181,19 @@ class TournamentService:
                 ):
                     raise TournamentCancellationUnavailableError
                 tournaments_by_id[tournament.id] = tournament
-            await session.execute(
-                delete(TournamentRegistration).where(
-                    TournamentRegistration.player_id == player.id,
-                    TournamentRegistration.tournament_id.in_(unique_tournament_ids),
+
+                registration = await registration_repository.get(tournament.id, player.id)
+                if registration is None:
+                    continue
+                checked_in = await session.scalar(
+                    select(TournamentResult.id).where(
+                        TournamentResult.tournament_id == tournament.id,
+                        TournamentResult.player_id == player.id,
+                    )
                 )
-            )
+                if checked_in is not None:
+                    raise TournamentRegistrationAlreadyCheckedInError
+                await session.delete(registration)
 
             await session.commit()
             return [

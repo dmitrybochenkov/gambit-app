@@ -265,6 +265,12 @@ async def confirm_tournament_cancellation(
             show_alert=True,
         )
         return
+    except TournamentRegistrationAlreadyCheckedInError:
+        await callback.answer(
+            texts.user.TOURNAMENT_CANCELLATION_ALREADY_CHECKED_IN,
+            show_alert=True,
+        )
+        return
 
     await state.update_data(tournament_cancellation_selection=[])
     await callback.answer(texts.user.ACTION_DONE)

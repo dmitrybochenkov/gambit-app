@@ -34,13 +34,10 @@ class UserRepository:
         )
         return list(result.scalars())
 
-    async def list_active_players(self) -> list[User]:
+    async def list_active_users_for_play(self) -> list[User]:
         result = await self.session.execute(
             select(User)
-            .where(
-                User.status == UserStatus.ACTIVE,
-                User.role == UserRole.PLAYER,
-            )
+            .where(User.status == UserStatus.ACTIVE)
             .order_by(User.display_name, User.id)
         )
         return list(result.scalars())
@@ -62,7 +59,6 @@ class UserRepository:
             select(User)
             .where(
                 User.status == UserStatus.ACTIVE,
-                User.role == UserRole.PLAYER,
                 User.telegram_id.is_(None),
             )
             .order_by(User.display_name, User.id)

@@ -123,7 +123,7 @@ class TournamentCheckInService:
             tournament = await self._require_today_tournament(session, tournament_id)
             checked_in_ids = await self._checked_in_user_ids(session, tournament.id)
             registered_ids = await self._registered_user_ids(session, tournament.id)
-            users = await UserRepository(session).list_active_players()
+            users = await UserRepository(session).list_active_users_for_play()
             candidates = rank_player_candidates(
                 [
                     user
@@ -148,7 +148,7 @@ class TournamentCheckInService:
             checked_in_ids = await self._checked_in_user_ids(session, tournament.id)
             users = [
                 user
-                for user in await UserRepository(session).list_active_players()
+                for user in await UserRepository(session).list_active_users_for_play()
                 if user.id not in checked_in_ids
             ]
             candidates = rank_player_candidates(users, display_name, limit=10)
@@ -222,7 +222,7 @@ class TournamentCheckInService:
         async with self.session_factory() as session:
             admin = await self._require_admin(session, admin_telegram_id)
             tournament = await self._require_today_tournament(session, tournament_id)
-            user = await self._require_active_player(session, user_id)
+            user = await self._require_active_user(session, user_id)
             registration = await session.scalar(
                 select(TournamentRegistration.id).where(
                     TournamentRegistration.tournament_id == tournament.id,
@@ -294,12 +294,6 @@ class TournamentCheckInService:
         if tournament.status != TournamentStatus.ACTIVE or tournament.date != self.clock.today():
             raise TournamentCheckInClosedError
         return tournament
-
-    async def _require_active_player(self, session: AsyncSession, user_id: int):
-        user = await UserRepository(session).get_by_id(user_id)
-        if user is None or user.status != UserStatus.ACTIVE or user.role != UserRole.PLAYER:
-            raise TournamentCheckInUserNotFoundError
-        return user
 
     async def _require_active_user(self, session: AsyncSession, user_id: int):
         user = await UserRepository(session).get_by_id(user_id)

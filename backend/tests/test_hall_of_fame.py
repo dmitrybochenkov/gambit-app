@@ -52,14 +52,14 @@ async def test_hall_of_fame_uses_completed_seasons_and_tiebreakers(
             season_id=old_season.id,
             tournament_type_id=tournament_type_id("classic"),
             date=date(2025, 5, 1),
-            tournament_fund=Decimal("1000"),
+            tournament_fund=1000,
             status=TournamentStatus.CLOSED,
         )
         new_tournament = Tournament(
             season_id=new_season.id,
             tournament_type_id=tournament_type_id("bounty"),
             date=date(2026, 5, 1),
-            tournament_fund=Decimal("1000"),
+            tournament_fund=1000,
             status=TournamentStatus.CLOSED,
         )
         open_tournament = Tournament(

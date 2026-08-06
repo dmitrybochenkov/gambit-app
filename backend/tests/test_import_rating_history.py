@@ -191,11 +191,11 @@ def strict_distribution_rows() -> list[list[object]]:
     season_two_start = date(2026, 1, 28)
     summer_start = date(2026, 6, 1)
     rows = [
-        [(season_two_start + timedelta(days=index)).isoformat(), "Raw", 1, 0, 0, 0, 1, 0]
+        [(season_two_start + timedelta(days=index)).isoformat(), "Raw", 1, 0, 0, 0, 10, 0]
         for index in range(91)
     ]
     rows.extend(
-        [(summer_start + timedelta(days=index)).isoformat(), "Raw", 1, 0, 0, 0, 1, 0]
+        [(summer_start + timedelta(days=index)).isoformat(), "Raw", 1, 0, 0, 0, 10, 0]
         for index in range(39)
     )
     return rows
@@ -246,7 +246,7 @@ def test_reads_all_eight_result_columns_and_big_knockouts(tmp_path: Path) -> Non
     assert row.place == 1
     assert row.knockouts_count == 2
     assert row.big_knockouts_count == 3
-    assert row.bonus_points == import_rating_history.Decimal("4.00")
+    assert row.bonus_points == 4
     assert row.tournament_points == import_rating_history.Decimal("100.00")
     assert row.knockout_points == import_rating_history.Decimal("30.00")
 
@@ -404,7 +404,7 @@ def test_unresolved_user_blocks_apply(tmp_path: Path) -> None:
 def test_blank_player_report_and_tournament_without_result(tmp_path: Path) -> None:
     db_path, source_path, _plan = build_plan(
         tmp_path,
-        [[46050, "", 1, 0, 0, 0, 968, 0]],
+        [[46050, "", 1, 0, 0, 0, 970, 0]],
         [],
     )
 
@@ -426,7 +426,7 @@ def test_blank_player_report_and_tournament_without_result(tmp_path: Path) -> No
 def test_single_winner_historical_tournament_imports_fact_points(tmp_path: Path) -> None:
     db_path, source_path, _plan = build_plan(
         tmp_path,
-        [[46050, "Winner", 1, 0, 0, 0, 968, 0]],
+        [[46050, "Winner", 1, 0, 0, 0, 970, 0]],
         [["Winner", "", "Winner", "", ""]],
     )
     insert_user(db_path, 1, "Winner")
@@ -444,7 +444,7 @@ def test_single_winner_historical_tournament_imports_fact_points(tmp_path: Path)
         row = connection.execute(
             "SELECT tournament_points, knockout_points, bonus_points FROM tournament_results"
         ).fetchone()
-        assert row == (968, 0, 0)
+        assert row == (970, 0, 0)
     finally:
         connection.close()
 

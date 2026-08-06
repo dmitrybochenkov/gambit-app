@@ -3,14 +3,14 @@ from decimal import Decimal
 
 import pytest
 from conftest import seed_tournament_types, tournament_type_id
-from sqlalchemy import create_engine
+from sqlalchemy import create_engine, text
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.db.base import Base
 from app.db.factories import create_user
 from app.db.models import ScoringConfig, Season, Tournament, TournamentResult, User
-from app.db.models.enums import TournamentStatus, UserStatus
+from app.db.models.enums import TournamentResultSource, TournamentStatus, UserStatus
 
 
 @pytest.fixture
@@ -229,8 +229,251 @@ def test_tournament_result_bonus_points_must_be_nonnegative(
             big_knockouts_count=0,
             tournament_points=Decimal("0"),
             knockout_points=Decimal("0"),
-            bonus_points=Decimal("-1"),
+            bonus_points=-1,
         )
+    )
+
+    with pytest.raises(IntegrityError):
+        session.commit()
+
+
+def _seed_result_context(session: Session, tournament_date: date = date(2026, 7, 4)):
+    telegram_offset = int(tournament_date.strftime("%m%d"))
+    scoring_config = ScoringConfig()
+    player = create_user(
+        telegram_id=telegram_offset * 10 + 1,
+        display_name=f"Игрок {tournament_date.isoformat()}",
+        status=UserStatus.ACTIVE,
+    )
+    other = create_user(
+        telegram_id=telegram_offset * 10 + 2,
+        display_name=f"Другой {tournament_date.isoformat()}",
+        status=UserStatus.ACTIVE,
+    )
+    session.add_all([scoring_config, player, other])
+    session.flush()
+    if not session.info.get("tournament_types_seeded"):
+        seed_tournament_types(session)
+        session.info["tournament_types_seeded"] = True
+    season = Season(
+        name=f"Season {tournament_date.isoformat()}",
+        scoring_config_id=scoring_config.id,
+        starts_at=date(2026, 1, 1),
+        ends_at=None,
+    )
+    session.add(season)
+    session.flush()
+    tournament = Tournament(
+        season_id=season.id,
+        tournament_type_id=tournament_type_id("bounty"),
+        date=tournament_date,
+        status=TournamentStatus.ACTIVE,
+    )
+    session.add(tournament)
+    session.flush()
+    return tournament, player, other
+
+
+def _result(tournament_id: int, player_id: int, place: int | None = None) -> TournamentResult:
+    return TournamentResult(
+        tournament_id=tournament_id,
+        player_id=player_id,
+        source=TournamentResultSource.WALK_IN_EXISTING,
+        place=place,
+        knockouts_count=0,
+        big_knockouts_count=0,
+        tournament_points=Decimal("0"),
+        knockout_points=Decimal("0"),
+        bonus_points=0,
+    )
+
+
+@pytest.mark.parametrize(
+    "source",
+    [
+        TournamentResultSource.REGISTERED,
+        TournamentResultSource.WALK_IN_EXISTING,
+        TournamentResultSource.WALK_IN_NEW,
+    ],
+)
+def test_tournament_result_source_accepts_enum_values(
+    session: Session,
+    source: TournamentResultSource,
+) -> None:
+    tournament, player, _other = _seed_result_context(session)
+
+    result = _result(tournament.id, player.id)
+    result.source = source
+    session.add(result)
+
+    session.commit()
+
+
+def test_tournament_result_source_rejects_invalid_raw_value(session: Session) -> None:
+    tournament, player, _other = _seed_result_context(session)
+
+    with pytest.raises(IntegrityError):
+        session.execute(
+            text(
+                """
+                INSERT INTO tournament_results (
+                    tournament_id, player_id, source, checked_in_at,
+                    knockouts_count, big_knockouts_count,
+                    tournament_points, knockout_points, bonus_points,
+                    created_at, updated_at
+                )
+                VALUES (
+                    :tournament_id, :player_id, 'invalid', CURRENT_TIMESTAMP,
+                    0, 0, 0, 0, 0, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
+                )
+                """
+            ),
+            {"tournament_id": tournament.id, "player_id": player.id},
+        )
+
+
+@pytest.mark.parametrize("place", [1, 2, 3, 4, 5, None])
+def test_tournament_result_place_accepts_valid_range(session: Session, place: int | None) -> None:
+    tournament, player, _other = _seed_result_context(session)
+
+    session.add(_result(tournament.id, player.id, place=place))
+
+    session.commit()
+
+
+@pytest.mark.parametrize("place", [0, -1, 6])
+def test_tournament_result_place_rejects_invalid_range(session: Session, place: int) -> None:
+    tournament, player, _other = _seed_result_context(session)
+
+    session.add(_result(tournament.id, player.id, place=place))
+
+    with pytest.raises(IntegrityError):
+        session.commit()
+
+
+def test_tournament_result_place_is_unique_inside_tournament(session: Session) -> None:
+    tournament, player, other = _seed_result_context(session)
+    session.add_all(
+        [
+            _result(tournament.id, player.id, place=1),
+            _result(tournament.id, other.id, place=1),
+        ]
+    )
+
+    with pytest.raises(IntegrityError):
+        session.commit()
+
+
+def test_tournament_result_same_place_is_allowed_in_different_tournaments(session: Session) -> None:
+    first, player, _other = _seed_result_context(session, date(2026, 7, 4))
+    other = create_user(
+        telegram_id=7052,
+        display_name="Другой турнир",
+        status=UserStatus.ACTIVE,
+    )
+    session.add(other)
+    session.flush()
+    second = Tournament(
+        season_id=first.season_id,
+        tournament_type_id=tournament_type_id("classic"),
+        date=date(2026, 7, 5),
+        status=TournamentStatus.ACTIVE,
+    )
+    session.add(second)
+    session.flush()
+    session.add_all(
+        [
+            _result(first.id, player.id, place=1),
+            _result(second.id, other.id, place=1),
+        ]
+    )
+
+    session.commit()
+
+
+@pytest.mark.parametrize("fund", [100, 1250])
+def test_closed_tournament_accepts_valid_integer_fund(session: Session, fund: int) -> None:
+    scoring_config = ScoringConfig()
+    session.add(scoring_config)
+    session.flush()
+    seed_tournament_types(session)
+    season = Season(
+        name=f"Fund {fund}",
+        scoring_config_id=scoring_config.id,
+        starts_at=date(2026, 1, 1),
+        ends_at=None,
+    )
+    session.add(season)
+    session.flush()
+    session.add(
+        Tournament(
+            season_id=season.id,
+            tournament_type_id=tournament_type_id("bounty"),
+            date=date(2026, 8, 1),
+            tournament_fund=fund,
+            status=TournamentStatus.CLOSED,
+        )
+    )
+
+    session.commit()
+
+
+@pytest.mark.parametrize("fund", [0, -10, 105])
+def test_tournament_rejects_invalid_fund(session: Session, fund: int) -> None:
+    scoring_config = ScoringConfig()
+    session.add(scoring_config)
+    session.flush()
+    seed_tournament_types(session)
+    season = Season(
+        name=f"Bad fund {fund}",
+        scoring_config_id=scoring_config.id,
+        starts_at=date(2026, 1, 1),
+        ends_at=None,
+    )
+    session.add(season)
+    session.flush()
+    session.add(
+        Tournament(
+            season_id=season.id,
+            tournament_type_id=tournament_type_id("bounty"),
+            date=date(2026, 8, 1),
+            tournament_fund=fund,
+            status=TournamentStatus.CLOSED,
+        )
+    )
+
+    with pytest.raises(IntegrityError):
+        session.commit()
+
+
+def test_cancelled_tournament_keeps_date_unique(session: Session) -> None:
+    scoring_config = ScoringConfig()
+    session.add(scoring_config)
+    session.flush()
+    seed_tournament_types(session)
+    season = Season(
+        name="Cancelled date",
+        scoring_config_id=scoring_config.id,
+        starts_at=date(2026, 1, 1),
+        ends_at=None,
+    )
+    session.add(season)
+    session.flush()
+    session.add_all(
+        [
+            Tournament(
+                season_id=season.id,
+                tournament_type_id=tournament_type_id("bounty"),
+                date=date(2026, 8, 1),
+                status=TournamentStatus.CANCELLED,
+            ),
+            Tournament(
+                season_id=season.id,
+                tournament_type_id=tournament_type_id("classic"),
+                date=date(2026, 8, 1),
+                status=TournamentStatus.ACTIVE,
+            ),
+        ]
     )
 
     with pytest.raises(IntegrityError):

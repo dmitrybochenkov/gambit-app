@@ -100,6 +100,7 @@ from app.services.profile_service import ProfileKind
 from app.services.rating_service import RatingKind
 from app.services.result_service import FutureTournamentCannotBeClosedError, ResultService
 from app.services.tournament_check_in_service import TournamentCheckInService
+from app.services.tournament_service import TournamentRegistrationAlreadyCheckedInError
 from app.services.user_service import AdminAccessDeniedError, UserService
 
 
@@ -293,7 +294,7 @@ def test_admin_result_players_hide_ids_and_empty_places() -> None:
     ]
     results = TournamentResultsView(
         tournament=tournament,
-        tournament_fund=Decimal("1800"),
+        tournament_fund=1800,
         players=players,
         knockout_mode="none",
     )
@@ -334,7 +335,7 @@ def test_admin_result_players_show_empty_state_without_entered_results() -> None
     ]
     results = TournamentResultsView(
         tournament=tournament,
-        tournament_fund=Decimal("1800"),
+        tournament_fund=1800,
         players=players,
         knockout_mode="none",
     )
@@ -367,7 +368,7 @@ def test_admin_result_player_buttons_show_entered_knockouts_and_place() -> None:
     ]
     results = TournamentResultsView(
         tournament=tournament,
-        tournament_fund=Decimal("1800"),
+        tournament_fund=1800,
         players=players,
         knockout_mode="small_big",
     )
@@ -391,7 +392,7 @@ def test_admin_result_players_show_place_only_table_for_classic() -> None:
     tournament = tournament_view(125, date(2026, 7, 19), 2, "Классика")
     results = TournamentResultsView(
         tournament=tournament,
-        tournament_fund=Decimal("2200"),
+        tournament_fund=2200,
         players=[
             TournamentResultPlayerView(
                 player_id=255,
@@ -449,7 +450,7 @@ def test_admin_result_players_add_knockout_columns_for_bounty() -> None:
     tournament = tournament_view(125, date(2026, 7, 19), 6, "Boss Bounty")
     results = TournamentResultsView(
         tournament=tournament,
-        tournament_fund=Decimal("2200"),
+        tournament_fund=2200,
         players=[
             TournamentResultPlayerView(
                 player_id=1,
@@ -499,7 +500,7 @@ def test_admin_result_players_add_bonus_only_when_supported() -> None:
     tournament = tournament_view(125, date(2026, 7, 19), 2, "Классика")
     results = TournamentResultsView(
         tournament=tournament,
-        tournament_fund=Decimal("2200"),
+        tournament_fund=2200,
         players=[
             TournamentResultPlayerView(
                 player_id=108,
@@ -524,7 +525,7 @@ def test_admin_close_tournament_formatters_show_fund_and_game_tables() -> None:
     tournament = tournament_view(125, date(2026, 7, 19), 6, "Boss Bounty")
     results = TournamentResultsView(
         tournament=tournament,
-        tournament_fund=Decimal("1800"),
+        tournament_fund=1800,
         players=[
             TournamentResultPlayerView(
                 player_id=108,
@@ -573,7 +574,7 @@ def test_admin_result_player_field_and_value_keyboards() -> None:
     )
     results = TournamentResultsView(
         tournament=tournament,
-        tournament_fund=Decimal("1800"),
+        tournament_fund=1800,
         players=[player],
         knockout_mode="small_big",
     )
@@ -644,7 +645,7 @@ async def test_place_only_result_player_opens_place_keyboard(
     )
     results = TournamentResultsView(
         tournament=tournament,
-        tournament_fund=Decimal("1800"),
+        tournament_fund=1800,
         players=[
             target_player,
             TournamentResultPlayerView(
@@ -2105,6 +2106,33 @@ async def test_multiple_tournament_cancellation_sends_confirmation(
     assert "Ты отменил запись на турниры:" in confirmation
     assert "Среда, 8 июля — Баунти турнир" in confirmation
     assert "Четверг, 9 июля — Классика" in confirmation
+
+
+async def test_tournament_cancellation_after_check_in_shows_alert(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    service = SimpleNamespace(
+        cancel_player_tournament_registrations=AsyncMock(
+            side_effect=TournamentRegistrationAlreadyCheckedInError
+        )
+    )
+    monkeypatch.setattr(user_tournament_handlers, "tournament_service", service)
+    callback = SimpleNamespace(
+        from_user=SimpleNamespace(id=123),
+        answer=AsyncMock(),
+    )
+    state = SimpleNamespace(
+        get_data=AsyncMock(return_value={"tournament_cancellation_selection": [7]}),
+        update_data=AsyncMock(),
+    )
+
+    await user_tournament_handlers.confirm_tournament_cancellation(callback, state)
+
+    callback.answer.assert_awaited_once_with(
+        "Вы уже прошли check-in на этот турнир.\nОтменить запись после check-in нельзя.",
+        show_alert=True,
+    )
+    state.update_data.assert_not_awaited()
 
 
 async def test_tournament_cancellation_selection_can_be_cancelled() -> None:

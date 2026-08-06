@@ -27,6 +27,7 @@ from app.services.profile_service import ProfileNotAllowedError, profile_service
 from app.services.rating_service import RatingNotAllowedError, rating_service
 from app.services.tournament_service import (
     TournamentCancellationUnavailableError,
+    TournamentRegistrationAlreadyCheckedInError,
     TournamentRegistrationNotAllowedError,
     TournamentScheduleNotAllowedError,
     TournamentUnavailableError,

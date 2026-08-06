@@ -78,7 +78,6 @@ Fields:
 - `season_id`
 - `type`: `1`, `2`, `3`
 - `date`
-- `capacity`
 - `tournament_fund`: nullable until tournament results are finalized
 - `status`: `active`, `closed`, `cancelled`
 - `created_at`
@@ -87,7 +86,9 @@ Fields:
 Rules:
 
 - `tournament_fund` is set when finalizing the tournament.
-- A `closed` tournament must have `tournament_fund`; an `active` or `cancelled` tournament may leave it empty.
+- A `closed` tournament must have `tournament_fund`; an `active` or `cancelled` tournament must leave it empty.
+- `tournament_fund` is a positive integer divisible by `10`.
+- Tournament dates are unique. A cancelled tournament still occupies its date.
 
 ### TournamentRegistration
 
@@ -109,6 +110,8 @@ Rules:
 
 - User self-registration and admin registration create the row.
 - User cancellation deletes the row.
+- User cancellation is blocked after check-in because the result row is already
+  the actual tournament composition.
 - Repeated registration and cancellation are idempotent from the user flow.
 - `TournamentRegistration` is not the final tournament composition. It is the
   source list for check-in.
@@ -137,12 +140,28 @@ Fields:
 Constraint:
 
 - One result/check-in row per player per tournament.
+- `source` is one of `registered`, `walk_in_existing`, `walk_in_new`.
+- `place` is either empty or an integer from `1` to `5`.
+- Each prize place can be assigned only once per tournament.
+- Knockout counts, rating point fields, and bonus points are nonnegative.
+- `bonus_points` is stored as an integer.
 
 Rules:
 
 - Check-in creates the row.
 - Admins edit result fields directly on this row.
 - Superadmin closing calculates rating points and closes the tournament.
+- Any active user can play regardless of `role`; `role` only controls access to
+  admin and superadmin actions.
+
+### TournamentTypeRule
+
+Rules:
+
+- `prize_place_multiplier_places` stores JSON only through the domain codec in
+  `backend/app/domain/prize_multiplier_places.py`.
+- `NULL` means that prize-place multiplier is disabled.
+- Non-empty values are sorted unique integer places from `1` to `5`.
 
 Derived values:
 
