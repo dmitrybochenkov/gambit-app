@@ -1,8 +1,7 @@
-from aiogram import Router
+"""Telegram handler packages.
 
-from app.bot.telegram.handlers.admin import router as admin_router
-from app.bot.telegram.handlers.user import router as user_router
-
-router = Router()
-router.include_router(admin_router)
-router.include_router(user_router)
+Runtime assembly imports role facades directly from:
+- app.bot.telegram.handlers.superadmin
+- app.bot.telegram.handlers.admin
+- app.bot.telegram.handlers.user
+"""

@@ -1,0 +1,443 @@
+# ruff: noqa: F403,F405
+from app.bot.telegram.keyboards.admin.common import *  # noqa: F403
+
+
+class AdminResultTournamentAction(StrEnum):
+    OPEN = "open"
+    PAGE = "page"
+    CANCEL = "cancel"
+
+
+class AdminResultTournamentCallback(CallbackData, prefix="res_tour"):
+    action: AdminResultTournamentAction
+    page: int
+    tournament_id: int
+
+
+class AdminResultMenuAction(StrEnum):
+    PLAYERS = "players"
+    CANCEL = "cancel"
+
+
+class AdminResultMenuCallback(CallbackData, prefix="res_menu"):
+    action: AdminResultMenuAction
+    tournament_id: int
+
+
+class AdminResultPlayerAction(StrEnum):
+    OPEN = "open"
+    PAGE = "page"
+    BACK = "back"
+    CANCEL = "cancel"
+
+
+class AdminResultPlayerCallback(CallbackData, prefix="res_player"):
+    action: AdminResultPlayerAction
+    tournament_id: int
+    page: int
+    player_id: int
+
+
+class AdminResultField(StrEnum):
+    KNOCKOUTS = "ko"
+    BIG_KNOCKOUTS = "big"
+    BONUS = "bonus"
+    PLACE = "place"
+
+
+class AdminResultFieldAction(StrEnum):
+    OPEN = "open"
+    CANCEL = "cancel"
+
+
+class AdminResultFieldCallback(CallbackData, prefix="res_field"):
+    action: AdminResultFieldAction
+    tournament_id: int
+    page: int
+    player_id: int
+    field: AdminResultField
+
+
+class AdminResultValueAction(StrEnum):
+    SET = "set"
+    MANUAL = "manual"
+    BACK = "back"
+    CANCEL = "cancel"
+
+
+class AdminResultValueCallback(CallbackData, prefix="res_value"):
+    action: AdminResultValueAction
+    tournament_id: int
+    page: int
+    player_id: int
+    field: AdminResultField
+    value: int
+
+
+def admin_result_tournament_list_keyboard(
+    page: Page[TournamentView],
+) -> InlineKeyboardMarkup:
+    builder = InlineKeyboardBuilder()
+    for tournament in page.items:
+        builder.button(
+            text=str(tournament.id),
+            callback_data=AdminResultTournamentCallback(
+                action=AdminResultTournamentAction.OPEN,
+                page=page.page,
+                tournament_id=tournament.id,
+            ),
+        )
+    _add_result_tournament_page_buttons(builder, page)
+    builder.button(
+        text=buttons.ADMIN_CANCEL,
+        callback_data=AdminResultTournamentCallback(
+            action=AdminResultTournamentAction.CANCEL,
+            page=page.page,
+            tournament_id=0,
+        ),
+    )
+    item_rows = [3] * (len(page.items) // 3)
+    if len(page.items) % 3:
+        item_rows.append(len(page.items) % 3)
+    _adjust_paged_keyboard(builder, page, item_rows=item_rows)
+    return builder.as_markup()
+
+
+def admin_result_menu_keyboard(tournament_id: int) -> InlineKeyboardMarkup:
+    builder = InlineKeyboardBuilder()
+    builder.button(
+        text=buttons.ADMIN_RESULTS_PLAYERS,
+        callback_data=AdminResultMenuCallback(
+            action=AdminResultMenuAction.PLAYERS,
+            tournament_id=tournament_id,
+        ),
+    )
+    builder.button(
+        text=buttons.ADMIN_CANCEL,
+        callback_data=AdminResultMenuCallback(
+            action=AdminResultMenuAction.CANCEL,
+            tournament_id=tournament_id,
+        ),
+    )
+    builder.adjust(1)
+    return builder.as_markup()
+
+
+def admin_result_players_keyboard(
+    results: TournamentResultsView,
+    page: Page[TournamentResultPlayerView],
+) -> InlineKeyboardMarkup:
+    builder = InlineKeyboardBuilder()
+    for player in page.items:
+        builder.button(
+            text=_admin_result_player_button_text(results, player),
+            callback_data=AdminResultPlayerCallback(
+                action=AdminResultPlayerAction.OPEN,
+                tournament_id=results.tournament.id,
+                page=page.page,
+                player_id=player.player_id,
+            ),
+        )
+    _add_result_player_page_buttons(builder, page, results.tournament.id)
+    builder.button(
+        text="⬅️ Назад",
+        callback_data=AdminResultPlayerCallback(
+            action=AdminResultPlayerAction.BACK,
+            tournament_id=results.tournament.id,
+            page=page.page,
+            player_id=0,
+        ),
+    )
+    builder.button(
+        text=buttons.ADMIN_CANCEL,
+        callback_data=AdminResultPlayerCallback(
+            action=AdminResultPlayerAction.CANCEL,
+            tournament_id=results.tournament.id,
+            page=page.page,
+            player_id=0,
+        ),
+    )
+    item_rows = [1] * len(page.items)
+    footer_rows = [1, 1, 1]
+    _adjust_paged_keyboard(builder, page, item_rows=item_rows, footer_rows=footer_rows)
+    return builder.as_markup()
+
+
+def _admin_result_player_button_text(
+    results: TournamentResultsView,
+    player: TournamentResultPlayerView,
+) -> str:
+    result_parts = []
+    if player.place is not None:
+        result_parts.append(PLACE_EMOJIS.get(player.place, str(player.place)))
+    if results.knockout_mode == "small_big" and player.big_knockouts_count > 0:
+        result_parts.append(f"👑🥊 х{player.big_knockouts_count}")
+    if results.knockout_mode in {"small", "small_big"} and player.knockouts_count > 0:
+        result_parts.append(f"🥊 х{player.knockouts_count}")
+    if results.supports_bonus_points and player.bonus_points > 0:
+        result_parts.append(f"Бонус {player.bonus_points}")
+    if not result_parts:
+        return player.display_name
+    return f"{player.display_name}: {' | '.join(result_parts)}"
+
+
+def admin_result_cancel_keyboard(tournament_id: int) -> InlineKeyboardMarkup:
+    builder = InlineKeyboardBuilder()
+    builder.button(
+        text=buttons.ADMIN_CANCEL,
+        callback_data=AdminResultMenuCallback(
+            action=AdminResultMenuAction.CANCEL,
+            tournament_id=tournament_id,
+        ),
+    )
+    return builder.as_markup()
+
+
+def admin_result_player_fields_keyboard(
+    results: TournamentResultsView,
+    player: TournamentResultPlayerView,
+    page: int,
+) -> InlineKeyboardMarkup:
+    builder = InlineKeyboardBuilder()
+    for field, text in [
+        (AdminResultField.KNOCKOUTS, "🥊 КО"),
+        (AdminResultField.BIG_KNOCKOUTS, "👑🥊 Большие КО"),
+        (AdminResultField.BONUS, "🎁 Бонус"),
+        (AdminResultField.PLACE, "🏁 Место"),
+    ]:
+        if not is_result_field_allowed(
+            field=ResultField(field.value),
+            knockout_mode=results.knockout_mode,
+            supports_bonus_points=results.supports_bonus_points,
+        ):
+            continue
+        builder.button(
+            text=text,
+            callback_data=AdminResultFieldCallback(
+                action=AdminResultFieldAction.OPEN,
+                tournament_id=results.tournament.id,
+                page=page,
+                player_id=player.player_id,
+                field=field,
+            ),
+        )
+    builder.button(
+        text=buttons.ADMIN_CANCEL,
+        callback_data=AdminResultFieldCallback(
+            action=AdminResultFieldAction.CANCEL,
+            tournament_id=results.tournament.id,
+            page=page,
+            player_id=player.player_id,
+            field=AdminResultField.PLACE,
+        ),
+    )
+    builder.adjust(1)
+    return builder.as_markup()
+
+
+def admin_result_value_keyboard(
+    *,
+    tournament_id: int,
+    page: int,
+    player_id: int,
+    field: AdminResultField,
+    occupied_places: set[int] | None = None,
+    current_place: int | None = None,
+) -> InlineKeyboardMarkup:
+    builder = InlineKeyboardBuilder()
+    max_value = 5 if field == AdminResultField.PLACE else 15
+    occupied_places = occupied_places or set()
+    for value in range(1, max_value + 1):
+        text = _admin_result_value_button_text(
+            field=field,
+            value=value,
+            occupied_places=occupied_places,
+            current_place=current_place,
+        )
+        builder.button(
+            text=text,
+            callback_data=AdminResultValueCallback(
+                action=AdminResultValueAction.SET,
+                tournament_id=tournament_id,
+                page=page,
+                player_id=player_id,
+                field=field,
+                value=value,
+            ),
+        )
+    footer_rows = []
+    if field != AdminResultField.PLACE:
+        if field == AdminResultField.BONUS:
+            builder.button(
+                text="🧹 Очистить",
+                callback_data=AdminResultValueCallback(
+                    action=AdminResultValueAction.SET,
+                    tournament_id=tournament_id,
+                    page=page,
+                    player_id=player_id,
+                    field=field,
+                    value=0,
+                ),
+            )
+            footer_rows.append(1)
+        builder.button(
+            text="⌨️ Ввести руками",
+            callback_data=AdminResultValueCallback(
+                action=AdminResultValueAction.MANUAL,
+                tournament_id=tournament_id,
+                page=page,
+                player_id=player_id,
+                field=field,
+                value=0,
+            ),
+        )
+        footer_rows.append(1)
+    builder.button(
+        text="⬅️ Назад",
+        callback_data=AdminResultValueCallback(
+            action=AdminResultValueAction.BACK,
+            tournament_id=tournament_id,
+            page=page,
+            player_id=player_id,
+            field=field,
+            value=0,
+        ),
+    )
+    footer_rows.append(1)
+    builder.button(
+        text=buttons.ADMIN_CANCEL,
+        callback_data=AdminResultValueCallback(
+            action=AdminResultValueAction.CANCEL,
+            tournament_id=tournament_id,
+            page=page,
+            player_id=player_id,
+            field=field,
+            value=0,
+        ),
+    )
+    footer_rows.append(1)
+    value_rows = [5] if field == AdminResultField.PLACE else [5, 5, 5]
+    builder.adjust(*value_rows, *footer_rows)
+    return builder.as_markup()
+
+
+def _admin_result_value_button_text(
+    *,
+    field: AdminResultField,
+    value: int,
+    occupied_places: set[int],
+    current_place: int | None,
+) -> str:
+    if field != AdminResultField.PLACE:
+        return str(value)
+    if value == current_place:
+        return f"✅ {value}"
+    if value in occupied_places:
+        return f"✔️ {value}"
+    return str(value)
+
+
+def admin_result_manual_value_keyboard(
+    *,
+    tournament_id: int,
+    page: int,
+    player_id: int,
+    field: AdminResultField,
+) -> InlineKeyboardMarkup:
+    builder = InlineKeyboardBuilder()
+    builder.button(
+        text="⬅️ Назад",
+        callback_data=AdminResultValueCallback(
+            action=AdminResultValueAction.BACK,
+            tournament_id=tournament_id,
+            page=page,
+            player_id=player_id,
+            field=field,
+            value=0,
+        ),
+    )
+    builder.button(
+        text=buttons.ADMIN_CANCEL,
+        callback_data=AdminResultValueCallback(
+            action=AdminResultValueAction.CANCEL,
+            tournament_id=tournament_id,
+            page=page,
+            player_id=player_id,
+            field=field,
+            value=0,
+        ),
+    )
+    builder.adjust(1)
+    return builder.as_markup()
+
+
+def _add_result_tournament_page_buttons(
+    builder: InlineKeyboardBuilder,
+    page: Page[TournamentView],
+) -> None:
+    if page.total_pages <= 1:
+        return
+    if page.has_previous:
+        builder.button(
+            text="⬅️",
+            callback_data=AdminResultTournamentCallback(
+                action=AdminResultTournamentAction.PAGE,
+                page=page.previous_page,
+                tournament_id=0,
+            ),
+        )
+    builder.button(
+        text=_admin_candidate_page_label(page),
+        callback_data=AdminResultTournamentCallback(
+            action=AdminResultTournamentAction.PAGE,
+            page=page.page,
+            tournament_id=0,
+        ),
+    )
+    if page.has_next:
+        builder.button(
+            text="➡️",
+            callback_data=AdminResultTournamentCallback(
+                action=AdminResultTournamentAction.PAGE,
+                page=page.next_page,
+                tournament_id=0,
+            ),
+        )
+
+
+def _add_result_player_page_buttons(
+    builder: InlineKeyboardBuilder,
+    page: Page[TournamentResultPlayerView],
+    tournament_id: int,
+) -> None:
+    if page.total_pages <= 1:
+        return
+    if page.has_previous:
+        builder.button(
+            text="⬅️",
+            callback_data=AdminResultPlayerCallback(
+                action=AdminResultPlayerAction.PAGE,
+                tournament_id=tournament_id,
+                page=page.previous_page,
+                player_id=0,
+            ),
+        )
+    builder.button(
+        text=_admin_candidate_page_label(page),
+        callback_data=AdminResultPlayerCallback(
+            action=AdminResultPlayerAction.PAGE,
+            tournament_id=tournament_id,
+            page=page.page,
+            player_id=0,
+        ),
+    )
+    if page.has_next:
+        builder.button(
+            text="➡️",
+            callback_data=AdminResultPlayerCallback(
+                action=AdminResultPlayerAction.PAGE,
+                tournament_id=tournament_id,
+                page=page.next_page,
+                player_id=0,
+            ),
+        )

@@ -1,18 +1,10 @@
 from app.bot.telegram.keyboards.admin import (
-    ADMIN_CANDIDATE_PAGE_SIZE,
     ADMIN_CHECK_IN_PAGE_SIZE,
     ADMIN_RESULT_PAGE_SIZE,
-    REGISTRATION_LIST_PAGE_SIZE,
-    AdminAddAction,
-    AdminAddCallback,
     AdminCalendarAction,
     AdminCalendarCallback,
-    AdminCandidateAction,
-    AdminCandidateCallback,
     AdminCheckInAction,
     AdminCheckInCallback,
-    AdminCloseTournamentAction,
-    AdminCloseTournamentCallback,
     AdminResultField,
     AdminResultFieldAction,
     AdminResultFieldCallback,
@@ -26,26 +18,13 @@ from app.bot.telegram.keyboards.admin import (
     AdminResultValueCallback,
     CalendarPromptAction,
     CalendarPromptCallback,
-    RegistrationCandidateSelectionCallback,
-    RegistrationListAction,
-    RegistrationListCallback,
-    RegistrationReviewAction,
-    RegistrationReviewCallback,
-    SeasonOpenAction,
-    SeasonOpenCallback,
     TournamentPromptDayEditCallback,
     TournamentTypeEditCallback,
-    admin_add_confirmation_keyboard,
     admin_calendar_keyboard,
-    admin_candidate_list_keyboard,
     admin_check_in_cancel_keyboard,
     admin_check_in_empty_search_keyboard,
     admin_check_in_keyboard,
     admin_check_in_search_results_keyboard,
-    admin_close_tournament_card_keyboard,
-    admin_close_tournament_confirmation_keyboard,
-    admin_close_tournament_fund_error_keyboard,
-    admin_close_tournament_list_keyboard,
     admin_panel_keyboard,
     admin_result_cancel_keyboard,
     admin_result_manual_value_keyboard,
@@ -56,12 +35,6 @@ from app.bot.telegram.keyboards.admin import (
     admin_result_value_keyboard,
     calendar_prompt_keyboard,
     manual_tournaments_prompt_keyboard,
-    registration_candidate_selection_keyboard,
-    registration_list_keyboard,
-    registration_review_keyboard,
-    season_open_confirmation_keyboard,
-    season_proposal_change_keyboard,
-    superadmin_panel_keyboard,
     tournament_prompt_day_edit_keyboard,
     tournament_type_edit_keyboard,
 )
@@ -86,7 +59,36 @@ from app.bot.telegram.keyboards.buttons import (
     MAIN_REGISTER,
     MAIN_SCHEDULE,
 )
-from app.bot.telegram.keyboards.history import (
+from app.bot.telegram.keyboards.superadmin import (
+    ADMIN_CANDIDATE_PAGE_SIZE,
+    REGISTRATION_LIST_PAGE_SIZE,
+    AdminAddAction,
+    AdminAddCallback,
+    AdminCandidateAction,
+    AdminCandidateCallback,
+    AdminCloseTournamentAction,
+    AdminCloseTournamentCallback,
+    RegistrationCandidateSelectionCallback,
+    RegistrationListAction,
+    RegistrationListCallback,
+    RegistrationReviewAction,
+    RegistrationReviewCallback,
+    SeasonOpenAction,
+    SeasonOpenCallback,
+    admin_add_confirmation_keyboard,
+    admin_candidate_list_keyboard,
+    admin_close_tournament_card_keyboard,
+    admin_close_tournament_confirmation_keyboard,
+    admin_close_tournament_fund_error_keyboard,
+    admin_close_tournament_list_keyboard,
+    registration_candidate_selection_keyboard,
+    registration_list_keyboard,
+    registration_review_keyboard,
+    season_open_confirmation_keyboard,
+    season_proposal_change_keyboard,
+    superadmin_panel_keyboard,
+)
+from app.bot.telegram.keyboards.user.history import (
     HISTORY_MONTH_PAGE_SIZE,
     HISTORY_RESULT_PAGE_SIZE,
     HISTORY_TOURNAMENT_PAGE_SIZE,
@@ -105,18 +107,18 @@ from app.bot.telegram.keyboards.history import (
     history_tournaments_keyboard,
     history_years_keyboard,
 )
-from app.bot.telegram.keyboards.main import (
+from app.bot.telegram.keyboards.user.menu import (
     main_keyboard,
     main_keyboard_after_registration,
     main_keyboard_after_role_update,
     main_keyboard_for_player,
 )
-from app.bot.telegram.keyboards.profile import (
+from app.bot.telegram.keyboards.user.profile import (
     ProfileCallback,
     ProfileCancelCallback,
     profile_keyboard,
 )
-from app.bot.telegram.keyboards.rating import (
+from app.bot.telegram.keyboards.user.rating import (
     RATING_PAGE_SIZE,
     RatingCallback,
     RatingCancelAction,
@@ -124,7 +126,7 @@ from app.bot.telegram.keyboards.rating import (
     rating_keyboard,
     rating_page_keyboard,
 )
-from app.bot.telegram.keyboards.registration import (
+from app.bot.telegram.keyboards.user.registration import (
     REGISTRATION_BACK_CALLBACK,
     REGISTRATION_LINK_EXISTING_CALLBACK,
     REGISTRATION_NEW_PLAYER_CALLBACK,
@@ -132,7 +134,7 @@ from app.bot.telegram.keyboards.registration import (
     registration_link_not_found_keyboard,
     registration_start_keyboard,
 )
-from app.bot.telegram.keyboards.tournaments import (
+from app.bot.telegram.keyboards.user.tournaments import (
     CANCEL_TOURNAMENT_CANCELLATION_CALLBACK,
     CANCEL_TOURNAMENT_REGISTRATION_CALLBACK,
     CONFIRM_TOURNAMENT_CANCELLATION_CALLBACK,
