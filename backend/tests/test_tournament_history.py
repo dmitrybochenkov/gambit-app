@@ -48,14 +48,14 @@ async def test_history_lists_only_periods_and_tournaments_with_results(
             season_id=season.id,
             tournament_type_id=tournament_type_id("classic"),
             date=date(2026, 7, 17),
-            points_pool=Decimal("1000"),
+            tournament_fund=Decimal("1000"),
             status=TournamentStatus.CLOSED,
         )
         august_tournament = Tournament(
             season_id=season.id,
             tournament_type_id=tournament_type_id("bounty"),
             date=date(2026, 8, 3),
-            points_pool=Decimal("1000"),
+            tournament_fund=Decimal("1000"),
             status=TournamentStatus.CLOSED,
         )
         cancelled_tournament = Tournament(
@@ -146,7 +146,7 @@ async def test_history_result_sorting_and_formatter(tmp_path: Path) -> None:
             season_id=season.id,
             tournament_type_id=tournament_type_id("classic"),
             date=date(2026, 7, 17),
-            points_pool=Decimal("1000"),
+            tournament_fund=Decimal("1000"),
             status=TournamentStatus.CLOSED,
         )
         session.add(tournament)

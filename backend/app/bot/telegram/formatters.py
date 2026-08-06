@@ -15,8 +15,8 @@ from app.services.dto import (
     TournamentCheckInView,
     TournamentPromptItemView,
     TournamentPromptView,
-    TournamentResultDraftPlayerView,
-    TournamentResultDraftView,
+    TournamentResultPlayerView,
+    TournamentResultsView,
     TournamentView,
     UserView,
     WeeklyScheduleTournamentView,
@@ -67,11 +67,7 @@ PLACE_EMOJIS = {
 def format_tournament_label(tournament: TournamentView) -> str:
     weekday = texts.common.WEEKDAYS[tournament.date.weekday()]
     month = texts.common.MONTHS[tournament.date.month]
-    type_name = (
-        tournament.tournament_type_name
-        if tournament.tournament_type_name is not None
-        else _fallback_tournament_type_name(tournament)
-    )
+    type_name = _tournament_type_name(tournament)
     return f"{weekday}, {tournament.date.day} {month} — {type_name}"
 
 
@@ -201,17 +197,20 @@ def format_admin_result_tournament_list(page: Page[TournamentView]) -> str:
     return "\n".join(lines)
 
 
-def format_admin_result_menu(draft: TournamentResultDraftView) -> str:
-    pool = format_decimal(draft.points_pool) if draft.points_pool is not None else "не введен"
+def format_admin_result_menu(results: TournamentResultsView) -> str:
+    fund = (
+        format_decimal(results.tournament_fund)
+        if results.tournament_fund is not None
+        else "не введен"
+    )
     lines = [
         texts.admin.ADMIN_RESULTS_MENU_TITLE,
-        format_tournament_label(draft.tournament),
-        f"Пул: {pool}",
-        f"Игроки: {draft.participant_count or len(draft.players)}",
-        f"В работе: {len(draft.players)}",
-        f"Без результата: {draft.no_result_count}",
+        format_tournament_label(results.tournament),
+        f"Фонд турнира: {fund}",
+        f"Игроки: {results.checked_in_count or len(results.players)}",
+        f"В работе: {len(results.players)}",
     ]
-    lines.extend(_admin_result_summary_lines(draft))
+    lines.extend(_admin_result_summary_lines(results))
     return "\n".join(lines)
 
 
@@ -222,16 +221,55 @@ def format_tournament_check_in(view: TournamentCheckInView) -> str:
         format_tournament_label(view.tournament),
         "",
         f"Зарегистрированы заранее: {view.registered_count}",
-        f"Пришли: {view.participant_count}",
+        f"Пришли: {view.checked_in_count}",
         f"Ещё не отмечены: {view.unchecked_registered_count}",
         f"Без предварительной регистрации: {view.walk_in_count}",
+        "",
+        "Выберите тип игрока:",
     ]
-    if view.players:
-        lines.append("")
-        for player in view.players:
-            marker = "☑️" if player.is_checked_in else "⬜"
-            lines.append(f"{marker} {player.display_name}")
     return "\n".join(lines)
+
+
+def format_registered_check_in_confirmation(tournament: TournamentView, user: UserView) -> str:
+    return "\n".join(
+        [
+            f"Добавить {user.display_name} в сегодняшний турнир?",
+            "",
+            _tournament_type_name(tournament),
+            format_date(tournament.date),
+        ]
+    )
+
+
+def format_existing_check_in_confirmation(tournament: TournamentView, user: UserView) -> str:
+    return "\n".join(
+        [
+            f"Добавить {user.display_name} в турнир без предварительной регистрации?",
+            "",
+            _tournament_type_name(tournament),
+            format_date(tournament.date),
+        ]
+    )
+
+
+def format_new_check_in_confirmation(tournament: TournamentView, display_name: str) -> str:
+    return "\n".join(
+        [
+            f"Создать нового игрока «{display_name}» и добавить в турнир?",
+            "",
+            _tournament_type_name(tournament),
+            format_date(tournament.date),
+        ]
+    )
+
+
+def format_check_in_player_notification(tournament: TournamentView) -> str:
+    return "\n".join(
+        [
+            f"✅ Вы прошли check-in на турнир «{_tournament_type_name(tournament)}».",
+            format_date(tournament.date),
+        ]
+    )
 
 
 def format_tournament_check_in_finished(view: TournamentCheckInView) -> str:
@@ -240,7 +278,7 @@ def format_tournament_check_in_finished(view: TournamentCheckInView) -> str:
         [
             "✅ Состав турнира сохранён",
             "",
-            f"Участников: {view.participant_count}",
+            f"Участников: {view.checked_in_count}",
             f"Из предварительных регистраций: {checked_registered}",
             f"Без предварительной регистрации: {view.walk_in_count}",
             f"Не пришли: {view.unchecked_registered_count}",
@@ -248,68 +286,106 @@ def format_tournament_check_in_finished(view: TournamentCheckInView) -> str:
     )
 
 
-def format_admin_result_close_confirmation(draft: TournamentResultDraftView) -> str:
-    pool = format_decimal(draft.points_pool) if draft.points_pool is not None else "не введен"
-    lines = [
-        "Подтверди закрытие турнира",
-        format_tournament_label(draft.tournament),
-        f"Пул: {pool}",
-        "",
-        "Результаты:",
-    ]
-    for player in draft.players:
-        result = _admin_result_confirmation(player, draft)
-        line = f"• {player.display_name}"
-        if result:
-            line += f": {result}"
-        lines.append(line)
-    return "\n".join(lines)
-
-
 def format_admin_result_players(
-    draft: TournamentResultDraftView,
+    results: TournamentResultsView,
     _page: Page,
 ) -> str:
     lines = [
         texts.admin.ADMIN_RESULTS_PLAYERS_TITLE,
-        format_tournament_label(draft.tournament),
+        format_tournament_label(results.tournament),
         "",
-        f"Игроки: {draft.participant_count or len(draft.players)}",
-        f"В работе: {len(draft.players)}",
-        f"Без результата: {draft.no_result_count}",
+        f"Игроки: {results.checked_in_count or len(results.players)}",
+        f"В работе: {len(results.players)}",
         "",
     ]
-    lines.extend(_admin_result_summary_lines(draft))
+    lines.extend(_admin_result_summary_lines(results))
     return "\n".join(lines)
 
 
-def format_admin_result_no_result_confirmation(
-    player: TournamentResultDraftPlayerView,
-) -> str:
+def format_admin_close_tournament_list(page: Page[TournamentView]) -> str:
+    lines = ["Выбери незакрытый турнир:", ""]
+    for tournament in page.items:
+        lines.append(format_tournament_label(tournament))
+    if page.total_pages > 1:
+        lines.extend(["", _page_line(page)])
+    return "\n".join(lines)
+
+
+def format_admin_close_tournament_card(results: TournamentResultsView) -> str:
     return "\n".join(
         [
-            f"Убрать {player.display_name} из списка внесения результатов?",
+            "🔒 Закрытие турнира",
             "",
-            "Игрок останется участником турнира, но место, нокауты и бонусные очки "
-            "по нему вносить не потребуется.",
+            format_date(results.tournament.date),
+            _tournament_type_name(results.tournament),
+            "",
+            f"Игроков: {results.checked_in_count or len(results.players)}",
+            "",
+            *_admin_result_game_table_lines(results),
+            "",
+            "Введите Фонд турнира.",
         ]
     )
 
 
-def format_admin_result_no_result_players(draft: TournamentResultDraftView) -> str:
-    lines = [
-        "💤 Без результата",
-        format_tournament_label(draft.tournament),
-        "",
-    ]
-    if not draft.no_result_players:
-        lines.append("Список пуст.")
-        return "\n".join(lines)
-    lines.extend(player.display_name for player in draft.no_result_players)
-    return "\n".join(lines)
+def format_admin_close_tournament_blocked(errors: list[str]) -> str:
+    return "\n".join(
+        [
+            "Турнир пока нельзя закрыть:",
+            "",
+            *[f"• {error}" for error in errors],
+        ]
+    )
 
 
-def _admin_result_player_has_value(player: TournamentResultDraftPlayerView) -> bool:
+def format_admin_tournament_fund_error() -> str:
+    return "Фонд турнира должен быть положительным целым числом, кратным 10."
+
+
+def format_admin_close_tournament_confirmation(
+    results: TournamentResultsView,
+    tournament_fund: object,
+) -> str:
+    return "\n".join(
+        [
+            "Подтвердите закрытие турнира.",
+            "",
+            format_date(results.tournament.date),
+            _tournament_type_name(results.tournament),
+            "",
+            f"Игроков: {results.checked_in_count or len(results.players)}",
+            f"Фонд турнира: {format_decimal(tournament_fund)}",
+            "",
+            "После подтверждения будут рассчитаны рейтинговые очки,",
+            "а турнир станет недоступен для редактирования.",
+            "",
+            *_admin_result_game_table_lines(results),
+        ]
+    )
+
+
+def format_admin_closed_tournament(results: TournamentResultsView) -> str:
+    fund = (
+        format_decimal(results.tournament_fund)
+        if results.tournament_fund is not None
+        else "не введен"
+    )
+    return "\n".join(
+        [
+            "✅ Турнир закрыт",
+            "",
+            format_date(results.tournament.date),
+            _tournament_type_name(results.tournament),
+            "",
+            f"Фонд турнира: {fund}",
+            f"Игроков: {results.checked_in_count or len(results.players)}",
+            "",
+            *_admin_result_game_table_lines(results, include_points=True),
+        ]
+    )
+
+
+def _admin_result_player_has_value(player: TournamentResultPlayerView) -> bool:
     return (
         player.place is not None
         or player.knockouts_count > 0
@@ -318,21 +394,53 @@ def _admin_result_player_has_value(player: TournamentResultDraftPlayerView) -> b
     )
 
 
-def _admin_result_summary_lines(draft: TournamentResultDraftView) -> list[str]:
-    lines = _admin_result_places_table_lines(draft)
-    knockout_lines = _admin_result_knockout_lines(draft)
+def _admin_result_summary_lines(results: TournamentResultsView) -> list[str]:
+    lines = _admin_result_places_table_lines(results)
+    knockout_lines = _admin_result_knockout_lines(results)
     if knockout_lines:
         lines.extend(["", *knockout_lines])
-    bonus_lines = _admin_result_bonus_lines(draft)
+    bonus_lines = _admin_result_bonus_lines(results)
     if bonus_lines:
         lines.extend(["", *bonus_lines])
     return lines
 
 
-def _admin_result_places_table_lines(draft: TournamentResultDraftView) -> list[str]:
+def _admin_result_game_table_lines(
+    results: TournamentResultsView,
+    *,
+    include_points: bool = False,
+) -> list[str]:
+    rows = []
+    sorted_players = sorted(
+        results.players,
+        key=lambda player: (
+            player.place if player.place is not None else 99,
+            -player.big_knockouts_count,
+            -player.knockouts_count,
+            player.display_name.casefold(),
+        ),
+    )
+    if include_points:
+        rows.append(f"{'Место':<5}  {'Игрок':<18} {'КО':>3} {'БКО':>4} {'Бонус':>6} {'Очки':>6}")
+    else:
+        rows.append(f"{'Место':<5}  {'Игрок':<18} {'КО':>3} {'БКО':>4} {'Бонус':>6}")
+    for player in sorted_players:
+        place = str(player.place) if player.place is not None else "—"
+        base = (
+            f"{place:<5}  {_code_cell(player.display_name, 18):<18} "
+            f"{player.knockouts_count:>3} {player.big_knockouts_count:>4} "
+            f"{player.bonus_points:>6}"
+        )
+        if include_points:
+            base += f" {format_decimal(player.total_points):>6}"
+        rows.append(base)
+    return ["```", *rows, "```"]
+
+
+def _admin_result_places_table_lines(results: TournamentResultsView) -> list[str]:
     players_by_place = {
         player.place: player
-        for player in sorted(draft.players, key=lambda player: player.display_name.casefold())
+        for player in sorted(results.players, key=lambda player: player.display_name.casefold())
         if player.place is not None
     }
     rows = ["| Место | Игрок", "| ----- | -----"]
@@ -343,14 +451,14 @@ def _admin_result_places_table_lines(draft: TournamentResultDraftView) -> list[s
     return ["```", *rows, "```"]
 
 
-def _admin_result_knockout_lines(draft: TournamentResultDraftView) -> list[str]:
-    if draft.knockout_mode not in {"small", "small_big"}:
+def _admin_result_knockout_lines(results: TournamentResultsView) -> list[str]:
+    if results.knockout_mode not in {"small", "small_big"}:
         return []
 
     players = sorted(
         [
             player
-            for player in draft.players
+            for player in results.players
             if player.knockouts_count > 0 or player.big_knockouts_count > 0
         ],
         key=_admin_result_player_sort_key,
@@ -361,22 +469,22 @@ def _admin_result_knockout_lines(draft: TournamentResultDraftView) -> list[str]:
     lines = ["🥊:"]
     for player in players:
         result_parts = _admin_result_player_parts(
-            knockout_mode=draft.knockout_mode,
+            knockout_mode=results.knockout_mode,
             knockouts_count=player.knockouts_count,
             big_knockouts_count=player.big_knockouts_count,
             bonus_points=player.bonus_points,
             place=None,
-            supports_bonus_points=draft.supports_bonus_points,
+            supports_bonus_points=results.supports_bonus_points,
         )
         lines.append(f"{_markdown_escape(player.display_name)}: {', '.join(result_parts)}")
     return lines
 
 
-def _admin_result_bonus_lines(draft: TournamentResultDraftView) -> list[str]:
-    if not draft.supports_bonus_points:
+def _admin_result_bonus_lines(results: TournamentResultsView) -> list[str]:
+    if not results.supports_bonus_points:
         return []
     players = sorted(
-        [player for player in draft.players if player.bonus_points > 0],
+        [player for player in results.players if player.bonus_points > 0],
         key=lambda player: (-player.bonus_points, player.display_name.casefold()),
     )
     if not players:
@@ -429,7 +537,7 @@ def _hall_of_fame_line(icon: str, display_name: str | None) -> str:
 
 
 def _admin_result_player_sort_key(
-    player: TournamentResultDraftPlayerView,
+    player: TournamentResultPlayerView,
 ) -> tuple[int, int, int, str]:
     return (
         -player.big_knockouts_count,
@@ -474,36 +582,20 @@ def _place_label(place: int) -> str:
     return PLACE_EMOJIS.get(place, str(place))
 
 
-def _admin_result_confirmation(
-    player: TournamentResultDraftPlayerView,
-    draft: TournamentResultDraftView,
-) -> str:
-    result_parts = []
-    if player.place is not None:
-        result_parts.append(_place_label(player.place))
-    if draft.knockout_mode == "small_big" and player.big_knockouts_count > 0:
-        result_parts.append(f"👑🥊 х{player.big_knockouts_count}")
-    if draft.knockout_mode in {"small", "small_big"} and player.knockouts_count > 0:
-        result_parts.append(f"🥊 х{player.knockouts_count}")
-    if draft.supports_bonus_points and player.bonus_points > 0:
-        result_parts.append(f"Бонус {player.bonus_points}")
-    return " | ".join(result_parts)
-
-
 def format_admin_result_player_detail(
-    draft: TournamentResultDraftView,
-    player: TournamentResultDraftPlayerView,
+    results: TournamentResultsView,
+    player: TournamentResultPlayerView,
 ) -> str:
     lines = [
         "Результат игрока",
         player.display_name,
     ]
-    if draft.knockout_mode in {"small", "small_big"}:
+    if results.knockout_mode in {"small", "small_big"}:
         label = "🥊"
         lines.append(f"{label}: {player.knockouts_count}")
-    if draft.knockout_mode == "small_big":
+    if results.knockout_mode == "small_big":
         lines.append(f"👑🥊: {player.big_knockouts_count}")
-    if draft.supports_bonus_points:
+    if results.supports_bonus_points:
         lines.append(f"Бонус: {player.bonus_points}")
     if player.place is not None:
         lines.append(f"Место: {_place_label(player.place)}")
@@ -511,38 +603,10 @@ def format_admin_result_player_detail(
 
 
 def format_admin_result_field_prompt(
-    player: TournamentResultDraftPlayerView,
+    player: TournamentResultPlayerView,
     field_name: str,
 ) -> str:
     return f"{player.display_name}\n\nВыбери {field_name}:"
-
-
-def format_admin_tournament_registration_tournament_list(
-    page: Page[TournamentView],
-) -> str:
-    lines = [texts.admin.ADMIN_TOURNAMENT_REGISTRATION_TOURNAMENT_LIST_TITLE, ""]
-    for tournament in page.items:
-        lines.append(f"{tournament.id} — {format_tournament_label(tournament)}")
-    if page.total_pages > 1:
-        lines.extend(["", _page_line(page)])
-    return "\n".join(lines)
-
-
-def format_admin_tournament_registration_player_list(
-    tournament: TournamentView,
-    page: Page[UserView],
-    title: str | None = None,
-) -> str:
-    lines = [
-        title or texts.admin.ADMIN_TOURNAMENT_REGISTRATION_PLAYER_LIST_TITLE,
-        format_tournament_label(tournament),
-        "",
-    ]
-    for player in page.items:
-        lines.append(f"{player.id} — {player.display_name}")
-    if page.total_pages > 1:
-        lines.extend(["", _page_line(page)])
-    return "\n".join(lines)
 
 
 def format_season_proposal(proposal: SeasonProposalView) -> str:
@@ -705,3 +769,9 @@ def _split_weekly_schedule_messages(blocks: list[str]) -> list[str]:
 
 def _fallback_tournament_type_name(tournament: TournamentView) -> str:
     return texts.user.TOURNAMENT_TYPE_FALLBACK
+
+
+def _tournament_type_name(tournament: TournamentView) -> str:
+    if tournament.tournament_type_name is not None:
+        return tournament.tournament_type_name
+    return _fallback_tournament_type_name(tournament)

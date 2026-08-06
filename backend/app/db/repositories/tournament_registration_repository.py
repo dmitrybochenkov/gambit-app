@@ -4,8 +4,8 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
-from app.db.models import Tournament, TournamentRegistration
-from app.db.models.enums import RegistrationStatus, TournamentStatus
+from app.db.models import Tournament, TournamentRegistration, TournamentResult
+from app.db.models.enums import TournamentStatus
 
 
 class TournamentRegistrationRepository:
@@ -39,9 +39,14 @@ class TournamentRegistrationRepository:
             )
             .where(
                 TournamentRegistration.player_id == player_id,
-                TournamentRegistration.status == RegistrationStatus.REGISTERED,
                 Tournament.status == TournamentStatus.ACTIVE,
                 Tournament.date >= from_date,
+                ~select(TournamentResult.id)
+                .where(
+                    TournamentResult.tournament_id == Tournament.id,
+                    TournamentResult.player_id == player_id,
+                )
+                .exists(),
             )
             .order_by(Tournament.date, Tournament.tournament_type_id)
         )

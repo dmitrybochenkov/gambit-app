@@ -3,10 +3,8 @@ from app.db.models.registration_request import RegistrationRequest
 from app.db.models.scoring_config import ScoringConfig
 from app.db.models.season import Season
 from app.db.models.tournament import Tournament
-from app.db.models.tournament_participant import TournamentParticipant
 from app.db.models.tournament_registration import TournamentRegistration
 from app.db.models.tournament_result import TournamentResult
-from app.db.models.tournament_result_draft import TournamentResultDraft
 from app.db.models.tournament_type import (
     TournamentEconomyConfig,
     TournamentRebuyConfig,
@@ -22,14 +20,12 @@ __all__ = [
     "ScoringConfig",
     "Season",
     "Tournament",
-    "TournamentParticipant",
     "TournamentEconomyConfig",
     "TournamentRebuyConfig",
     "TournamentType",
     "TournamentTypeRule",
     "WeeklyTournamentTemplate",
     "TournamentRegistration",
-    "TournamentResultDraft",
     "TournamentResult",
     "User",
 ]

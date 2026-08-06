@@ -77,7 +77,8 @@ def create_database(path: Path) -> None:
             VALUES (7, 'legacy_unknown', 'Неопределенный турнир', 'active',
                     CURRENT_TIMESTAMP, CURRENT_TIMESTAMP);
             INSERT INTO tournaments (
-                id, season_id, tournament_type_id, date, points_pool, status, created_at, updated_at
+                id, season_id, tournament_type_id, date, tournament_fund, status,
+                created_at, updated_at
             )
             VALUES
               (1, 2, 7, '2026-01-28', 1000, 'closed', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
@@ -165,10 +166,14 @@ def test_merge_moves_foreign_keys(tmp_path: Path) -> None:
         db_path,
         """
         INSERT INTO tournament_results (
-            tournament_id, player_id, place, knockouts_count, big_knockouts_count,
+            tournament_id, player_id, source, checked_in_at, place,
+            knockouts_count, big_knockouts_count,
             tournament_points, knockout_points, bonus_points, created_at, updated_at
         )
-        VALUES (1, 2, 1, 0, 0, 100, 0, 0, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+        VALUES (
+            1, 2, 'walk_in_existing', CURRENT_TIMESTAMP, 1, 0, 0,
+            100, 0, 0, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
+        )
         """,
     )
 
@@ -190,10 +195,14 @@ def test_merge_deduplicates_identical_related_rows(tmp_path: Path) -> None:
             db_path,
             """
             INSERT INTO tournament_results (
-                tournament_id, player_id, place, knockouts_count, big_knockouts_count,
+                tournament_id, player_id, source, checked_in_at, place,
+                knockouts_count, big_knockouts_count,
                 tournament_points, knockout_points, bonus_points, created_at, updated_at
             )
-            VALUES (1, ?, 1, 0, 0, 100, 0, 0, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+            VALUES (
+                1, ?, 'walk_in_existing', CURRENT_TIMESTAMP, 1, 0, 0,
+                100, 0, 0, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
+            )
             """,
             (player_id,),
         )
@@ -218,10 +227,14 @@ def test_merge_blocks_different_unique_related_rows(tmp_path: Path) -> None:
             db_path,
             """
             INSERT INTO tournament_results (
-                tournament_id, player_id, place, knockouts_count, big_knockouts_count,
+                tournament_id, player_id, source, checked_in_at, place,
+                knockouts_count, big_knockouts_count,
                 tournament_points, knockout_points, bonus_points, created_at, updated_at
             )
-            VALUES (1, ?, 1, 0, 0, ?, 0, 0, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+            VALUES (
+                1, ?, 'walk_in_existing', CURRENT_TIMESTAMP, 1, 0, 0,
+                ?, 0, 0, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
+            )
             """,
             (player_id, points),
         )
@@ -309,10 +322,14 @@ def test_merge_rolls_back_atomically(tmp_path: Path, monkeypatch: pytest.MonkeyP
         db_path,
         """
         INSERT INTO tournament_results (
-            tournament_id, player_id, place, knockouts_count, big_knockouts_count,
+            tournament_id, player_id, source, checked_in_at, place,
+            knockouts_count, big_knockouts_count,
             tournament_points, knockout_points, bonus_points, created_at, updated_at
         )
-        VALUES (1, 2, 1, 0, 0, 100, 0, 0, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+        VALUES (
+            1, 2, 'walk_in_existing', CURRENT_TIMESTAMP, 1, 0, 0,
+            100, 0, 0, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
+        )
         """,
     )
     original_apply_group = merge_duplicate_users.apply_group

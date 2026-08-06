@@ -97,7 +97,7 @@ Fields:
 
 Actions:
 
-- Save draft results
+- Save result fields
 - Publish results
 - Recalculate ratings
 
@@ -144,4 +144,3 @@ Dashboard widgets:
 - Registrations this week
 - Recent results
 - Top current-season players
-

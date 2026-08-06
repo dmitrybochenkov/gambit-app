@@ -1,9 +1,7 @@
-from datetime import UTC, datetime
-from difflib import SequenceMatcher
-
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
+from app.common.clock import Clock, club_clock
 from app.common.normalization import normalize_display_name
 from app.db.factories import create_user
 from app.db.models import RegistrationRequest, User
@@ -30,16 +28,20 @@ from app.services.dto import (
     UserStatusView,
     UserView,
 )
+from app.services.player_search import (
+    InvalidDisplayNameError as InvalidDisplayNameError,
+)
+from app.services.player_search import (
+    PlayerSearchCandidate,
+    rank_player_candidates,
+    validate_display_name,
+)
 
 
 class IdentityAlreadyExistsError(ValueError):
     def __init__(self, field: str) -> None:
         self.field = field
         super().__init__(f"{field} already exists")
-
-
-class InvalidDisplayNameError(ValueError):
-    pass
 
 
 class RegistrationNotAllowedError(ValueError):
@@ -75,8 +77,13 @@ class ActiveUserRequiredError(ValueError):
 
 
 class UserService:
-    def __init__(self, session_factory: async_sessionmaker[AsyncSession]) -> None:
+    def __init__(
+        self,
+        session_factory: async_sessionmaker[AsyncSession],
+        clock: Clock = club_clock,
+    ) -> None:
         self.session_factory = session_factory
+        self.clock = clock
 
     async def get_by_telegram_id(self, telegram_id: int) -> UserView | None:
         async with self.session_factory() as session:
@@ -365,7 +372,7 @@ class UserService:
                 )
                 user_repository.add(user)
                 request.status = RegistrationRequestStatus.APPROVED
-                request.reviewed_at = datetime.now(UTC)
+                request.reviewed_at = self.clock.now()
                 try:
                     await session.commit()
                 except IntegrityError as exc:
@@ -381,7 +388,7 @@ class UserService:
                 )
                 user.telegram_id = request.telegram_id
                 request.status = RegistrationRequestStatus.APPROVED
-                request.reviewed_at = datetime.now(UTC)
+                request.reviewed_at = self.clock.now()
                 try:
                     await session.commit()
                 except IntegrityError as exc:
@@ -410,7 +417,7 @@ class UserService:
             admins = await user_repository.list_active_admins()
             request.status = RegistrationRequestStatus.REJECTED
             request.rejection_reason = rejection_reason
-            request.reviewed_at = datetime.now(UTC)
+            request.reviewed_at = self.clock.now()
             await session.commit()
             await session.refresh(request)
             return RegistrationReviewResultView(
@@ -449,23 +456,18 @@ class UserService:
         normalized = normalize_display_name(requested_link_name)
         if normalized is None:
             return []
-        candidates = []
-        for user in await user_repository.list_link_candidates():
-            score = _similarity_score(normalized, user.display_name_normalized)
-            if score == 100:
-                candidates.append((user, score, "имя игрока совпадает"))
-            elif normalized in user.display_name_normalized:
-                candidates.append((user, 95, "имя игрока частично совпадает"))
-            elif score >= 75:
-                candidates.append((user, score, f"имя игрока похоже на {score}%"))
-        candidates.sort(key=lambda item: (-item[1], item[0].display_name, item[0].id))
+        candidates = rank_player_candidates(
+            await user_repository.list_link_candidates(),
+            requested_link_name,
+            limit=6,
+        )
         return [
             RegistrationCandidateView(
-                user=required_user_view(user),
-                score=score,
-                reason=reason,
+                user=required_user_view(candidate.user),
+                score=_registration_candidate_score(candidate),
+                reason=candidate.reason,
             )
-            for user, score, reason in candidates[:6]
+            for candidate in candidates
         ]
 
     @staticmethod
@@ -573,11 +575,12 @@ def required_registration_request_view(
 
 
 def _require_valid_display_name(display_name: str) -> str:
-    display_name_normalized = normalize_display_name(display_name)
-    if display_name_normalized is None or len(display_name) > 255:
-        raise InvalidDisplayNameError
-    return display_name_normalized
+    return validate_display_name(display_name)
 
 
-def _similarity_score(left: str, right: str) -> int:
-    return round(SequenceMatcher(None, left, right).ratio() * 100)
+def _registration_candidate_score(candidate: PlayerSearchCandidate) -> int:
+    if candidate.score == 300:
+        return 100
+    if candidate.reason == "имя игрока частично совпадает":
+        return 95
+    return candidate.score

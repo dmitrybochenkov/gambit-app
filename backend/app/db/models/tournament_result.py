@@ -1,10 +1,20 @@
+from datetime import datetime
 from decimal import Decimal
 
-from sqlalchemy import CheckConstraint, ForeignKey, Integer, Numeric, UniqueConstraint
+from sqlalchemy import (
+    CheckConstraint,
+    DateTime,
+    ForeignKey,
+    Integer,
+    Numeric,
+    String,
+    UniqueConstraint,
+)
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.db.base import Base
-from app.db.models.mixins import TimestampMixin
+from app.db.models.enums import TournamentResultSource
+from app.db.models.mixins import TimestampMixin, utc_now
 
 
 class TournamentResult(TimestampMixin, Base):
@@ -20,6 +30,22 @@ class TournamentResult(TimestampMixin, Base):
         ForeignKey("users.id", ondelete="RESTRICT"),
         nullable=False,
         index=True,
+    )
+    source: Mapped[TournamentResultSource] = mapped_column(
+        String(20),
+        default=TournamentResultSource.WALK_IN_EXISTING,
+        nullable=False,
+        index=True,
+    )
+    checked_in_by_user_id: Mapped[int | None] = mapped_column(
+        ForeignKey("users.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
+    )
+    checked_in_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        default=utc_now,
+        nullable=False,
     )
     place: Mapped[int | None] = mapped_column(Integer, nullable=True)
     knockouts_count: Mapped[int] = mapped_column(Integer, default=0, nullable=False)

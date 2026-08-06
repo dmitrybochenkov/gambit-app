@@ -31,7 +31,7 @@ def test_player_requires_display_name(session: Session) -> None:
         session.commit()
 
 
-def test_closed_tournament_requires_points_pool(session: Session) -> None:
+def test_closed_tournament_requires_tournament_fund(session: Session) -> None:
     scoring_config = ScoringConfig()
     session.add(scoring_config)
     session.flush()
@@ -51,7 +51,7 @@ def test_closed_tournament_requires_points_pool(session: Session) -> None:
             season_id=season.id,
             tournament_type_id=tournament_type_id("bounty"),
             date=date(2026, 7, 4),
-            points_pool=None,
+            tournament_fund=None,
             status=TournamentStatus.CLOSED,
         )
     )

@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import json
 import logging
-from datetime import UTC, date, datetime
+from datetime import date
 from decimal import Decimal
 from enum import StrEnum
 
@@ -10,6 +10,7 @@ from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
+from app.common.clock import Clock, club_clock
 from app.db.models import (
     AdminPrompt,
     Tournament,
@@ -117,15 +118,17 @@ class CalendarService:
         self,
         session_factory: async_sessionmaker[AsyncSession],
         sunday_rotation: SundayTournamentRotation = sunday_tournament_rotation,
+        clock: Clock = club_clock,
     ) -> None:
         self.session_factory = session_factory
         self.sunday_rotation = sunday_rotation
+        self.clock = clock
 
     async def create_weekly_tournament_prompt(
         self,
         today: date | None = None,
     ) -> TournamentPromptView:
-        target_dates = next_complete_game_week(today or date.today())
+        target_dates = next_complete_game_week(today or self.clock.today())
         scope_key = weekly_tournaments_prompt_key(target_dates)
         async with self.session_factory() as session:
             tournament_repository = TournamentRepository(session)
@@ -273,7 +276,7 @@ class CalendarService:
             else:
                 prompt.status = AdminPromptStatus.NEEDS_CHANGES
 
-            prompt.resolved_at = datetime.now(UTC)
+            prompt.resolved_at = self.clock.now()
             prompt.resolved_by_admin_id = admin_telegram_id
             await self._commit_tournament_prompt(session)
             await session.refresh(prompt)

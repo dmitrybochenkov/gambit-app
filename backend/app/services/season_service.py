@@ -1,10 +1,11 @@
 import json
-from datetime import UTC, date, datetime, timedelta
+from datetime import date, timedelta
 from uuid import uuid4
 
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
+from app.common.clock import Clock, club_clock
 from app.db.models import AdminPrompt, ScoringConfig, Season
 from app.db.models.enums import AdminPromptStatus, UserRole, UserStatus
 from app.db.repositories.admin_prompt_repository import AdminPromptRepository
@@ -79,11 +80,16 @@ SEASON_NAME_BY_QUARTER = {
 
 
 class SeasonService:
-    def __init__(self, session_factory: async_sessionmaker[AsyncSession]) -> None:
+    def __init__(
+        self,
+        session_factory: async_sessionmaker[AsyncSession],
+        clock: Clock = club_clock,
+    ) -> None:
         self.session_factory = session_factory
+        self.clock = clock
 
     async def get_active_season(self, today: date | None = None) -> SeasonView:
-        business_date = today or date.today()
+        business_date = today or self.clock.today()
         async with self.session_factory() as session:
             season = await SeasonRepository(session).get_for_date(business_date)
             if season is None:
@@ -91,7 +97,7 @@ class SeasonService:
             return season_view(season, today=business_date)
 
     async def list_seasons(self, today: date | None = None) -> list[SeasonView]:
-        business_date = today or date.today()
+        business_date = today or self.clock.today()
         async with self.session_factory() as session:
             seasons = await SeasonRepository(session).list_all()
             return [season_view(season, today=business_date) for season in seasons]
@@ -107,7 +113,7 @@ class SeasonService:
         admin_telegram_id: int,
         today: date | None = None,
     ) -> SeasonProposalView:
-        business_date = today or date.today()
+        business_date = today or self.clock.today()
         starts_at = business_date + timedelta(days=1)
         async with self.session_factory() as session:
             await self._require_admin(session, admin_telegram_id)
@@ -115,7 +121,7 @@ class SeasonService:
             if scoring_config is None:
                 raise SeasonScoringConfigNotFoundError
             proposal = AdminPrompt(
-                key=season_proposal_key(admin_telegram_id),
+                key=season_proposal_key(admin_telegram_id, self.clock),
                 kind=SEASON_PROPOSAL_KIND,
                 payload=season_proposal_payload(
                     name=season_name_for_date(starts_at),
@@ -179,7 +185,7 @@ class SeasonService:
         prompt_id: int,
         today: date | None = None,
     ) -> SeasonView:
-        business_date = today or date.today()
+        business_date = today or self.clock.today()
         async with self.session_factory() as session:
             try:
                 prompt = await self._get_pending_season_proposal(session, prompt_id)
@@ -193,7 +199,7 @@ class SeasonService:
                     today=business_date,
                 )
                 prompt.status = AdminPromptStatus.CONFIRMED
-                prompt.resolved_at = datetime.now(UTC)
+                prompt.resolved_at = self.clock.now()
                 prompt.resolved_by_admin_id = admin_telegram_id
                 await session.commit()
             except IntegrityError as exc:
@@ -214,7 +220,7 @@ class SeasonService:
             await self._require_admin(session, admin_telegram_id)
             prompt = await self._get_pending_season_proposal(session, prompt_id)
             prompt.status = AdminPromptStatus.CANCELLED
-            prompt.resolved_at = datetime.now(UTC)
+            prompt.resolved_at = self.clock.now()
             prompt.resolved_by_admin_id = admin_telegram_id
             await session.commit()
 
@@ -362,8 +368,8 @@ class SeasonService:
             raise SeasonScoringConfigAmbiguousError
         return configs[0]
 
-    @staticmethod
     async def _season_proposal_view(
+        self,
         session: AsyncSession,
         prompt: AdminPrompt,
         starts_at: date | None = None,
@@ -371,7 +377,7 @@ class SeasonService:
     ) -> SeasonProposalView:
         proposal = season_proposal_view(prompt)
         proposal_starts_at = starts_at or proposal.starts_at
-        active_season = await SeasonRepository(session).get_for_date(today or date.today())
+        active_season = await SeasonRepository(session).get_for_date(today or self.clock.today())
         active_season_ends_at = (
             proposal_starts_at - timedelta(days=1) if active_season is not None else None
         )
@@ -515,8 +521,8 @@ def season_name_for_date(value: date) -> str:
     return f"{SEASON_NAME_BY_QUARTER[quarter]} {value.year}"
 
 
-def season_proposal_key(admin_telegram_id: int) -> str:
-    return f"season:{admin_telegram_id}:{datetime.now(UTC).isoformat()}:{uuid4().hex}"
+def season_proposal_key(admin_telegram_id: int, clock: Clock = club_clock) -> str:
+    return f"season:{admin_telegram_id}:{clock.now().isoformat()}:{uuid4().hex}"
 
 
 season_service = SeasonService(SessionFactory)

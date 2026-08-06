@@ -7,13 +7,8 @@ from unittest.mock import AsyncMock
 import pytest
 from aiogram import Bot
 from aiogram.types import (
-    CallbackQuery,
     Chat,
     Message,
-    Update,
-)
-from aiogram.types import (
-    User as TelegramUser,
 )
 from fastapi import HTTPException
 from sqlalchemy import select
@@ -22,10 +17,10 @@ from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 from app.api import telegram_webhook as webhook_module
 from app.bot.telegram import keyboards, notifications, runtime
 from app.bot.telegram.formatters import (
-    format_admin_result_close_confirmation,
+    format_admin_close_tournament_card,
+    format_admin_close_tournament_confirmation,
+    format_admin_closed_tournament,
     format_admin_result_menu,
-    format_admin_result_no_result_confirmation,
-    format_admin_result_no_result_players,
     format_admin_result_players,
     format_season_proposal,
     format_tournament_label,
@@ -60,8 +55,8 @@ from app.services.dto import (
     TournamentPromptItemView,
     TournamentPromptView,
     TournamentRebuyView,
-    TournamentResultDraftPlayerView,
-    TournamentResultDraftView,
+    TournamentResultPlayerView,
+    TournamentResultsView,
     TournamentTypeDetailView,
     TournamentTypeOptionView,
     TournamentView,
@@ -252,14 +247,14 @@ def test_parse_result_manual_value_rejects_place_outside_top_five() -> None:
 def test_admin_result_players_hide_ids_and_empty_places() -> None:
     tournament = tournament_view(125, date(2026, 7, 19), 2, "Классика")
     players = [
-        TournamentResultDraftPlayerView(
+        TournamentResultPlayerView(
             player_id=252,
             display_name="Тест Игрок",
             place=None,
             knockouts_count=0,
             big_knockouts_count=0,
         ),
-        TournamentResultDraftPlayerView(
+        TournamentResultPlayerView(
             player_id=108,
             display_name="Илларионов Александр",
             place=2,
@@ -267,20 +262,20 @@ def test_admin_result_players_hide_ids_and_empty_places() -> None:
             big_knockouts_count=0,
         ),
     ]
-    draft = TournamentResultDraftView(
+    results = TournamentResultsView(
         tournament=tournament,
-        points_pool=Decimal("1800"),
+        tournament_fund=Decimal("1800"),
         players=players,
         knockout_mode="none",
     )
     page = Page(items=players, page=0, page_size=6, total_items=2)
 
-    assert format_admin_result_players(draft, page) == (
+    assert format_admin_result_players(results, page) == (
         "Игроки турнира\n"
         "Воскресенье, 19 июля — Классика\n\n"
         "Игроки: 2\n"
         "В работе: 2\n"
-        "Без результата: 0\n\n"
+        "\n"
         "```\n"
         "| Место | Игрок\n"
         "| ----- | -----\n"
@@ -293,13 +288,12 @@ def test_admin_result_players_hide_ids_and_empty_places() -> None:
     )
     buttons = [
         button.text
-        for row in keyboards.admin_result_players_keyboard(draft, page).inline_keyboard
+        for row in keyboards.admin_result_players_keyboard(results, page).inline_keyboard
         for button in row
     ]
     assert buttons == [
         "Тест Игрок",
         "Илларионов Александр: 2️⃣",
-        "✅ Завершить внесение",
         "⬅️ Назад",
         "❌ Отмена",
     ]
@@ -308,7 +302,7 @@ def test_admin_result_players_hide_ids_and_empty_places() -> None:
 def test_admin_result_players_show_empty_state_without_entered_results() -> None:
     tournament = tournament_view(125, date(2026, 7, 19), 2, "Классика")
     players = [
-        TournamentResultDraftPlayerView(
+        TournamentResultPlayerView(
             player_id=252,
             display_name="Тест Игрок",
             place=None,
@@ -316,20 +310,20 @@ def test_admin_result_players_show_empty_state_without_entered_results() -> None
             big_knockouts_count=0,
         )
     ]
-    draft = TournamentResultDraftView(
+    results = TournamentResultsView(
         tournament=tournament,
-        points_pool=Decimal("1800"),
+        tournament_fund=Decimal("1800"),
         players=players,
         knockout_mode="none",
     )
     page = Page(items=players, page=0, page_size=6, total_items=1)
 
-    assert format_admin_result_players(draft, page) == (
+    assert format_admin_result_players(results, page) == (
         "Игроки турнира\n"
         "Воскресенье, 19 июля — Классика\n\n"
         "Игроки: 1\n"
         "В работе: 1\n"
-        "Без результата: 0\n\n"
+        "\n"
         "```\n"
         "| Место | Игрок\n"
         "| ----- | -----\n"
@@ -345,14 +339,14 @@ def test_admin_result_players_show_empty_state_without_entered_results() -> None
 def test_admin_result_player_buttons_show_entered_knockouts_and_place() -> None:
     tournament = tournament_view(125, date(2026, 7, 19), 6, "Boss Bounty")
     players = [
-        TournamentResultDraftPlayerView(
+        TournamentResultPlayerView(
             player_id=108,
             display_name="Илларионов Александр",
             place=2,
             knockouts_count=3,
             big_knockouts_count=1,
         ),
-        TournamentResultDraftPlayerView(
+        TournamentResultPlayerView(
             player_id=252,
             display_name="Тест Игрок",
             place=None,
@@ -360,9 +354,9 @@ def test_admin_result_player_buttons_show_entered_knockouts_and_place() -> None:
             big_knockouts_count=0,
         ),
     ]
-    draft = TournamentResultDraftView(
+    results = TournamentResultsView(
         tournament=tournament,
-        points_pool=Decimal("1800"),
+        tournament_fund=Decimal("1800"),
         players=players,
         knockout_mode="small_big",
     )
@@ -370,14 +364,13 @@ def test_admin_result_player_buttons_show_entered_knockouts_and_place() -> None:
 
     buttons = [
         button.text
-        for row in keyboards.admin_result_players_keyboard(draft, page).inline_keyboard
+        for row in keyboards.admin_result_players_keyboard(results, page).inline_keyboard
         for button in row
     ]
 
     assert buttons == [
         "Илларионов Александр: 2️⃣ | 👑🥊 х1 | 🥊 х3",
         "Тест Игрок",
-        "✅ Завершить внесение",
         "⬅️ Назад",
         "❌ Отмена",
     ]
@@ -385,39 +378,39 @@ def test_admin_result_player_buttons_show_entered_knockouts_and_place() -> None:
 
 def test_admin_result_menu_shows_entered_results_under_pool() -> None:
     tournament = tournament_view(125, date(2026, 7, 19), 2, "Классика")
-    draft = TournamentResultDraftView(
+    results = TournamentResultsView(
         tournament=tournament,
-        points_pool=Decimal("2200"),
+        tournament_fund=Decimal("2200"),
         players=[
-            TournamentResultDraftPlayerView(
+            TournamentResultPlayerView(
                 player_id=255,
                 display_name="Тест Игрок 4",
                 place=2,
                 knockouts_count=0,
                 big_knockouts_count=0,
             ),
-            TournamentResultDraftPlayerView(
+            TournamentResultPlayerView(
                 player_id=1,
                 display_name="Дима Боченков",
                 place=4,
                 knockouts_count=0,
                 big_knockouts_count=0,
             ),
-            TournamentResultDraftPlayerView(
+            TournamentResultPlayerView(
                 player_id=252,
                 display_name="Тест Игрок 1",
                 place=1,
                 knockouts_count=0,
                 big_knockouts_count=0,
             ),
-            TournamentResultDraftPlayerView(
+            TournamentResultPlayerView(
                 player_id=258,
                 display_name="Тест Игрок 7",
                 place=5,
                 knockouts_count=0,
                 big_knockouts_count=0,
             ),
-            TournamentResultDraftPlayerView(
+            TournamentResultPlayerView(
                 player_id=108,
                 display_name="Илларионов Александр",
                 place=None,
@@ -428,13 +421,12 @@ def test_admin_result_menu_shows_entered_results_under_pool() -> None:
         knockout_mode="none",
     )
 
-    assert format_admin_result_menu(draft) == (
+    assert format_admin_result_menu(results) == (
         "Внесение результатов\n"
         "Воскресенье, 19 июля — Классика\n"
-        "Пул: 2200\n"
+        "Фонд турнира: 2200\n"
         "Игроки: 5\n"
         "В работе: 5\n"
-        "Без результата: 0\n"
         "```\n"
         "| Место | Игрок\n"
         "| ----- | -----\n"
@@ -449,32 +441,32 @@ def test_admin_result_menu_shows_entered_results_under_pool() -> None:
 
 def test_admin_result_menu_sorts_without_places_by_big_and_small_knockouts() -> None:
     tournament = tournament_view(125, date(2026, 7, 19), 6, "Boss Bounty")
-    draft = TournamentResultDraftView(
+    results = TournamentResultsView(
         tournament=tournament,
-        points_pool=Decimal("2200"),
+        tournament_fund=Decimal("2200"),
         players=[
-            TournamentResultDraftPlayerView(
+            TournamentResultPlayerView(
                 player_id=1,
                 display_name="Игрок КО",
                 place=None,
                 knockouts_count=4,
                 big_knockouts_count=1,
             ),
-            TournamentResultDraftPlayerView(
+            TournamentResultPlayerView(
                 player_id=2,
                 display_name="Игрок БКО",
                 place=None,
                 knockouts_count=1,
                 big_knockouts_count=2,
             ),
-            TournamentResultDraftPlayerView(
+            TournamentResultPlayerView(
                 player_id=3,
                 display_name="Игрок Место",
                 place=3,
                 knockouts_count=0,
                 big_knockouts_count=0,
             ),
-            TournamentResultDraftPlayerView(
+            TournamentResultPlayerView(
                 player_id=4,
                 display_name="Игрок Много КО",
                 place=None,
@@ -485,13 +477,12 @@ def test_admin_result_menu_sorts_without_places_by_big_and_small_knockouts() -> 
         knockout_mode="small_big",
     )
 
-    assert format_admin_result_menu(draft) == (
+    assert format_admin_result_menu(results) == (
         "Внесение результатов\n"
         "Воскресенье, 19 июля — Boss Bounty\n"
-        "Пул: 2200\n"
+        "Фонд турнира: 2200\n"
         "Игроки: 4\n"
         "В работе: 4\n"
-        "Без результата: 0\n"
         "```\n"
         "| Место | Игрок\n"
         "| ----- | -----\n"
@@ -510,11 +501,11 @@ def test_admin_result_menu_sorts_without_places_by_big_and_small_knockouts() -> 
 
 def test_admin_result_menu_shows_empty_results_state() -> None:
     tournament = tournament_view(125, date(2026, 7, 19), 2, "Классика")
-    draft = TournamentResultDraftView(
+    results = TournamentResultsView(
         tournament=tournament,
-        points_pool=Decimal("2200"),
+        tournament_fund=Decimal("2200"),
         players=[
-            TournamentResultDraftPlayerView(
+            TournamentResultPlayerView(
                 player_id=108,
                 display_name="Илларионов Александр",
                 place=None,
@@ -525,13 +516,12 @@ def test_admin_result_menu_shows_empty_results_state() -> None:
         knockout_mode="none",
     )
 
-    assert format_admin_result_menu(draft) == (
+    assert format_admin_result_menu(results) == (
         "Внесение результатов\n"
         "Воскресенье, 19 июля — Классика\n"
-        "Пул: 2200\n"
+        "Фонд турнира: 2200\n"
         "Игроки: 1\n"
         "В работе: 1\n"
-        "Без результата: 0\n"
         "```\n"
         "| Место | Игрок\n"
         "| ----- | -----\n"
@@ -557,20 +547,23 @@ def test_admin_result_menu_has_close_without_check() -> None:
     ]
 
 
-def test_admin_result_close_confirmation_shows_pool_and_results() -> None:
+def test_admin_close_tournament_formatters_show_fund_and_game_tables() -> None:
     tournament = tournament_view(125, date(2026, 7, 19), 6, "Boss Bounty")
-    draft = TournamentResultDraftView(
+    results = TournamentResultsView(
         tournament=tournament,
-        points_pool=Decimal("1800"),
+        tournament_fund=Decimal("1800"),
         players=[
-            TournamentResultDraftPlayerView(
+            TournamentResultPlayerView(
                 player_id=108,
                 display_name="Илларионов Александр",
                 place=2,
                 knockouts_count=3,
                 big_knockouts_count=1,
+                bonus_points=5,
+                tournament_points=Decimal("1000"),
+                knockout_points=Decimal("105"),
             ),
-            TournamentResultDraftPlayerView(
+            TournamentResultPlayerView(
                 player_id=252,
                 display_name="Тест Игрок",
                 place=None,
@@ -579,30 +572,35 @@ def test_admin_result_close_confirmation_shows_pool_and_results() -> None:
             ),
         ],
         knockout_mode="small_big",
+        checked_in_count=2,
     )
 
-    assert format_admin_result_close_confirmation(draft) == (
-        "Подтверди закрытие турнира\n"
-        "Воскресенье, 19 июля — Boss Bounty\n"
-        "Пул: 1800\n\n"
-        "Результаты:\n"
-        "• Илларионов Александр: 2️⃣ | 👑🥊 х1 | 🥊 х3\n"
-        "• Тест Игрок"
-    )
+    card = format_admin_close_tournament_card(results)
+    confirmation = format_admin_close_tournament_confirmation(results, 1800)
+    closed = format_admin_closed_tournament(results)
+
+    assert "Введите Фонд турнира." in card
+    assert "Место  Игрок               КО  БКО  Бонус" in card
+    assert "🥊" not in card.split("```")[1].splitlines()[0]
+    assert "Фонд турнира: 1800" in confirmation
+    assert "После подтверждения будут рассчитаны рейтинговые очки" in confirmation
+    assert "✅ Турнир закрыт" in closed
+    assert "Место  Игрок               КО  БКО  Бонус   Очки" in closed
+    assert "1110" in closed
 
 
 def test_admin_result_player_field_and_value_keyboards() -> None:
     tournament = tournament_view(125, date(2026, 7, 19), 6, "Boss Bounty")
-    player = TournamentResultDraftPlayerView(
+    player = TournamentResultPlayerView(
         player_id=108,
         display_name="Илларионов Александр",
         place=None,
         knockouts_count=0,
         big_knockouts_count=0,
     )
-    draft = TournamentResultDraftView(
+    results = TournamentResultsView(
         tournament=tournament,
-        points_pool=Decimal("1800"),
+        tournament_fund=Decimal("1800"),
         players=[player],
         knockout_mode="small_big",
     )
@@ -610,7 +608,7 @@ def test_admin_result_player_field_and_value_keyboards() -> None:
     field_buttons = [
         button.text
         for row in keyboards.admin_result_player_fields_keyboard(
-            draft,
+            results,
             player,
             page=0,
         ).inline_keyboard
@@ -620,8 +618,6 @@ def test_admin_result_player_field_and_value_keyboards() -> None:
         "🥊 КО",
         "👑🥊 Большие КО",
         "🏁 Место",
-        "💤 Без результата",
-        "✅ Готово",
         "❌ Отмена",
     ]
 
@@ -654,51 +650,6 @@ def test_admin_result_player_field_and_value_keyboards() -> None:
     ]
 
 
-def test_admin_result_no_result_confirmation_and_collapsed_list() -> None:
-    tournament = tournament_view(125, date(2026, 7, 19), 2, "Классика")
-    player = TournamentResultDraftPlayerView(
-        player_id=108,
-        display_name="Дмитрий",
-        place=None,
-        knockouts_count=0,
-        big_knockouts_count=0,
-    )
-    draft = TournamentResultDraftView(
-        tournament=tournament,
-        points_pool=Decimal("1800"),
-        players=[],
-        no_result_count=1,
-        no_result_players=[player],
-    )
-
-    assert format_admin_result_no_result_confirmation(player) == (
-        "Убрать Дмитрий из списка внесения результатов?\n\n"
-        "Игрок останется участником турнира, но место, нокауты и бонусные очки "
-        "по нему вносить не потребуется."
-    )
-    assert format_admin_result_no_result_players(draft) == (
-        "💤 Без результата\nВоскресенье, 19 июля — Классика\n\nДмитрий"
-    )
-
-    confirmation_buttons = [
-        button.text
-        for row in keyboards.admin_result_no_result_confirmation_keyboard(
-            tournament_id=125,
-            page=0,
-            player_id=108,
-        ).inline_keyboard
-        for button in row
-    ]
-    list_buttons = [
-        button.text
-        for row in keyboards.admin_result_no_result_players_keyboard(draft).inline_keyboard
-        for button in row
-    ]
-
-    assert confirmation_buttons == ["💤 Убрать", "↩️ Назад"]
-    assert list_buttons == ["↩️ Дмитрий", "⬅️ Назад"]
-
-
 def test_tournament_label_fallback_is_unknown_tournament() -> None:
     known = tournament_view(125, date(2026, 7, 19), 2, "Weekly Deep Stack")
     unknown = tournament_view(126, date(2026, 7, 20), 999, None)
@@ -711,19 +662,19 @@ async def test_place_only_result_player_opens_player_card(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     tournament = tournament_view(125, date(2026, 7, 19), 2, "Классика")
-    target_player = TournamentResultDraftPlayerView(
+    target_player = TournamentResultPlayerView(
         player_id=108,
         display_name="Илларионов Александр",
         place=None,
         knockouts_count=0,
         big_knockouts_count=0,
     )
-    draft = TournamentResultDraftView(
+    results = TournamentResultsView(
         tournament=tournament,
-        points_pool=Decimal("1800"),
+        tournament_fund=Decimal("1800"),
         players=[
             target_player,
-            TournamentResultDraftPlayerView(
+            TournamentResultPlayerView(
                 player_id=252,
                 display_name="Тест Игрок",
                 place=2,
@@ -733,7 +684,7 @@ async def test_place_only_result_player_opens_player_card(
         ],
         knockout_mode="none",
     )
-    service = SimpleNamespace(get_or_create_draft=AsyncMock(return_value=draft))
+    service = SimpleNamespace(get_tournament_results=AsyncMock(return_value=results))
     monkeypatch.setattr(admin_handlers, "result_service", service)
     message = SimpleNamespace(delete=AsyncMock(), answer=AsyncMock())
     callback = SimpleNamespace(
@@ -763,7 +714,7 @@ async def test_place_only_result_player_opens_player_card(
         button.text
         for row in message.answer.await_args.kwargs["reply_markup"].inline_keyboard
         for button in row
-    ] == ["🏁 Место", "💤 Без результата", "✅ Готово", "❌ Отмена"]
+    ] == ["🏁 Место", "❌ Отмена"]
 
 
 def admin_player(
@@ -1745,7 +1696,7 @@ async def test_admin_panel_entry_sends_admin_keyboard(
     answer = message.answer.await_args
     assert answer.args[0] == "Добро пожаловать в админ-панель."
     assert keyboard_texts(answer.kwargs["reply_markup"]) == [
-        "📝 Зарегать игрока на турнир",
+        "✅ Чек-ин",
         "🏁 Внести результат",
         "👑 Суперадмин",
         "⬅️ Выход",
@@ -1768,7 +1719,7 @@ async def test_admin_panel_entry_shows_superadmin_button_for_admin(
     await admin_handlers.open_admin_panel(message)
 
     assert keyboard_texts(message.answer.await_args.kwargs["reply_markup"]) == [
-        "📝 Зарегать игрока на турнир",
+        "✅ Чек-ин",
         "🏁 Внести результат",
         "👑 Суперадмин",
         "⬅️ Выход",
@@ -1810,6 +1761,7 @@ async def test_superadmin_panel_button_opens_superadmin_keyboard(
         "📝 Заявки на регистрацию",
         "🗓 Календарь",
         "➕ Добавить админа",
+        "🔒 Закрыть турнир",
         "⬅️ Назад",
     ]
 
@@ -1832,7 +1784,7 @@ async def test_superadmin_panel_back_returns_admin_keyboard(
     service.get_admin_panel_for_admin.assert_awaited_once_with(100)
     assert message.answer.await_args.args[0] == "Добро пожаловать в админ-панель."
     assert keyboard_texts(message.answer.await_args.kwargs["reply_markup"]) == [
-        "📝 Зарегать игрока на турнир",
+        "✅ Чек-ин",
         "🏁 Внести результат",
         "👑 Суперадмин",
         "⬅️ Выход",
@@ -1888,269 +1840,6 @@ async def test_add_admin_button_shows_candidates(
         button.text for row in answer.kwargs["reply_markup"].inline_keyboard for button in row
     ]
     assert buttons == ["1. Игрок Первый", "❌ Отмена"]
-
-
-async def test_admin_registration_button_shows_tournaments(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    tournament = tournament_view(125, date(2026, 7, 19), 2, "Классика")
-    service = SimpleNamespace(
-        list_registration_tournaments_for_admin=AsyncMock(return_value=[tournament])
-    )
-    monkeypatch.setattr(admin_handlers, "tournament_service", service)
-    message = SimpleNamespace(
-        from_user=SimpleNamespace(id=100),
-        answer=AsyncMock(),
-    )
-
-    await admin_handlers.show_admin_registration_tournaments(message)
-
-    service.list_registration_tournaments_for_admin.assert_awaited_once_with(100)
-    answer = message.answer.await_args
-    assert answer.args[0] == (
-        "Выбери турнир для регистрации игрока:\n\n125 — Воскресенье, 19 июля — Классика"
-    )
-    buttons = [
-        button.text for row in answer.kwargs["reply_markup"].inline_keyboard for button in row
-    ]
-    assert buttons == ["125", "❌ Отмена"]
-
-
-async def test_admin_registration_tournament_selection_shows_players(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    tournament = tournament_view(125, date(2026, 7, 19), 2, "Классика")
-    player = active_player()
-    service = SimpleNamespace(
-        get_admin_registration_players=AsyncMock(return_value=(tournament, [player])),
-    )
-    monkeypatch.setattr(admin_handlers, "tournament_service", service)
-    message = SimpleNamespace(delete=AsyncMock(), answer=AsyncMock())
-    callback = SimpleNamespace(
-        from_user=SimpleNamespace(id=100),
-        message=message,
-        answer=AsyncMock(),
-        bot=SimpleNamespace(send_message=AsyncMock()),
-    )
-    callback_data = SimpleNamespace(
-        action=keyboards.AdminTournamentRegistrationTournamentAction.OPEN,
-        page=0,
-        tournament_id=125,
-    )
-
-    await admin_handlers.select_admin_registration_tournament(callback, callback_data)
-
-    service.get_admin_registration_players.assert_awaited_once_with(
-        admin_telegram_id=100,
-        tournament_id=125,
-    )
-    message.delete.assert_awaited_once_with()
-    answer = message.answer.await_args
-    assert answer.args[0] == (
-        "Кого регистрируем?\nВоскресенье, 19 июля — Классика\n\n1 — Игрок Первый"
-    )
-    buttons = [
-        button.text for row in answer.kwargs["reply_markup"].inline_keyboard for button in row
-    ]
-    assert buttons == ["🔎 Найти игрока", "1. Игрок Первый", "⬅️ Назад", "❌ Отмена"]
-
-
-async def test_admin_registration_tournament_callback_routes_through_dispatcher(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    tournament = tournament_view(125, date(2026, 7, 19), 2, "Классика")
-    player = active_player()
-    service = SimpleNamespace(
-        get_admin_registration_players=AsyncMock(return_value=(tournament, [player])),
-    )
-    monkeypatch.setattr(admin_handlers, "tournament_service", service)
-    bot = RecordingBot()
-    callback_data = keyboards.AdminTournamentRegistrationTournamentCallback(
-        action=keyboards.AdminTournamentRegistrationTournamentAction.OPEN,
-        page=0,
-        tournament_id=125,
-    ).pack()
-    update = Update(
-        update_id=1,
-        callback_query=CallbackQuery(
-            id="admin-reg-tournament",
-            from_user=TelegramUser(id=100, is_bot=False, first_name="Admin"),
-            chat_instance="chat-instance",
-            message=Message(
-                message_id=10,
-                date=datetime(2026, 7, 29, 12, 0),
-                chat=Chat(id=100, type="private"),
-                text="Выбери турнир для регистрации игрока:",
-            ),
-            data=callback_data,
-        ),
-    )
-
-    await runtime.telegram_dispatcher.feed_update(bot, update)
-
-    service.get_admin_registration_players.assert_awaited_once_with(
-        admin_telegram_id=100,
-        tournament_id=125,
-    )
-    send_messages = [call for call in bot.calls if call.__class__.__name__ == "SendMessage"]
-    answer_callbacks = [
-        call for call in bot.calls if call.__class__.__name__ == "AnswerCallbackQuery"
-    ]
-    assert any(
-        call.text == "Кого регистрируем?\nВоскресенье, 19 июля — Классика\n\n1 — Игрок Первый"
-        for call in send_messages
-    )
-    assert all(call.text != "Турнир или игрок уже недоступен." for call in answer_callbacks)
-
-
-async def test_admin_registration_player_selection_registers_player(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    tournament = tournament_view(125, date(2026, 7, 19), 2, "Классика")
-    player = active_player()
-    service = SimpleNamespace(
-        get_admin_registration_players=AsyncMock(return_value=(tournament, [player])),
-        register_player_for_tournament_by_admin=AsyncMock(return_value=(tournament, player)),
-    )
-    monkeypatch.setattr(admin_handlers, "tournament_service", service)
-    message = SimpleNamespace(delete=AsyncMock(), answer=AsyncMock())
-    callback = SimpleNamespace(
-        from_user=SimpleNamespace(id=100),
-        message=message,
-        answer=AsyncMock(),
-        bot=SimpleNamespace(send_message=AsyncMock()),
-    )
-    callback_data = SimpleNamespace(
-        action=keyboards.AdminTournamentRegistrationPlayerAction.OPEN,
-        tournament_id=125,
-        page=0,
-        player_id=1,
-    )
-    state = SimpleNamespace(clear=AsyncMock())
-
-    await admin_handlers.select_admin_registration_player(callback, callback_data, state)
-
-    service.register_player_for_tournament_by_admin.assert_awaited_once_with(
-        admin_telegram_id=100,
-        tournament_id=125,
-        player_id=1,
-    )
-    message.delete.assert_awaited_once_with()
-    assert message.answer.await_args.args[0] == (
-        "Игрок зарегистрирован на турнир:\nИгрок Первый\nВоскресенье, 19 июля — Классика"
-    )
-    callback.bot.send_message.assert_awaited_once()
-    assert callback.bot.send_message.await_args.kwargs["chat_id"] == 123
-    assert callback.bot.send_message.await_args.kwargs["text"] == (
-        "Ты зарегистрирован на турнир:\nВоскресенье, 19 июля — Классика"
-    )
-    state.clear.assert_awaited_once_with()
-
-
-async def test_admin_registration_player_without_telegram_id_is_not_notified(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    tournament = tournament_view(125, date(2026, 7, 19), 2, "Классика")
-    player = UserView(
-        id=1,
-        telegram_id=None,
-        display_name="Игрок Первый",
-        status=UserStatusView.ACTIVE,
-        role=UserRoleView.PLAYER,
-    )
-    service = SimpleNamespace(
-        get_admin_registration_players=AsyncMock(return_value=(tournament, [player])),
-        register_player_for_tournament_by_admin=AsyncMock(return_value=(tournament, player)),
-    )
-    monkeypatch.setattr(admin_handlers, "tournament_service", service)
-    message = SimpleNamespace(delete=AsyncMock(), answer=AsyncMock())
-    callback = SimpleNamespace(
-        from_user=SimpleNamespace(id=100),
-        message=message,
-        answer=AsyncMock(),
-        bot=SimpleNamespace(send_message=AsyncMock()),
-    )
-    callback_data = SimpleNamespace(
-        action=keyboards.AdminTournamentRegistrationPlayerAction.OPEN,
-        tournament_id=125,
-        page=0,
-        player_id=1,
-    )
-    state = SimpleNamespace(clear=AsyncMock())
-
-    await admin_handlers.select_admin_registration_player(callback, callback_data, state)
-
-    callback.bot.send_message.assert_not_awaited()
-
-
-async def test_admin_registration_search_prompts_for_query(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    tournament = tournament_view(125, date(2026, 7, 19), 2, "Классика")
-    service = SimpleNamespace(
-        get_admin_registration_players=AsyncMock(return_value=(tournament, [active_player()])),
-    )
-    monkeypatch.setattr(admin_handlers, "tournament_service", service)
-    message = SimpleNamespace(delete=AsyncMock(), answer=AsyncMock())
-    callback = SimpleNamespace(
-        from_user=SimpleNamespace(id=100),
-        message=message,
-        answer=AsyncMock(),
-    )
-    callback_data = SimpleNamespace(
-        action=keyboards.AdminTournamentRegistrationPlayerAction.SEARCH,
-        tournament_id=125,
-        page=0,
-        player_id=0,
-    )
-    state = SimpleNamespace(set_state=AsyncMock(), update_data=AsyncMock())
-
-    await admin_handlers.select_admin_registration_player(callback, callback_data, state)
-
-    state.set_state.assert_awaited_once()
-    state.update_data.assert_awaited_once_with(admin_registration_tournament_id=125)
-    message.delete.assert_awaited_once_with()
-    answer = message.answer.await_args
-    assert answer.args[0] == "Введи имя игрока."
-    assert [
-        button.text for row in answer.kwargs["reply_markup"].inline_keyboard for button in row
-    ] == ["❌ Отмена"]
-
-
-async def test_admin_registration_search_shows_matches(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    tournament = tournament_view(125, date(2026, 7, 19), 2, "Классика")
-    player = active_player()
-    service = SimpleNamespace(
-        search_admin_registration_players=AsyncMock(return_value=(tournament, [player])),
-    )
-    monkeypatch.setattr(admin_handlers, "tournament_service", service)
-    message = SimpleNamespace(
-        from_user=SimpleNamespace(id=100),
-        text="игрок",
-        answer=AsyncMock(),
-    )
-    state = SimpleNamespace(
-        get_data=AsyncMock(return_value={"admin_registration_tournament_id": 125}),
-        clear=AsyncMock(),
-    )
-
-    await admin_handlers.enter_admin_registration_player_search(message, state)
-
-    service.search_admin_registration_players.assert_awaited_once_with(
-        admin_telegram_id=100,
-        tournament_id=125,
-        query="игрок",
-    )
-    state.clear.assert_awaited_once_with()
-    answer = message.answer.await_args
-    assert answer.args[0] == (
-        "Нашел похожих игроков:\nВоскресенье, 19 июля — Классика\n\n1 — Игрок Первый"
-    )
-    assert [
-        button.text for row in answer.kwargs["reply_markup"].inline_keyboard for button in row
-    ] == ["🔎 Искать заново", "1. Игрок Первый", "⬅️ Назад", "❌ Отмена"]
 
 
 async def test_add_admin_button_denies_regular_admin(

@@ -13,10 +13,8 @@ class CalendarSeasonProposalEditStates(StatesGroup):
 
 class AdminResultStates(StatesGroup):
     entering_manual_value = State()
+    entering_tournament_fund = State()
     entering_registered_check_in_search = State()
     entering_database_check_in_search = State()
     entering_new_check_in_player = State()
-
-
-class AdminTournamentRegistrationStates(StatesGroup):
-    entering_player_search = State()
+    confirming_new_check_in_player = State()

@@ -3,6 +3,7 @@ from enum import StrEnum
 
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
+from app.common.clock import Clock, club_clock
 from app.db.repositories.rating_repository import RatingHonours, RatingRepository
 from app.db.repositories.season_repository import SeasonRepository
 from app.db.repositories.user_repository import UserRepository
@@ -23,8 +24,13 @@ class RatingNotAllowedError(ValueError):
 
 
 class RatingService:
-    def __init__(self, session_factory: async_sessionmaker[AsyncSession]) -> None:
+    def __init__(
+        self,
+        session_factory: async_sessionmaker[AsyncSession],
+        clock: Clock = club_clock,
+    ) -> None:
         self.session_factory = session_factory
+        self.clock = clock
 
     async def get_rating_for_player(
         self,
@@ -32,7 +38,7 @@ class RatingService:
         kind: RatingKind,
         today: date | None = None,
     ) -> RatingResultView:
-        business_date = today or date.today()
+        business_date = today or self.clock.today()
         async with self.session_factory() as session:
             try:
                 player = await require_active_user(UserRepository(session), telegram_id)

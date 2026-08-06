@@ -129,7 +129,7 @@ class TournamentPlanItem:
     season_id: int
     season_name: str
     tournament_type_id: int
-    points_pool: Decimal
+    tournament_fund: Decimal
     action: str
     existing_id: int | None = None
     conflict: str | None = None
@@ -553,13 +553,13 @@ def build_tournament_plan(
             errors.append(f"No existing season covers {tournament_date.isoformat()}.")
             continue
         season_distribution[season["name"]] += 1
-        points_pool = sum(
+        tournament_fund = sum(
             (row.tournament_points for row in rows_by_date.get(tournament_date, [])),
             ZERO,
         )
         existing = connection.execute(
             """
-            SELECT id, season_id, tournament_type_id, date, points_pool, status
+            SELECT id, season_id, tournament_type_id, date, tournament_fund, status
             FROM tournaments
             WHERE date = ?
             """,
@@ -573,13 +573,13 @@ def build_tournament_plan(
             expected = {
                 "season_id": int(season["id"]),
                 "tournament_type_id": legacy_type_id,
-                "points_pool": money(points_pool),
+                "tournament_fund": money(tournament_fund),
                 "status": "closed",
             }
             actual = {
                 "season_id": int(existing["season_id"]),
                 "tournament_type_id": int(existing["tournament_type_id"]),
-                "points_pool": money(decimal_from_db(existing["points_pool"])),
+                "tournament_fund": money(decimal_from_db(existing["tournament_fund"])),
                 "status": str(existing["status"]),
             }
             if actual == expected:
@@ -593,7 +593,7 @@ def build_tournament_plan(
                 season_id=int(season["id"]),
                 season_name=str(season["name"]),
                 tournament_type_id=legacy_type_id,
-                points_pool=points_pool,
+                tournament_fund=tournament_fund,
                 action=action,
                 existing_id=existing_id,
                 conflict=conflict,
@@ -750,7 +750,7 @@ def apply_tournaments(
                 season_id,
                 tournament_type_id,
                 date,
-                points_pool,
+                tournament_fund,
                 status,
                 created_at,
                 updated_at
@@ -761,7 +761,7 @@ def apply_tournaments(
                 item.season_id,
                 item.tournament_type_id,
                 item.tournament_date.isoformat(),
-                money(item.points_pool),
+                money(item.tournament_fund),
             ),
         )
         tournament_ids[item.tournament_date] = int(cursor.lastrowid)
@@ -788,6 +788,8 @@ def apply_results(
                 INSERT INTO tournament_results (
                     tournament_id,
                     player_id,
+                    source,
+                    checked_in_at,
                     place,
                     knockouts_count,
                     big_knockouts_count,
@@ -797,7 +799,10 @@ def apply_results(
                     created_at,
                     updated_at
                 )
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+                VALUES (
+                    ?, ?, ?, CURRENT_TIMESTAMP, ?, ?, ?, ?, ?, ?,
+                    CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
+                )
                 """,
                 result_values(tournament_id, row),
             )
@@ -836,6 +841,7 @@ def result_values(tournament_id: int, row: ResolvedResultRow) -> tuple[Any, ...]
     return (
         tournament_id,
         row.user_id,
+        "walk_in_existing",
         row.place,
         row.knockouts_count,
         row.big_knockouts_count,
@@ -1086,7 +1092,7 @@ def export_report(directory: Path, plan: ImportPlan) -> None:
                 "season_id": item.season_id,
                 "season_name": item.season_name,
                 "tournament_type_id": item.tournament_type_id,
-                "points_pool": money(item.points_pool),
+                "tournament_fund": money(item.tournament_fund),
                 "action": item.action,
                 "existing_id": item.existing_id or "",
                 "conflict": item.conflict or "",

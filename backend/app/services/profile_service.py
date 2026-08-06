@@ -4,6 +4,7 @@ from enum import StrEnum
 
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
+from app.common.clock import Clock, club_clock
 from app.db.repositories.profile_repository import (
     ProfileRepository,
 )
@@ -24,8 +25,13 @@ class ProfileNotAllowedError(ValueError):
 
 
 class ProfileService:
-    def __init__(self, session_factory: async_sessionmaker[AsyncSession]) -> None:
+    def __init__(
+        self,
+        session_factory: async_sessionmaker[AsyncSession],
+        clock: Clock = club_clock,
+    ) -> None:
         self.session_factory = session_factory
+        self.clock = clock
 
     async def get_profile_for_player(
         self,
@@ -33,7 +39,7 @@ class ProfileService:
         kind: ProfileKind,
         today: date | None = None,
     ) -> tuple[str, PlayerProfileView | None]:
-        business_date = today or date.today()
+        business_date = today or self.clock.today()
         async with self.session_factory() as session:
             try:
                 user = await require_active_user(UserRepository(session), telegram_id)

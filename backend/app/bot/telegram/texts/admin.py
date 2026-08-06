@@ -34,24 +34,10 @@ ADMIN_RESULTS_INVALID_MANUAL_VALUE = {
 }
 ADMIN_RESULTS_SAVED = "Результат сохранен."
 ADMIN_RESULTS_CLOSED = "Турнир закрыт."
-ADMIN_RESULTS_SUBMITTED = (
-    "✅ Игровые данные сохранены.\n\nТурнир ожидает проверки и закрытия суперадмином."
-)
 ADMIN_RESULTS_CHECK_FAILED = "Нужно поправить:\n{errors}"
 ADMIN_RESULTS_CHECK_FAILED_SHORT = "Нужно поправить ошибки."
 ADMIN_RESULTS_CANCELLED = "Отмена."
 ADMIN_RESULTS_NOT_FOUND = "Турнир не найден или уже закрыт."
-ADMIN_TOURNAMENT_REGISTRATION_NO_TOURNAMENTS = "Нет активных турниров для записи."
-ADMIN_TOURNAMENT_REGISTRATION_TOURNAMENT_LIST_TITLE = "Выбери турнир для регистрации игрока:"
-ADMIN_TOURNAMENT_REGISTRATION_NO_PLAYERS = "Нет активных игроков для регистрации."
-ADMIN_TOURNAMENT_REGISTRATION_PLAYER_LIST_TITLE = "Кого регистрируем?"
-ADMIN_TOURNAMENT_REGISTRATION_SEARCH_PROMPT = "Введи имя игрока."
-ADMIN_TOURNAMENT_REGISTRATION_SEARCH_RESULTS_TITLE = "Нашел похожих игроков:"
-ADMIN_TOURNAMENT_REGISTRATION_SEARCH_EMPTY = "Игроки не найдены."
-ADMIN_TOURNAMENT_REGISTRATION_SUCCESS = "Игрок зарегистрирован на турнир:\n{player}\n{tournament}"
-ADMIN_TOURNAMENT_REGISTRATION_PLAYER_NOTIFICATION = "Ты зарегистрирован на турнир:\n{tournament}"
-ADMIN_TOURNAMENT_REGISTRATION_CANCELLED = "Отмена."
-ADMIN_TOURNAMENT_REGISTRATION_NOT_FOUND = "Турнир или игрок уже недоступен."
 NO_PENDING_REGISTRATIONS = "Новых заявок нет."
 PENDING_REGISTRATIONS_COUNT = "Заявок на проверке: {count}"
 REGISTRATION_LIST_TITLE = "Заявки на регистрацию"
@@ -134,19 +120,6 @@ def admin_add_confirmation(display_name: str) -> str:
 
 def admin_result_check_failed(errors: list[str]) -> str:
     return ADMIN_RESULTS_CHECK_FAILED.format(errors="\n".join(f"• {error}" for error in errors))
-
-
-def admin_tournament_registration_success(player: str, tournament: str) -> str:
-    return ADMIN_TOURNAMENT_REGISTRATION_SUCCESS.format(
-        player=player,
-        tournament=tournament,
-    )
-
-
-def admin_tournament_registration_player_notification(tournament: str) -> str:
-    return ADMIN_TOURNAMENT_REGISTRATION_PLAYER_NOTIFICATION.format(
-        tournament=tournament,
-    )
 
 
 def admin_calendar_tournament_type_prompt(tournament_date: date) -> str:

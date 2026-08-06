@@ -562,7 +562,7 @@ def test_existing_tournament_conflict_blocks_import(tmp_path: Path) -> None:
         connection.execute(
             """
             INSERT INTO tournaments (
-                season_id, tournament_type_id, date, points_pool, status, created_at, updated_at
+                season_id, tournament_type_id, date, tournament_fund, status, created_at, updated_at
             )
             VALUES (2, 8, '2026-01-28', 10, 'closed', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
             """

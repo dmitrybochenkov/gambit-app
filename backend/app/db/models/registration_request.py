@@ -39,21 +39,6 @@ class RegistrationRequest(TimestampMixin, Base):
         nullable=True,
         index=True,
     )
-    subject_user_id: Mapped[int | None] = mapped_column(
-        ForeignKey("users.id", ondelete="SET NULL"),
-        nullable=True,
-        index=True,
-    )
-    created_by_user_id: Mapped[int | None] = mapped_column(
-        ForeignKey("users.id", ondelete="SET NULL"),
-        nullable=True,
-        index=True,
-    )
-    tournament_id: Mapped[int | None] = mapped_column(
-        ForeignKey("tournaments.id", ondelete="SET NULL"),
-        nullable=True,
-        index=True,
-    )
     rejection_reason: Mapped[str | None] = mapped_column(String(500), nullable=True)
     reviewed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
@@ -66,28 +51,12 @@ class RegistrationRequest(TimestampMixin, Base):
                 AND requested_display_name_normalized IS NOT NULL
                 AND requested_link_name IS NULL
                 AND candidate_user_id IS NULL
-                AND subject_user_id IS NULL
-                AND created_by_user_id IS NULL
-                AND tournament_id IS NULL
             )
             OR (
                 request_type = 'link_existing_player'
                 AND requested_display_name IS NULL
                 AND requested_display_name_normalized IS NULL
                 AND requested_link_name IS NOT NULL
-                AND subject_user_id IS NULL
-                AND created_by_user_id IS NULL
-                AND tournament_id IS NULL
-            )
-            OR (
-                request_type = 'admin_created_player_review'
-                AND telegram_id IS NULL
-                AND requested_display_name IS NULL
-                AND requested_display_name_normalized IS NULL
-                AND requested_link_name IS NULL
-                AND candidate_user_id IS NULL
-                AND subject_user_id IS NOT NULL
-                AND created_by_user_id IS NOT NULL
             )
             """,
             name="registration_request_payload",

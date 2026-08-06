@@ -1450,7 +1450,7 @@ async def test_closed_sunday_tournament_drives_rotation_but_cancelled_is_ignored
                         season_id=1,
                         tournament_type_id=5,
                         date=date(2026, 7, 19),
-                        points_pool=1000,
+                        tournament_fund=1000,
                         status=TournamentStatus.CLOSED,
                     ),
                     Tournament(

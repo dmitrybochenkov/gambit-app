@@ -1,4 +1,4 @@
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from datetime import date
 from decimal import Decimal
 from enum import StrEnum
@@ -172,29 +172,33 @@ class ScoringConfigView:
 
 
 @dataclass(frozen=True)
-class TournamentResultDraftPlayerView:
+class TournamentResultPlayerView:
     player_id: int
     display_name: str
     place: int | None
     knockouts_count: int
     big_knockouts_count: int
     bonus_points: int = 0
+    tournament_points: Decimal = Decimal("0")
+    knockout_points: Decimal = Decimal("0")
+
+    @property
+    def total_points(self) -> Decimal:
+        return self.tournament_points + self.knockout_points + Decimal(self.bonus_points)
 
 
 @dataclass(frozen=True)
-class TournamentResultDraftView:
+class TournamentResultsView:
     tournament: TournamentView
-    points_pool: Decimal | None
-    players: list[TournamentResultDraftPlayerView]
+    tournament_fund: Decimal | None
+    players: list[TournamentResultPlayerView]
     knockout_mode: str = "none"
     supports_bonus_points: bool = False
-    participant_count: int = 0
-    no_result_count: int = 0
-    no_result_players: list[TournamentResultDraftPlayerView] = field(default_factory=list)
+    checked_in_count: int = 0
 
 
 @dataclass(frozen=True)
-class TournamentCheckInPlayerView:
+class CheckInCandidateView:
     user_id: int
     display_name: str
     is_pre_registered: bool
@@ -207,10 +211,9 @@ class TournamentCheckInPlayerView:
 class TournamentCheckInView:
     tournament: TournamentView
     registered_count: int
-    participant_count: int
+    checked_in_count: int
     unchecked_registered_count: int
     walk_in_count: int
-    players: list[TournamentCheckInPlayerView]
 
 
 @dataclass(frozen=True)

@@ -411,7 +411,7 @@ async def test_knockout_games_count_and_completed_season_title_tiebreakers(
                 tournament_type_id=tournament_type_id("bounty"),
                 date=date(2026, 1, 1 + index),
                 status=TournamentStatus.CLOSED,
-                points_pool=Decimal("1000"),
+                tournament_fund=Decimal("1000"),
             )
             for index in range(4)
         ]
@@ -420,7 +420,7 @@ async def test_knockout_games_count_and_completed_season_title_tiebreakers(
             tournament_type_id=tournament_type_id("bounty"),
             date=date(2026, 4, 2),
             status=TournamentStatus.CLOSED,
-            points_pool=Decimal("1000"),
+            tournament_fund=Decimal("1000"),
         )
         session.add_all([*tournaments, current_tournament])
         await session.flush()

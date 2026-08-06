@@ -79,15 +79,15 @@ Fields:
 - `type`: `1`, `2`, `3`
 - `date`
 - `capacity`
-- `points_pool`: nullable until tournament results are finalized
+- `tournament_fund`: nullable until tournament results are finalized
 - `status`: `active`, `closed`, `cancelled`
 - `created_at`
 - `updated_at`
 
 Rules:
 
-- `points_pool` is set when finalizing the tournament.
-- A `closed` tournament must have `points_pool`; an `active` or `cancelled` tournament may leave it empty.
+- `tournament_fund` is set when finalizing the tournament.
+- A `closed` tournament must have `tournament_fund`; an `active` or `cancelled` tournament may leave it empty.
 
 ### TournamentRegistration
 
@@ -98,76 +98,55 @@ Fields:
 - `id`
 - `tournament_id`
 - `player_id`
-- `status`: `registered`, `cancelled`
-- `registered_at`
-- `cancelled_at`
+- `created_at`
+- `updated_at`
 
 Constraint:
 
-- One active registration per player per tournament.
+- One registration row per player per tournament.
 
 Rules:
 
-- User self-registration and admin registration create or restore a
-  `registered` row.
-- User cancellation changes the row to `cancelled`.
-- A cancelled row can be restored by a new registration.
+- User self-registration and admin registration create the row.
+- User cancellation deletes the row.
+- Repeated registration and cancellation are idempotent from the user flow.
 - `TournamentRegistration` is not the final tournament composition. It is the
   source list for check-in.
 
-### TournamentParticipant
-
-Actual tournament composition and result-status container.
-
-Fields:
-
-- `id`
-- `tournament_id`
-- `user_id`
-- `source`: `pre_registered`, `database_walk_in`, `admin_created`, `migrated_result`
-- `result_status`: `active`, `no_result`
-- `checked_in_by_user_id`
-- `checked_in_at`
-
-Constraint:
-
-- One participant per user per tournament.
-
-Rules:
-
-- Registered players are moved into the actual composition during check-in.
-- An admin can add an existing unregistered player as a walk-in.
-- An admin can create an offline player and check them in immediately.
-- Removing a participant is allowed only while no result data exists.
-- Starting result entry uses `TournamentParticipant` as the actual player list.
-- Admin registration for the current tournament also creates the matching
-  `pre_registered` participant, keeping check-in and result entry consistent.
-
 ### TournamentResult
 
-Final tournament result for a player.
+Actual check-in row and final tournament result for a player.
 
 Fields:
 
 - `id`
 - `tournament_id`
 - `player_id`
+- `source`: `registered`, `walk_in_existing`, `walk_in_new`
+- `checked_in_at`
+- `checked_in_by_user_id`
 - `place`
 - `knockouts_count`
-- `boss_knockouts_count`
+- `big_knockouts_count`
+- `bonus_points`
 - `tournament_points`
 - `knockout_points`
-- `bonus_points`
 - `created_at`
 - `updated_at`
 
 Constraint:
 
-- One result per player per tournament.
+- One result/check-in row per player per tournament.
+
+Rules:
+
+- Check-in creates the row.
+- Admins edit result fields directly on this row.
+- Superadmin closing calculates rating points and closes the tournament.
 
 Derived values:
 
-- `tournament_points` = tournament `points_pool` * coefficient for `place`
+- `tournament_points` = tournament `tournament_fund` * coefficient for `place`
 - `knockout_points` = `knockouts_count` * config `knockout_points` + `big_knockouts_count` * config `big_knockout_points`
 - `total_points` = `tournament_points` + `knockout_points` + `bonus_points`
 - Tournament date is taken from the related tournament.
@@ -186,16 +165,8 @@ Derived values:
 
 ### Tournament Registration
 
-`registered` -> `cancelled`
+No persisted status lifecycle.
 
-`cancelled` -> `registered`
+Row exists -> user is registered.
 
-### Tournament Participant
-
-No row -> `active`
-
-`active` -> `no_result`
-
-`no_result` -> `active`
-
-`active` -> row removed
+Row absent -> user is not registered.
