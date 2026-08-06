@@ -22,7 +22,6 @@ from app.bot.telegram.formatters import (
     format_admin_close_tournament_card,
     format_admin_close_tournament_confirmation,
     format_admin_closed_tournament,
-    format_admin_result_menu,
     format_admin_result_players,
     format_season_proposal,
     format_tournament_label,
@@ -98,6 +97,7 @@ from app.services.dto import (
 from app.services.pagination import Page
 from app.services.profile_service import ProfileKind
 from app.services.rating_service import RatingKind
+from app.services.result_service import ResultService
 from app.services.tournament_check_in_service import TournamentCheckInService
 from app.services.user_service import AdminAccessDeniedError, UserService
 
@@ -298,22 +298,15 @@ def test_admin_result_players_hide_ids_and_empty_places() -> None:
     )
     page = Page(items=players, page=0, page_size=6, total_items=2)
 
-    assert format_admin_result_players(results, page) == (
-        "Игроки турнира\n"
-        "Воскресенье, 19 июля — Классика\n\n"
-        "Игроки: 2\n"
-        "В работе: 2\n"
-        "\n"
-        "```\n"
-        "| Место | Игрок\n"
-        "| ----- | -----\n"
-        "|     1 | НЕ ВВЕДЕНО\n"
-        "|     2 | Илларионов Александр\n"
-        "|     3 | НЕ ВВЕДЕНО\n"
-        "|     4 | НЕ ВВЕДЕНО\n"
-        "|     5 | НЕ ВВЕДЕНО\n"
-        "```"
-    )
+    text = format_admin_result_players(results, page)
+    assert text.startswith("Игроки турнира\nВоскресенье, 19 июля — Классика\n\nИгроки: 2")
+    assert "В " + "работе" not in text
+    assert "Место  Игрок" in text
+    assert "КО" not in text
+    assert "БКО" not in text
+    assert "Бонус" not in text
+    assert "2      Илларионов" in text
+    assert "—      Тест Игрок" in text
     buttons = [
         button.text
         for row in keyboards.admin_result_players_keyboard(results, page).inline_keyboard
@@ -346,22 +339,11 @@ def test_admin_result_players_show_empty_state_without_entered_results() -> None
     )
     page = Page(items=players, page=0, page_size=6, total_items=1)
 
-    assert format_admin_result_players(results, page) == (
-        "Игроки турнира\n"
-        "Воскресенье, 19 июля — Классика\n\n"
-        "Игроки: 1\n"
-        "В работе: 1\n"
-        "\n"
-        "```\n"
-        "| Место | Игрок\n"
-        "| ----- | -----\n"
-        "|     1 | НЕ ВВЕДЕНО\n"
-        "|     2 | НЕ ВВЕДЕНО\n"
-        "|     3 | НЕ ВВЕДЕНО\n"
-        "|     4 | НЕ ВВЕДЕНО\n"
-        "|     5 | НЕ ВВЕДЕНО\n"
-        "```"
-    )
+    text = format_admin_result_players(results, page)
+    assert "Игроки: 1" in text
+    assert "В " + "работе" not in text
+    assert "Место  Игрок" in text
+    assert "—      Тест Игрок" in text
 
 
 def test_admin_result_player_buttons_show_entered_knockouts_and_place() -> None:
@@ -404,7 +386,7 @@ def test_admin_result_player_buttons_show_entered_knockouts_and_place() -> None:
     ]
 
 
-def test_admin_result_menu_shows_entered_results_under_pool() -> None:
+def test_admin_result_players_show_place_only_table_for_classic() -> None:
     tournament = tournament_view(125, date(2026, 7, 19), 2, "Классика")
     results = TournamentResultsView(
         tournament=tournament,
@@ -449,25 +431,20 @@ def test_admin_result_menu_shows_entered_results_under_pool() -> None:
         knockout_mode="none",
     )
 
-    assert format_admin_result_menu(results) == (
-        "Внесение результатов\n"
-        "Воскресенье, 19 июля — Классика\n"
-        "Фонд турнира: 2200\n"
-        "Игроки: 5\n"
-        "В работе: 5\n"
-        "```\n"
-        "| Место | Игрок\n"
-        "| ----- | -----\n"
-        "|     1 | Тест Игрок 1\n"
-        "|     2 | Тест Игрок 4\n"
-        "|     3 | НЕ ВВЕДЕНО\n"
-        "|     4 | Дима Боченков\n"
-        "|     5 | Тест Игрок 7\n"
-        "```"
-    )
+    page = Page(items=results.players, page=0, page_size=6, total_items=5)
+    text = format_admin_result_players(results, page)
+
+    assert "Место  Игрок" in text
+    assert "КО" not in text
+    assert "БКО" not in text
+    assert "Бонус" not in text
+    assert "1      Тест Игрок 1" in text
+    assert "2      Тест Игрок 4" in text
+    assert "4      Дима Боченков" in text
+    assert "5      Тест Игрок 7" in text
 
 
-def test_admin_result_menu_sorts_without_places_by_big_and_small_knockouts() -> None:
+def test_admin_result_players_add_knockout_columns_for_bounty() -> None:
     tournament = tournament_view(125, date(2026, 7, 19), 6, "Boss Bounty")
     results = TournamentResultsView(
         tournament=tournament,
@@ -505,29 +482,19 @@ def test_admin_result_menu_sorts_without_places_by_big_and_small_knockouts() -> 
         knockout_mode="small_big",
     )
 
-    assert format_admin_result_menu(results) == (
-        "Внесение результатов\n"
-        "Воскресенье, 19 июля — Boss Bounty\n"
-        "Фонд турнира: 2200\n"
-        "Игроки: 4\n"
-        "В работе: 4\n"
-        "```\n"
-        "| Место | Игрок\n"
-        "| ----- | -----\n"
-        "|     1 | НЕ ВВЕДЕНО\n"
-        "|     2 | НЕ ВВЕДЕНО\n"
-        "|     3 | Игрок Место\n"
-        "|     4 | НЕ ВВЕДЕНО\n"
-        "|     5 | НЕ ВВЕДЕНО\n"
-        "```\n\n"
-        "🥊:\n"
-        "Игрок БКО: 👑🥊 х2, 🥊 х1\n"
-        "Игрок Много КО: 👑🥊 х1, 🥊 х7\n"
-        "Игрок КО: 👑🥊 х1, 🥊 х4"
-    )
+    page = Page(items=results.players, page=0, page_size=6, total_items=4)
+    text = format_admin_result_players(results, page)
+
+    assert "Место  Игрок" in text
+    assert "КО  БКО" in text
+    assert "🥊" not in text.split("```")[1].splitlines()[0]
+    assert "👑" not in text.split("```")[1].splitlines()[0]
+    assert "Бонус" not in text
+    assert "3      Игрок Место" in text
+    assert "—      Игрок БКО" in text
 
 
-def test_admin_result_menu_shows_empty_results_state() -> None:
+def test_admin_result_players_add_bonus_only_when_supported() -> None:
     tournament = tournament_view(125, date(2026, 7, 19), 2, "Классика")
     results = TournamentResultsView(
         tournament=tournament,
@@ -541,38 +508,15 @@ def test_admin_result_menu_shows_empty_results_state() -> None:
                 big_knockouts_count=0,
             )
         ],
-        knockout_mode="none",
+        knockout_mode="small",
+        supports_bonus_points=True,
     )
+    page = Page(items=results.players, page=0, page_size=6, total_items=1)
 
-    assert format_admin_result_menu(results) == (
-        "Внесение результатов\n"
-        "Воскресенье, 19 июля — Классика\n"
-        "Фонд турнира: 2200\n"
-        "Игроки: 1\n"
-        "В работе: 1\n"
-        "```\n"
-        "| Место | Игрок\n"
-        "| ----- | -----\n"
-        "|     1 | НЕ ВВЕДЕНО\n"
-        "|     2 | НЕ ВВЕДЕНО\n"
-        "|     3 | НЕ ВВЕДЕНО\n"
-        "|     4 | НЕ ВВЕДЕНО\n"
-        "|     5 | НЕ ВВЕДЕНО\n"
-        "```"
-    )
-
-
-def test_admin_result_menu_has_close_without_check() -> None:
-    buttons = [
-        button.text
-        for row in keyboards.admin_result_menu_keyboard(125).inline_keyboard
-        for button in row
-    ]
-
-    assert buttons == [
-        "👥 Игроки",
-        "❌ Отмена",
-    ]
+    text = format_admin_result_players(results, page)
+    assert "Место  Игрок" in text
+    assert "КО  Бонус" in text
+    assert "БКО" not in text
 
 
 def test_admin_close_tournament_formatters_show_fund_and_game_tables() -> None:
@@ -686,7 +630,7 @@ def test_tournament_label_fallback_is_unknown_tournament() -> None:
     assert format_tournament_label(unknown) == "Понедельник, 20 июля — Неопределённый турнир"
 
 
-async def test_place_only_result_player_opens_player_card(
+async def test_place_only_result_player_opens_place_keyboard(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     tournament = tournament_view(125, date(2026, 7, 19), 2, "Классика")
@@ -714,7 +658,7 @@ async def test_place_only_result_player_opens_player_card(
     )
     service = SimpleNamespace(get_tournament_results=AsyncMock(return_value=results))
     monkeypatch.setattr(admin_result_handlers, "result_service", service)
-    message = SimpleNamespace(delete=AsyncMock(), answer=AsyncMock())
+    message = SimpleNamespace(delete=AsyncMock(), answer=AsyncMock(), edit_text=AsyncMock())
     callback = SimpleNamespace(
         from_user=SimpleNamespace(id=100),
         message=message,
@@ -735,14 +679,15 @@ async def test_place_only_result_player_opens_player_card(
 
     state.clear.assert_awaited_once()
     callback.answer.assert_awaited_once()
-    message.delete.assert_awaited_once()
-    message.answer.assert_awaited_once()
-    assert message.answer.await_args.args[0] == ("Результат игрока\nИлларионов Александр")
+    message.delete.assert_not_awaited()
+    message.answer.assert_not_awaited()
+    message.edit_text.assert_awaited_once()
+    assert message.edit_text.await_args.args[0] == "Илларионов Александр\n\nВыбери место:"
     assert [
         button.text
-        for row in message.answer.await_args.kwargs["reply_markup"].inline_keyboard
+        for row in message.edit_text.await_args.kwargs["reply_markup"].inline_keyboard
         for button in row
-    ] == ["🏁 Место", "❌ Отмена"]
+    ] == ["1", "✔️ 2", "3", "4", "5", "⬅️ Назад", "❌ Отмена"]
 
 
 def admin_player(
@@ -1117,6 +1062,153 @@ async def test_admin_check_in_registered_user_dispatcher_flow_creates_result(
         assert results[0].tournament_id == tournament_id
         assert results[0].player_id == player_id
         assert results[0].source == TournamentResultSource.REGISTERED
+    finally:
+        await bot.session.close()
+        await engine.dispose()
+
+
+async def test_admin_result_dispatcher_flow_opens_today_tournament_and_saves_place(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    engine = create_async_engine(f"sqlite+aiosqlite:///{tmp_path / 'telegram_results.db'}")
+    async with engine.begin() as connection:
+        await connection.run_sync(Base.metadata.create_all)
+
+    session_factory = async_sessionmaker(engine, expire_on_commit=False)
+    async with session_factory() as session:
+        config = ScoringConfig()
+        session.add(config)
+        await session.flush()
+        await seed_tournament_types_async(session)
+        season = Season(
+            name="Test season",
+            scoring_config_id=config.id,
+            starts_at=date(2026, 7, 1),
+            ends_at=None,
+        )
+        admin = build_player(
+            telegram_id=200,
+            display_name="Админ Результатов",
+            status=UserStatus.ACTIVE,
+            role=UserRole.ADMIN,
+        )
+        player = build_player(
+            telegram_id=201,
+            display_name="Игрок Результатов",
+            status=UserStatus.ACTIVE,
+        )
+        session.add_all([season, admin, player])
+        await session.flush()
+        tournament = Tournament(
+            season_id=season.id,
+            tournament_type_id=tournament_type_id("classic"),
+            date=date(2026, 7, 9),
+            status=TournamentStatus.ACTIVE,
+        )
+        session.add(tournament)
+        await session.flush()
+        session.add(
+            TournamentResult(
+                tournament_id=tournament.id,
+                player_id=player.id,
+                source=TournamentResultSource.REGISTERED,
+                checked_in_by_user_id=admin.id,
+            )
+        )
+        await session.commit()
+        tournament_id = tournament.id
+        player_id = player.id
+
+    service = ResultService(
+        session_factory,
+        clock=FixedClock(datetime(2026, 7, 9, 12, tzinfo=ZoneInfo("Europe/Moscow"))),
+    )
+    monkeypatch.setattr(admin_result_handlers, "result_service", service)
+    bot = RecordingBot()
+
+    def message_update(update_id: int, text: str) -> dict[str, object]:
+        return {
+            "update_id": update_id,
+            "message": {
+                "message_id": update_id + 100,
+                "date": 1783598400,
+                "chat": {"id": 200, "type": "private"},
+                "from": {"id": 200, "is_bot": False, "first_name": "Админ"},
+                "text": text,
+            },
+        }
+
+    def callback_update(update_id: int, data: str, message_id: int = 300) -> dict[str, object]:
+        return {
+            "update_id": update_id,
+            "callback_query": {
+                "id": f"result-callback-{update_id}",
+                "from": {"id": 200, "is_bot": False, "first_name": "Админ"},
+                "message": {
+                    "message_id": message_id,
+                    "date": 1783598400,
+                    "chat": {"id": 200, "type": "private"},
+                    "text": "results",
+                },
+                "chat_instance": "chat-instance",
+                "data": data,
+            },
+        }
+
+    try:
+        await runtime.telegram_dispatcher.feed_raw_update(
+            bot,
+            message_update(1, keyboards.ADMIN_PANEL_RESULTS),
+        )
+        await runtime.telegram_dispatcher.feed_raw_update(
+            bot,
+            callback_update(
+                2,
+                keyboards.AdminResultPlayerCallback(
+                    action=keyboards.AdminResultPlayerAction.OPEN,
+                    tournament_id=tournament_id,
+                    page=0,
+                    player_id=player_id,
+                ).pack(),
+            ),
+        )
+        await runtime.telegram_dispatcher.feed_raw_update(
+            bot,
+            callback_update(
+                3,
+                keyboards.AdminResultValueCallback(
+                    action=keyboards.AdminResultValueAction.SET,
+                    tournament_id=tournament_id,
+                    page=0,
+                    player_id=player_id,
+                    field=keyboards.AdminResultField.PLACE,
+                    value=1,
+                ).pack(),
+            ),
+        )
+
+        sent_texts = [call.text for call in bot.calls if call.__class__.__name__ == "SendMessage"]
+        edited_texts = [
+            call.text for call in bot.calls if call.__class__.__name__ == "EditMessageText"
+        ]
+        assert sent_texts
+        assert "Игроки турнира" in sent_texts[0]
+        assert "Четверг, 9 июля — Классика" in sent_texts[0]
+        assert "Выбери турнир для внесения " + "результатов" not in sent_texts[0]
+        assert "В " + "работе" not in sent_texts[0]
+        assert any("Игрок Результатов\n\nВыбери место:" in text for text in edited_texts)
+        assert any("1      Игрок Результатов" in text for text in edited_texts)
+        async with session_factory() as session:
+            result = (
+                await session.execute(
+                    select(TournamentResult).where(
+                        TournamentResult.tournament_id == tournament_id,
+                        TournamentResult.player_id == player_id,
+                    )
+                )
+            ).scalar_one()
+        assert result.place == 1
     finally:
         await bot.session.close()
         await engine.dispose()

@@ -1,11 +1,14 @@
-from datetime import date
+from datetime import date, datetime
 from decimal import Decimal
 from pathlib import Path
+from zoneinfo import ZoneInfo
 
+import pytest
 from conftest import build_player, seed_tournament_types_async, tournament_type_id
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
+from app.common.clock import FixedClock
 from app.db.base import Base
 from app.db.models import (
     ScoringConfig,
@@ -22,10 +25,14 @@ from app.db.models.enums import (
     UserRole,
     UserStatus,
 )
-from app.services.result_service import ResultInvalidPlayerDataError, ResultService
+from app.services.result_service import (
+    ResultInvalidPlayerDataError,
+    ResultService,
+    ResultTodayTournamentNotFoundError,
+)
 
 
-async def test_result_tournament_list_includes_only_today_open_tournaments(
+async def test_today_result_entry_uses_only_today_active_tournament(
     tmp_path: Path,
 ) -> None:
     engine = create_async_engine(f"sqlite+aiosqlite:///{tmp_path / 'open_results.db'}")
@@ -77,15 +84,69 @@ async def test_result_tournament_list_includes_only_today_open_tournaments(
         )
         await session.commit()
 
-    service = ResultService(session_factory)
-    tournaments = await service.list_open_tournaments_for_admin(
-        100,
-        today=date(2026, 7, 20),
+    service = ResultService(
+        session_factory,
+        clock=FixedClock(datetime(2026, 7, 20, 12, tzinfo=ZoneInfo("Europe/Moscow"))),
     )
+    results = await service.get_today_tournament_results(100)
 
-    assert [(tournament.date, tournament.tournament_type_name) for tournament in tournaments] == [
-        (date(2026, 7, 20), "Фризаут"),
-    ]
+    assert results.tournament.date == date(2026, 7, 20)
+    assert results.tournament.tournament_type_name == "Фризаут"
+    await engine.dispose()
+
+
+async def test_today_result_entry_rejects_when_today_has_no_active_tournament(
+    tmp_path: Path,
+) -> None:
+    engine = create_async_engine(f"sqlite+aiosqlite:///{tmp_path / 'no_today_results.db'}")
+    async with engine.begin() as connection:
+        await connection.run_sync(Base.metadata.create_all)
+
+    session_factory = async_sessionmaker(engine, expire_on_commit=False)
+    async with session_factory() as session:
+        config = ScoringConfig()
+        session.add(config)
+        await session.flush()
+        await seed_tournament_types_async(session)
+        season = Season(
+            name="Test season",
+            scoring_config_id=config.id,
+            starts_at=date(2026, 7, 1),
+            ends_at=None,
+        )
+        admin = build_player(
+            telegram_id=100,
+            display_name="Admin",
+            status=UserStatus.ACTIVE,
+            role=UserRole.ADMIN,
+        )
+        session.add_all([season, admin])
+        await session.flush()
+        session.add_all(
+            [
+                Tournament(
+                    season_id=season.id,
+                    tournament_type_id=tournament_type_id("classic"),
+                    date=date(2026, 7, 19),
+                    status=TournamentStatus.ACTIVE,
+                ),
+                Tournament(
+                    season_id=season.id,
+                    tournament_type_id=tournament_type_id("freezeout"),
+                    date=date(2026, 7, 20),
+                    tournament_fund=Decimal("1000"),
+                    status=TournamentStatus.CLOSED,
+                ),
+            ]
+        )
+        await session.commit()
+
+    service = ResultService(
+        session_factory,
+        clock=FixedClock(datetime(2026, 7, 20, 12, tzinfo=ZoneInfo("Europe/Moscow"))),
+    )
+    with pytest.raises(ResultTodayTournamentNotFoundError):
+        await service.get_today_tournament_results(100)
     await engine.dispose()
 
 

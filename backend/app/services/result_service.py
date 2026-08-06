@@ -1,5 +1,5 @@
 import json
-from datetime import date
+import logging
 from decimal import ROUND_HALF_UP, Decimal
 
 from sqlalchemy import select
@@ -34,8 +34,18 @@ from app.services.result_fields import ResultField
 from app.services.tournament_service import tournament_view
 from app.services.user_service import AdminAccessDeniedError
 
+logger = logging.getLogger(__name__)
+
 
 class ResultTournamentNotFoundError(ValueError):
+    pass
+
+
+class ResultTodayTournamentNotFoundError(ValueError):
+    pass
+
+
+class ResultTodayTournamentInvariantViolationError(ValueError):
     pass
 
 
@@ -66,14 +76,13 @@ class ResultService:
         self.session_factory = session_factory
         self.clock = clock
 
-    async def list_open_tournaments_for_admin(
+    async def get_today_tournament_results(
         self,
         admin_telegram_id: int,
-        today: date | None = None,
-    ) -> list[TournamentView]:
+    ) -> TournamentResultsView:
         async with self.session_factory() as session:
             await self._require_admin(session, admin_telegram_id)
-            business_date = today or self.clock.today()
+            business_date = self.clock.today()
             result = await session.execute(
                 select(Tournament)
                 .options(selectinload(Tournament.tournament_type))
@@ -83,7 +92,20 @@ class ResultService:
                 )
                 .order_by(Tournament.date, Tournament.tournament_type_id)
             )
-            return [tournament_view(tournament) for tournament in result.scalars()]
+            tournaments = list(result.scalars())
+            if not tournaments:
+                raise ResultTodayTournamentNotFoundError
+            if len(tournaments) > 1:
+                logger.error(
+                    "Expected one active tournament for business date, got %s",
+                    len(tournaments),
+                    extra={
+                        "business_date": business_date.isoformat(),
+                        "tournament_ids": [tournament.id for tournament in tournaments],
+                    },
+                )
+                raise ResultTodayTournamentInvariantViolationError
+            return await self._results_view(session, tournaments[0].id)
 
     async def list_unclosed_tournaments_for_superadmin(
         self,
@@ -461,6 +483,23 @@ class ResultService:
             knockout_mode=knockout_mode,
             supports_bonus_points=supports_bonus_points,
         )
+
+    @staticmethod
+    def editable_result_fields(results: TournamentResultsView) -> list[ResultField]:
+        return [
+            field
+            for field in (
+                ResultField.PLACE,
+                ResultField.KNOCKOUTS,
+                ResultField.BIG_KNOCKOUTS,
+                ResultField.BONUS,
+            )
+            if ResultService.result_field_is_allowed(
+                results.knockout_mode,
+                field,
+                results.supports_bonus_points,
+            )
+        ]
 
     @staticmethod
     def occupied_result_places(results: TournamentResultsView) -> set[int]:

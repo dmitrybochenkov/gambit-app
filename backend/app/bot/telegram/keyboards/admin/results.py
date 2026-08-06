@@ -14,14 +14,8 @@ class AdminResultTournamentCallback(CallbackData, prefix="res_tour"):
     tournament_id: int
 
 
-class AdminResultMenuAction(StrEnum):
-    PLAYERS = "players"
-    CANCEL = "cancel"
-
-
-class AdminResultMenuCallback(CallbackData, prefix="res_menu"):
-    action: AdminResultMenuAction
-    tournament_id: int
+class AdminResultBackToMenuCallback(CallbackData, prefix="res_back"):
+    action: str = "admin_menu"
 
 
 class AdminResultPlayerAction(StrEnum):
@@ -103,26 +97,6 @@ def admin_result_tournament_list_keyboard(
     return builder.as_markup()
 
 
-def admin_result_menu_keyboard(tournament_id: int) -> InlineKeyboardMarkup:
-    builder = InlineKeyboardBuilder()
-    builder.button(
-        text=buttons.ADMIN_RESULTS_PLAYERS,
-        callback_data=AdminResultMenuCallback(
-            action=AdminResultMenuAction.PLAYERS,
-            tournament_id=tournament_id,
-        ),
-    )
-    builder.button(
-        text=buttons.ADMIN_CANCEL,
-        callback_data=AdminResultMenuCallback(
-            action=AdminResultMenuAction.CANCEL,
-            tournament_id=tournament_id,
-        ),
-    )
-    builder.adjust(1)
-    return builder.as_markup()
-
-
 def admin_result_players_keyboard(
     results: TournamentResultsView,
     page: Page[TournamentResultPlayerView],
@@ -181,15 +155,13 @@ def _admin_result_player_button_text(
     return f"{player.display_name}: {' | '.join(result_parts)}"
 
 
-def admin_result_cancel_keyboard(tournament_id: int) -> InlineKeyboardMarkup:
+def admin_result_back_to_menu_keyboard() -> InlineKeyboardMarkup:
     builder = InlineKeyboardBuilder()
     builder.button(
-        text=buttons.ADMIN_CANCEL,
-        callback_data=AdminResultMenuCallback(
-            action=AdminResultMenuAction.CANCEL,
-            tournament_id=tournament_id,
-        ),
+        text="↩️ В админское меню",
+        callback_data=AdminResultBackToMenuCallback(),
     )
+    builder.adjust(1)
     return builder.as_markup()
 
 

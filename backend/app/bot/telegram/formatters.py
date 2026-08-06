@@ -189,28 +189,11 @@ def format_public_weekly_schedule(schedule: WeeklyScheduleView) -> list[str]:
 
 
 def format_admin_result_tournament_list(page: Page[TournamentView]) -> str:
-    lines = [texts.admin.ADMIN_RESULTS_TOURNAMENT_LIST_TITLE, ""]
+    lines = ["Выбери турнир:", ""]
     for tournament in page.items:
         lines.append(f"{tournament.id} — {format_tournament_label(tournament)}")
     if page.total_pages > 1:
         lines.extend(["", _page_line(page)])
-    return "\n".join(lines)
-
-
-def format_admin_result_menu(results: TournamentResultsView) -> str:
-    fund = (
-        format_decimal(results.tournament_fund)
-        if results.tournament_fund is not None
-        else "не введен"
-    )
-    lines = [
-        texts.admin.ADMIN_RESULTS_MENU_TITLE,
-        format_tournament_label(results.tournament),
-        f"Фонд турнира: {fund}",
-        f"Игроки: {results.checked_in_count or len(results.players)}",
-        f"В работе: {len(results.players)}",
-    ]
-    lines.extend(_admin_result_summary_lines(results))
     return "\n".join(lines)
 
 
@@ -295,10 +278,9 @@ def format_admin_result_players(
         format_tournament_label(results.tournament),
         "",
         f"Игроки: {results.checked_in_count or len(results.players)}",
-        f"В работе: {len(results.players)}",
         "",
+        *_admin_result_game_table_lines(results),
     ]
-    lines.extend(_admin_result_summary_lines(results))
     return "\n".join(lines)
 
 
@@ -321,7 +303,7 @@ def format_admin_close_tournament_card(results: TournamentResultsView) -> str:
             "",
             f"Игроков: {results.checked_in_count or len(results.players)}",
             "",
-            *_admin_result_game_table_lines(results),
+            *_admin_result_game_table_lines(results, force_all_columns=True),
             "",
             "Введите Фонд турнира.",
         ]
@@ -359,7 +341,7 @@ def format_admin_close_tournament_confirmation(
             "После подтверждения будут рассчитаны рейтинговые очки,",
             "а турнир станет недоступен для редактирования.",
             "",
-            *_admin_result_game_table_lines(results),
+            *_admin_result_game_table_lines(results, force_all_columns=True),
         ]
     )
 
@@ -380,7 +362,11 @@ def format_admin_closed_tournament(results: TournamentResultsView) -> str:
             f"Фонд турнира: {fund}",
             f"Игроков: {results.checked_in_count or len(results.players)}",
             "",
-            *_admin_result_game_table_lines(results, include_points=True),
+            *_admin_result_game_table_lines(
+                results,
+                include_points=True,
+                force_all_columns=True,
+            ),
         ]
     )
 
@@ -409,6 +395,7 @@ def _admin_result_game_table_lines(
     results: TournamentResultsView,
     *,
     include_points: bool = False,
+    force_all_columns: bool = False,
 ) -> list[str]:
     rows = []
     sorted_players = sorted(
@@ -420,17 +407,28 @@ def _admin_result_game_table_lines(
             player.display_name.casefold(),
         ),
     )
+    show_knockouts = force_all_columns or results.knockout_mode in {"small", "small_big"}
+    show_big_knockouts = force_all_columns or results.knockout_mode == "small_big"
+    show_bonus = force_all_columns or results.supports_bonus_points
+    header = f"{'Место':<5}  {'Игрок':<18}"
+    if show_knockouts:
+        header += f" {'КО':>3}"
+    if show_big_knockouts:
+        header += f" {'БКО':>4}"
+    if show_bonus:
+        header += f" {'Бонус':>6}"
     if include_points:
-        rows.append(f"{'Место':<5}  {'Игрок':<18} {'КО':>3} {'БКО':>4} {'Бонус':>6} {'Очки':>6}")
-    else:
-        rows.append(f"{'Место':<5}  {'Игрок':<18} {'КО':>3} {'БКО':>4} {'Бонус':>6}")
+        header += f" {'Очки':>6}"
+    rows.append(header)
     for player in sorted_players:
         place = str(player.place) if player.place is not None else "—"
-        base = (
-            f"{place:<5}  {_code_cell(player.display_name, 18):<18} "
-            f"{player.knockouts_count:>3} {player.big_knockouts_count:>4} "
-            f"{player.bonus_points:>6}"
-        )
+        base = f"{place:<5}  {_code_cell(player.display_name, 18):<18}"
+        if show_knockouts:
+            base += f" {player.knockouts_count:>3}"
+        if show_big_knockouts:
+            base += f" {player.big_knockouts_count:>4}"
+        if show_bonus:
+            base += f" {player.bonus_points:>6}"
         if include_points:
             base += f" {format_decimal(player.total_points):>6}"
         rows.append(base)
