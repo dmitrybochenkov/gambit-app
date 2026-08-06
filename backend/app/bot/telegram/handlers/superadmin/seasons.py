@@ -21,6 +21,7 @@ async def enter_season_proposal_name(message: Message, state: FSMContext) -> Non
     try:
         await user_service.require_superadmin(message.from_user.id)
         proposal = await season_service.update_season_proposal_name(
+            admin_telegram_id=message.from_user.id,
             prompt_id=prompt_id,
             name=message.text or "",
         )
@@ -59,6 +60,7 @@ async def enter_season_proposal_starts_at(message: Message, state: FSMContext) -
         await user_service.require_superadmin(message.from_user.id)
         starts_at = parse_admin_date(message.text or "")
         proposal = await season_service.update_season_proposal_start_date(
+            admin_telegram_id=message.from_user.id,
             prompt_id=prompt_id,
             starts_at=starts_at,
         )
@@ -145,7 +147,10 @@ async def select_season_open_action(
 
     if callback_data.action == keyboards.SeasonOpenAction.BACK:
         try:
-            proposal = await season_service.get_season_proposal(callback_data.prompt_id)
+            proposal = await season_service.get_season_proposal(
+                admin_telegram_id=callback.from_user.id,
+                prompt_id=callback_data.prompt_id,
+            )
         except (SeasonProposalNotFoundError, SeasonProposalAlreadyResolvedError):
             await callback.answer(
                 texts.admin.ADMIN_CALENDAR_SEASON_ALREADY_HANDLED,

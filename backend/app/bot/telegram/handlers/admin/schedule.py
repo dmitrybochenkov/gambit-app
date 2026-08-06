@@ -16,7 +16,10 @@ async def review_calendar_prompt(
         await user_service.require_superadmin(callback.from_user.id)
         if callback_data.action == keyboards.CalendarPromptAction.EDIT:
             await state.clear()
-            prompt = await calendar_service.get_tournament_prompt(callback_data.prompt_id)
+            prompt = await calendar_service.get_tournament_prompt(
+                callback.from_user.id,
+                callback_data.prompt_id,
+            )
             if callback.message is not None:
                 await _delete_callback_message(callback)
                 await callback.message.answer(
@@ -28,7 +31,10 @@ async def review_calendar_prompt(
 
         if callback_data.action == keyboards.CalendarPromptAction.BACK:
             await state.clear()
-            prompt = await calendar_service.get_tournament_prompt(callback_data.prompt_id)
+            prompt = await calendar_service.get_tournament_prompt(
+                callback.from_user.id,
+                callback_data.prompt_id,
+            )
             if callback.message is not None:
                 await _delete_callback_message(callback)
                 await callback.message.answer(
@@ -41,8 +47,8 @@ async def review_calendar_prompt(
         await state.clear()
         action = CalendarPromptAction(callback_data.action.value)
         resolved_prompt = await calendar_service.resolve_prompt(
+            actor_telegram_id=callback.from_user.id,
             prompt_id=callback_data.prompt_id,
-            admin_telegram_id=callback.from_user.id,
             action=action,
         )
     except AdminAccessDeniedError:
@@ -87,7 +93,7 @@ async def review_calendar_prompt(
             await callback.message.answer(format_created_tournaments_prompt(resolved_prompt))
             if resolved_prompt.kind == "tournaments_proposal":
                 schedule = await calendar_service.get_created_weekly_schedule(
-                    callback_data.prompt_id
+                    callback.from_user.id, callback_data.prompt_id
                 )
                 for schedule_message in format_public_weekly_schedule(schedule):
                     await callback.message.answer(schedule_message)
@@ -127,6 +133,7 @@ async def select_tournament_prompt_day(
     try:
         await user_service.require_superadmin(callback.from_user.id)
         edit_view = await calendar_service.get_weekly_prompt_day_edit_options(
+            actor_telegram_id=callback.from_user.id,
             prompt_id=callback_data.prompt_id,
             tournament_date=date.fromisoformat(callback_data.tournament_date),
         )
@@ -163,6 +170,7 @@ async def select_tournament_type(
     try:
         await user_service.require_superadmin(callback.from_user.id)
         prompt = await calendar_service.update_weekly_prompt_day_type(
+            actor_telegram_id=callback.from_user.id,
             prompt_id=callback_data.prompt_id,
             tournament_date=date.fromisoformat(callback_data.tournament_date),
             tournament_type_id=callback_data.tournament_type_id,

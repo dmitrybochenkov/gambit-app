@@ -2,6 +2,7 @@ from datetime import date
 from decimal import Decimal
 from pathlib import Path
 
+import pytest
 from conftest import build_player, seed_tournament_types_async, tournament_type_id
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
@@ -10,7 +11,10 @@ from app.db.base import Base
 from app.db.models import ScoringConfig, Season, Tournament, TournamentResult
 from app.db.models.enums import TournamentStatus, UserStatus
 from app.services.pagination import pagination_service
-from app.services.user_statistics_service import UserStatisticsService
+from app.services.user_statistics_service import (
+    HistoricalTournamentNotFoundError,
+    UserStatisticsService,
+)
 
 
 async def test_history_lists_only_periods_and_tournaments_with_results(
@@ -70,12 +74,19 @@ async def test_history_lists_only_periods_and_tournaments_with_results(
             date=date(2024, 1, 10),
             status=TournamentStatus.ACTIVE,
         )
+        active_with_result_tournament = Tournament(
+            season_id=season.id,
+            tournament_type_id=tournament_type_id("bounty"),
+            date=date(2026, 9, 1),
+            status=TournamentStatus.ACTIVE,
+        )
         session.add_all(
             [
                 july_tournament,
                 august_tournament,
                 cancelled_tournament,
                 empty_tournament,
+                active_with_result_tournament,
             ]
         )
         await session.flush()
@@ -99,6 +110,12 @@ async def test_history_lists_only_periods_and_tournaments_with_results(
                     place=1,
                     tournament_points=Decimal("100"),
                 ),
+                TournamentResult(
+                    tournament_id=active_with_result_tournament.id,
+                    player_id=result_user.id,
+                    place=1,
+                    tournament_points=Decimal("999"),
+                ),
             ]
         )
         await session.commit()
@@ -108,6 +125,11 @@ async def test_history_lists_only_periods_and_tournaments_with_results(
         years = await service.list_history_years(100)
         months = await service.list_history_months(100, 2026)
         tournaments = await service.list_history_tournaments(100, 2026, 7)
+        with pytest.raises(HistoricalTournamentNotFoundError):
+            await service.get_historical_tournament_result(
+                100,
+                active_with_result_tournament.id,
+            )
 
         assert [item.year for item in years] == [2026]
         assert [(item.month, item.label) for item in months] == [

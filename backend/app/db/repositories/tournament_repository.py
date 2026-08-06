@@ -14,6 +14,7 @@ from app.db.models import (
     WeeklyTournamentTemplate,
 )
 from app.db.models.enums import TournamentStatus, TournamentTypeStatus
+from app.db.repositories.result_scopes import closed_tournament_filter
 
 
 @dataclass(frozen=True)
@@ -139,7 +140,7 @@ class TournamentRepository:
         result = await self.session.execute(
             select(func.strftime("%Y", Tournament.date).label("year"))
             .join(TournamentResult, TournamentResult.tournament_id == Tournament.id)
-            .where(Tournament.status != TournamentStatus.CANCELLED)
+            .where(closed_tournament_filter())
             .group_by("year")
             .order_by(func.strftime("%Y", Tournament.date).desc())
         )
@@ -150,7 +151,7 @@ class TournamentRepository:
             select(func.strftime("%m", Tournament.date).label("month"))
             .join(TournamentResult, TournamentResult.tournament_id == Tournament.id)
             .where(
-                Tournament.status != TournamentStatus.CANCELLED,
+                closed_tournament_filter(),
                 func.strftime("%Y", Tournament.date) == str(year),
             )
             .group_by("month")
@@ -172,7 +173,7 @@ class TournamentRepository:
             .join(TournamentType, TournamentType.id == Tournament.tournament_type_id)
             .join(TournamentResult, TournamentResult.tournament_id == Tournament.id)
             .where(
-                Tournament.status != TournamentStatus.CANCELLED,
+                closed_tournament_filter(),
                 func.strftime("%Y", Tournament.date) == str(year),
                 func.strftime("%m", Tournament.date) == f"{month:02d}",
             )
@@ -215,7 +216,7 @@ class TournamentRepository:
             .join(User, User.id == TournamentResult.player_id)
             .where(
                 Tournament.id == tournament_id,
-                Tournament.status != TournamentStatus.CANCELLED,
+                closed_tournament_filter(),
             )
             .order_by(
                 TournamentResult.place.is_(None),

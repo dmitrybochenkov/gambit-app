@@ -5,6 +5,7 @@ from sqlalchemy import case, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.models import Tournament, TournamentResult, User
+from app.db.repositories.result_scopes import closed_tournament_filter
 
 
 @dataclass(frozen=True)
@@ -67,7 +68,7 @@ class ProfileRepository:
             .select_from(User)
             .join(TournamentResult, TournamentResult.player_id == User.id)
             .join(Tournament, Tournament.id == TournamentResult.tournament_id)
-            .where(User.telegram_id == telegram_id)
+            .where(User.telegram_id == telegram_id, closed_tournament_filter())
             .group_by(User.id, User.display_name)
         )
         if season_id is not None:

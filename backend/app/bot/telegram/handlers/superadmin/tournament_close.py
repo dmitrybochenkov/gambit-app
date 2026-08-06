@@ -149,6 +149,9 @@ async def select_close_tournament_action(
     except ResultTournamentNotFoundError:
         await callback.answer(texts.admin.ADMIN_RESULTS_NOT_FOUND, show_alert=True)
         return
+    except FutureTournamentCannotBeClosedError:
+        await callback.answer("Будущий турнир нельзя закрыть.", show_alert=True)
+        return
     except ResultValidationError as error:
         await callback.answer()
         if callback.message is not None:
@@ -166,12 +169,12 @@ async def _send_close_tournament_card(
     tournament_id: int,
     page: int,
 ) -> None:
-    results = await result_service.get_tournament_results(
-        admin_telegram_id=superadmin_telegram_id,
+    results = await result_service.get_closeable_tournament_results(
+        superadmin_telegram_id=superadmin_telegram_id,
         tournament_id=tournament_id,
     )
-    errors = await result_service.validate_results(
-        admin_telegram_id=superadmin_telegram_id,
+    errors = await result_service.validate_closeable_results(
+        superadmin_telegram_id=superadmin_telegram_id,
         tournament_id=tournament_id,
     )
     if errors:
@@ -203,12 +206,12 @@ async def _edit_close_tournament_card(
     tournament_id: int,
     page: int,
 ) -> None:
-    results = await result_service.get_tournament_results(
-        admin_telegram_id=callback.from_user.id,
+    results = await result_service.get_closeable_tournament_results(
+        superadmin_telegram_id=callback.from_user.id,
         tournament_id=tournament_id,
     )
-    errors = await result_service.validate_results(
-        admin_telegram_id=callback.from_user.id,
+    errors = await result_service.validate_closeable_results(
+        superadmin_telegram_id=callback.from_user.id,
         tournament_id=tournament_id,
     )
     if errors:
@@ -243,8 +246,8 @@ async def enter_tournament_fund(message: Message, state: FSMContext) -> None:
     page_number = int(data.get("close_tournament_page", 0))
     try:
         tournament_fund = ResultService.validate_tournament_fund(int(message.text or ""))
-        results = await result_service.get_tournament_results(
-            admin_telegram_id=message.from_user.id,
+        results = await result_service.get_closeable_tournament_results(
+            superadmin_telegram_id=message.from_user.id,
             tournament_id=tournament_id,
         )
     except (ValueError, ResultInvalidFundError):
@@ -263,6 +266,10 @@ async def enter_tournament_fund(message: Message, state: FSMContext) -> None:
     except ResultTournamentNotFoundError:
         await state.clear()
         await message.answer(texts.admin.ADMIN_RESULTS_NOT_FOUND)
+        return
+    except FutureTournamentCannotBeClosedError:
+        await state.clear()
+        await message.answer("Будущий турнир нельзя закрыть.")
         return
 
     await state.update_data(tournament_fund=int(tournament_fund))

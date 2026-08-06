@@ -29,6 +29,7 @@ from app.db.repositories.admin_prompt_repository import AdminPromptRepository
 from app.db.repositories.season_repository import SeasonRepository
 from app.db.repositories.tournament_repository import TournamentRepository
 from app.db.session import SessionFactory
+from app.services.access_policy import access_policy
 from app.services.dto import (
     AdminPromptView,
     TournamentPromptDayEditView,
@@ -126,11 +127,13 @@ class CalendarService:
 
     async def create_weekly_tournament_prompt(
         self,
+        actor_telegram_id: int,
         today: date | None = None,
     ) -> TournamentPromptView:
         target_dates = next_complete_game_week(today or self.clock.today())
         scope_key = weekly_tournaments_prompt_key(target_dates)
         async with self.session_factory() as session:
+            await access_policy.require_superadmin(session, actor_telegram_id)
             tournament_repository = TournamentRepository(session)
 
             repository = AdminPromptRepository(session)
@@ -195,8 +198,9 @@ class CalendarService:
             await session.refresh(prompt)
             return await self._tournament_prompt_view(session, prompt)
 
-    async def get_prompt(self, prompt_id: int) -> AdminPromptView:
+    async def get_prompt(self, actor_telegram_id: int, prompt_id: int) -> AdminPromptView:
         async with self.session_factory() as session:
+            await access_policy.require_superadmin(session, actor_telegram_id)
             prompt = await AdminPromptRepository(session).get_by_id(prompt_id)
             if prompt is None:
                 raise CalendarPromptNotFoundError
@@ -204,17 +208,27 @@ class CalendarService:
                 raise CalendarPromptAlreadyResolvedError
             return admin_prompt_view(prompt)
 
-    async def get_tournament_prompt(self, prompt_id: int) -> TournamentPromptView:
+    async def get_tournament_prompt(
+        self,
+        actor_telegram_id: int,
+        prompt_id: int,
+    ) -> TournamentPromptView:
         async with self.session_factory() as session:
+            await access_policy.require_superadmin(session, actor_telegram_id)
             prompt = await self._get_pending_tournament_prompt(session, prompt_id)
             return await self._tournament_prompt_view(session, prompt)
 
-    async def list_tournament_type_options(self) -> list[TournamentTypeOptionView]:
+    async def list_tournament_type_options(
+        self,
+        actor_telegram_id: int,
+    ) -> list[TournamentTypeOptionView]:
         async with self.session_factory() as session:
+            await access_policy.require_superadmin(session, actor_telegram_id)
             return await self._list_tournament_type_options(session)
 
     async def get_recommended_sunday_tournament_type(
         self,
+        actor_telegram_id: int,
         target_date: date,
     ) -> TournamentTypeOptionView:
         try:
@@ -224,6 +238,7 @@ class CalendarService:
             raise CalendarSundayTournamentDateError from error
 
         async with self.session_factory() as session:
+            await access_policy.require_superadmin(session, actor_telegram_id)
             tournament_type_code = await self._default_sunday_tournament_type_code(
                 TournamentRepository(session),
                 target_date,
@@ -240,10 +255,12 @@ class CalendarService:
 
     async def get_weekly_prompt_day_edit_options(
         self,
+        actor_telegram_id: int,
         prompt_id: int,
         tournament_date: date,
     ) -> TournamentPromptDayEditView:
         async with self.session_factory() as session:
+            await access_policy.require_superadmin(session, actor_telegram_id)
             prompt = await self._get_pending_tournament_prompt(session, prompt_id)
             payload = json.loads(prompt.payload)
             self._weekly_prompt_payload_items(payload)
@@ -256,11 +273,12 @@ class CalendarService:
 
     async def resolve_prompt(
         self,
+        actor_telegram_id: int,
         prompt_id: int,
-        admin_telegram_id: int,
         action: CalendarPromptAction,
     ) -> TournamentPromptView:
         async with self.session_factory() as session:
+            await access_policy.require_superadmin(session, actor_telegram_id)
             repository = AdminPromptRepository(session)
             prompt = await repository.get_by_id(prompt_id)
             if prompt is None:
@@ -269,7 +287,7 @@ class CalendarService:
                 raise CalendarPromptAlreadyResolvedError
 
             if action == CalendarPromptAction.CONFIRM:
-                await self._apply_prompt(session, prompt, admin_telegram_id)
+                await self._apply_prompt(session, prompt)
                 prompt.status = AdminPromptStatus.CONFIRMED
             elif action == CalendarPromptAction.CANCEL:
                 prompt.status = AdminPromptStatus.CANCELLED
@@ -277,16 +295,18 @@ class CalendarService:
                 prompt.status = AdminPromptStatus.NEEDS_CHANGES
 
             prompt.resolved_at = self.clock.now()
-            prompt.resolved_by_admin_id = admin_telegram_id
+            prompt.resolved_by_admin_id = actor_telegram_id
             await self._commit_tournament_prompt(session)
             await session.refresh(prompt)
             return await self._tournament_prompt_view(session, prompt)
 
     async def get_created_weekly_schedule(
         self,
+        actor_telegram_id: int,
         prompt_id: int,
     ) -> WeeklyScheduleView:
         async with self.session_factory() as session:
+            await access_policy.require_superadmin(session, actor_telegram_id)
             prompt = await AdminPromptRepository(session).get_by_id(prompt_id)
             if prompt is None:
                 raise CalendarPromptNotFoundError
@@ -298,11 +318,13 @@ class CalendarService:
 
     async def update_weekly_prompt_day_type(
         self,
+        actor_telegram_id: int,
         prompt_id: int,
         tournament_date: date,
         tournament_type_id: int,
     ) -> TournamentPromptView:
         async with self.session_factory() as session:
+            await access_policy.require_superadmin(session, actor_telegram_id)
             prompt = await self._get_pending_tournament_prompt(session, prompt_id)
             payload = json.loads(prompt.payload)
             tournament = self._tournament_payload_item_by_date(payload, tournament_date)
@@ -587,9 +609,7 @@ class CalendarService:
         self,
         session: AsyncSession,
         prompt: AdminPrompt,
-        admin_telegram_id: int,
     ) -> None:
-        del admin_telegram_id
         if prompt.kind == AdminPromptKind.TOURNAMENTS_PROPOSAL:
             await self._apply_tournaments_prompt(session, prompt)
             return

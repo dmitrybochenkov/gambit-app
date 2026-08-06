@@ -84,7 +84,7 @@ async def select_admin_calendar_section(
         return
 
     try:
-        prompt = await calendar_service.create_weekly_tournament_prompt()
+        prompt = await calendar_service.create_weekly_tournament_prompt(callback.from_user.id)
     except CalendarTournamentDateAlreadyExistsError:
         await callback.answer(texts.admin.ADMIN_CALENDAR_TOURNAMENT_DATE_EXISTS)
         if callback.message is not None:

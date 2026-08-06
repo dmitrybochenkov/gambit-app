@@ -16,6 +16,11 @@ from app.db.repositories.registration_request_repository import (
 )
 from app.db.repositories.user_repository import UserRepository
 from app.db.session import SessionFactory
+from app.services.access_policy import (
+    ActiveUserRequiredError,  # noqa: F401
+    AdminAccessDeniedError,  # noqa: F401
+    access_policy,
+)
 from app.services.dto import (
     AdminPanelView,
     RegistrationCandidateView,
@@ -56,10 +61,6 @@ class RegistrationAlreadyReviewedError(ValueError):
     pass
 
 
-class AdminAccessDeniedError(ValueError):
-    pass
-
-
 class UserNotFoundError(ValueError):
     pass
 
@@ -69,10 +70,6 @@ class RegistrationCandidateNotFoundError(ValueError):
 
 
 class UserRoleAlreadyAssignedError(ValueError):
-    pass
-
-
-class ActiveUserRequiredError(ValueError):
     pass
 
 
@@ -484,21 +481,11 @@ class UserService:
 
     @staticmethod
     async def _require_admin(repository: UserRepository, telegram_id: int) -> User:
-        admin = await repository.get_by_telegram_id(telegram_id)
-        if (
-            admin is None
-            or admin.status != UserStatus.ACTIVE
-            or admin.role not in {UserRole.ADMIN, UserRole.SUPERADMIN}
-        ):
-            raise AdminAccessDeniedError
-        return admin
+        return await access_policy.require_admin(repository.session, telegram_id)
 
     @staticmethod
     async def _require_superadmin(repository: UserRepository, telegram_id: int) -> User:
-        admin = await repository.get_by_telegram_id(telegram_id)
-        if admin is None or admin.status != UserStatus.ACTIVE or admin.role != UserRole.SUPERADMIN:
-            raise AdminAccessDeniedError
-        return admin
+        return await access_policy.require_superadmin(repository.session, telegram_id)
 
     @staticmethod
     async def _require_pending_request(
@@ -529,10 +516,7 @@ user_service = UserService(SessionFactory)
 
 
 async def require_active_user(repository: UserRepository, telegram_id: int) -> User:
-    user = await repository.get_by_telegram_id(telegram_id)
-    if user is None or user.status != UserStatus.ACTIVE:
-        raise ActiveUserRequiredError
-    return user
+    return await access_policy.require_active_user(repository.session, telegram_id)
 
 
 def user_view(user: User | None) -> UserView | None:

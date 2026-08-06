@@ -38,6 +38,7 @@ from app.bot.telegram.handlers.superadmin import administrators as superadmin_ad
 from app.bot.telegram.handlers.superadmin import panel as superadmin_panel_handlers
 from app.bot.telegram.handlers.superadmin import registrations as superadmin_registration_handlers
 from app.bot.telegram.handlers.superadmin import seasons as superadmin_season_handlers
+from app.bot.telegram.handlers.superadmin import tournament_close as superadmin_close_handlers
 from app.bot.telegram.handlers.user import hall_of_fame as user_hall_of_fame_handlers
 from app.bot.telegram.handlers.user import history as user_history_handlers
 from app.bot.telegram.handlers.user import profile as user_profile_handlers
@@ -97,7 +98,7 @@ from app.services.dto import (
 from app.services.pagination import Page
 from app.services.profile_service import ProfileKind
 from app.services.rating_service import RatingKind
-from app.services.result_service import ResultService
+from app.services.result_service import FutureTournamentCannotBeClosedError, ResultService
 from app.services.tournament_check_in_service import TournamentCheckInService
 from app.services.user_service import AdminAccessDeniedError, UserService
 
@@ -1212,6 +1213,69 @@ async def test_admin_result_dispatcher_flow_opens_today_tournament_and_saves_pla
     finally:
         await bot.session.close()
         await engine.dispose()
+
+
+async def test_future_tournament_close_callback_shows_domain_error(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    service = SimpleNamespace(
+        get_closeable_tournament_results=AsyncMock(side_effect=FutureTournamentCannotBeClosedError)
+    )
+    monkeypatch.setattr(superadmin_close_handlers, "result_service", service)
+    callback = SimpleNamespace(
+        from_user=SimpleNamespace(id=100),
+        message=SimpleNamespace(edit_text=AsyncMock()),
+        answer=AsyncMock(),
+    )
+    state = MutableState()
+
+    await superadmin_close_handlers.select_close_tournament_action(
+        callback,
+        keyboards.AdminCloseTournamentCallback(
+            action=keyboards.AdminCloseTournamentAction.OPEN,
+            tournament_id=7,
+            page=0,
+        ),
+        state,
+    )
+
+    assert callback.answer.await_args_list[-1].args == ("Будущий турнир нельзя закрыть.",)
+    assert callback.answer.await_args_list[-1].kwargs == {"show_alert": True}
+    callback.message.edit_text.assert_not_awaited()
+
+
+async def test_telegram_error_boundary_handles_unexpected_handler_error(
+    monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    service = SimpleNamespace(
+        get_today_tournament_results=AsyncMock(side_effect=AttributeError("broken keyboard facade"))
+    )
+    monkeypatch.setattr(admin_result_handlers, "result_service", service)
+    bot = RecordingBot()
+    update = {
+        "update_id": 9301,
+        "message": {
+            "message_id": 1001,
+            "date": 1783598400,
+            "chat": {"id": 444, "type": "private"},
+            "from": {"id": 444, "is_bot": False, "first_name": "Админ"},
+            "text": keyboards.ADMIN_PANEL_RESULTS,
+        },
+    }
+
+    try:
+        with caplog.at_level("ERROR", logger="app.bot.telegram.runtime"):
+            await runtime.telegram_dispatcher.feed_raw_update(bot, update)
+
+        sent_texts = [call.text for call in bot.calls if call.__class__.__name__ == "SendMessage"]
+        assert sent_texts == ["Не удалось выполнить действие. Попробуйте ещё раз."]
+        assert "traceback" not in sent_texts[0].lower()
+        assert any("Unhandled Telegram update error" in record.message for record in caplog.records)
+        assert any(getattr(record, "update_id", None) == 9301 for record in caplog.records)
+        assert any(getattr(record, "telegram_user_id", None) == 444 for record in caplog.records)
+    finally:
+        await bot.session.close()
 
 
 async def test_start_command_opens_registration(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -2428,7 +2492,7 @@ async def test_admin_calendar_tournaments_callback_shows_weekly_prompt(
 
     await admin_calendar_handlers.select_admin_calendar_section(callback, callback_data, state)
 
-    calendar_service.create_weekly_tournament_prompt.assert_awaited_once_with()
+    calendar_service.create_weekly_tournament_prompt.assert_awaited_once_with(100)
     state.set_state.assert_not_awaited()
     state.clear.assert_awaited_once()
     callback.answer.assert_awaited_once_with()
@@ -2595,7 +2659,7 @@ async def test_admin_calendar_prompt_sends_public_schedule_after_success(
     await admin_schedule_handlers.review_calendar_prompt(callback, callback_data, state)
 
     calendar_service.resolve_prompt.assert_awaited_once()
-    calendar_service.get_created_weekly_schedule.assert_awaited_once_with(8)
+    calendar_service.get_created_weekly_schedule.assert_awaited_once_with(100, 8)
     assert message.answer.await_count == 2
     assert message.answer.await_args_list[0].args[0].startswith("Создано расписание:")
     assert (
@@ -2634,6 +2698,7 @@ async def test_enter_season_proposal_name_returns_preview(
     await superadmin_season_handlers.enter_season_proposal_name(message, state)
 
     season_service.update_season_proposal_name.assert_awaited_once_with(
+        admin_telegram_id=100,
         prompt_id=9,
         name="Осень 2026",
     )
@@ -2696,7 +2761,7 @@ async def test_tournament_edit_button_shows_day_options(
 
     await admin_schedule_handlers.review_calendar_prompt(callback, callback_data, state)
 
-    calendar_service.get_tournament_prompt.assert_awaited_once_with(8)
+    calendar_service.get_tournament_prompt.assert_awaited_once_with(100, 8)
     message.delete.assert_awaited_once_with()
     assert message.answer.await_args.args[0] == "Что меняем?"
     buttons = [
@@ -2763,7 +2828,7 @@ async def test_tournament_day_edit_back_button_returns_weekly_prompt(
 
     await admin_schedule_handlers.review_calendar_prompt(callback, callback_data, state)
 
-    calendar_service.get_tournament_prompt.assert_awaited_once_with(8)
+    calendar_service.get_tournament_prompt.assert_awaited_once_with(100, 8)
     message.delete.assert_awaited_once_with()
     assert message.answer.await_args.args[0].startswith("Будет создано расписание:\n\n")
     assert [
@@ -2805,6 +2870,7 @@ async def test_tournament_day_selection_shows_type_options(
     await admin_schedule_handlers.select_tournament_prompt_day(callback, callback_data, state)
 
     calendar_service.get_weekly_prompt_day_edit_options.assert_awaited_once_with(
+        actor_telegram_id=100,
         prompt_id=8,
         tournament_date=date(2026, 7, 22),
     )
@@ -2853,6 +2919,7 @@ async def test_tournament_type_selection_redraws_prompt_without_type_parameters(
     await admin_schedule_handlers.select_tournament_type(callback, callback_data, state)
 
     calendar_service.update_weekly_prompt_day_type.assert_awaited_once_with(
+        actor_telegram_id=100,
         prompt_id=8,
         tournament_date=date(2026, 7, 24),
         tournament_type_id=4,
@@ -2960,7 +3027,10 @@ async def test_season_change_back_returns_preview(
 
     await superadmin_season_handlers.select_season_open_action(callback, callback_data, state)
 
-    season_service.get_season_proposal.assert_awaited_once_with(9)
+    season_service.get_season_proposal.assert_awaited_once_with(
+        admin_telegram_id=100,
+        prompt_id=9,
+    )
     state.clear.assert_awaited_once()
     message.delete.assert_awaited_once_with()
     assert message.answer.await_args.args[0].startswith("🏆 Новый сезон\n\n")
@@ -2994,6 +3064,7 @@ async def test_enter_season_proposal_start_date_returns_preview(
     await superadmin_season_handlers.enter_season_proposal_starts_at(message, state)
 
     season_service.update_season_proposal_start_date.assert_awaited_once_with(
+        admin_telegram_id=100,
         prompt_id=9,
         starts_at=date(2026, 9, 1),
     )

@@ -142,20 +142,24 @@ class SeasonService:
 
     async def get_season_proposal(
         self,
+        admin_telegram_id: int,
         prompt_id: int,
         today: date | None = None,
     ) -> SeasonProposalView:
         async with self.session_factory() as session:
+            await self._require_admin(session, admin_telegram_id)
             prompt = await self._get_pending_season_proposal(session, prompt_id)
             return await self._season_proposal_view(session, prompt, today=today)
 
     async def update_season_proposal_name(
         self,
+        admin_telegram_id: int,
         prompt_id: int,
         name: str,
     ) -> SeasonProposalView:
         validated_name = validate_season_name(name)
         async with self.session_factory() as session:
+            await self._require_admin(session, admin_telegram_id)
             prompt = await self._get_pending_season_proposal(session, prompt_id)
             payload = season_proposal_dict(prompt)
             payload["name"] = validated_name
@@ -166,10 +170,12 @@ class SeasonService:
 
     async def update_season_proposal_start_date(
         self,
+        admin_telegram_id: int,
         prompt_id: int,
         starts_at: date,
     ) -> SeasonProposalView:
         async with self.session_factory() as session:
+            await self._require_admin(session, admin_telegram_id)
             await self._validate_season_start_date(session, starts_at)
             prompt = await self._get_pending_season_proposal(session, prompt_id)
             payload = season_proposal_dict(prompt)

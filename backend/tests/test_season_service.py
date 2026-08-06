@@ -240,6 +240,7 @@ async def test_update_season_proposal_name_preserves_start_date(
         )
 
         updated = await service.update_season_proposal_name(
+            admin_telegram_id=100,
             prompt_id=proposal.id,
             name="  Осень   2026 ",
         )
@@ -261,7 +262,11 @@ async def test_update_season_proposal_rejects_blank_name(tmp_path: Path) -> None
         )
 
         with pytest.raises(SeasonNameInvalidError):
-            await service.update_season_proposal_name(prompt_id=proposal.id, name="   ")
+            await service.update_season_proposal_name(
+                admin_telegram_id=100,
+                prompt_id=proposal.id,
+                name="   ",
+            )
     finally:
         await engine.dispose()
 
@@ -278,6 +283,7 @@ async def test_update_season_proposal_start_date_preserves_name(
         )
 
         updated = await service.update_season_proposal_start_date(
+            admin_telegram_id=100,
             prompt_id=proposal.id,
             starts_at=date(2026, 9, 1),
         )
@@ -330,6 +336,7 @@ async def test_confirm_season_proposal_rejects_start_date_in_past(
             today=date(2026, 7, 27),
         )
         await service.update_season_proposal_start_date(
+            admin_telegram_id=100,
             prompt_id=proposal.id,
             starts_at=date(2026, 7, 28),
         )
@@ -369,6 +376,7 @@ async def test_confirm_future_season_proposal_schedules_next_season_and_closes_c
             today=date(2026, 12, 1),
         )
         await service.update_season_proposal_name(
+            admin_telegram_id=100,
             prompt_id=proposal.id,
             name="Зима 2026",
         )
@@ -414,6 +422,7 @@ async def test_confirm_season_proposal_rejects_same_day_start_when_active_exists
             today=date(2026, 7, 27),
         )
         await service.update_season_proposal_name(
+            admin_telegram_id=100,
             prompt_id=proposal.id,
             name="Осень 2026",
         )
@@ -466,10 +475,12 @@ async def test_confirm_season_proposal_rejects_second_scheduled_season(
             today=date(2026, 7, 27),
         )
         await service.update_season_proposal_name(
+            admin_telegram_id=100,
             prompt_id=proposal.id,
             name="Зима 2026",
         )
         await service.update_season_proposal_start_date(
+            admin_telegram_id=100,
             prompt_id=proposal.id,
             starts_at=date(2026, 12, 1),
         )
@@ -545,9 +556,14 @@ async def test_confirmed_season_proposal_cannot_be_edited_or_cancelled(
         )
 
         with pytest.raises(SeasonProposalAlreadyResolvedError):
-            await service.update_season_proposal_name(prompt_id=proposal.id, name="Осень 2026")
+            await service.update_season_proposal_name(
+                admin_telegram_id=100,
+                prompt_id=proposal.id,
+                name="Осень 2026",
+            )
         with pytest.raises(SeasonProposalAlreadyResolvedError):
             await service.update_season_proposal_start_date(
+                admin_telegram_id=100,
                 prompt_id=proposal.id,
                 starts_at=date(2026, 9, 1),
             )
@@ -598,9 +614,14 @@ async def test_cancelled_season_proposal_cannot_be_edited_or_cancelled_again(
         await service.cancel_season_proposal(admin_telegram_id=100, prompt_id=proposal.id)
 
         with pytest.raises(SeasonProposalAlreadyResolvedError):
-            await service.update_season_proposal_name(prompt_id=proposal.id, name="Осень 2026")
+            await service.update_season_proposal_name(
+                admin_telegram_id=100,
+                prompt_id=proposal.id,
+                name="Осень 2026",
+            )
         with pytest.raises(SeasonProposalAlreadyResolvedError):
             await service.update_season_proposal_start_date(
+                admin_telegram_id=100,
                 prompt_id=proposal.id,
                 starts_at=date(2026, 9, 1),
             )
@@ -664,10 +685,12 @@ async def test_failed_future_season_confirmation_restores_current_season(
             today=date(2026, 7, 27),
         )
         await service.update_season_proposal_start_date(
+            admin_telegram_id=100,
             prompt_id=proposal.id,
             starts_at=date(2026, 8, 10),
         )
         await service.update_season_proposal_name(
+            admin_telegram_id=100,
             prompt_id=proposal.id,
             name="Осень 2026",
         )
@@ -902,8 +925,13 @@ async def test_current_and_scheduled_seasons_are_resolved_from_dates(
             admin_telegram_id=100,
             today=date(2026, 7, 27),
         )
-        await service.update_season_proposal_name(prompt_id=proposal.id, name="Осень 2026")
+        await service.update_season_proposal_name(
+            admin_telegram_id=100,
+            prompt_id=proposal.id,
+            name="Осень 2026",
+        )
         await service.update_season_proposal_start_date(
+            admin_telegram_id=100,
             prompt_id=proposal.id,
             starts_at=date(2026, 8, 10),
         )

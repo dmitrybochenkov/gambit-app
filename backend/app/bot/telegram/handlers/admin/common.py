@@ -55,6 +55,7 @@ from app.services.dto import (
 )
 from app.services.pagination import pagination_service
 from app.services.result_service import (
+    FutureTournamentCannotBeClosedError,
     ResultField,
     ResultInvalidFundError,
     ResultInvalidPlayerDataError,

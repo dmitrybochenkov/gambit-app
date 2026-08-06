@@ -71,15 +71,36 @@ async def test_rating_filters_current_season_and_all_time(tmp_path: Path) -> Non
             season_id=current_season.id,
             tournament_type_id=tournament_type_id("bounty"),
             date=date(2026, 7, 8),
-            status=TournamentStatus.ACTIVE,
+            status=TournamentStatus.CLOSED,
+            tournament_fund=Decimal("1000"),
         )
         previous_tournament = Tournament(
             season_id=previous_season.id,
             tournament_type_id=tournament_type_id("classic"),
             date=date(2026, 6, 20),
+            status=TournamentStatus.CLOSED,
+            tournament_fund=Decimal("1000"),
+        )
+        active_tournament = Tournament(
+            season_id=current_season.id,
+            tournament_type_id=tournament_type_id("bounty"),
+            date=date(2026, 7, 9),
             status=TournamentStatus.ACTIVE,
         )
-        session.add_all([current_tournament, previous_tournament])
+        cancelled_tournament = Tournament(
+            season_id=current_season.id,
+            tournament_type_id=tournament_type_id("bounty"),
+            date=date(2026, 7, 10),
+            status=TournamentStatus.CANCELLED,
+        )
+        session.add_all(
+            [
+                current_tournament,
+                previous_tournament,
+                active_tournament,
+                cancelled_tournament,
+            ]
+        )
         await session.flush()
         session.add_all(
             [
@@ -122,6 +143,26 @@ async def test_rating_filters_current_season_and_all_time(tmp_path: Path) -> Non
                     tournament_points=Decimal("0"),
                     knockout_points=Decimal("0"),
                     bonus_points=Decimal("0"),
+                ),
+                TournamentResult(
+                    tournament_id=active_tournament.id,
+                    player_id=second_player.id,
+                    place=1,
+                    knockouts_count=99,
+                    big_knockouts_count=99,
+                    tournament_points=Decimal("999"),
+                    knockout_points=Decimal("999"),
+                    bonus_points=Decimal("999"),
+                ),
+                TournamentResult(
+                    tournament_id=cancelled_tournament.id,
+                    player_id=second_player.id,
+                    place=1,
+                    knockouts_count=99,
+                    big_knockouts_count=99,
+                    tournament_points=Decimal("999"),
+                    knockout_points=Decimal("999"),
+                    bonus_points=Decimal("999"),
                 ),
             ]
         )
@@ -571,13 +612,15 @@ async def test_rating_current_season_uses_season_covering_supplied_date(
             season_id=old_season.id,
             tournament_type_id=tournament_type_id("classic"),
             date=date(2026, 8, 9),
-            status=TournamentStatus.ACTIVE,
+            status=TournamentStatus.CLOSED,
+            tournament_fund=Decimal("1000"),
         )
         future_tournament = Tournament(
             season_id=future_season.id,
             tournament_type_id=tournament_type_id("bounty"),
             date=date(2026, 8, 10),
-            status=TournamentStatus.ACTIVE,
+            status=TournamentStatus.CLOSED,
+            tournament_fund=Decimal("1000"),
         )
         session.add_all([old_tournament, future_tournament])
         await session.flush()

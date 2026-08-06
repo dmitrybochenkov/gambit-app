@@ -7,6 +7,7 @@ from sqlalchemy import desc, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.models import Season, Tournament, TournamentResult, User
+from app.db.repositories.result_scopes import closed_tournament_filter
 
 
 @dataclass(frozen=True)
@@ -69,6 +70,7 @@ class RatingRepository:
             )
             .join(TournamentResult, TournamentResult.player_id == User.id)
             .join(Tournament, Tournament.id == TournamentResult.tournament_id)
+            .where(closed_tournament_filter())
             .group_by(User.id, User.display_name)
             .having(total_points > 0)
         )
@@ -96,6 +98,7 @@ class RatingRepository:
         knockout_tournament_ids = (
             select(TournamentResult.tournament_id)
             .join(Tournament, Tournament.id == TournamentResult.tournament_id)
+            .where(closed_tournament_filter())
             .group_by(TournamentResult.tournament_id)
             .having(
                 func.sum(TournamentResult.knockouts_count + TournamentResult.big_knockouts_count)
@@ -118,6 +121,7 @@ class RatingRepository:
             )
             .join(TournamentResult, TournamentResult.player_id == User.id)
             .join(Tournament, Tournament.id == TournamentResult.tournament_id)
+            .where(closed_tournament_filter())
             .group_by(User.id, User.display_name)
             .having(total_knockouts > 0)
         )
@@ -178,7 +182,7 @@ class RatingRepository:
             )
             .join(Tournament, Tournament.season_id == Season.id)
             .join(TournamentResult, TournamentResult.tournament_id == Tournament.id)
-            .where(Season.ends_at.is_not(None))
+            .where(Season.ends_at.is_not(None), closed_tournament_filter())
             .group_by(Season.id, Season.name, Season.starts_at)
             .order_by(Season.starts_at.desc(), Season.id.desc())
         )
@@ -203,7 +207,7 @@ class RatingRepository:
             )
             .join(Tournament, Tournament.id == TournamentResult.tournament_id)
             .join(Season, Season.id == Tournament.season_id)
-            .where(Season.ends_at.is_not(None))
+            .where(Season.ends_at.is_not(None), closed_tournament_filter())
             .group_by(Tournament.season_id, TournamentResult.player_id)
             .having(total_points > 0)
             .subquery()
@@ -236,7 +240,7 @@ class RatingRepository:
             )
             .join(Tournament, Tournament.id == TournamentResult.tournament_id)
             .join(Season, Season.id == Tournament.season_id)
-            .where(Season.ends_at.is_not(None))
+            .where(Season.ends_at.is_not(None), closed_tournament_filter())
             .group_by(Tournament.season_id, TournamentResult.player_id)
             .having(total_knockouts > 0)
             .subquery()
@@ -267,7 +271,11 @@ class RatingRepository:
             )
             .join(Tournament, Tournament.id == TournamentResult.tournament_id)
             .join(Season, Season.id == Tournament.season_id)
-            .where(Season.ends_at.is_not(None), Season.ends_at < today)
+            .where(
+                Season.ends_at.is_not(None),
+                Season.ends_at < today,
+                closed_tournament_filter(),
+            )
             .group_by(Tournament.season_id, TournamentResult.player_id)
             .having(total_points > 0)
             .subquery()
@@ -299,7 +307,11 @@ class RatingRepository:
             )
             .join(Tournament, Tournament.id == TournamentResult.tournament_id)
             .join(Season, Season.id == Tournament.season_id)
-            .where(Season.ends_at.is_not(None), Season.ends_at < today)
+            .where(
+                Season.ends_at.is_not(None),
+                Season.ends_at < today,
+                closed_tournament_filter(),
+            )
             .group_by(Tournament.season_id, TournamentResult.player_id)
             .having(total_knockouts > 0)
             .subquery()

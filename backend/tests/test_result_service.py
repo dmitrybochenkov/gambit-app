@@ -26,6 +26,7 @@ from app.db.models.enums import (
     UserStatus,
 )
 from app.services.result_service import (
+    FutureTournamentCannotBeClosedError,
     ResultInvalidPlayerDataError,
     ResultService,
     ResultTodayTournamentNotFoundError,
@@ -272,6 +273,154 @@ async def test_result_rows_are_edited_directly_and_close_tournament(
     assert stored_results[0].knockout_points == Decimal("115.00")
     assert stored_results[1].tournament_points == Decimal("250.00")
     assert stored_results[1].knockout_points == Decimal("20.00")
+    await engine.dispose()
+
+
+async def test_closeable_tournaments_use_business_date_and_status(
+    tmp_path: Path,
+) -> None:
+    engine = create_async_engine(f"sqlite+aiosqlite:///{tmp_path / 'closeable_results.db'}")
+    async with engine.begin() as connection:
+        await connection.run_sync(Base.metadata.create_all)
+
+    session_factory = async_sessionmaker(engine, expire_on_commit=False)
+    async with session_factory() as session:
+        config = ScoringConfig()
+        session.add(config)
+        await session.flush()
+        await seed_tournament_types_async(session)
+        season = Season(
+            name="Test season",
+            scoring_config_id=config.id,
+            starts_at=date(2026, 7, 1),
+            ends_at=None,
+        )
+        superadmin = build_player(
+            telegram_id=100,
+            display_name="Superadmin",
+            status=UserStatus.ACTIVE,
+            role=UserRole.SUPERADMIN,
+        )
+        session.add_all([season, superadmin])
+        await session.flush()
+        old_active = Tournament(
+            season_id=season.id,
+            tournament_type_id=tournament_type_id("classic"),
+            date=date(2026, 7, 18),
+            status=TournamentStatus.ACTIVE,
+        )
+        today_active = Tournament(
+            season_id=season.id,
+            tournament_type_id=tournament_type_id("bounty"),
+            date=date(2026, 7, 20),
+            status=TournamentStatus.ACTIVE,
+        )
+        future_active = Tournament(
+            season_id=season.id,
+            tournament_type_id=tournament_type_id("freezeout"),
+            date=date(2026, 7, 21),
+            status=TournamentStatus.ACTIVE,
+        )
+        closed = Tournament(
+            season_id=season.id,
+            tournament_type_id=tournament_type_id("double_double"),
+            date=date(2026, 7, 19),
+            status=TournamentStatus.CLOSED,
+            tournament_fund=Decimal("1000"),
+        )
+        cancelled = Tournament(
+            season_id=season.id,
+            tournament_type_id=tournament_type_id("mystery_bounty"),
+            date=date(2026, 7, 17),
+            status=TournamentStatus.CANCELLED,
+        )
+        session.add_all([old_active, today_active, future_active, closed, cancelled])
+        await session.commit()
+        old_active_id = old_active.id
+        today_active_id = today_active.id
+
+    service = ResultService(
+        session_factory,
+        clock=FixedClock(datetime(2026, 7, 20, 12, tzinfo=ZoneInfo("Europe/Moscow"))),
+    )
+    closeable = await service.list_unclosed_tournaments_for_superadmin(100)
+
+    assert [tournament.id for tournament in closeable] == [today_active_id, old_active_id]
+    await engine.dispose()
+
+
+async def test_close_tournament_rejects_future_tournament_without_mutation(
+    tmp_path: Path,
+) -> None:
+    engine = create_async_engine(f"sqlite+aiosqlite:///{tmp_path / 'future_close.db'}")
+    async with engine.begin() as connection:
+        await connection.run_sync(Base.metadata.create_all)
+
+    session_factory = async_sessionmaker(engine, expire_on_commit=False)
+    async with session_factory() as session:
+        config = ScoringConfig()
+        session.add(config)
+        await session.flush()
+        await seed_tournament_types_async(session)
+        season = Season(
+            name="Test season",
+            scoring_config_id=config.id,
+            starts_at=date(2026, 7, 1),
+            ends_at=None,
+        )
+        superadmin = build_player(
+            telegram_id=100,
+            display_name="Superadmin",
+            status=UserStatus.ACTIVE,
+            role=UserRole.SUPERADMIN,
+        )
+        player = build_player(
+            telegram_id=101,
+            display_name="Player",
+            status=UserStatus.ACTIVE,
+        )
+        session.add_all([season, superadmin, player])
+        await session.flush()
+        tournament = Tournament(
+            season_id=season.id,
+            tournament_type_id=tournament_type_id("classic"),
+            date=date(2026, 7, 21),
+            status=TournamentStatus.ACTIVE,
+        )
+        session.add(tournament)
+        await session.flush()
+        session.add(
+            TournamentResult(
+                tournament_id=tournament.id,
+                player_id=player.id,
+                source=TournamentResultSource.REGISTERED,
+                checked_in_by_user_id=superadmin.id,
+                place=1,
+            )
+        )
+        await session.commit()
+        tournament_id = tournament.id
+
+    service = ResultService(
+        session_factory,
+        clock=FixedClock(datetime(2026, 7, 20, 12, tzinfo=ZoneInfo("Europe/Moscow"))),
+    )
+    with pytest.raises(FutureTournamentCannotBeClosedError):
+        await service.close_tournament(100, tournament_id, 1000)
+
+    async with session_factory() as session:
+        tournament = await session.get(Tournament, tournament_id)
+        result = (
+            await session.execute(
+                select(TournamentResult).where(TournamentResult.tournament_id == tournament_id)
+            )
+        ).scalar_one()
+
+    assert tournament is not None
+    assert tournament.status == TournamentStatus.ACTIVE
+    assert tournament.tournament_fund is None
+    assert result.tournament_points == Decimal("0.00")
+    assert result.knockout_points == Decimal("0.00")
     await engine.dispose()
 
 

@@ -5,6 +5,7 @@ from unittest.mock import AsyncMock
 
 import pytest
 from conftest import (
+    build_player,
     seed_tournament_configs_async,
     seed_tournament_types_async,
     seed_weekly_templates_async,
@@ -24,7 +25,10 @@ from app.db.models.enums import (
     AdminPromptStatus,
     TournamentStatus,
     TournamentTypeStatus,
+    UserRole,
+    UserStatus,
 )
+from app.services.access_policy import ActiveUserRequiredError, AdminAccessDeniedError
 from app.services.calendar_service import (
     AdminPromptKind,
     CalendarDefaultTournamentTypeNotFoundError,
@@ -62,15 +66,104 @@ async def seed_calendar_data(session_factory: async_sessionmaker) -> None:
         await seed_tournament_types_async(session)
         await seed_tournament_configs_async(session)
         await seed_weekly_templates_async(session)
+        session.add_all(
+            [
+                build_player(
+                    telegram_id=100,
+                    display_name="Superadmin",
+                    status=UserStatus.ACTIVE,
+                    role=UserRole.SUPERADMIN,
+                ),
+                Season(
+                    name="Лето 2026",
+                    scoring_config_id=config.id,
+                    starts_at=date(2026, 6, 1),
+                    ends_at=None,
+                ),
+            ]
+        )
+        await session.commit()
+
+
+async def seed_calendar_superadmin(session_factory: async_sessionmaker) -> None:
+    async with session_factory() as session:
         session.add(
-            Season(
-                name="Лето 2026",
-                scoring_config_id=config.id,
-                starts_at=date(2026, 6, 1),
-                ends_at=None,
+            build_player(
+                telegram_id=100,
+                display_name="Superadmin",
+                status=UserStatus.ACTIVE,
+                role=UserRole.SUPERADMIN,
             )
         )
         await session.commit()
+
+
+async def seed_calendar_actor(
+    session_factory: async_sessionmaker,
+    *,
+    telegram_id: int,
+    role: UserRole,
+    status: UserStatus = UserStatus.ACTIVE,
+) -> None:
+    async with session_factory() as session:
+        session.add(
+            build_player(
+                telegram_id=telegram_id,
+                display_name=f"Actor {telegram_id}",
+                status=status,
+                role=role,
+            )
+        )
+        await session.commit()
+
+
+@pytest.mark.parametrize(
+    ("actor_telegram_id", "role", "status", "expected_error"),
+    [
+        (404, None, None, ActiveUserRequiredError),
+        (101, UserRole.SUPERADMIN, UserStatus.BLOCKED, ActiveUserRequiredError),
+        (102, UserRole.PLAYER, UserStatus.ACTIVE, AdminAccessDeniedError),
+        (103, UserRole.ADMIN, UserStatus.ACTIVE, AdminAccessDeniedError),
+    ],
+)
+async def test_calendar_weekly_prompt_requires_active_superadmin(
+    tmp_path: Path,
+    actor_telegram_id: int,
+    role: UserRole | None,
+    status: UserStatus | None,
+    expected_error: type[Exception],
+) -> None:
+    service, session_factory, engine = await create_calendar_service(tmp_path / "calendar.db")
+    try:
+        if role is not None and status is not None:
+            await seed_calendar_actor(
+                session_factory,
+                telegram_id=actor_telegram_id,
+                role=role,
+                status=status,
+            )
+
+        with pytest.raises(expected_error):
+            await service.create_weekly_tournament_prompt(
+                actor_telegram_id,
+                today=date(2026, 7, 21),
+            )
+    finally:
+        await engine.dispose()
+
+
+async def test_calendar_weekly_prompt_allows_superadmin(
+    tmp_path: Path,
+) -> None:
+    service, session_factory, engine = await create_calendar_service(tmp_path / "calendar.db")
+    try:
+        await seed_calendar_data(session_factory)
+
+        prompt = await service.create_weekly_tournament_prompt(100, today=date(2026, 7, 21))
+
+        assert prompt.id > 0
+    finally:
+        await engine.dispose()
 
 
 def test_next_complete_game_week_starts_from_nearest_future_wednesday() -> None:
@@ -114,8 +207,8 @@ async def test_weekly_tournament_prompt_contains_five_minimal_items(
     try:
         await seed_calendar_data(session_factory)
 
-        prompt = await service.create_weekly_tournament_prompt(today=date(2026, 7, 21))
-        stored_prompt = await service.get_prompt(prompt.id)
+        prompt = await service.create_weekly_tournament_prompt(100, today=date(2026, 7, 21))
+        stored_prompt = await service.get_prompt(100, prompt.id)
 
         assert prompt.kind == "tournaments_proposal"
         async with session_factory() as session:
@@ -178,7 +271,7 @@ async def test_weekly_prompt_uses_deterministic_sunday_rotation(
     try:
         await seed_calendar_data(session_factory)
 
-        prompt = await service.create_weekly_tournament_prompt(today=date(2026, 7, 28))
+        prompt = await service.create_weekly_tournament_prompt(100, today=date(2026, 7, 28))
 
         assert [item.date for item in prompt.tournaments] == [
             date(2026, 7, 29),
@@ -210,7 +303,7 @@ async def test_weekly_prompt_uses_latest_actual_sunday_tournament_for_rotation(
             )
             await session.commit()
 
-        prompt = await service.create_weekly_tournament_prompt(today=date(2026, 7, 28))
+        prompt = await service.create_weekly_tournament_prompt(100, today=date(2026, 7, 28))
 
         assert prompt.tournaments[4].date == date(2026, 8, 2)
         assert prompt.tournaments[4].tournament_type.id == 5
@@ -225,9 +318,9 @@ async def test_pending_prompts_do_not_advance_sunday_rotation(
     service, session_factory, engine = await create_calendar_service(tmp_path / "calendar.db")
     try:
         await seed_calendar_data(session_factory)
-        await service.create_weekly_tournament_prompt(today=date(2026, 7, 21))
+        await service.create_weekly_tournament_prompt(100, today=date(2026, 7, 21))
 
-        prompt = await service.create_weekly_tournament_prompt(today=date(2026, 7, 28))
+        prompt = await service.create_weekly_tournament_prompt(100, today=date(2026, 7, 28))
 
         assert prompt.tournaments[4].date == date(2026, 8, 2)
         assert prompt.tournaments[4].tournament_type.id == 6
@@ -241,17 +334,17 @@ async def test_confirmed_sunday_advances_sunday_rotation_default(
     service, session_factory, engine = await create_calendar_service(tmp_path / "calendar.db")
     try:
         await seed_calendar_data(session_factory)
-        prompt = await service.create_weekly_tournament_prompt(today=date(2026, 7, 21))
+        prompt = await service.create_weekly_tournament_prompt(100, today=date(2026, 7, 21))
         assert prompt.tournaments[4].date == date(2026, 7, 26)
         assert prompt.tournaments[4].tournament_type.id == 5
 
         await service.resolve_prompt(
+            actor_telegram_id=100,
             prompt_id=prompt.id,
-            admin_telegram_id=100,
             action=CalendarPromptAction.CONFIRM,
         )
 
-        next_prompt = await service.create_weekly_tournament_prompt(today=date(2026, 7, 28))
+        next_prompt = await service.create_weekly_tournament_prompt(100, today=date(2026, 7, 28))
 
         assert next_prompt.tournaments[4].date == date(2026, 8, 2)
         assert next_prompt.tournaments[4].tournament_type.id == 6
@@ -265,19 +358,20 @@ async def test_confirmed_manual_sunday_override_drives_next_rotation_default(
     service, session_factory, engine = await create_calendar_service(tmp_path / "calendar.db")
     try:
         await seed_calendar_data(session_factory)
-        prompt = await service.create_weekly_tournament_prompt(today=date(2026, 7, 28))
+        prompt = await service.create_weekly_tournament_prompt(100, today=date(2026, 7, 28))
         await service.update_weekly_prompt_day_type(
+            actor_telegram_id=100,
             prompt_id=prompt.id,
             tournament_date=date(2026, 8, 2),
             tournament_type_id=5,
         )
         await service.resolve_prompt(
+            actor_telegram_id=100,
             prompt_id=prompt.id,
-            admin_telegram_id=100,
             action=CalendarPromptAction.CONFIRM,
         )
 
-        next_prompt = await service.create_weekly_tournament_prompt(today=date(2026, 8, 4))
+        next_prompt = await service.create_weekly_tournament_prompt(100, today=date(2026, 8, 4))
 
         assert next_prompt.tournaments[4].date == date(2026, 8, 9)
         assert next_prompt.tournaments[4].tournament_type.id == 6
@@ -312,7 +406,7 @@ async def test_confirmed_prompt_without_tournaments_does_not_advance_sunday_rota
             )
             await session.commit()
 
-        prompt = await service.create_weekly_tournament_prompt(today=date(2026, 7, 28))
+        prompt = await service.create_weekly_tournament_prompt(100, today=date(2026, 7, 28))
 
         assert prompt.tournaments[4].date == date(2026, 8, 2)
         assert prompt.tournaments[4].tournament_type.id == 6
@@ -337,7 +431,7 @@ async def test_non_rotation_sunday_tournament_is_ignored_for_rotation_default(
             )
             await session.commit()
 
-        prompt = await service.create_weekly_tournament_prompt(today=date(2026, 7, 28))
+        prompt = await service.create_weekly_tournament_prompt(100, today=date(2026, 7, 28))
 
         assert prompt.tournaments[4].date == date(2026, 8, 2)
         assert prompt.tournaments[4].tournament_type.id == 6
@@ -352,10 +446,10 @@ async def test_confirming_weekly_tournament_prompt_creates_all_tournaments(
     try:
         await seed_calendar_data(session_factory)
 
-        prompt = await service.create_weekly_tournament_prompt(today=date(2026, 7, 21))
+        prompt = await service.create_weekly_tournament_prompt(100, today=date(2026, 7, 21))
         await service.resolve_prompt(
+            actor_telegram_id=100,
             prompt_id=prompt.id,
-            admin_telegram_id=100,
             action=CalendarPromptAction.CONFIRM,
         )
 
@@ -380,7 +474,7 @@ async def test_confirming_weekly_prompt_rejects_missing_date_payload(
     try:
         await seed_calendar_data(session_factory)
 
-        prompt = await service.create_weekly_tournament_prompt(today=date(2026, 7, 21))
+        prompt = await service.create_weekly_tournament_prompt(100, today=date(2026, 7, 21))
         async with session_factory() as session:
             stored_prompt = await session.get(AdminPrompt, prompt.id)
             assert stored_prompt is not None
@@ -391,8 +485,8 @@ async def test_confirming_weekly_prompt_rejects_missing_date_payload(
 
         with pytest.raises(CalendarPromptInvalidPayloadError):
             await service.resolve_prompt(
+                actor_telegram_id=100,
                 prompt_id=prompt.id,
-                admin_telegram_id=100,
                 action=CalendarPromptAction.CONFIRM,
             )
 
@@ -426,10 +520,10 @@ async def test_confirming_weekly_prompt_assigns_season_by_tournament_date(
             active_id = active.id
             scheduled_id = scheduled.id
 
-        prompt = await service.create_weekly_tournament_prompt(today=date(2026, 7, 21))
+        prompt = await service.create_weekly_tournament_prompt(100, today=date(2026, 7, 21))
         await service.resolve_prompt(
+            actor_telegram_id=100,
             prompt_id=prompt.id,
-            admin_telegram_id=100,
             action=CalendarPromptAction.CONFIRM,
         )
 
@@ -456,8 +550,9 @@ async def test_weekly_prompt_type_update_changes_displayed_parameters(
     try:
         await seed_calendar_data(session_factory)
 
-        prompt = await service.create_weekly_tournament_prompt(today=date(2026, 7, 21))
+        prompt = await service.create_weekly_tournament_prompt(100, today=date(2026, 7, 21))
         updated_prompt = await service.update_weekly_prompt_day_type(
+            actor_telegram_id=100,
             prompt_id=prompt.id,
             tournament_date=date(2026, 7, 24),
             tournament_type_id=4,
@@ -469,7 +564,7 @@ async def test_weekly_prompt_type_update_changes_displayed_parameters(
         assert updated_prompt.tournaments[2].tournament_type.entry_stack == 40_000
         assert updated_prompt.tournaments[2].tournament_type.rebuys[0].fee == 800
 
-        payload = json.loads((await service.get_prompt(prompt.id)).payload)
+        payload = json.loads((await service.get_prompt(100, prompt.id)).payload)
         assert payload["tournaments"] == [
             {"date": "2026-07-22", "tournament_type_id": 1},
             {"date": "2026-07-23", "tournament_type_id": 2},
@@ -488,13 +583,15 @@ async def test_weekly_prompt_thursday_and_saturday_can_be_edited_independently(
     try:
         await seed_calendar_data(session_factory)
 
-        prompt = await service.create_weekly_tournament_prompt(today=date(2026, 7, 21))
+        prompt = await service.create_weekly_tournament_prompt(100, today=date(2026, 7, 21))
         thursday_prompt = await service.update_weekly_prompt_day_type(
+            actor_telegram_id=100,
             prompt_id=prompt.id,
             tournament_date=date(2026, 7, 23),
             tournament_type_id=5,
         )
         saturday_prompt = await service.update_weekly_prompt_day_type(
+            actor_telegram_id=100,
             prompt_id=prompt.id,
             tournament_date=date(2026, 7, 25),
             tournament_type_id=2,
@@ -525,7 +622,7 @@ async def test_weekly_prompt_day_edit_options_require_prompt_date(
     try:
         await seed_calendar_data(session_factory)
 
-        prompt = await service.create_weekly_tournament_prompt(today=date(2026, 7, 21))
+        prompt = await service.create_weekly_tournament_prompt(100, today=date(2026, 7, 21))
         async with session_factory() as session:
             session.add(
                 TournamentType(
@@ -538,6 +635,7 @@ async def test_weekly_prompt_day_edit_options_require_prompt_date(
             await session.commit()
 
         edit_view = await service.get_weekly_prompt_day_edit_options(
+            actor_telegram_id=100,
             prompt_id=prompt.id,
             tournament_date=date(2026, 7, 22),
         )
@@ -556,6 +654,7 @@ async def test_weekly_prompt_day_edit_options_require_prompt_date(
 
         with pytest.raises(CalendarTournamentDateNotInPromptError):
             await service.get_weekly_prompt_day_edit_options(
+                actor_telegram_id=100,
                 prompt_id=prompt.id,
                 tournament_date=date(2026, 7, 27),
             )
@@ -569,7 +668,7 @@ async def test_weekly_prompt_rejects_inactive_selected_type(
     service, session_factory, engine = await create_calendar_service(tmp_path / "calendar.db")
     try:
         await seed_calendar_data(session_factory)
-        prompt = await service.create_weekly_tournament_prompt(today=date(2026, 7, 21))
+        prompt = await service.create_weekly_tournament_prompt(100, today=date(2026, 7, 21))
         async with session_factory() as session:
             double_double = await session.get(TournamentType, 4)
             assert double_double is not None
@@ -578,6 +677,7 @@ async def test_weekly_prompt_rejects_inactive_selected_type(
 
         with pytest.raises(CalendarPromptInvalidPayloadError):
             await service.update_weekly_prompt_day_type(
+                actor_telegram_id=100,
                 prompt_id=prompt.id,
                 tournament_date=date(2026, 7, 24),
                 tournament_type_id=4,
@@ -604,7 +704,7 @@ async def test_creating_weekly_prompt_rejects_existing_tournament_on_any_target_
             await session.commit()
 
         with pytest.raises(CalendarTournamentDateAlreadyExistsError):
-            await service.create_weekly_tournament_prompt(today=date(2026, 7, 21))
+            await service.create_weekly_tournament_prompt(100, today=date(2026, 7, 21))
     finally:
         await engine.dispose()
 
@@ -616,8 +716,8 @@ async def test_creating_weekly_prompt_reuses_pending_prompt_for_same_week(
     try:
         await seed_calendar_data(session_factory)
 
-        first_prompt = await service.create_weekly_tournament_prompt(today=date(2026, 7, 21))
-        second_prompt = await service.create_weekly_tournament_prompt(today=date(2026, 7, 21))
+        first_prompt = await service.create_weekly_tournament_prompt(100, today=date(2026, 7, 21))
+        second_prompt = await service.create_weekly_tournament_prompt(100, today=date(2026, 7, 21))
 
         assert second_prompt.id == first_prompt.id
         assert second_prompt.tournaments == first_prompt.tournaments
@@ -632,13 +732,16 @@ async def test_creating_weekly_prompt_preserves_manual_edits_to_pending_payload(
     try:
         await seed_calendar_data(session_factory)
 
-        prompt = await service.create_weekly_tournament_prompt(today=date(2026, 7, 21))
+        prompt = await service.create_weekly_tournament_prompt(100, today=date(2026, 7, 21))
         updated_prompt = await service.update_weekly_prompt_day_type(
+            actor_telegram_id=100,
             prompt_id=prompt.id,
             tournament_date=date(2026, 7, 23),
             tournament_type_id=5,
         )
-        reopened_prompt = await service.create_weekly_tournament_prompt(today=date(2026, 7, 21))
+        reopened_prompt = await service.create_weekly_tournament_prompt(
+            100, today=date(2026, 7, 21)
+        )
 
         assert reopened_prompt.id == prompt.id
         assert reopened_prompt.tournaments == updated_prompt.tournaments
@@ -654,7 +757,7 @@ async def test_confirming_weekly_prompt_rejects_non_consecutive_payload(
     try:
         await seed_calendar_data(session_factory)
 
-        prompt = await service.create_weekly_tournament_prompt(today=date(2026, 7, 21))
+        prompt = await service.create_weekly_tournament_prompt(100, today=date(2026, 7, 21))
         async with session_factory() as session:
             stored_prompt = await session.get(AdminPrompt, prompt.id)
             assert stored_prompt is not None
@@ -674,8 +777,8 @@ async def test_confirming_weekly_prompt_rejects_non_consecutive_payload(
 
         with pytest.raises(CalendarPromptInvalidPayloadError):
             await service.resolve_prompt(
+                actor_telegram_id=100,
                 prompt_id=prompt.id,
-                admin_telegram_id=100,
                 action=CalendarPromptAction.CONFIRM,
             )
 
@@ -719,7 +822,7 @@ async def test_cancelled_weekly_prompt_remains_historical_and_new_open_creates_n
             await session.commit()
             cancelled_id = stored.id
 
-        prompt = await service.create_weekly_tournament_prompt(today=date(2026, 7, 21))
+        prompt = await service.create_weekly_tournament_prompt(100, today=date(2026, 7, 21))
 
         assert prompt.id != cancelled_id
         async with session_factory() as session:
@@ -779,7 +882,7 @@ async def test_weekly_prompt_attempt_key_uses_max_existing_numeric_suffix(
             )
             await session.commit()
 
-        prompt = await service.create_weekly_tournament_prompt(today=date(2026, 7, 21))
+        prompt = await service.create_weekly_tournament_prompt(100, today=date(2026, 7, 21))
 
         async with session_factory() as session:
             stored_prompt = await session.get(AdminPrompt, prompt.id)
@@ -796,15 +899,15 @@ async def test_confirmed_weekly_prompt_remains_terminal_when_tournaments_exist(
     try:
         await seed_calendar_data(session_factory)
 
-        prompt = await service.create_weekly_tournament_prompt(today=date(2026, 7, 21))
+        prompt = await service.create_weekly_tournament_prompt(100, today=date(2026, 7, 21))
         await service.resolve_prompt(
+            actor_telegram_id=100,
             prompt_id=prompt.id,
-            admin_telegram_id=100,
             action=CalendarPromptAction.CONFIRM,
         )
 
         with pytest.raises(CalendarTournamentDateAlreadyExistsError):
-            await service.create_weekly_tournament_prompt(today=date(2026, 7, 21))
+            await service.create_weekly_tournament_prompt(100, today=date(2026, 7, 21))
 
         async with session_factory() as session:
             stored_prompt = await session.get(AdminPrompt, prompt.id)
@@ -881,7 +984,7 @@ async def test_confirmed_weekly_prompt_with_wrong_type_is_integrity_error(
             await session.commit()
 
         with pytest.raises(CalendarWeeklyPromptIntegrityError):
-            await service.create_weekly_tournament_prompt(today=date(2026, 7, 21))
+            await service.create_weekly_tournament_prompt(100, today=date(2026, 7, 21))
     finally:
         await engine.dispose()
 
@@ -919,7 +1022,7 @@ async def test_confirmed_weekly_prompt_without_tournaments_is_integrity_error(
             await session.commit()
 
         with pytest.raises(CalendarWeeklyPromptIntegrityError):
-            await service.create_weekly_tournament_prompt(today=date(2026, 7, 21))
+            await service.create_weekly_tournament_prompt(100, today=date(2026, 7, 21))
     finally:
         await engine.dispose()
 
@@ -931,13 +1034,13 @@ async def test_weekly_scope_allows_resolved_prompts_and_one_pending_prompt(
     try:
         await seed_calendar_data(session_factory)
 
-        first = await service.create_weekly_tournament_prompt(today=date(2026, 7, 21))
+        first = await service.create_weekly_tournament_prompt(100, today=date(2026, 7, 21))
         await service.resolve_prompt(
+            actor_telegram_id=100,
             prompt_id=first.id,
-            admin_telegram_id=100,
             action=CalendarPromptAction.CANCEL,
         )
-        second = await service.create_weekly_tournament_prompt(today=date(2026, 7, 21))
+        second = await service.create_weekly_tournament_prompt(100, today=date(2026, 7, 21))
 
         assert first.id != second.id
         assert second.status == AdminPromptStatus.PENDING.value
@@ -952,7 +1055,7 @@ async def test_weekly_scope_rejects_second_pending_prompt_at_database_level(
     try:
         await seed_calendar_data(session_factory)
 
-        prompt = await service.create_weekly_tournament_prompt(today=date(2026, 7, 21))
+        prompt = await service.create_weekly_tournament_prompt(100, today=date(2026, 7, 21))
         async with session_factory() as session:
             stored_prompt = await session.get(AdminPrompt, prompt.id)
             assert stored_prompt is not None
@@ -1007,7 +1110,7 @@ async def test_weekly_prompt_creation_recovers_existing_pending_after_scope_conf
             staticmethod(fake_commit),
         )
 
-        prompt = await service.create_weekly_tournament_prompt(today=date(2026, 7, 21))
+        prompt = await service.create_weekly_tournament_prompt(100, today=date(2026, 7, 21))
 
         assert calls == 1
         async with session_factory() as session:
@@ -1027,7 +1130,7 @@ async def test_confirming_weekly_prompt_rejects_duplicate_tournament_date(
     try:
         await seed_calendar_data(session_factory)
 
-        prompt = await service.create_weekly_tournament_prompt(today=date(2026, 7, 21))
+        prompt = await service.create_weekly_tournament_prompt(100, today=date(2026, 7, 21))
         async with session_factory() as session:
             session.add(
                 Tournament(
@@ -1041,8 +1144,8 @@ async def test_confirming_weekly_prompt_rejects_duplicate_tournament_date(
 
         with pytest.raises(CalendarTournamentDateAlreadyExistsError):
             await service.resolve_prompt(
+                actor_telegram_id=100,
                 prompt_id=prompt.id,
-                admin_telegram_id=100,
                 action=CalendarPromptAction.CONFIRM,
             )
 
@@ -1062,7 +1165,7 @@ async def test_confirming_weekly_prompt_rejects_conflict_on_any_target_date(
     try:
         await seed_calendar_data(session_factory)
 
-        prompt = await service.create_weekly_tournament_prompt(today=date(2026, 7, 21))
+        prompt = await service.create_weekly_tournament_prompt(100, today=date(2026, 7, 21))
         async with session_factory() as session:
             session.add(
                 Tournament(
@@ -1076,8 +1179,8 @@ async def test_confirming_weekly_prompt_rejects_conflict_on_any_target_date(
 
         with pytest.raises(CalendarTournamentDateAlreadyExistsError):
             await service.resolve_prompt(
+                actor_telegram_id=100,
                 prompt_id=prompt.id,
-                admin_telegram_id=100,
                 action=CalendarPromptAction.CONFIRM,
             )
 
@@ -1098,16 +1201,16 @@ async def test_repeated_weekly_prompt_confirmation_does_not_create_second_schedu
     try:
         await seed_calendar_data(session_factory)
 
-        prompt = await service.create_weekly_tournament_prompt(today=date(2026, 7, 21))
+        prompt = await service.create_weekly_tournament_prompt(100, today=date(2026, 7, 21))
         await service.resolve_prompt(
+            actor_telegram_id=100,
             prompt_id=prompt.id,
-            admin_telegram_id=100,
             action=CalendarPromptAction.CONFIRM,
         )
         with pytest.raises(CalendarPromptAlreadyResolvedError):
             await service.resolve_prompt(
+                actor_telegram_id=100,
                 prompt_id=prompt.id,
-                admin_telegram_id=100,
                 action=CalendarPromptAction.CONFIRM,
             )
 
@@ -1125,14 +1228,14 @@ async def test_created_weekly_schedule_uses_materialized_tournaments(
     service, _session_factory, engine = await create_calendar_service(tmp_path / "calendar.db")
     try:
         await seed_calendar_data(service.session_factory)
-        prompt = await service.create_weekly_tournament_prompt(today=date(2026, 7, 21))
+        prompt = await service.create_weekly_tournament_prompt(100, today=date(2026, 7, 21))
         await service.resolve_prompt(
+            actor_telegram_id=100,
             prompt_id=prompt.id,
-            admin_telegram_id=100,
             action=CalendarPromptAction.CONFIRM,
         )
 
-        schedule = await service.get_created_weekly_schedule(prompt.id)
+        schedule = await service.get_created_weekly_schedule(100, prompt.id)
 
         assert [(item.date, item.tournament_type_name) for item in schedule.tournaments] == [
             (date(2026, 7, 22), "Баунти турнир"),
@@ -1162,10 +1265,10 @@ async def test_created_weekly_schedule_rejects_unconfirmed_prompt(
     service, _session_factory, engine = await create_calendar_service(tmp_path / "calendar.db")
     try:
         await seed_calendar_data(service.session_factory)
-        prompt = await service.create_weekly_tournament_prompt(today=date(2026, 7, 21))
+        prompt = await service.create_weekly_tournament_prompt(100, today=date(2026, 7, 21))
 
         with pytest.raises(CalendarPromptAlreadyResolvedError):
-            await service.get_created_weekly_schedule(prompt.id)
+            await service.get_created_weekly_schedule(100, prompt.id)
     finally:
         await engine.dispose()
 
@@ -1183,7 +1286,7 @@ async def test_weekly_prompt_requires_configured_default_types(
             await session.commit()
 
         with pytest.raises(CalendarDefaultTournamentTypeNotFoundError):
-            await service.create_weekly_tournament_prompt(today=date(2026, 7, 21))
+            await service.create_weekly_tournament_prompt(100, today=date(2026, 7, 21))
     finally:
         await engine.dispose()
 
@@ -1194,7 +1297,7 @@ async def test_confirming_weekly_prompt_rejects_non_weekly_payload(
     service, session_factory, engine = await create_calendar_service(tmp_path / "calendar.db")
     try:
         await seed_calendar_data(session_factory)
-        prompt = await service.create_weekly_tournament_prompt(today=date(2026, 7, 21))
+        prompt = await service.create_weekly_tournament_prompt(100, today=date(2026, 7, 21))
         async with session_factory() as session:
             stored_prompt = await session.get(AdminPrompt, prompt.id)
             assert stored_prompt is not None
@@ -1211,8 +1314,8 @@ async def test_confirming_weekly_prompt_rejects_non_weekly_payload(
 
         with pytest.raises(CalendarPromptInvalidPayloadError):
             await service.resolve_prompt(
+                actor_telegram_id=100,
                 prompt_id=prompt.id,
-                admin_telegram_id=100,
                 action=CalendarPromptAction.CONFIRM,
             )
     finally:
@@ -1225,7 +1328,7 @@ async def test_confirming_weekly_prompt_rejects_empty_payload(
     service, session_factory, engine = await create_calendar_service(tmp_path / "calendar.db")
     try:
         await seed_calendar_data(session_factory)
-        prompt = await service.create_weekly_tournament_prompt(today=date(2026, 7, 21))
+        prompt = await service.create_weekly_tournament_prompt(100, today=date(2026, 7, 21))
         async with session_factory() as session:
             stored_prompt = await session.get(AdminPrompt, prompt.id)
             assert stored_prompt is not None
@@ -1234,8 +1337,8 @@ async def test_confirming_weekly_prompt_rejects_empty_payload(
 
         with pytest.raises(CalendarWeeklyPromptEmptyError):
             await service.resolve_prompt(
+                actor_telegram_id=100,
                 prompt_id=prompt.id,
-                admin_telegram_id=100,
                 action=CalendarPromptAction.CONFIRM,
             )
     finally:
@@ -1249,7 +1352,7 @@ async def test_confirming_weekly_prompt_rolls_back_when_selected_type_is_unavail
     try:
         await seed_calendar_data(session_factory)
 
-        prompt = await service.create_weekly_tournament_prompt(today=date(2026, 7, 21))
+        prompt = await service.create_weekly_tournament_prompt(100, today=date(2026, 7, 21))
         async with session_factory() as session:
             bounty = await session.get(TournamentType, 1)
             assert bounty is not None
@@ -1258,8 +1361,8 @@ async def test_confirming_weekly_prompt_rolls_back_when_selected_type_is_unavail
 
         with pytest.raises(CalendarPromptInvalidPayloadError):
             await service.resolve_prompt(
+                actor_telegram_id=100,
                 prompt_id=prompt.id,
-                admin_telegram_id=100,
                 action=CalendarPromptAction.CONFIRM,
             )
 
@@ -1305,10 +1408,11 @@ async def test_weekly_prompt_date_update_is_not_supported(
     service, session_factory, engine = await create_calendar_service(tmp_path / "calendar.db")
     try:
         await seed_calendar_data(session_factory)
-        prompt = await service.create_weekly_tournament_prompt(today=date(2026, 7, 21))
+        prompt = await service.create_weekly_tournament_prompt(100, today=date(2026, 7, 21))
 
         with pytest.raises(CalendarTournamentDateNotInPromptError):
             await service.update_weekly_prompt_day_type(
+                actor_telegram_id=100,
                 prompt_id=prompt.id,
                 tournament_date=date(2026, 7, 27),
                 tournament_type_id=1,
@@ -1324,7 +1428,9 @@ async def test_recommended_sunday_tournament_type_resolves_active_type(
     try:
         await seed_calendar_data(session_factory)
 
-        tournament_type = await service.get_recommended_sunday_tournament_type(date(2026, 7, 26))
+        tournament_type = await service.get_recommended_sunday_tournament_type(
+            100, date(2026, 7, 26)
+        )
 
         assert tournament_type.id == 5
         assert tournament_type.name == "Mystery Bounty"
@@ -1335,10 +1441,12 @@ async def test_recommended_sunday_tournament_type_resolves_active_type(
 async def test_recommended_sunday_tournament_type_rejects_non_sunday(
     tmp_path: Path,
 ) -> None:
-    service, _session_factory, engine = await create_calendar_service(tmp_path / "calendar.db")
+    service, session_factory, engine = await create_calendar_service(tmp_path / "calendar.db")
     try:
+        await seed_calendar_superadmin(session_factory)
+
         with pytest.raises(CalendarSundayTournamentDateError):
-            await service.get_recommended_sunday_tournament_type(date(2026, 7, 27))
+            await service.get_recommended_sunday_tournament_type(100, date(2026, 7, 27))
     finally:
         await engine.dispose()
 
@@ -1348,6 +1456,7 @@ async def test_recommended_sunday_tournament_type_requires_configured_type(
 ) -> None:
     service, session_factory, engine = await create_calendar_service(tmp_path / "calendar.db")
     try:
+        await seed_calendar_superadmin(session_factory)
         async with session_factory() as session:
             await seed_tournament_types_async(session)
             boss = await session.get(TournamentType, 6)
@@ -1356,7 +1465,7 @@ async def test_recommended_sunday_tournament_type_requires_configured_type(
             await session.commit()
 
         with pytest.raises(CalendarSundayTournamentTypeNotFoundError):
-            await service.get_recommended_sunday_tournament_type(date(2026, 8, 2))
+            await service.get_recommended_sunday_tournament_type(100, date(2026, 8, 2))
     finally:
         await engine.dispose()
 
@@ -1366,6 +1475,7 @@ async def test_recommended_sunday_tournament_type_requires_active_type(
 ) -> None:
     service, session_factory, engine = await create_calendar_service(tmp_path / "calendar.db")
     try:
+        await seed_calendar_superadmin(session_factory)
         async with session_factory() as session:
             await seed_tournament_types_async(session)
             boss = await session.get(TournamentType, 6)
@@ -1374,7 +1484,7 @@ async def test_recommended_sunday_tournament_type_requires_active_type(
             await session.commit()
 
         with pytest.raises(CalendarSundayTournamentTypeNotFoundError):
-            await service.get_recommended_sunday_tournament_type(date(2026, 8, 2))
+            await service.get_recommended_sunday_tournament_type(100, date(2026, 8, 2))
     finally:
         await engine.dispose()
 
@@ -1405,7 +1515,7 @@ async def test_latest_previous_sunday_tournament_drives_sunday_recommendation(
             await session.commit()
 
         first_recommendation = await service.get_recommended_sunday_tournament_type(
-            date(2026, 8, 2)
+            100, date(2026, 8, 2)
         )
 
         async with session_factory() as session:
@@ -1426,7 +1536,7 @@ async def test_latest_previous_sunday_tournament_drives_sunday_recommendation(
             await session.commit()
 
         second_recommendation = await service.get_recommended_sunday_tournament_type(
-            date(2026, 8, 2)
+            100, date(2026, 8, 2)
         )
 
         assert first_recommendation.id == 6
@@ -1463,7 +1573,7 @@ async def test_closed_sunday_tournament_drives_rotation_but_cancelled_is_ignored
             )
             await session.commit()
 
-        recommendation = await service.get_recommended_sunday_tournament_type(date(2026, 8, 2))
+        recommendation = await service.get_recommended_sunday_tournament_type(100, date(2026, 8, 2))
 
         assert recommendation.id == 6
         assert recommendation.name == "Boss Bounty"

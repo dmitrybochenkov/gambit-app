@@ -18,12 +18,11 @@ from app.db.models import (
 from app.db.models.enums import (
     KnockoutMode,
     TournamentStatus,
-    UserRole,
-    UserStatus,
 )
 from app.db.repositories.tournament_repository import TournamentRepository
-from app.db.repositories.user_repository import UserRepository
 from app.db.session import SessionFactory
+from app.domain.tournament_close_policy import is_tournament_closeable
+from app.services.access_policy import access_policy
 from app.services.dto import (
     TournamentResultPlayerView,
     TournamentResultsView,
@@ -32,7 +31,6 @@ from app.services.dto import (
 from app.services.result_field_policy import is_result_field_allowed
 from app.services.result_fields import ResultField
 from app.services.tournament_service import tournament_view
-from app.services.user_service import AdminAccessDeniedError
 
 logger = logging.getLogger(__name__)
 
@@ -46,6 +44,10 @@ class ResultTodayTournamentNotFoundError(ValueError):
 
 
 class ResultTodayTournamentInvariantViolationError(ValueError):
+    pass
+
+
+class FutureTournamentCannotBeClosedError(ValueError):
     pass
 
 
@@ -113,10 +115,14 @@ class ResultService:
     ) -> list[TournamentView]:
         async with self.session_factory() as session:
             await self._require_superadmin(session, superadmin_telegram_id)
+            business_date = self.clock.today()
             result = await session.execute(
                 select(Tournament)
                 .options(selectinload(Tournament.tournament_type))
-                .where(Tournament.status == TournamentStatus.ACTIVE)
+                .where(
+                    Tournament.status == TournamentStatus.ACTIVE,
+                    Tournament.date <= business_date,
+                )
                 .order_by(Tournament.date.desc(), Tournament.id.desc())
             )
             return [tournament_view(tournament) for tournament in result.scalars()]
@@ -228,7 +234,7 @@ class ResultService:
         fund = self.validate_tournament_fund(tournament_fund)
         async with self.session_factory() as session:
             await self._require_superadmin(session, superadmin_telegram_id)
-            tournament = await self._require_active_tournament(session, tournament_id)
+            tournament = await self._require_closeable_tournament(session, tournament_id)
             view = await self._results_view(session, tournament.id)
             errors = self._validate_game_results(view)
             if errors:
@@ -256,6 +262,27 @@ class ResultService:
             await session.commit()
             return await self._results_view(session, tournament.id)
 
+    async def get_closeable_tournament_results(
+        self,
+        superadmin_telegram_id: int,
+        tournament_id: int,
+    ) -> TournamentResultsView:
+        async with self.session_factory() as session:
+            await self._require_superadmin(session, superadmin_telegram_id)
+            tournament = await self._require_closeable_tournament(session, tournament_id)
+            return await self._results_view(session, tournament.id)
+
+    async def validate_closeable_results(
+        self,
+        superadmin_telegram_id: int,
+        tournament_id: int,
+    ) -> list[str]:
+        async with self.session_factory() as session:
+            await self._require_superadmin(session, superadmin_telegram_id)
+            tournament = await self._require_closeable_tournament(session, tournament_id)
+            view = await self._results_view(session, tournament.id)
+            return self._validate_game_results(view)
+
     async def validate_results(
         self,
         admin_telegram_id: int,
@@ -272,24 +299,14 @@ class ResultService:
         session: AsyncSession,
         telegram_id: int,
     ) -> User:
-        admin = await UserRepository(session).get_by_telegram_id(telegram_id)
-        if (
-            admin is None
-            or admin.status != UserStatus.ACTIVE
-            or admin.role not in {UserRole.ADMIN, UserRole.SUPERADMIN}
-        ):
-            raise AdminAccessDeniedError
-        return admin
+        return await access_policy.require_admin(session, telegram_id)
 
     async def _require_superadmin(
         self,
         session: AsyncSession,
         telegram_id: int,
     ) -> User:
-        admin = await UserRepository(session).get_by_telegram_id(telegram_id)
-        if admin is None or admin.status != UserStatus.ACTIVE or admin.role != UserRole.SUPERADMIN:
-            raise AdminAccessDeniedError
-        return admin
+        return await access_policy.require_superadmin(session, telegram_id)
 
     async def _require_active_tournament(
         self,
@@ -299,6 +316,16 @@ class ResultService:
         tournament = await TournamentRepository(session).get_by_id(tournament_id)
         if tournament is None or tournament.status != TournamentStatus.ACTIVE:
             raise ResultTournamentNotFoundError
+        return tournament
+
+    async def _require_closeable_tournament(
+        self,
+        session: AsyncSession,
+        tournament_id: int,
+    ) -> Tournament:
+        tournament = await self._require_active_tournament(session, tournament_id)
+        if not is_tournament_closeable(tournament, self.clock.today()):
+            raise FutureTournamentCannotBeClosedError
         return tournament
 
     async def _get_result(
