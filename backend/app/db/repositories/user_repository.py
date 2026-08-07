@@ -43,6 +43,18 @@ class UserRepository:
         )
         return list(result.scalars())
 
+    async def list_active_superadmins_with_telegram(self) -> list[User]:
+        result = await self.session.execute(
+            select(User)
+            .where(
+                User.status == UserStatus.ACTIVE,
+                User.role == UserRole.SUPERADMIN,
+                User.telegram_id.is_not(None),
+            )
+            .order_by(User.id)
+        )
+        return list(result.scalars())
+
     async def list_active_users_for_play(self) -> list[User]:
         result = await self.session.execute(
             select(User)

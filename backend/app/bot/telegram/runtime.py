@@ -83,10 +83,12 @@ async def setup_telegram_webhook() -> None:
     public_base_url = settings.effective_public_base_url
     if telegram_bot is None or not public_base_url:
         return
+    if not settings.telegram_webhook_secret:
+        raise RuntimeError("TELEGRAM_WEBHOOK_SECRET is required when PUBLIC_BASE_URL is set")
 
     await telegram_bot.set_webhook(
         url=f"{public_base_url}/webhooks/tg",
-        secret_token=settings.telegram_webhook_secret or None,
+        secret_token=settings.telegram_webhook_secret,
         drop_pending_updates=True,
         allowed_updates=telegram_dispatcher.resolve_used_update_types(),
     )

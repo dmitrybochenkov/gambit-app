@@ -24,6 +24,7 @@ from app.domain.prize_multiplier_places import (
     parse_prize_multiplier_places,
 )
 from app.domain.tournament_close_policy import is_tournament_closeable
+from app.domain.tournament_result_edit_policy import is_tournament_result_editable
 from app.services.access_policy import access_policy
 from app.services.dto import (
     TournamentResultPlayerView,
@@ -46,6 +47,10 @@ class ResultTodayTournamentNotFoundError(ValueError):
 
 
 class ResultTodayTournamentInvariantViolationError(ValueError):
+    pass
+
+
+class TournamentResultsEditingUnavailableError(ValueError):
     pass
 
 
@@ -125,7 +130,7 @@ class ResultService:
     ) -> TournamentResultsView:
         async with self.session_factory() as session:
             await access_policy.require_admin(session, admin_telegram_id)
-            tournament = await self._require_active_tournament(session, tournament_id)
+            tournament = await self._require_editable_tournament(session, tournament_id)
             return await self._results_view(session, tournament.id)
 
     async def update_player_result_field(
@@ -138,7 +143,7 @@ class ResultService:
     ) -> TournamentResultsView:
         async with self.session_factory() as session:
             await access_policy.require_admin(session, admin_telegram_id)
-            tournament = await self._require_active_tournament(session, tournament_id)
+            tournament = await self._require_editable_tournament(session, tournament_id)
             result = await TournamentResultRepository(session).get_by_tournament_and_player(
                 tournament.id, player_id
             )
@@ -243,7 +248,7 @@ class ResultService:
     ) -> list[str]:
         async with self.session_factory() as session:
             await access_policy.require_admin(session, admin_telegram_id)
-            tournament = await self._require_active_tournament(session, tournament_id)
+            tournament = await self._require_editable_tournament(session, tournament_id)
             view = await self._results_view(session, tournament.id)
             return self._validate_game_results(view)
 
@@ -255,6 +260,16 @@ class ResultService:
         tournament = await TournamentRepository(session).get_by_id(tournament_id)
         if tournament is None or tournament.status != TournamentStatus.ACTIVE:
             raise ResultTournamentNotFoundError
+        return tournament
+
+    async def _require_editable_tournament(
+        self,
+        session: AsyncSession,
+        tournament_id: int,
+    ) -> Tournament:
+        tournament = await self._require_active_tournament(session, tournament_id)
+        if not is_tournament_result_editable(tournament, self.clock.today()):
+            raise TournamentResultsEditingUnavailableError
         return tournament
 
     async def _require_closeable_tournament(

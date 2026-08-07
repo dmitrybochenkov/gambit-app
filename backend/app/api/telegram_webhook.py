@@ -18,8 +18,8 @@ async def telegram_webhook(
         )
 
     if (
-        settings.telegram_webhook_secret
-        and x_telegram_bot_api_secret_token != settings.telegram_webhook_secret
+        not settings.telegram_webhook_secret
+        or x_telegram_bot_api_secret_token != settings.telegram_webhook_secret
     ):
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,

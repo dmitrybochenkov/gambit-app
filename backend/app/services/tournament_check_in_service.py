@@ -244,7 +244,7 @@ class TournamentCheckInService:
             if existing_names:
                 raise TournamentCheckInDuplicateNameError
             user = create_user(display_name=display_name)
-            session.add(user)
+            UserRepository(session).add(user)
             try:
                 await session.flush()
                 await self._create_result(

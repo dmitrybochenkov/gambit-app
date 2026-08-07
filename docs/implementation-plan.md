@@ -1,5 +1,7 @@
 # Implementation Plan
 
+Status: historical design note. Not authoritative for current runtime behavior.
+
 ## Suggested Stack
 
 Recommended if we want to stay close to the neighboring `poker-app` project:

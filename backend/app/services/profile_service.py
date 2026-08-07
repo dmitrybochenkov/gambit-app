@@ -6,6 +6,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from app.common.clock import Clock, club_clock
 from app.db.repositories.profile_repository import (
+    PlayerProfileStats,
     ProfileRepository,
 )
 from app.db.repositories.season_repository import SeasonRepository
@@ -47,7 +48,7 @@ class ProfileService:
             return await self._get_profile(
                 profile_repository=ProfileRepository(session),
                 season_repository=SeasonRepository(session),
-                telegram_id=telegram_id,
+                player_id=user.id,
                 display_name=user.display_name,
                 kind=kind,
                 today=business_date,
@@ -57,7 +58,7 @@ class ProfileService:
     async def _get_profile(
         profile_repository: ProfileRepository,
         season_repository: SeasonRepository,
-        telegram_id: int,
+        player_id: int,
         display_name: str,
         kind: ProfileKind,
         today: date,
@@ -70,20 +71,34 @@ class ProfileService:
                     empty_profile(display_name),
                 )
             stats = await profile_repository.get_player_stats(
-                telegram_id=telegram_id,
+                player_id=player_id,
                 season_id=season.id,
             )
             return (
                 "Твой профиль — текущий сезон",
-                PlayerProfileView(**stats.__dict__) if stats else None,
+                player_profile_view(stats) if stats else None,
             )
-        stats = await profile_repository.get_player_stats(
-            telegram_id=telegram_id,
-        )
+        stats = await profile_repository.get_player_stats(player_id=player_id)
         return (
             "Твой профиль — за всё время",
-            PlayerProfileView(**stats.__dict__) if stats else None,
+            player_profile_view(stats) if stats else None,
         )
+
+
+def player_profile_view(stats: PlayerProfileStats) -> PlayerProfileView:
+    return PlayerProfileView(
+        display_name=stats.display_name,
+        total_points=stats.total_points,
+        knockout_points=stats.knockout_points,
+        knockouts_count=stats.knockouts_count,
+        big_knockouts_count=stats.big_knockouts_count,
+        tournaments_count=stats.tournaments_count,
+        first_places_count=stats.first_places_count,
+        second_places_count=stats.second_places_count,
+        third_places_count=stats.third_places_count,
+        fourth_places_count=stats.fourth_places_count,
+        fifth_places_count=stats.fifth_places_count,
+    )
 
 
 def empty_profile(display_name: str) -> PlayerProfileView:

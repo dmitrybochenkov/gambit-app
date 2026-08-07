@@ -197,6 +197,263 @@ def test_admin_prompt_resolved_by_user_id_fk_is_enforced(session: Session) -> No
         )
 
 
+def test_admin_prompt_resolved_actor_delete_is_restricted(session: Session) -> None:
+    session.execute(text("PRAGMA foreign_keys=ON"))
+    session.execute(
+        text(
+            """
+            INSERT INTO users (
+                id, display_name, display_name_normalized, telegram_id, role, status,
+                created_at, updated_at
+            )
+            VALUES (
+                10, 'Resolver', 'resolver', 10, 'superadmin', 'active',
+                CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
+            )
+            """
+        )
+    )
+    session.execute(
+        text(
+            """
+            INSERT INTO admin_prompts (
+                "key", kind, payload, status, resolved_at, resolved_by_user_id,
+                created_at, updated_at
+            )
+            VALUES (
+                'resolved-restrict', 'season_proposal', '{}', 'confirmed',
+                CURRENT_TIMESTAMP, 10, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
+            )
+            """
+        )
+    )
+    session.commit()
+
+    with pytest.raises(IntegrityError):
+        session.execute(text("DELETE FROM users WHERE id = 10"))
+
+
+@pytest.mark.parametrize(
+    ("table_name", "column_name", "invalid_value", "insert_sql"),
+    [
+        (
+            "users",
+            "role",
+            "root",
+            """
+            INSERT INTO users (
+                display_name, display_name_normalized, role, status, created_at, updated_at
+            )
+            VALUES (
+                'Invalid', 'invalid', :invalid_value, 'active',
+                CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
+            )
+            """,
+        ),
+        (
+            "users",
+            "status",
+            "weird",
+            """
+            INSERT INTO users (
+                display_name, display_name_normalized, role, status, created_at, updated_at
+            )
+            VALUES (
+                'Invalid', 'invalid', 'player', :invalid_value,
+                CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
+            )
+            """,
+        ),
+        (
+            "tournaments",
+            "status",
+            "weird",
+            """
+            INSERT INTO tournaments (
+                season_id, tournament_type_id, date, status, tournament_fund, created_at, updated_at
+            )
+            VALUES (1, 1, '2026-07-20', :invalid_value, NULL, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+            """,
+        ),
+        (
+            "tournament_types",
+            "status",
+            "weird",
+            """
+            INSERT INTO tournament_types (code, name, status, created_at, updated_at)
+            VALUES (
+                'invalid_status', 'Invalid', :invalid_value,
+                CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
+            )
+            """,
+        ),
+        (
+            "tournament_type_rules",
+            "knockout_mode",
+            "weird",
+            """
+            INSERT INTO tournament_type_rules (
+                tournament_type_id, points_multiplier, prize_place_multiplier,
+                knockout_mode, supports_bonus_points, created_at, updated_at
+            )
+            VALUES (1, 1, 1, :invalid_value, 0, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+            """,
+        ),
+        (
+            "registration_requests",
+            "request_type",
+            "weird",
+            """
+            INSERT INTO registration_requests (
+                telegram_id, request_type, status, requested_display_name,
+                requested_display_name_normalized, requested_link_name,
+                candidate_user_id, reviewed_at, created_at, updated_at
+            )
+            VALUES (
+                1000, :invalid_value, 'pending', 'Игрок', 'игрок',
+                NULL, NULL, NULL, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
+            )
+            """,
+        ),
+        (
+            "registration_requests",
+            "status",
+            "weird",
+            """
+            INSERT INTO registration_requests (
+                telegram_id, request_type, status, requested_display_name,
+                requested_display_name_normalized, requested_link_name,
+                candidate_user_id, reviewed_at, created_at, updated_at
+            )
+            VALUES (
+                1001, 'new_player', :invalid_value, 'Игрок', 'игрок',
+                NULL, NULL, NULL, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
+            )
+            """,
+        ),
+        (
+            "admin_prompts",
+            "kind",
+            "weird",
+            """
+            INSERT INTO admin_prompts (
+                "key", kind, payload, status, created_at, updated_at
+            )
+            VALUES (
+                'invalid-kind', :invalid_value, '{}', 'pending',
+                CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
+            )
+            """,
+        ),
+        (
+            "admin_prompts",
+            "status",
+            "weird",
+            """
+            INSERT INTO admin_prompts (
+                "key", kind, payload, status, created_at, updated_at
+            )
+            VALUES (
+                'invalid-status', 'season_proposal', '{}', :invalid_value,
+                CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
+            )
+            """,
+        ),
+        (
+            "tournament_results",
+            "source",
+            "weird",
+            """
+            INSERT INTO tournament_results (
+                tournament_id, player_id, source, checked_in_by_user_id, checked_in_at,
+                place, knockouts_count, big_knockouts_count, tournament_points,
+                knockout_points, bonus_points, created_at, updated_at
+            )
+            VALUES (
+                1, 1, :invalid_value, NULL, CURRENT_TIMESTAMP, NULL, 0, 0, 0, 0, 0,
+                CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
+            )
+            """,
+        ),
+    ],
+)
+def test_persisted_enums_reject_unknown_values(
+    session: Session,
+    table_name: str,
+    column_name: str,
+    invalid_value: str,
+    insert_sql: str,
+) -> None:
+    if table_name in {"tournaments", "tournament_results"}:
+        session.add(scoring_config := ScoringConfig())
+        session.commit()
+        session.add(
+            Season(
+                name="Enum season",
+                scoring_config_id=scoring_config.id,
+                starts_at=date(2026, 7, 1),
+            )
+        )
+        session.commit()
+        session.execute(
+            text(
+                """
+                INSERT OR IGNORE INTO tournament_types (
+                    id, code, name, status, created_at, updated_at
+                )
+                VALUES (1, 'enum_type', 'Enum type', 'active', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+                """
+            )
+        )
+        session.commit()
+        if table_name == "tournament_results":
+            session.execute(
+                text(
+                    """
+                    INSERT INTO tournaments (
+                        id, season_id, tournament_type_id, date, status, tournament_fund,
+                        created_at, updated_at
+                    )
+                    VALUES (
+                        1, 1, 1, '2026-07-20', 'active', NULL,
+                        CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
+                    )
+                    """
+                )
+            )
+            session.execute(
+                text(
+                    """
+                    INSERT OR IGNORE INTO users (
+                        id, display_name, display_name_normalized, role, status,
+                        created_at, updated_at
+                    )
+                    VALUES (1, 'Enum player', 'enum player', 'player', 'active',
+                    CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+                    """
+                )
+            )
+            session.commit()
+    elif table_name == "tournament_type_rules":
+        session.execute(
+            text(
+                """
+                INSERT OR IGNORE INTO tournament_types (
+                    id, code, name, status, created_at, updated_at
+                )
+                VALUES (
+                    1, 'enum_rule_type', 'Enum rule type', 'active',
+                    CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
+                )
+                """
+            )
+        )
+        session.commit()
+
+    with pytest.raises(IntegrityError):
+        session.execute(text(insert_sql), {"invalid_value": invalid_value})
+
+
 def test_tournament_registration_has_only_created_at_timestamp(session: Session) -> None:
     columns = {
         row[1] for row in session.execute(text("PRAGMA table_info(tournament_registrations)")).all()

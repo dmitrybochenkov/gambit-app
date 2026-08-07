@@ -128,6 +128,52 @@ async def test_approve_new_player_registration_creates_active_player(tmp_path: P
 
 
 @pytest.mark.asyncio
+async def test_registration_notification_recipients_are_active_superadmins_only(
+    tmp_path: Path,
+) -> None:
+    service, engine = await create_user_service(tmp_path / "users.db")
+    try:
+        async with async_sessionmaker(engine, expire_on_commit=False)() as session:
+            session.add(
+                create_user(
+                    display_name="Супер Админ",
+                    telegram_id=1,
+                    role=UserRole.SUPERADMIN,
+                )
+            )
+            session.add(
+                create_user(
+                    display_name="Обычный Админ",
+                    telegram_id=2,
+                    role=UserRole.ADMIN,
+                )
+            )
+            session.add(
+                create_user(
+                    display_name="Оффлайн Супер",
+                    role=UserRole.SUPERADMIN,
+                )
+            )
+            session.add(create_user(display_name="Игрок", telegram_id=3))
+            request = RegistrationRequest(
+                telegram_id=1001,
+                request_type=RegistrationRequestType.NEW_PLAYER,
+                status=RegistrationRequestStatus.PENDING,
+                requested_display_name="Новый Игрок",
+                requested_display_name_normalized="новый игрок",
+            )
+            session.add(request)
+            await session.commit()
+            request_id = request.id
+
+        notification = await service.get_registration_notification(request_id)
+
+        assert [admin.display_name for admin in notification.admins] == ["Супер Админ"]
+    finally:
+        await engine.dispose()
+
+
+@pytest.mark.asyncio
 async def test_approve_link_registration_attaches_telegram_id(tmp_path: Path) -> None:
     service, engine = await create_user_service(tmp_path / "users.db")
     try:

@@ -6,6 +6,7 @@ Common validation commands:
 cd backend
 uv run ruff check .
 uv run ruff format . --check
+uv run pyright app
 uv run pytest -q
 uv run python -m compileall app
 git diff --check

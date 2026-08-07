@@ -1,5 +1,7 @@
 # Admin Concept
 
+Status: historical design note. Not authoritative for current runtime behavior.
+
 ## MVP Admin Surface
 
 For the first version, admin features can be implemented either as:

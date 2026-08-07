@@ -78,3 +78,6 @@ class AdminPromptRepository:
         )
         self.session.add(prompt)
         return prompt
+
+    def add(self, prompt: AdminPrompt) -> None:
+        self.session.add(prompt)

@@ -1,5 +1,6 @@
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
+from app.common.clock import Clock, club_clock
 from app.db.repositories.rating_repository import RatingRepository
 from app.db.repositories.tournament_repository import (
     HistoricalTournamentResultRow,
@@ -45,8 +46,13 @@ class HallOfFameNotAllowedError(ValueError):
 
 
 class UserStatisticsService:
-    def __init__(self, session_factory: async_sessionmaker[AsyncSession]) -> None:
+    def __init__(
+        self,
+        session_factory: async_sessionmaker[AsyncSession],
+        clock: Clock = club_clock,
+    ) -> None:
         self.session_factory = session_factory
+        self.clock = clock
 
     async def list_history_years(self, telegram_id: int) -> list[HistoryYearView]:
         async with self.session_factory() as session:
@@ -114,7 +120,7 @@ class UserStatisticsService:
             await self._ensure_user_can_view_statistics(
                 session, telegram_id, HallOfFameNotAllowedError
             )
-            rows = await RatingRepository(session).list_hall_of_fame_seasons()
+            rows = await RatingRepository(session).list_hall_of_fame_seasons(self.clock.today())
             return [
                 HallOfFameSeasonView(
                     season_id=row.season_id,

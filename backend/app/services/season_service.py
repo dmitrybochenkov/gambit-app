@@ -129,7 +129,7 @@ class SeasonService:
                 ),
                 status=AdminPromptStatus.PENDING,
             )
-            session.add(proposal)
+            AdminPromptRepository(session).add(proposal)
             await session.commit()
             await session.refresh(proposal)
             return await self._season_proposal_view(

@@ -1,5 +1,7 @@
 # Gambit Poker Club Bot
 
+Status: historical design note. Not authoritative for current runtime behavior.
+
 ## Goal
 
 Telegram bot for a poker club community. The first version handles member registration, profile/statistics display, tournament schedule, tournament self-registration, cancellation, ratings, and venue information.
@@ -69,4 +71,3 @@ Main needs:
 - What defines the current season?
 - Are tournament registrations capacity-limited?
 - Is there a registration cutoff time before tournament start?
-

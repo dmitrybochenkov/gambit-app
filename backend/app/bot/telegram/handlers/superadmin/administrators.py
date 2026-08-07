@@ -117,7 +117,7 @@ async def confirm_add_admin(
     try:
         player = await user_service.add_admin(
             superadmin_telegram_id=callback.from_user.id,
-            player_id=callback_data.player_id,
+            user_id=callback_data.player_id,
         )
     except AdminAccessDeniedError:
         await callback.answer(panel_text.INSUFFICIENT_RIGHTS, show_alert=True)

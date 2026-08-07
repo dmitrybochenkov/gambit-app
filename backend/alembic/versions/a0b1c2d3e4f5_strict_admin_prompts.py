@@ -65,7 +65,7 @@ def upgrade() -> None:
             "users",
             ["resolved_by_user_id"],
             ["id"],
-            ondelete="SET NULL",
+            ondelete="RESTRICT",
         )
         batch_op.create_check_constraint(
             "kind",

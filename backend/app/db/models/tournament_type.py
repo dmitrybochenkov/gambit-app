@@ -35,6 +35,13 @@ class TournamentType(TimestampMixin, Base):
         index=True,
     )
 
+    __table_args__ = (
+        CheckConstraint(
+            "status IN ('active', 'archived')",
+            name="tournament_types_status_values",
+        ),
+    )
+
 
 class TournamentTypeRule(TimestampMixin, Base):
     __tablename__ = "tournament_type_rules"
@@ -72,6 +79,10 @@ class TournamentTypeRule(TimestampMixin, Base):
         CheckConstraint(
             "prize_place_multiplier > 0",
             name="prize_place_multiplier_positive",
+        ),
+        CheckConstraint(
+            "knockout_mode IN ('none', 'small', 'small_big')",
+            name="tournament_type_rules_knockout_mode_values",
         ),
         UniqueConstraint(
             "tournament_type_id",

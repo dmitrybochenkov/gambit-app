@@ -43,6 +43,14 @@ class RegistrationRequest(TimestampMixin, Base):
 
     __table_args__ = (
         CheckConstraint(
+            "request_type IN ('new_player', 'link_existing_player')",
+            name="registration_requests_request_type_values",
+        ),
+        CheckConstraint(
+            "status IN ('pending', 'approved', 'rejected')",
+            name="registration_requests_status_values",
+        ),
+        CheckConstraint(
             """
             (
                 request_type = 'new_player'

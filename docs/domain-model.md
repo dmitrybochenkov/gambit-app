@@ -26,8 +26,6 @@ Fields:
 - `display_name_normalized`
 - `role`: `player`, `admin`, `superadmin`
 - `status`: `active`, `blocked`
-- `approved_at`
-- `approved_by_admin_id`
 - `created_at`
 - `updated_at`
 

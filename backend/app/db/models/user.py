@@ -1,4 +1,4 @@
-from sqlalchemy import BigInteger, Index, Integer, String
+from sqlalchemy import BigInteger, CheckConstraint, Index, Integer, String
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.db.base import Base
@@ -31,4 +31,8 @@ class User(TimestampMixin, Base):
         index=True,
     )
 
-    __table_args__ = (Index("ix_users_display_name_normalized", "display_name_normalized"),)
+    __table_args__ = (
+        Index("ix_users_display_name_normalized", "display_name_normalized"),
+        CheckConstraint("role IN ('player', 'admin', 'superadmin')", name="users_role_values"),
+        CheckConstraint("status IN ('active', 'blocked')", name="users_status_values"),
+    )

@@ -34,6 +34,7 @@ from app.services.result_service import (
     ResultTournamentNotFoundError,
     ResultUserNotFoundError,
     ResultValidationError,
+    TournamentResultsEditingUnavailableError,
     result_service,
 )
 from app.services.tournament_check_in_service import (
@@ -157,6 +158,9 @@ async def select_result_player(
     except (ResultTournamentNotFoundError, TournamentCheckInClosedError):
         await callback.answer(result_text.ADMIN_RESULTS_NOT_FOUND, show_alert=True)
         return
+    except TournamentResultsEditingUnavailableError:
+        await callback.answer(result_text.ADMIN_RESULTS_EDITING_UNAVAILABLE, show_alert=True)
+        return
     except (TournamentCheckInUserNotFoundError, TournamentCheckInNotFoundError):
         await callback.answer(result_text.PLAYER_NOT_FOUND, show_alert=True)
         return
@@ -242,6 +246,8 @@ async def select_result_field(
         await callback.answer(panel_text.ACCESS_DENIED, show_alert=True)
     except ResultTournamentNotFoundError:
         await callback.answer(result_text.ADMIN_RESULTS_NOT_FOUND, show_alert=True)
+    except TournamentResultsEditingUnavailableError:
+        await callback.answer(result_text.ADMIN_RESULTS_EDITING_UNAVAILABLE, show_alert=True)
 
 
 @router.callback_query(admin_results_kb.AdminResultValueCallback.filter())
@@ -358,6 +364,8 @@ async def select_result_value(
         await callback.answer(panel_text.ACCESS_DENIED, show_alert=True)
     except ResultTournamentNotFoundError:
         await callback.answer(result_text.ADMIN_RESULTS_NOT_FOUND, show_alert=True)
+    except TournamentResultsEditingUnavailableError:
+        await callback.answer(result_text.ADMIN_RESULTS_EDITING_UNAVAILABLE, show_alert=True)
     except (ResultInvalidPlayerDataError, ResultUserNotFoundError, ValueError):
         await callback.answer(
             result_text.ADMIN_RESULTS_INVALID_MANUAL_VALUE[callback_data.field.value],
@@ -394,6 +402,10 @@ async def enter_result_manual_value(message: Message, state: FSMContext) -> None
     except ResultTournamentNotFoundError:
         await state.clear()
         await message.answer(result_text.ADMIN_RESULTS_NOT_FOUND)
+        return
+    except TournamentResultsEditingUnavailableError:
+        await state.clear()
+        await message.answer(result_text.ADMIN_RESULTS_EDITING_UNAVAILABLE)
         return
     except (ResultInvalidPlayerDataError, ResultUserNotFoundError, ValueError):
         await message.answer(result_text.ADMIN_RESULTS_INVALID_MANUAL_VALUE[field.value])

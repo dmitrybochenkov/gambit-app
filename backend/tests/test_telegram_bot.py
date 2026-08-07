@@ -2178,7 +2178,7 @@ async def test_pending_registration_notifies_admins(monkeypatch: pytest.MonkeyPa
         candidate_user_id=None,
         created_at="27.07.2026 12:00",
     )
-    admins = [
+    superadmins = [
         UserView(
             id=1,
             telegram_id=100,
@@ -2186,19 +2186,12 @@ async def test_pending_registration_notifies_admins(monkeypatch: pytest.MonkeyPa
             status=UserStatusView.ACTIVE,
             role=UserRoleView.SUPERADMIN,
         ),
-        UserView(
-            id=2,
-            telegram_id=101,
-            display_name="Админ Второй",
-            status=UserStatusView.ACTIVE,
-            role=UserRoleView.ADMIN,
-        ),
     ]
     service = SimpleNamespace(
         get_registration_notification=AsyncMock(
             return_value=RegistrationNotificationView(
                 request=request,
-                admins=admins,
+                admins=superadmins,
                 candidates=[],
             )
         ),
@@ -2208,9 +2201,8 @@ async def test_pending_registration_notifies_admins(monkeypatch: pytest.MonkeyPa
     await notifications.notify_admins_about_registration(bot, request.id)
 
     service.get_registration_notification.assert_awaited_once_with(10)
-    assert bot.send_message.await_count == 2
+    assert bot.send_message.await_count == 1
     assert bot.send_message.await_args_list[0].kwargs["chat_id"] == 100
-    assert bot.send_message.await_args_list[1].kwargs["chat_id"] == 101
     assert "Telegram ID" not in bot.send_message.await_args_list[0].kwargs["text"]
 
 
@@ -2241,7 +2233,7 @@ async def test_admin_panel_entry_sends_admin_keyboard(
     ]
 
 
-async def test_admin_panel_entry_shows_superadmin_button_for_admin(
+async def test_admin_panel_entry_hides_superadmin_button_for_admin(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     admin = admin_player(1, 100, UserRoleView.ADMIN)
@@ -2259,7 +2251,6 @@ async def test_admin_panel_entry_shows_superadmin_button_for_admin(
     assert keyboard_texts(message.answer.await_args.kwargs["reply_markup"]) == [
         "✅ Чек-ин",
         "🏁 Внести результат",
-        "👑 Суперадмин",
         "⬅️ Выход",
     ]
 
@@ -2401,7 +2392,21 @@ async def test_confirm_add_admin_promotes_player_and_notifies(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     promoted = admin_player(2, 200, UserRoleView.ADMIN)
-    service = SimpleNamespace(add_admin=AsyncMock(return_value=promoted))
+
+    class UserServiceContractFake:
+        def __init__(self) -> None:
+            self.calls: list[dict[str, int]] = []
+
+        async def add_admin(self, *, superadmin_telegram_id: int, user_id: int) -> UserView:
+            self.calls.append(
+                {
+                    "superadmin_telegram_id": superadmin_telegram_id,
+                    "user_id": user_id,
+                }
+            )
+            return promoted
+
+    service = UserServiceContractFake()
     monkeypatch.setattr(superadmin_administrator_handlers, "user_service", service)
     bot = SimpleNamespace(send_message=AsyncMock())
     message = SimpleNamespace(delete=AsyncMock(), answer=AsyncMock())
@@ -2418,10 +2423,7 @@ async def test_confirm_add_admin_promotes_player_and_notifies(
 
     await superadmin_administrator_handlers.confirm_add_admin(callback, callback_data)
 
-    service.add_admin.assert_awaited_once_with(
-        superadmin_telegram_id=100,
-        player_id=2,
-    )
+    assert service.calls == [{"superadmin_telegram_id": 100, "user_id": 2}]
     callback.answer.assert_awaited_once_with("Админ добавлен.")
     message.delete.assert_awaited_once_with()
     message.answer.assert_awaited_once_with("Админ добавлен.")
@@ -3716,6 +3718,34 @@ async def test_webhook_rejects_invalid_secret(monkeypatch: pytest.MonkeyPatch) -
     assert error.value.status_code == 403
 
 
+async def test_webhook_rejects_missing_secret_header(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(webhook_module, "telegram_bot", object())
+    monkeypatch.setattr(webhook_module.settings, "telegram_webhook_secret", "secret")
+
+    with pytest.raises(HTTPException) as error:
+        await webhook_module.telegram_webhook(
+            payload={"update_id": 1},
+            x_telegram_bot_api_secret_token=None,
+        )
+
+    assert error.value.status_code == 403
+
+
+async def test_webhook_rejects_insecure_empty_configured_secret(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(webhook_module, "telegram_bot", object())
+    monkeypatch.setattr(webhook_module.settings, "telegram_webhook_secret", "")
+
+    with pytest.raises(HTTPException) as error:
+        await webhook_module.telegram_webhook(
+            payload={"update_id": 1},
+            x_telegram_bot_api_secret_token=None,
+        )
+
+    assert error.value.status_code == 403
+
+
 async def test_webhook_feeds_update(monkeypatch: pytest.MonkeyPatch) -> None:
     bot = object()
     feed_raw_update = AsyncMock()
@@ -3730,6 +3760,20 @@ async def test_webhook_feeds_update(monkeypatch: pytest.MonkeyPatch) -> None:
 
     assert response == {"ok": True}
     feed_raw_update.assert_awaited_once_with(bot, {"update_id": 1})
+
+
+async def test_setup_webhook_requires_secret_in_public_mode(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    bot = SimpleNamespace(set_webhook=AsyncMock())
+    monkeypatch.setattr(runtime, "telegram_bot", bot)
+    monkeypatch.setattr(runtime.settings, "public_base_url", "https://gambit.example/")
+    monkeypatch.setattr(runtime.settings, "telegram_webhook_secret", "")
+
+    with pytest.raises(RuntimeError, match="TELEGRAM_WEBHOOK_SECRET"):
+        await runtime.setup_telegram_webhook()
+
+    bot.set_webhook.assert_not_called()
 
 
 async def test_setup_webhook_uses_public_url(monkeypatch: pytest.MonkeyPatch) -> None:

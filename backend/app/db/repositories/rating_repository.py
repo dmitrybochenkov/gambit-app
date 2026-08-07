@@ -156,10 +156,10 @@ class RatingRepository:
             ),
         )
 
-    async def list_hall_of_fame_seasons(self) -> list[HallOfFameSeasonRow]:
-        season_rows = await self._list_completed_seasons_with_results()
-        champions = await self._get_hall_of_fame_champions()
-        knockout_leaders = await self._get_hall_of_fame_knockout_leaders()
+    async def list_hall_of_fame_seasons(self, today: date) -> list[HallOfFameSeasonRow]:
+        season_rows = await self._list_completed_seasons_with_results(today)
+        champions = await self._get_hall_of_fame_champions(today)
+        knockout_leaders = await self._get_hall_of_fame_knockout_leaders(today)
         return [
             HallOfFameSeasonRow(
                 season_id=row.season_id,
@@ -173,7 +173,7 @@ class RatingRepository:
             for row in season_rows
         ]
 
-    async def _list_completed_seasons_with_results(self) -> list[object]:
+    async def _list_completed_seasons_with_results(self, today: date) -> list[object]:
         result = await self.session.execute(
             select(
                 Season.id.label("season_id"),
@@ -182,13 +182,13 @@ class RatingRepository:
             )
             .join(Tournament, Tournament.season_id == Season.id)
             .join(TournamentResult, TournamentResult.tournament_id == Tournament.id)
-            .where(Season.ends_at.is_not(None), closed_tournament_filter())
+            .where(Season.ends_at.is_not(None), Season.ends_at < today, closed_tournament_filter())
             .group_by(Season.id, Season.name, Season.starts_at)
             .order_by(Season.starts_at.desc(), Season.id.desc())
         )
         return list(result)
 
-    async def _get_hall_of_fame_champions(self) -> dict[int, tuple[int, str]]:
+    async def _get_hall_of_fame_champions(self, today: date) -> dict[int, tuple[int, str]]:
         total_points = func.sum(
             TournamentResult.tournament_points
             + TournamentResult.knockout_points
@@ -207,7 +207,7 @@ class RatingRepository:
             )
             .join(Tournament, Tournament.id == TournamentResult.tournament_id)
             .join(Season, Season.id == Tournament.season_id)
-            .where(Season.ends_at.is_not(None), closed_tournament_filter())
+            .where(Season.ends_at.is_not(None), Season.ends_at < today, closed_tournament_filter())
             .group_by(Tournament.season_id, TournamentResult.player_id)
             .having(total_points > 0)
             .subquery()
@@ -219,7 +219,7 @@ class RatingRepository:
         )
         return {int(row.season_id): (int(row.id), row.display_name) for row in result}
 
-    async def _get_hall_of_fame_knockout_leaders(self) -> dict[int, tuple[int, str]]:
+    async def _get_hall_of_fame_knockout_leaders(self, today: date) -> dict[int, tuple[int, str]]:
         knockouts = func.sum(TournamentResult.knockouts_count).label("knockouts")
         big_knockouts = func.sum(TournamentResult.big_knockouts_count).label("big_knockouts")
         total_knockouts = (knockouts + big_knockouts).label("total_knockouts")
@@ -240,7 +240,7 @@ class RatingRepository:
             )
             .join(Tournament, Tournament.id == TournamentResult.tournament_id)
             .join(Season, Season.id == Tournament.season_id)
-            .where(Season.ends_at.is_not(None), closed_tournament_filter())
+            .where(Season.ends_at.is_not(None), Season.ends_at < today, closed_tournament_filter())
             .group_by(Tournament.season_id, TournamentResult.player_id)
             .having(total_knockouts > 0)
             .subquery()

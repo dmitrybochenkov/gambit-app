@@ -20,6 +20,7 @@ dev = [
   "httpx>=0.27.0",
   "pytest>=8.3.0",
   "pytest-asyncio>=0.23.0",
+  "pyright>=1.1.380",
   "ruff>=0.6.0",
 ]
 
@@ -37,6 +38,15 @@ target-version = "py312"
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "UP"]
+
+[tool.pyright]
+include = ["app"]
+typeCheckingMode = "basic"
+reportMissingTypeStubs = false
+reportAttributeAccessIssue = false
+reportArgumentType = false
+reportOptionalMemberAccess = false
+reportReturnType = false
 
 [tool.setuptools.packages.find]
 include = ["app*"]

@@ -33,7 +33,7 @@ class ProfileRepository:
 
     async def get_player_stats(
         self,
-        telegram_id: int,
+        player_id: int,
         season_id: int | None = None,
     ) -> PlayerProfileStats | None:
         total_points = func.coalesce(
@@ -68,7 +68,7 @@ class ProfileRepository:
             .select_from(User)
             .join(TournamentResult, TournamentResult.player_id == User.id)
             .join(Tournament, Tournament.id == TournamentResult.tournament_id)
-            .where(User.telegram_id == telegram_id, closed_tournament_filter())
+            .where(User.id == player_id, closed_tournament_filter())
             .group_by(User.id, User.display_name)
         )
         if season_id is not None:
@@ -76,7 +76,7 @@ class ProfileRepository:
 
         row = (await self.session.execute(statement)).one_or_none()
         if row is None:
-            player = await self.session.scalar(select(User).where(User.telegram_id == telegram_id))
+            player = await self.session.get(User, player_id)
             if player is None:
                 return None
             return PlayerProfileStats(

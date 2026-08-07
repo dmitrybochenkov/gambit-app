@@ -285,7 +285,8 @@ class UserService:
             return RegistrationNotificationView(
                 request=required_registration_request_view(request),
                 admins=[
-                    required_user_view(user) for user in await user_repository.list_active_admins()
+                    required_user_view(user)
+                    for user in await user_repository.list_active_superadmins_with_telegram()
                 ],
                 candidates=await self._registration_candidates(user_repository, request),
             )

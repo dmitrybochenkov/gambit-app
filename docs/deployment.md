@@ -37,6 +37,29 @@ sudo journalctl -u gambit -n 100 --no-pager -o cat
 curl --fail --silent http://127.0.0.1:8100/health
 ```
 
+When `PUBLIC_BASE_URL` is set, webhook deployment requires
+`TELEGRAM_WEBHOOK_SECRET`. Startup fails without it, and webhook updates without
+the matching `X-Telegram-Bot-Api-Secret-Token` header are rejected.
+
+## Fresh DB Bootstrap
+
+After `alembic upgrade head` on a clean database, create the first superadmin
+without starting Telegram:
+
+```bash
+cd /opt/apps/gambit
+
+/opt/apps/gambit/backend/.venv/bin/python \
+  scripts/bootstrap_superadmin.py \
+  --db /opt/apps/gambit/data/gambit.db \
+  --telegram-id <telegram_id> \
+  --display-name "Dima Bochenkov"
+```
+
+The command is idempotent for the same Telegram user. It requires an existing
+SQLite database with `users` and `alembic_version` tables and does not create a
+new database if the path is mistyped.
+
 ## Safety Before Migrations
 
 Before applying migrations:

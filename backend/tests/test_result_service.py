@@ -31,6 +31,7 @@ from app.services.result_service import (
     ResultInvalidPlayerDataError,
     ResultService,
     ResultTodayTournamentNotFoundError,
+    TournamentResultsEditingUnavailableError,
 )
 
 
@@ -221,7 +222,10 @@ async def test_result_rows_are_edited_directly_and_close_tournament(
         tournament_id = tournament.id
         player_ids = [player.id for player in players]
 
-    service = ResultService(session_factory)
+    service = ResultService(
+        session_factory,
+        clock=FixedClock(datetime(2026, 7, 18, 12, tzinfo=ZoneInfo("Europe/Moscow"))),
+    )
     results = await service.get_tournament_results(100, tournament_id)
 
     assert not hasattr(results, "checked_in_count")
@@ -472,7 +476,10 @@ async def test_result_moves_duplicate_place_to_latest_player(
         tournament_id = tournament.id
         player_ids = [player.id for player in players]
 
-    service = ResultService(session_factory)
+    service = ResultService(
+        session_factory,
+        clock=FixedClock(datetime(2026, 7, 18, 12, tzinfo=ZoneInfo("Europe/Moscow"))),
+    )
     for player_id in player_ids:
         await service.update_player_result_field(
             100, tournament_id, player_id, ResultField.PLACE, 1
@@ -573,8 +580,81 @@ async def test_results_use_checked_in_rows_not_pre_registrations(tmp_path: Path)
         tournament_id = tournament.id
         expected_player_ids = [registered_checked_in.id, walk_in.id]
 
-    service = ResultService(session_factory)
+    service = ResultService(
+        session_factory,
+        clock=FixedClock(datetime(2026, 7, 18, 12, tzinfo=ZoneInfo("Europe/Moscow"))),
+    )
     results = await service.get_tournament_results(100, tournament_id)
 
     assert [player.player_id for player in results.players] == expected_player_ids
+    await engine.dispose()
+
+
+async def test_stale_yesterday_result_callback_is_rejected_without_mutation(
+    tmp_path: Path,
+) -> None:
+    engine = create_async_engine(f"sqlite+aiosqlite:///{tmp_path / 'stale_results.db'}")
+    async with engine.begin() as connection:
+        await connection.run_sync(Base.metadata.create_all)
+
+    session_factory = async_sessionmaker(engine, expire_on_commit=False)
+    async with session_factory() as session:
+        config = ScoringConfig()
+        session.add(config)
+        await session.flush()
+        await seed_tournament_types_async(session)
+        season = Season(
+            name="Test season",
+            scoring_config_id=config.id,
+            starts_at=date(2026, 7, 1),
+            ends_at=None,
+        )
+        admin = build_player(
+            telegram_id=100,
+            display_name="Admin",
+            status=UserStatus.ACTIVE,
+            role=UserRole.ADMIN,
+        )
+        player = build_player(telegram_id=101, display_name="Player", status=UserStatus.ACTIVE)
+        session.add_all([season, admin, player])
+        await session.flush()
+        tournament = Tournament(
+            season_id=season.id,
+            tournament_type_id=tournament_type_id("classic"),
+            date=date(2026, 7, 19),
+            status=TournamentStatus.ACTIVE,
+        )
+        session.add(tournament)
+        await session.flush()
+        result = TournamentResult(
+            tournament_id=tournament.id,
+            player_id=player.id,
+            source=TournamentResultSource.REGISTERED,
+            checked_in_by_user_id=admin.id,
+        )
+        session.add(result)
+        await session.commit()
+        tournament_id = tournament.id
+        player_id = player.id
+
+    service = ResultService(
+        session_factory,
+        clock=FixedClock(datetime(2026, 7, 20, 12, tzinfo=ZoneInfo("Europe/Moscow"))),
+    )
+    with pytest.raises(TournamentResultsEditingUnavailableError):
+        await service.update_player_result_field(
+            100,
+            tournament_id,
+            player_id,
+            ResultField.PLACE,
+            1,
+        )
+
+    async with session_factory() as session:
+        stored = (
+            await session.execute(
+                select(TournamentResult).where(TournamentResult.tournament_id == tournament_id)
+            )
+        ).scalar_one()
+    assert stored.place is None
     await engine.dispose()

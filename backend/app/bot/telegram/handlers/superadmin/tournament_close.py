@@ -286,15 +286,6 @@ async def enter_tournament_fund(message: Message, state: FSMContext) -> None:
             superadmin_telegram_id=message.from_user.id,
             tournament_id=tournament_id,
         )
-    except (ValueError, ResultInvalidFundError):
-        await message.answer(
-            result_fmt.tournament_fund_error(),
-            reply_markup=superadmin_tournament_close_kb.admin_close_tournament_fund_error_keyboard(
-                tournament_id=tournament_id,
-                page=page_number,
-            ),
-        )
-        return
     except AdminAccessDeniedError:
         await state.clear()
         await message.answer(text.ACCESS_DENIED)
@@ -306,6 +297,15 @@ async def enter_tournament_fund(message: Message, state: FSMContext) -> None:
     except FutureTournamentCannotBeClosedError:
         await state.clear()
         await message.answer("Будущий турнир нельзя закрыть.")
+        return
+    except (ValueError, ResultInvalidFundError):
+        await message.answer(
+            result_fmt.tournament_fund_error(),
+            reply_markup=superadmin_tournament_close_kb.admin_close_tournament_fund_error_keyboard(
+                tournament_id=tournament_id,
+                page=page_number,
+            ),
+        )
         return
 
     await state.update_data(tournament_fund=int(tournament_fund))

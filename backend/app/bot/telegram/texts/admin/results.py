@@ -19,6 +19,7 @@ ADMIN_RESULTS_CHECK_FAILED = "Нужно поправить:\n{errors}"
 ADMIN_RESULTS_CHECK_FAILED_SHORT = "Нужно поправить ошибки."
 ADMIN_RESULTS_CANCELLED = "Отмена."
 ADMIN_RESULTS_NOT_FOUND = "Турнир не найден или уже закрыт."
+ADMIN_RESULTS_EDITING_UNAVAILABLE = "Вносить результаты можно только в сегодняшний турнир."
 PLAYER_NOT_FOUND = "Игрок не найден."
 
 

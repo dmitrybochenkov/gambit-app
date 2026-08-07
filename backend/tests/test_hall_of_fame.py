@@ -1,11 +1,13 @@
-from datetime import date
+from datetime import date, datetime
 from decimal import Decimal
 from pathlib import Path
+from zoneinfo import ZoneInfo
 
 from conftest import build_player, seed_tournament_types_async, tournament_type_id
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
 from app.bot.telegram.formatters.statistics import hall_of_fame as hall_fmt
+from app.common.clock import FixedClock
 from app.db.base import Base
 from app.db.models import ScoringConfig, Season, Tournament, TournamentResult
 from app.db.models.enums import TournamentStatus
@@ -43,10 +45,18 @@ async def test_hall_of_fame_uses_completed_seasons_and_tiebreakers(
             starts_at=date(2026, 7, 1),
             ends_at=None,
         )
+        future_ended_season = Season(
+            name="Будущий финал",
+            scoring_config_id=config.id,
+            starts_at=date(2026, 7, 1),
+            ends_at=date(2026, 12, 31),
+        )
         viewer = build_player(telegram_id=100, display_name="Viewer")
         low_id = build_player(telegram_id=101, display_name="Иван")
         high_id = build_player(telegram_id=102, display_name="Петр")
-        session.add_all([old_season, new_season, open_season, viewer, low_id, high_id])
+        session.add_all(
+            [old_season, new_season, open_season, future_ended_season, viewer, low_id, high_id]
+        )
         await session.flush()
         old_tournament = Tournament(
             season_id=old_season.id,
@@ -68,7 +78,14 @@ async def test_hall_of_fame_uses_completed_seasons_and_tiebreakers(
             date=date(2026, 7, 1),
             status=TournamentStatus.ACTIVE,
         )
-        session.add_all([old_tournament, new_tournament, open_tournament])
+        future_ended_tournament = Tournament(
+            season_id=future_ended_season.id,
+            tournament_type_id=tournament_type_id("classic"),
+            date=date(2026, 7, 2),
+            tournament_fund=1000,
+            status=TournamentStatus.CLOSED,
+        )
+        session.add_all([old_tournament, new_tournament, open_tournament, future_ended_tournament])
         await session.flush()
         session.add_all(
             [
@@ -107,11 +124,21 @@ async def test_hall_of_fame_uses_completed_seasons_and_tiebreakers(
                     knockouts_count=99,
                     big_knockouts_count=99,
                 ),
+                TournamentResult(
+                    tournament_id=future_ended_tournament.id,
+                    player_id=high_id.id,
+                    tournament_points=Decimal("1000"),
+                    knockouts_count=99,
+                    big_knockouts_count=99,
+                ),
             ]
         )
         await session.commit()
 
-    service = UserStatisticsService(session_factory)
+    service = UserStatisticsService(
+        session_factory,
+        clock=FixedClock(datetime(2026, 7, 1, 12, tzinfo=ZoneInfo("Europe/Moscow"))),
+    )
     try:
         seasons = await service.get_hall_of_fame(100)
 
@@ -121,6 +148,7 @@ async def test_hall_of_fame_uses_completed_seasons_and_tiebreakers(
         assert seasons[1].champion_display_name == "Иван"
         assert seasons[1].knockout_leader_display_name == "Петр"
         assert "Открытый сезон" not in hall_fmt.message(seasons)
+        assert "Будущий финал" not in hall_fmt.message(seasons)
         assert (
             hall_fmt.message(seasons) == "🏆 Зал славы\n\n"
             "💍 — победитель сезона\n"

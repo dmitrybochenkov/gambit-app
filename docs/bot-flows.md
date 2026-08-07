@@ -1,5 +1,7 @@
 # Bot Flows
 
+Status: historical design note. Not authoritative for current runtime behavior.
+
 ## Registration
 
 ### Entry
