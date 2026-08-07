@@ -1,10 +1,11 @@
-from datetime import date
+from datetime import date, datetime
 from pathlib import Path
 
 import pytest
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncEngine, async_sessionmaker, create_async_engine
 
+from app.common.clock import FixedClock
 from app.db.base import Base
 from app.db.factories import create_user
 from app.db.models import AdminPrompt, ScoringConfig, Season, Tournament
@@ -298,6 +299,8 @@ async def test_update_season_proposal_start_date_preserves_name(
 async def test_confirm_season_proposal_opens_season(tmp_path: Path) -> None:
     service, session_factory, engine = await create_season_service(tmp_path / "season.db")
     try:
+        resolved_at = datetime(2026, 7, 28, 12, 30)
+        service = SeasonService(session_factory, clock=FixedClock(resolved_at))
         await seed_admin_and_config(session_factory)
         proposal = await service.create_season_proposal(
             admin_telegram_id=100,
@@ -320,6 +323,8 @@ async def test_confirm_season_proposal_opens_season(tmp_path: Path) -> None:
 
         assert prompt is not None
         assert prompt.status == AdminPromptStatus.CONFIRMED
+        assert prompt.resolved_at == resolved_at
+        assert prompt.resolved_by_user_id == 1
         assert len(seasons) == 1
     finally:
         await engine.dispose()
@@ -578,6 +583,8 @@ async def test_cancel_season_proposal_creates_no_season_and_blocks_confirmation(
 ) -> None:
     service, session_factory, engine = await create_season_service(tmp_path / "season.db")
     try:
+        resolved_at = datetime(2026, 7, 28, 13, 0)
+        service = SeasonService(session_factory, clock=FixedClock(resolved_at))
         await seed_admin_and_config(session_factory)
         proposal = await service.create_season_proposal(
             admin_telegram_id=100,
@@ -595,6 +602,8 @@ async def test_cancel_season_proposal_creates_no_season_and_blocks_confirmation(
 
         assert prompt is not None
         assert prompt.status == AdminPromptStatus.CANCELLED
+        assert prompt.resolved_at == resolved_at
+        assert prompt.resolved_by_user_id == 1
         assert seasons == []
     finally:
         await engine.dispose()

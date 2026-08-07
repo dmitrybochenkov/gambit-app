@@ -1,5 +1,5 @@
 import json
-from datetime import date
+from datetime import date, datetime
 from pathlib import Path
 from unittest.mock import AsyncMock
 
@@ -19,6 +19,7 @@ from sqlalchemy.ext.asyncio import (
     create_async_engine,
 )
 
+from app.common.clock import FixedClock
 from app.db.base import Base
 from app.db.models import AdminPrompt, ScoringConfig, Season, Tournament, TournamentType
 from app.db.models.enums import (
@@ -402,6 +403,8 @@ async def test_confirmed_prompt_without_tournaments_does_not_advance_sunday_rota
                         ensure_ascii=False,
                     ),
                     status=AdminPromptStatus.CONFIRMED,
+                    resolved_at=datetime(2026, 7, 21, 12, 0),
+                    resolved_by_user_id=1,
                 )
             )
             await session.commit()
@@ -817,6 +820,8 @@ async def test_cancelled_weekly_prompt_remains_historical_and_new_open_creates_n
                     ensure_ascii=False,
                 ),
                 status=AdminPromptStatus.CANCELLED,
+                resolved_at=datetime(2026, 7, 21, 12, 0),
+                resolved_by_user_id=1,
             )
             session.add(stored)
             await session.commit()
@@ -870,6 +875,8 @@ async def test_weekly_prompt_attempt_key_uses_max_existing_numeric_suffix(
                         kind=AdminPromptKind.TOURNAMENTS_PROPOSAL,
                         payload=payload,
                         status=AdminPromptStatus.CANCELLED,
+                        resolved_at=datetime(2026, 7, 21, 12, 0),
+                        resolved_by_user_id=1,
                     ),
                     AdminPrompt(
                         key=f"{scope_key}:3",
@@ -877,6 +884,8 @@ async def test_weekly_prompt_attempt_key_uses_max_existing_numeric_suffix(
                         kind=AdminPromptKind.TOURNAMENTS_PROPOSAL,
                         payload=payload,
                         status=AdminPromptStatus.CANCELLED,
+                        resolved_at=datetime(2026, 7, 21, 12, 0),
+                        resolved_by_user_id=1,
                     ),
                 ]
             )
@@ -897,6 +906,8 @@ async def test_confirmed_weekly_prompt_remains_terminal_when_tournaments_exist(
 ) -> None:
     service, session_factory, engine = await create_calendar_service(tmp_path / "calendar.db")
     try:
+        resolved_at = datetime(2026, 7, 21, 12, 15)
+        service = CalendarService(session_factory, clock=FixedClock(resolved_at))
         await seed_calendar_data(session_factory)
 
         prompt = await service.create_weekly_tournament_prompt(100, today=date(2026, 7, 21))
@@ -913,6 +924,8 @@ async def test_confirmed_weekly_prompt_remains_terminal_when_tournaments_exist(
             stored_prompt = await session.get(AdminPrompt, prompt.id)
             assert stored_prompt is not None
             assert stored_prompt.status == AdminPromptStatus.CONFIRMED
+            assert stored_prompt.resolved_at == resolved_at
+            assert stored_prompt.resolved_by_user_id == 1
     finally:
         await engine.dispose()
 
@@ -945,6 +958,8 @@ async def test_confirmed_weekly_prompt_with_wrong_type_is_integrity_error(
                         ensure_ascii=False,
                     ),
                     status=AdminPromptStatus.CONFIRMED,
+                    resolved_at=datetime(2026, 7, 21, 12, 0),
+                    resolved_by_user_id=1,
                 )
             )
             session.add_all(
@@ -1017,6 +1032,8 @@ async def test_confirmed_weekly_prompt_without_tournaments_is_integrity_error(
                         ensure_ascii=False,
                     ),
                     status=AdminPromptStatus.CONFIRMED,
+                    resolved_at=datetime(2026, 7, 21, 12, 0),
+                    resolved_by_user_id=1,
                 )
             )
             await session.commit()

@@ -1,6 +1,16 @@
 from datetime import datetime
 
-from sqlalchemy import DateTime, ForeignKey, Index, Integer, String, Text, UniqueConstraint, text
+from sqlalchemy import (
+    CheckConstraint,
+    DateTime,
+    ForeignKey,
+    Index,
+    Integer,
+    String,
+    Text,
+    UniqueConstraint,
+    text,
+)
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.db.base import Base
@@ -35,6 +45,20 @@ class AdminPrompt(TimestampMixin, Base):
 
     __table_args__ = (
         UniqueConstraint("key", name="uq_admin_prompts_key"),
+        CheckConstraint(
+            "kind IN ('tournaments_proposal', 'season_proposal')",
+            name="kind",
+        ),
+        CheckConstraint(
+            "status IN ('pending', 'confirmed', 'cancelled')",
+            name="status",
+        ),
+        CheckConstraint(
+            "(status = 'pending' AND resolved_at IS NULL AND resolved_by_user_id IS NULL) "
+            "OR (status IN ('confirmed', 'cancelled') "
+            "AND resolved_at IS NOT NULL AND resolved_by_user_id IS NOT NULL)",
+            name="resolution_state",
+        ),
         Index("ix_admin_prompts_kind_scope_status", "kind", "scope_key", "status"),
         Index(
             "uq_admin_prompts_pending_scope",

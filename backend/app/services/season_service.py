@@ -13,6 +13,7 @@ from app.db.repositories.scoring_config_repository import ScoringConfigRepositor
 from app.db.repositories.season_repository import SeasonRepository
 from app.db.session import SessionFactory
 from app.services.access_policy import access_policy
+from app.services.admin_prompt_service import admin_prompt_service
 from app.services.dto import (
     ScoringConfigView,
     SeasonLifecycleStateView,
@@ -202,9 +203,11 @@ class SeasonService:
                     scoring_config_id=int(payload["scoring_config_id"]),
                     today=business_date,
                 )
-                prompt.status = AdminPromptStatus.CONFIRMED
-                prompt.resolved_at = self.clock.now()
-                prompt.resolved_by_user_id = actor.id
+                admin_prompt_service.confirm(
+                    prompt,
+                    actor=actor,
+                    resolved_at=self.clock.now(),
+                )
                 await session.commit()
             except IntegrityError as exc:
                 await session.rollback()
@@ -223,9 +226,11 @@ class SeasonService:
         async with self.session_factory() as session:
             actor = await access_policy.require_admin(session, admin_telegram_id)
             prompt = await self._get_pending_season_proposal(session, prompt_id)
-            prompt.status = AdminPromptStatus.CANCELLED
-            prompt.resolved_at = self.clock.now()
-            prompt.resolved_by_user_id = actor.id
+            admin_prompt_service.cancel(
+                prompt,
+                actor=actor,
+                resolved_at=self.clock.now(),
+            )
             await session.commit()
 
     async def open_season(

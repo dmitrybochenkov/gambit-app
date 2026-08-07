@@ -1,4 +1,4 @@
-from datetime import date
+from datetime import date, datetime
 from decimal import Decimal
 
 import pytest
@@ -9,8 +9,14 @@ from sqlalchemy.orm import Session
 
 from app.db.base import Base
 from app.db.factories import create_user
-from app.db.models import ScoringConfig, Season, Tournament, TournamentResult, User
-from app.db.models.enums import TournamentResultSource, TournamentStatus, UserStatus
+from app.db.models import AdminPrompt, ScoringConfig, Season, Tournament, TournamentResult, User
+from app.db.models.enums import (
+    AdminPromptKind,
+    AdminPromptStatus,
+    TournamentResultSource,
+    TournamentStatus,
+    UserStatus,
+)
 
 
 @pytest.fixture
@@ -29,6 +35,166 @@ def test_player_requires_display_name(session: Session) -> None:
 
     with pytest.raises(IntegrityError):
         session.commit()
+
+
+def _prompt(
+    *,
+    key: str,
+    kind: AdminPromptKind = AdminPromptKind.TOURNAMENTS_PROPOSAL,
+    status: AdminPromptStatus = AdminPromptStatus.PENDING,
+    resolved_at: datetime | None = None,
+    resolved_by_user_id: int | None = None,
+) -> AdminPrompt:
+    return AdminPrompt(
+        key=key,
+        kind=kind,
+        payload="{}",
+        status=status,
+        resolved_at=resolved_at,
+        resolved_by_user_id=resolved_by_user_id,
+    )
+
+
+def test_admin_prompt_pending_requires_empty_resolution_fields(session: Session) -> None:
+    session.add(_prompt(key="pending"))
+
+    session.commit()
+
+
+@pytest.mark.parametrize(
+    ("resolved_at", "resolved_by_user_id"),
+    [
+        (datetime(2026, 8, 7, 12, 0), None),
+        (None, 1),
+    ],
+)
+def test_admin_prompt_pending_rejects_resolution_fields(
+    session: Session,
+    resolved_at: datetime | None,
+    resolved_by_user_id: int | None,
+) -> None:
+    session.add(
+        _prompt(
+            key=f"pending-invalid-{resolved_at is not None}-{resolved_by_user_id is not None}",
+            resolved_at=resolved_at,
+            resolved_by_user_id=resolved_by_user_id,
+        )
+    )
+
+    with pytest.raises(IntegrityError):
+        session.commit()
+
+
+@pytest.mark.parametrize(
+    "status",
+    [AdminPromptStatus.CONFIRMED, AdminPromptStatus.CANCELLED],
+)
+def test_admin_prompt_resolved_requires_audit_fields(
+    session: Session,
+    status: AdminPromptStatus,
+) -> None:
+    session.add(_prompt(key=f"{status.value}-missing-audit", status=status))
+
+    with pytest.raises(IntegrityError):
+        session.commit()
+
+
+@pytest.mark.parametrize(
+    "status",
+    [AdminPromptStatus.CONFIRMED, AdminPromptStatus.CANCELLED],
+)
+def test_admin_prompt_resolved_accepts_audit_fields(
+    session: Session,
+    status: AdminPromptStatus,
+) -> None:
+    session.add(
+        _prompt(
+            key=f"{status.value}-valid",
+            status=status,
+            resolved_at=datetime(2026, 8, 7, 12, 0),
+            resolved_by_user_id=1,
+        )
+    )
+
+    session.commit()
+
+
+def test_admin_prompt_rejects_invalid_kind_raw_value(session: Session) -> None:
+    with pytest.raises(IntegrityError):
+        session.execute(
+            text(
+                """
+                INSERT INTO admin_prompts (
+                    "key", kind, payload, status, created_at, updated_at
+                )
+                VALUES (
+                    'invalid-kind', 'other', '{}', 'pending',
+                    CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
+                )
+                """
+            )
+        )
+
+
+@pytest.mark.parametrize("status", ["invalid", "needs_changes"])
+def test_admin_prompt_rejects_invalid_status_raw_value(
+    session: Session,
+    status: str,
+) -> None:
+    with pytest.raises(IntegrityError):
+        session.execute(
+            text(
+                """
+                INSERT INTO admin_prompts (
+                    "key", kind, payload, status, created_at, updated_at
+                )
+                VALUES (
+                    :key, 'tournaments_proposal', '{}', :status,
+                    CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
+                )
+                """
+            ),
+            {"key": f"invalid-status-{status}", "status": status},
+        )
+
+
+def test_admin_prompt_key_must_be_unique(session: Session) -> None:
+    session.add_all(
+        [
+            _prompt(key="duplicate-key"),
+            _prompt(key="duplicate-key"),
+        ]
+    )
+
+    with pytest.raises(IntegrityError):
+        session.commit()
+
+
+def test_admin_prompt_removed_columns_are_absent(session: Session) -> None:
+    columns = {row[1] for row in session.execute(text("PRAGMA table_info(admin_prompts)")).all()}
+
+    assert "notified_at" not in columns
+    assert "resolved_by_admin_id" not in columns
+
+
+def test_admin_prompt_resolved_by_user_id_fk_is_enforced(session: Session) -> None:
+    session.execute(text("PRAGMA foreign_keys=ON"))
+
+    with pytest.raises(IntegrityError):
+        session.execute(
+            text(
+                """
+                INSERT INTO admin_prompts (
+                    "key", kind, payload, status, resolved_at, resolved_by_user_id,
+                    created_at, updated_at
+                )
+                VALUES (
+                    'missing-resolver', 'season_proposal', '{}', 'confirmed',
+                    CURRENT_TIMESTAMP, 999999, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
+                )
+                """
+            )
+        )
 
 
 def test_closed_tournament_requires_tournament_fund(session: Session) -> None:

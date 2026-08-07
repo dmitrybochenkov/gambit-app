@@ -23,6 +23,7 @@ from app.db.repositories.tournament_repository import TournamentRepository
 from app.db.repositories.tournament_type_repository import TournamentTypeRepository
 from app.db.session import SessionFactory
 from app.services.access_policy import access_policy
+from app.services.admin_prompt_service import admin_prompt_service
 from app.services.dto import (
     AdminPromptView,
     TournamentPromptDayEditView,
@@ -272,19 +273,24 @@ class CalendarService:
             prompt = await repository.get_by_id(prompt_id)
             if prompt is None:
                 raise CalendarPromptNotFoundError
-            if prompt.status != AdminPromptStatus.PENDING:
-                raise CalendarPromptAlreadyResolvedError
+            admin_prompt_service.require_pending(prompt, CalendarPromptAlreadyResolvedError)
 
             if action == CalendarPromptAction.CONFIRM:
                 await self._apply_prompt(session, prompt)
-                prompt.status = AdminPromptStatus.CONFIRMED
+                admin_prompt_service.confirm(
+                    prompt,
+                    actor=actor,
+                    resolved_at=self.clock.now(),
+                )
             elif action == CalendarPromptAction.CANCEL:
-                prompt.status = AdminPromptStatus.CANCELLED
+                admin_prompt_service.cancel(
+                    prompt,
+                    actor=actor,
+                    resolved_at=self.clock.now(),
+                )
             else:
                 raise CalendarPromptUnsupportedError(action)
 
-            prompt.resolved_at = self.clock.now()
-            prompt.resolved_by_user_id = actor.id
             await self._commit_tournament_prompt(session)
             await session.refresh(prompt)
             return await self._tournament_prompt_view(session, prompt)

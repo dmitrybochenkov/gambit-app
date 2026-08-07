@@ -67,6 +67,20 @@ def upgrade() -> None:
             ["id"],
             ondelete="SET NULL",
         )
+        batch_op.create_check_constraint(
+            "kind",
+            "kind IN ('tournaments_proposal', 'season_proposal')",
+        )
+        batch_op.create_check_constraint(
+            "status",
+            "status IN ('pending', 'confirmed', 'cancelled')",
+        )
+        batch_op.create_check_constraint(
+            "resolution_state",
+            "(status = 'pending' AND resolved_at IS NULL AND resolved_by_user_id IS NULL) "
+            "OR (status IN ('confirmed', 'cancelled') "
+            "AND resolved_at IS NOT NULL AND resolved_by_user_id IS NOT NULL)",
+        )
 
     op.create_index(
         op.f("ix_admin_prompts_resolved_by_user_id"),

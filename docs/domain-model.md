@@ -29,6 +29,43 @@ Identity:
 
 Admin is a user with `role` set to `admin` or `superadmin`.
 
+### AdminPrompt
+
+Durable workflow record for administrative proposals.
+
+Fields:
+
+- `id`
+- `key`
+- `scope_key`
+- `kind`: `tournaments_proposal`, `season_proposal`
+- `payload`
+- `status`: `pending`, `confirmed`, `cancelled`
+- `resolved_at`
+- `resolved_by_user_id`
+- `created_at`
+- `updated_at`
+
+Constraints:
+
+- `key` has one authoritative named unique constraint:
+  `uq_admin_prompts_key`.
+- `kind` is restricted by `ck_admin_prompts_kind`.
+- `status` is restricted by `ck_admin_prompts_status`.
+- `resolved_by_user_id` stores internal `users.id`, not Telegram ID.
+- `resolved_by_user_id` references `users.id`.
+- `pending` prompts must have empty `resolved_at` and
+  `resolved_by_user_id`.
+- `confirmed` and `cancelled` prompts must have both `resolved_at` and
+  `resolved_by_user_id`.
+
+Rules:
+
+- A prompt is created as `pending`.
+- Editing changes only `payload`; status remains `pending`.
+- A prompt can move from `pending` to `confirmed` or `cancelled`.
+- There is no `needs_changes` state.
+
 ### Season
 
 Rating period.
