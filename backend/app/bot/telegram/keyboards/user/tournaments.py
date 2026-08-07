@@ -4,8 +4,8 @@ from aiogram.filters.callback_data import CallbackData
 from aiogram.types import InlineKeyboardMarkup
 from aiogram.utils.keyboard import InlineKeyboardBuilder
 
-from app.bot.telegram.formatters import format_tournament_label
-from app.bot.telegram.keyboards import buttons
+from app.bot.telegram.formatters import tournaments as tournament_fmt
+from app.bot.telegram.keyboards import labels
 from app.services.dto import TournamentView
 from app.services.pagination import Page
 
@@ -42,9 +42,9 @@ def tournament_registration_keyboard(
     selected_tournament_ids = selected_tournament_ids or set()
     builder = InlineKeyboardBuilder()
     for tournament in page.items:
-        prefix = buttons.SELECTED_PREFIX if tournament.id in selected_tournament_ids else ""
+        prefix = labels.SELECTED_PREFIX if tournament.id in selected_tournament_ids else ""
         builder.button(
-            text=f"{prefix}{format_tournament_label(tournament)}",
+            text=f"{prefix}{tournament_fmt.label(tournament)}",
             callback_data=TournamentRegistrationCallback(
                 action=TournamentListAction.SELECT,
                 page=page.page,
@@ -53,11 +53,11 @@ def tournament_registration_keyboard(
         )
     _add_pagination_buttons(builder, page, TournamentRegistrationCallback)
     builder.button(
-        text=buttons.CONFIRM,
+        text=labels.CONFIRM,
         callback_data=CONFIRM_TOURNAMENT_REGISTRATION_CALLBACK,
     )
     builder.button(
-        text=buttons.CANCEL,
+        text=labels.CANCEL,
         callback_data=CANCEL_TOURNAMENT_REGISTRATION_CALLBACK,
     )
     _adjust_tournament_keyboard(builder, page)
@@ -71,9 +71,9 @@ def tournament_cancellation_keyboard(
     selected_tournament_ids = selected_tournament_ids or set()
     builder = InlineKeyboardBuilder()
     for tournament in page.items:
-        prefix = buttons.SELECTED_PREFIX if tournament.id in selected_tournament_ids else ""
+        prefix = labels.SELECTED_PREFIX if tournament.id in selected_tournament_ids else ""
         builder.button(
-            text=f"{prefix}{format_tournament_label(tournament)}",
+            text=f"{prefix}{tournament_fmt.label(tournament)}",
             callback_data=TournamentCancellationCallback(
                 action=TournamentListAction.SELECT,
                 page=page.page,
@@ -82,11 +82,11 @@ def tournament_cancellation_keyboard(
         )
     _add_pagination_buttons(builder, page, TournamentCancellationCallback)
     builder.button(
-        text=buttons.CONFIRM,
+        text=labels.CONFIRM,
         callback_data=CONFIRM_TOURNAMENT_CANCELLATION_CALLBACK,
     )
     builder.button(
-        text=buttons.CANCEL,
+        text=labels.CANCEL,
         callback_data=CANCEL_TOURNAMENT_CANCELLATION_CALLBACK,
     )
     _adjust_tournament_keyboard(builder, page)

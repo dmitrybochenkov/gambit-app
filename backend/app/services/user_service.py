@@ -402,7 +402,6 @@ class UserService:
         self,
         superadmin_telegram_id: int,
         request_id: int,
-        rejection_reason: str | None = None,
     ) -> RegistrationReviewResultView:
         async with self.session_factory() as session:
             user_repository = UserRepository(session)
@@ -411,7 +410,6 @@ class UserService:
             request = await self._require_pending_request(request_repository, request_id)
             admins = await user_repository.list_active_admins()
             request.status = RegistrationRequestStatus.REJECTED
-            request.rejection_reason = rejection_reason
             request.reviewed_at = self.clock.now()
             await session.commit()
             await session.refresh(request)

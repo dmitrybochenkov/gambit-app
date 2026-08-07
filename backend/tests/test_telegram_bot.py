@@ -17,15 +17,10 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
 from app.api import telegram_webhook as webhook_module
-from app.bot.telegram import keyboards, notifications, runtime
-from app.bot.telegram.formatters import (
-    format_admin_close_tournament_card,
-    format_admin_close_tournament_confirmation,
-    format_admin_closed_tournament,
-    format_admin_result_players,
-    format_season_proposal,
-    format_tournament_label,
-)
+from app.bot.telegram import notifications, runtime
+from app.bot.telegram.formatters import results as result_fmt
+from app.bot.telegram.formatters import seasons as season_fmt
+from app.bot.telegram.formatters import tournaments as tournament_fmt
 from app.bot.telegram.handlers import admin as admin_handlers
 from app.bot.telegram.handlers import superadmin as superadmin_handlers
 from app.bot.telegram.handlers import user as user_handlers
@@ -46,6 +41,19 @@ from app.bot.telegram.handlers.user import rating as user_rating_handlers
 from app.bot.telegram.handlers.user import registration as user_registration_handlers
 from app.bot.telegram.handlers.user import start as user_start_handlers
 from app.bot.telegram.handlers.user import tournaments as user_tournament_handlers
+from app.bot.telegram.keyboards import labels
+from app.bot.telegram.keyboards.admin import calendar as admin_calendar_kb
+from app.bot.telegram.keyboards.admin import check_in as admin_check_in_kb
+from app.bot.telegram.keyboards.admin import results as admin_results_kb
+from app.bot.telegram.keyboards.admin import schedule as admin_schedule_kb
+from app.bot.telegram.keyboards.superadmin import administrators as superadmin_administrators_kb
+from app.bot.telegram.keyboards.superadmin import registrations as superadmin_registrations_kb
+from app.bot.telegram.keyboards.superadmin import seasons as superadmin_seasons_kb
+from app.bot.telegram.keyboards.superadmin import tournament_close as superadmin_tournament_close_kb
+from app.bot.telegram.keyboards.user import rating as user_rating_kb
+from app.bot.telegram.keyboards.user import tournaments as user_tournaments_kb
+from app.bot.telegram.texts.user import registration as registration_text
+from app.bot.telegram.texts.user import tournaments as tournament_text
 from app.common.clock import FixedClock
 from app.db.base import Base
 from app.db.factories import create_user
@@ -254,21 +262,21 @@ def test_parse_result_manual_value() -> None:
     assert (
         admin_result_handlers.parse_result_manual_value(
             "17",
-            field=keyboards.AdminResultField.KNOCKOUTS,
+            field=admin_results_kb.AdminResultField.KNOCKOUTS,
         )
         == 17
     )
     assert (
         admin_result_handlers.parse_result_manual_value(
             "10",
-            field=keyboards.AdminResultField.BIG_KNOCKOUTS,
+            field=admin_results_kb.AdminResultField.BIG_KNOCKOUTS,
         )
         == 10
     )
     assert (
         admin_result_handlers.parse_result_manual_value(
             "5",
-            field=keyboards.AdminResultField.PLACE,
+            field=admin_results_kb.AdminResultField.PLACE,
         )
         == 5
     )
@@ -278,7 +286,7 @@ def test_parse_result_manual_value_rejects_place_outside_top_five() -> None:
     with pytest.raises(ValueError):
         admin_result_handlers.parse_result_manual_value(
             "6",
-            field=keyboards.AdminResultField.PLACE,
+            field=admin_results_kb.AdminResultField.PLACE,
         )
 
 
@@ -308,7 +316,7 @@ def test_admin_result_players_hide_ids_and_empty_places() -> None:
     )
     page = Page(items=players, page=0, page_size=6, total_items=2)
 
-    text = format_admin_result_players(results, page)
+    text = result_fmt.players_table(results, page)
     assert text.startswith("Игроки турнира\nВоскресенье, 19 июля — Классика\n\nИгроки: 2")
     assert "В " + "работе" not in text
     assert "Место  Игрок" in text
@@ -319,7 +327,7 @@ def test_admin_result_players_hide_ids_and_empty_places() -> None:
     assert "—      Тест Игрок" in text
     buttons = [
         button.text
-        for row in keyboards.admin_result_players_keyboard(results, page).inline_keyboard
+        for row in admin_results_kb.admin_result_players_keyboard(results, page).inline_keyboard
         for button in row
     ]
     assert buttons == [
@@ -349,7 +357,7 @@ def test_admin_result_players_show_empty_state_without_entered_results() -> None
     )
     page = Page(items=players, page=0, page_size=6, total_items=1)
 
-    text = format_admin_result_players(results, page)
+    text = result_fmt.players_table(results, page)
     assert "Игроки: 1" in text
     assert "В " + "работе" not in text
     assert "Место  Игрок" in text
@@ -384,7 +392,7 @@ def test_admin_result_player_buttons_show_entered_knockouts_and_place() -> None:
 
     buttons = [
         button.text
-        for row in keyboards.admin_result_players_keyboard(results, page).inline_keyboard
+        for row in admin_results_kb.admin_result_players_keyboard(results, page).inline_keyboard
         for button in row
     ]
 
@@ -442,7 +450,7 @@ def test_admin_result_players_show_place_only_table_for_classic() -> None:
     )
 
     page = Page(items=results.players, page=0, page_size=6, total_items=5)
-    text = format_admin_result_players(results, page)
+    text = result_fmt.players_table(results, page)
 
     assert "Место  Игрок" in text
     assert "КО" not in text
@@ -493,7 +501,7 @@ def test_admin_result_players_add_knockout_columns_for_bounty() -> None:
     )
 
     page = Page(items=results.players, page=0, page_size=6, total_items=4)
-    text = format_admin_result_players(results, page)
+    text = result_fmt.players_table(results, page)
 
     assert "Место  Игрок" in text
     assert "КО  БКО" in text
@@ -523,7 +531,7 @@ def test_admin_result_players_add_bonus_only_when_supported() -> None:
     )
     page = Page(items=results.players, page=0, page_size=6, total_items=1)
 
-    text = format_admin_result_players(results, page)
+    text = result_fmt.players_table(results, page)
     assert "Место  Игрок" in text
     assert "КО  Бонус" in text
     assert "БКО" not in text
@@ -554,12 +562,11 @@ def test_admin_close_tournament_formatters_show_fund_and_game_tables() -> None:
             ),
         ],
         knockout_mode="small_big",
-        checked_in_count=2,
     )
 
-    card = format_admin_close_tournament_card(results)
-    confirmation = format_admin_close_tournament_confirmation(results, 1800)
-    closed = format_admin_closed_tournament(results)
+    card = result_fmt.close_tournament_card(results)
+    confirmation = result_fmt.close_tournament_confirmation(results, 1800)
+    closed = result_fmt.closed_tournament(results)
 
     assert "Введите Фонд турнира." in card
     assert "Место  Игрок               КО  БКО  Бонус" in card
@@ -589,7 +596,7 @@ def test_admin_result_player_field_and_value_keyboards() -> None:
 
     field_buttons = [
         button.text
-        for row in keyboards.admin_result_player_fields_keyboard(
+        for row in admin_results_kb.admin_result_player_fields_keyboard(
             results,
             player,
             page=0,
@@ -603,11 +610,11 @@ def test_admin_result_player_field_and_value_keyboards() -> None:
         "❌ Отмена",
     ]
 
-    value_rows = keyboards.admin_result_value_keyboard(
+    value_rows = admin_results_kb.admin_result_value_keyboard(
         tournament_id=125,
         page=0,
         player_id=108,
-        field=keyboards.AdminResultField.KNOCKOUTS,
+        field=admin_results_kb.AdminResultField.KNOCKOUTS,
     ).inline_keyboard
     assert [[button.text for button in row] for row in value_rows] == [
         ["1", "2", "3", "4", "5"],
@@ -618,11 +625,11 @@ def test_admin_result_player_field_and_value_keyboards() -> None:
         ["❌ Отмена"],
     ]
 
-    place_rows = keyboards.admin_result_value_keyboard(
+    place_rows = admin_results_kb.admin_result_value_keyboard(
         tournament_id=125,
         page=0,
         player_id=108,
-        field=keyboards.AdminResultField.PLACE,
+        field=admin_results_kb.AdminResultField.PLACE,
         occupied_places={2, 5},
     ).inline_keyboard
     assert [[button.text for button in row] for row in place_rows] == [
@@ -636,8 +643,8 @@ def test_tournament_label_fallback_is_unknown_tournament() -> None:
     known = tournament_view(125, date(2026, 7, 19), 2, "Weekly Deep Stack")
     unknown = tournament_view(126, date(2026, 7, 20), 999, None)
 
-    assert format_tournament_label(known) == "Воскресенье, 19 июля — Weekly Deep Stack"
-    assert format_tournament_label(unknown) == "Понедельник, 20 июля — Неопределённый турнир"
+    assert tournament_fmt.label(known) == "Воскресенье, 19 июля — Weekly Deep Stack"
+    assert tournament_fmt.label(unknown) == "Понедельник, 20 июля — Неопределённый турнир"
 
 
 async def test_place_only_result_player_opens_place_keyboard(
@@ -678,8 +685,8 @@ async def test_place_only_result_player_opens_place_keyboard(
 
     await admin_result_handlers.select_result_player(
         callback,
-        keyboards.AdminResultPlayerCallback(
-            action=keyboards.AdminResultPlayerAction.OPEN,
+        admin_results_kb.AdminResultPlayerCallback(
+            action=admin_results_kb.AdminResultPlayerAction.OPEN,
             tournament_id=125,
             page=0,
             player_id=108,
@@ -759,7 +766,7 @@ class MutableState:
         return dict(self.data)
 
 
-def registration_match(player_id: int, score: int) -> RegistrationCandidateView:
+def registration_candidate(player_id: int, score: int) -> RegistrationCandidateView:
     return RegistrationCandidateView(
         user=UserView(
             id=player_id,
@@ -867,8 +874,8 @@ async def test_admin_check_in_registered_user_flow_creates_result(
         )
         await admin_check_in_handlers.select_check_in_action(
             search_prompt_callback,
-            keyboards.AdminCheckInCallback(
-                action=keyboards.AdminCheckInAction.REGISTERED_SEARCH,
+            admin_check_in_kb.AdminCheckInCallback(
+                action=admin_check_in_kb.AdminCheckInAction.REGISTERED_SEARCH,
                 tournament_id=tournament_id,
             ),
             state,
@@ -893,8 +900,8 @@ async def test_admin_check_in_registered_user_flow_creates_result(
         )
         await admin_check_in_handlers.select_check_in_action(
             confirmation_callback,
-            keyboards.AdminCheckInCallback(
-                action=keyboards.AdminCheckInAction.CONFIRM_REGISTERED,
+            admin_check_in_kb.AdminCheckInCallback(
+                action=admin_check_in_kb.AdminCheckInAction.CONFIRM_REGISTERED,
                 tournament_id=tournament_id,
                 player_id=registered_user_id,
             ),
@@ -919,8 +926,8 @@ async def test_admin_check_in_registered_user_flow_creates_result(
         )
         await admin_check_in_handlers.select_check_in_action(
             final_callback,
-            keyboards.AdminCheckInCallback(
-                action=keyboards.AdminCheckInAction.ADD_REGISTERED,
+            admin_check_in_kb.AdminCheckInCallback(
+                action=admin_check_in_kb.AdminCheckInAction.ADD_REGISTERED,
                 tournament_id=tournament_id,
                 player_id=registered_user_id,
             ),
@@ -1029,8 +1036,8 @@ async def test_admin_check_in_registered_user_dispatcher_flow_creates_result(
             bot,
             callback_update(
                 1,
-                keyboards.AdminCheckInCallback(
-                    action=keyboards.AdminCheckInAction.REGISTERED_SEARCH,
+                admin_check_in_kb.AdminCheckInCallback(
+                    action=admin_check_in_kb.AdminCheckInAction.REGISTERED_SEARCH,
                     tournament_id=tournament_id,
                 ).pack(),
             ),
@@ -1040,8 +1047,8 @@ async def test_admin_check_in_registered_user_dispatcher_flow_creates_result(
             bot,
             callback_update(
                 3,
-                keyboards.AdminCheckInCallback(
-                    action=keyboards.AdminCheckInAction.CONFIRM_REGISTERED,
+                admin_check_in_kb.AdminCheckInCallback(
+                    action=admin_check_in_kb.AdminCheckInAction.CONFIRM_REGISTERED,
                     tournament_id=tournament_id,
                     player_id=player_id,
                 ).pack(),
@@ -1051,8 +1058,8 @@ async def test_admin_check_in_registered_user_dispatcher_flow_creates_result(
             bot,
             callback_update(
                 4,
-                keyboards.AdminCheckInCallback(
-                    action=keyboards.AdminCheckInAction.ADD_REGISTERED,
+                admin_check_in_kb.AdminCheckInCallback(
+                    action=admin_check_in_kb.AdminCheckInAction.ADD_REGISTERED,
                     tournament_id=tournament_id,
                     player_id=player_id,
                 ).pack(),
@@ -1169,14 +1176,14 @@ async def test_admin_result_dispatcher_flow_opens_today_tournament_and_saves_pla
     try:
         await runtime.telegram_dispatcher.feed_raw_update(
             bot,
-            message_update(1, keyboards.ADMIN_PANEL_RESULTS),
+            message_update(1, labels.ADMIN_PANEL_RESULTS),
         )
         await runtime.telegram_dispatcher.feed_raw_update(
             bot,
             callback_update(
                 2,
-                keyboards.AdminResultPlayerCallback(
-                    action=keyboards.AdminResultPlayerAction.OPEN,
+                admin_results_kb.AdminResultPlayerCallback(
+                    action=admin_results_kb.AdminResultPlayerAction.OPEN,
                     tournament_id=tournament_id,
                     page=0,
                     player_id=player_id,
@@ -1187,12 +1194,12 @@ async def test_admin_result_dispatcher_flow_opens_today_tournament_and_saves_pla
             bot,
             callback_update(
                 3,
-                keyboards.AdminResultValueCallback(
-                    action=keyboards.AdminResultValueAction.SET,
+                admin_results_kb.AdminResultValueCallback(
+                    action=admin_results_kb.AdminResultValueAction.SET,
                     tournament_id=tournament_id,
                     page=0,
                     player_id=player_id,
-                    field=keyboards.AdminResultField.PLACE,
+                    field=admin_results_kb.AdminResultField.PLACE,
                     value=1,
                 ).pack(),
             ),
@@ -1240,8 +1247,8 @@ async def test_future_tournament_close_callback_shows_domain_error(
 
     await superadmin_close_handlers.select_close_tournament_action(
         callback,
-        keyboards.AdminCloseTournamentCallback(
-            action=keyboards.AdminCloseTournamentAction.OPEN,
+        superadmin_tournament_close_kb.AdminCloseTournamentCallback(
+            action=superadmin_tournament_close_kb.AdminCloseTournamentAction.OPEN,
             tournament_id=7,
             page=0,
         ),
@@ -1269,7 +1276,7 @@ async def test_telegram_error_boundary_handles_unexpected_handler_error(
             "date": 1783598400,
             "chat": {"id": 444, "type": "private"},
             "from": {"id": 444, "is_bot": False, "first_name": "Админ"},
-            "text": keyboards.ADMIN_PANEL_RESULTS,
+            "text": labels.ADMIN_PANEL_RESULTS,
         },
     }
 
@@ -1306,7 +1313,7 @@ async def test_start_command_opens_registration(monkeypatch: pytest.MonkeyPatch)
     service.get_start_view.assert_awaited_once_with(123)
     message.answer.assert_awaited_once()
     answer = message.answer.await_args
-    assert answer.args[0] == user_start_handlers.texts.user.REGISTRATION_GREETING
+    assert answer.args[0] == registration_text.REGISTRATION_GREETING
     buttons = [
         button.text for row in answer.kwargs["reply_markup"].inline_keyboard for button in row
     ]
@@ -1337,10 +1344,10 @@ async def test_start_command_shows_admin_keyboard_for_admin(
     service.get_start_view.assert_awaited_once_with(123)
     assert message.answer.await_count == 1
     reply_markup = message.answer.await_args.kwargs["reply_markup"]
-    assert keyboards.MAIN_ADMIN in keyboard_texts(reply_markup)
-    assert keyboards.MAIN_RATING in keyboard_texts(reply_markup)
-    assert keyboards.MAIN_HISTORY in keyboard_texts(reply_markup)
-    assert keyboards.MAIN_HALL_OF_FAME in keyboard_texts(reply_markup)
+    assert labels.MAIN_ADMIN in keyboard_texts(reply_markup)
+    assert labels.MAIN_RATING in keyboard_texts(reply_markup)
+    assert labels.MAIN_HISTORY in keyboard_texts(reply_markup)
+    assert labels.MAIN_HALL_OF_FAME in keyboard_texts(reply_markup)
     assert "🏆 Рейтинг" not in keyboard_texts(reply_markup)
 
 
@@ -1442,7 +1449,7 @@ async def test_schedule_still_requires_registered_user(
     await user_tournament_handlers.show_tournament_schedule(message)
 
     tournament_service.get_schedule_for_player.assert_awaited_once_with(404)
-    message.answer.assert_awaited_once_with(user_start_handlers.texts.user.SCHEDULE_UNAVAILABLE)
+    message.answer.assert_awaited_once_with(tournament_text.SCHEDULE_UNAVAILABLE)
 
 
 async def test_registration_input_messages_are_deleted() -> None:
@@ -1813,7 +1820,7 @@ async def test_rating_callback_opens_current_player_page(
 async def test_rating_menu_cancel_deletes_message() -> None:
     message = SimpleNamespace(delete=AsyncMock(), answer=AsyncMock())
     callback = SimpleNamespace(message=message, answer=AsyncMock())
-    callback_data = SimpleNamespace(action=keyboards.RatingCancelAction.CANCEL)
+    callback_data = SimpleNamespace(action=user_rating_kb.RatingCancelAction.CANCEL)
 
     await user_rating_handlers.cancel_rating(callback, callback_data)
 
@@ -1825,7 +1832,7 @@ async def test_rating_menu_cancel_deletes_message() -> None:
 async def test_rating_close_deletes_message() -> None:
     message = SimpleNamespace(delete=AsyncMock(), answer=AsyncMock())
     callback = SimpleNamespace(message=message, answer=AsyncMock())
-    callback_data = SimpleNamespace(action=keyboards.RatingCancelAction.CLOSE)
+    callback_data = SimpleNamespace(action=user_rating_kb.RatingCancelAction.CLOSE)
 
     await user_rating_handlers.cancel_rating(callback, callback_data)
 
@@ -1990,7 +1997,7 @@ async def test_tournament_registration_page_callback_keeps_selection(
         answer=AsyncMock(),
     )
     callback_data = SimpleNamespace(
-        action=keyboards.TournamentListAction.PAGE,
+        action=user_tournaments_kb.TournamentListAction.PAGE,
         page=1,
         tournament_id=0,
     )
@@ -2405,7 +2412,7 @@ async def test_confirm_add_admin_promotes_player_and_notifies(
         bot=bot,
     )
     callback_data = SimpleNamespace(
-        action=keyboards.AdminAddAction.CONFIRM,
+        action=superadmin_administrators_kb.AdminAddAction.CONFIRM,
         player_id=2,
     )
 
@@ -2440,7 +2447,7 @@ async def test_admin_calendar_seasons_callback_shows_generated_proposal(
         message=message,
         answer=AsyncMock(),
     )
-    callback_data = SimpleNamespace(action=keyboards.AdminCalendarAction.SEASONS)
+    callback_data = SimpleNamespace(action=admin_calendar_kb.AdminCalendarAction.SEASONS)
     state = SimpleNamespace(set_state=AsyncMock(), update_data=AsyncMock(), clear=AsyncMock())
 
     await admin_calendar_handlers.select_admin_calendar_section(callback, callback_data, state)
@@ -2467,7 +2474,7 @@ def test_season_proposal_preview_shows_active_season_transition_from_dto() -> No
         active_season_ends_at=date(2026, 8, 9),
     )
 
-    assert format_season_proposal(proposal) == (
+    assert season_fmt.proposal(proposal) == (
         "🏆 Новый сезон\n\n"
         "Название: Осень 2026\n"
         "Дата начала: 10 августа 2026\n\n"
@@ -2497,7 +2504,7 @@ async def test_admin_calendar_seasons_callback_handles_missing_scoring_configs(
 
     await admin_calendar_handlers.select_admin_calendar_section(
         callback,
-        SimpleNamespace(action=keyboards.AdminCalendarAction.SEASONS),
+        SimpleNamespace(action=admin_calendar_kb.AdminCalendarAction.SEASONS),
         state,
     )
 
@@ -2523,7 +2530,7 @@ async def test_admin_calendar_tournaments_callback_shows_weekly_prompt(
         message=message,
         answer=AsyncMock(),
     )
-    callback_data = SimpleNamespace(action=keyboards.AdminCalendarAction.TOURNAMENTS)
+    callback_data = SimpleNamespace(action=admin_calendar_kb.AdminCalendarAction.TOURNAMENTS)
     state = SimpleNamespace(set_state=AsyncMock(), clear=AsyncMock())
 
     await admin_calendar_handlers.select_admin_calendar_section(callback, callback_data, state)
@@ -2553,18 +2560,18 @@ async def test_admin_calendar_tournaments_callback_shows_weekly_prompt(
 
 
 def test_tournament_management_callback_routes_do_not_collide() -> None:
-    top_level = keyboards.AdminCalendarCallback(
-        action=keyboards.AdminCalendarAction.TOURNAMENTS
+    top_level = admin_calendar_kb.AdminCalendarCallback(
+        action=admin_calendar_kb.AdminCalendarAction.TOURNAMENTS
     ).pack()
-    proposal_edit = keyboards.CalendarPromptCallback(
-        action=keyboards.CalendarPromptAction.EDIT,
+    proposal_edit = admin_calendar_kb.CalendarPromptCallback(
+        action=admin_calendar_kb.CalendarPromptAction.EDIT,
         prompt_id=8,
     ).pack()
-    day_edit = keyboards.TournamentPromptDayEditCallback(
+    day_edit = admin_schedule_kb.TournamentPromptDayEditCallback(
         prompt_id=8,
         tournament_date="2026-07-23",
     ).pack()
-    type_edit = keyboards.TournamentTypeEditCallback(
+    type_edit = admin_schedule_kb.TournamentTypeEditCallback(
         prompt_id=8,
         tournament_date="2026-07-23",
         tournament_type_id=2,
@@ -2604,7 +2611,7 @@ async def test_admin_calendar_prompt_denies_regular_admin(
         answer=AsyncMock(),
     )
     callback_data = SimpleNamespace(
-        action=keyboards.CalendarPromptAction.CONFIRM,
+        action=admin_calendar_kb.CalendarPromptAction.CONFIRM,
         prompt_id=7,
     )
     state = SimpleNamespace(clear=AsyncMock())
@@ -2633,7 +2640,7 @@ async def test_admin_calendar_prompt_reports_existing_tournament_date(
         answer=AsyncMock(),
     )
     callback_data = SimpleNamespace(
-        action=keyboards.CalendarPromptAction.CONFIRM,
+        action=admin_calendar_kb.CalendarPromptAction.CONFIRM,
         prompt_id=7,
     )
     state = SimpleNamespace(clear=AsyncMock())
@@ -2687,7 +2694,7 @@ async def test_admin_calendar_prompt_sends_public_schedule_after_success(
         answer=AsyncMock(),
     )
     callback_data = SimpleNamespace(
-        action=keyboards.CalendarPromptAction.CONFIRM,
+        action=admin_calendar_kb.CalendarPromptAction.CONFIRM,
         prompt_id=8,
     )
     state = SimpleNamespace(clear=AsyncMock())
@@ -2791,7 +2798,7 @@ async def test_tournament_edit_button_shows_day_options(
         answer=AsyncMock(),
     )
     callback_data = SimpleNamespace(
-        action=keyboards.CalendarPromptAction.EDIT,
+        action=admin_calendar_kb.CalendarPromptAction.EDIT,
         prompt_id=8,
     )
 
@@ -2827,7 +2834,7 @@ async def test_stale_tournament_edit_callback_returns_stale_prompt_alert(
         answer=AsyncMock(),
     )
     callback_data = SimpleNamespace(
-        action=keyboards.CalendarPromptAction.EDIT,
+        action=admin_calendar_kb.CalendarPromptAction.EDIT,
         prompt_id=404,
     )
 
@@ -2858,7 +2865,7 @@ async def test_tournament_day_edit_back_button_returns_weekly_prompt(
         answer=AsyncMock(),
     )
     callback_data = SimpleNamespace(
-        action=keyboards.CalendarPromptAction.BACK,
+        action=admin_calendar_kb.CalendarPromptAction.BACK,
         prompt_id=8,
     )
 
@@ -2976,9 +2983,10 @@ async def test_tournament_type_selection_redraws_prompt_without_type_parameters(
 
 
 def test_tournament_economy_fsm_callbacks_are_removed() -> None:
-    assert not hasattr(keyboards, "Tournament" + "EditAction")
-    assert not hasattr(keyboards, "Tournament" + "OpenTypeCallback")
-    assert not hasattr(keyboards, "TournamentPromptDayRemoveCallback")
+    for keyboard_module in (admin_calendar_kb, admin_schedule_kb):
+        assert not hasattr(keyboard_module, "Tournament" + "EditAction")
+        assert not hasattr(keyboard_module, "Tournament" + "OpenTypeCallback")
+        assert not hasattr(keyboard_module, "TournamentPromptDayRemoveCallback")
     assert not hasattr(admin_handlers, "CalendarTournament" + "OpenStates")
     assert not hasattr(admin_handlers, "remove_tournament_prompt_day")
     assert not hasattr(admin_handlers, "enter_tournament" + "_date")
@@ -3000,7 +3008,7 @@ async def test_season_change_button_shows_change_menu(
         answer=AsyncMock(),
     )
     callback_data = SimpleNamespace(
-        action=keyboards.SeasonOpenAction.CHANGE,
+        action=superadmin_seasons_kb.SeasonOpenAction.CHANGE,
         prompt_id=9,
     )
     state = SimpleNamespace(clear=AsyncMock())
@@ -3027,7 +3035,7 @@ async def test_season_change_name_button_prompts_for_input(
         answer=AsyncMock(),
     )
     callback_data = SimpleNamespace(
-        action=keyboards.SeasonOpenAction.NAME,
+        action=superadmin_seasons_kb.SeasonOpenAction.NAME,
         prompt_id=9,
     )
     state = SimpleNamespace(set_state=AsyncMock(), update_data=AsyncMock())
@@ -3056,7 +3064,7 @@ async def test_season_change_back_returns_preview(
         answer=AsyncMock(),
     )
     callback_data = SimpleNamespace(
-        action=keyboards.SeasonOpenAction.BACK,
+        action=superadmin_seasons_kb.SeasonOpenAction.BACK,
         prompt_id=9,
     )
     state = SimpleNamespace(clear=AsyncMock())
@@ -3121,7 +3129,7 @@ async def test_cancel_season_proposal_discards_prompt(
         answer=AsyncMock(),
     )
     callback_data = SimpleNamespace(
-        action=keyboards.SeasonOpenAction.CANCEL,
+        action=superadmin_seasons_kb.SeasonOpenAction.CANCEL,
         prompt_id=9,
     )
     state = SimpleNamespace(clear=AsyncMock())
@@ -3152,7 +3160,7 @@ async def test_confirm_season_proposal_calls_public_service(
         answer=AsyncMock(),
     )
     callback_data = SimpleNamespace(
-        action=keyboards.SeasonOpenAction.CONFIRM,
+        action=superadmin_seasons_kb.SeasonOpenAction.CONFIRM,
         prompt_id=9,
     )
     state = SimpleNamespace(clear=AsyncMock())
@@ -3189,7 +3197,7 @@ async def test_confirm_season_proposal_name_conflict_keeps_state(
 
     await superadmin_season_handlers.select_season_open_action(
         callback,
-        SimpleNamespace(action=keyboards.SeasonOpenAction.CONFIRM, prompt_id=9),
+        SimpleNamespace(action=superadmin_seasons_kb.SeasonOpenAction.CONFIRM, prompt_id=9),
         state,
     )
 
@@ -3218,7 +3226,7 @@ async def test_repeat_season_confirm_callback_does_not_create_second_season(
 
     await superadmin_season_handlers.select_season_open_action(
         callback,
-        SimpleNamespace(action=keyboards.SeasonOpenAction.CONFIRM, prompt_id=9),
+        SimpleNamespace(action=superadmin_seasons_kb.SeasonOpenAction.CONFIRM, prompt_id=9),
         state,
     )
 
@@ -3331,7 +3339,7 @@ async def test_admin_registration_list_page_callback_edits_list(
         answer=AsyncMock(),
     )
     callback_data = SimpleNamespace(
-        action=keyboards.RegistrationListAction.PAGE,
+        action=superadmin_registrations_kb.RegistrationListAction.PAGE,
         page=1,
         player_id=0,
     )
@@ -3357,7 +3365,7 @@ async def test_admin_registration_list_cancel_deletes_message() -> None:
     message = SimpleNamespace(delete=AsyncMock())
     callback = SimpleNamespace(message=message, answer=AsyncMock())
     callback_data = SimpleNamespace(
-        action=keyboards.RegistrationListAction.CANCEL,
+        action=superadmin_registrations_kb.RegistrationListAction.CANCEL,
         page=0,
         player_id=0,
     )
@@ -3381,7 +3389,7 @@ async def test_admin_registration_list_open_edits_message_to_review(
         answer=AsyncMock(),
     )
     callback_data = SimpleNamespace(
-        action=keyboards.RegistrationListAction.OPEN,
+        action=superadmin_registrations_kb.RegistrationListAction.OPEN,
         page=0,
         request_id=10,
     )
@@ -3422,7 +3430,7 @@ async def test_admin_panel_exit_returns_main_keyboard(
     message.answer.assert_awaited_once()
     answer = message.answer.await_args
     assert answer.args[0] == "Главное меню."
-    assert keyboards.MAIN_ADMIN in keyboard_texts(answer.kwargs["reply_markup"])
+    assert labels.MAIN_ADMIN in keyboard_texts(answer.kwargs["reply_markup"])
 
 
 async def test_admin_panel_denies_regular_player(
@@ -3444,7 +3452,7 @@ async def test_admin_panel_denies_regular_player(
 
 
 async def test_registration_review_keyboard_with_history_has_action_labels() -> None:
-    keyboard = keyboards.registration_review_keyboard(
+    keyboard = superadmin_registrations_kb.registration_review_keyboard(
         request_id=10,
         can_edit_name=True,
         can_select_candidate=True,
@@ -3476,7 +3484,7 @@ async def test_registration_review_cancel_deletes_message_without_review(
         answer=AsyncMock(),
     )
     callback_data = SimpleNamespace(
-        action=keyboards.RegistrationReviewAction.CANCEL,
+        action=superadmin_registrations_kb.RegistrationReviewAction.CANCEL,
         request_id=10,
     )
 
@@ -3525,7 +3533,7 @@ async def test_registration_review_reject_deletes_pending_and_notifies(
         answer=AsyncMock(),
     )
     callback_data = SimpleNamespace(
-        action=keyboards.RegistrationReviewAction.REJECT,
+        action=superadmin_registrations_kb.RegistrationReviewAction.REJECT,
         request_id=10,
     )
 
@@ -3547,7 +3555,7 @@ async def test_registration_review_reject_deletes_pending_and_notifies(
 async def test_registration_review_with_multiple_matches_shows_selection(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    matches = [registration_match(20, 100), registration_match(21, 92)]
+    matches = [registration_candidate(20, 100), registration_candidate(21, 92)]
     review = RegistrationReviewView(
         request=registration_review(10).request,
         candidates=matches,
@@ -3567,7 +3575,7 @@ async def test_registration_review_with_multiple_matches_shows_selection(
         answer=AsyncMock(),
     )
     callback_data = SimpleNamespace(
-        action=keyboards.RegistrationReviewAction.SELECT_CANDIDATE,
+        action=superadmin_registrations_kb.RegistrationReviewAction.SELECT_CANDIDATE,
         request_id=10,
     )
 
@@ -3605,7 +3613,7 @@ async def test_selected_registration_candidate_is_saved(
             candidate_user_id=21,
             created_at="27.07.2026 12:00",
         ),
-        candidates=[registration_match(21, 100)],
+        candidates=[registration_candidate(21, 100)],
     )
     service = SimpleNamespace(select_registration_candidate=AsyncMock(return_value=review))
     monkeypatch.setattr(superadmin_registration_handlers, "user_service", service)
@@ -3674,7 +3682,7 @@ async def test_registration_review_result_is_sent_to_other_admins(
         answer=AsyncMock(),
     )
     callback_data = SimpleNamespace(
-        action=keyboards.RegistrationReviewAction.APPROVE,
+        action=superadmin_registrations_kb.RegistrationReviewAction.APPROVE,
         request_id=10,
     )
 
@@ -3692,7 +3700,7 @@ async def test_registration_review_result_is_sent_to_other_admins(
     assert "Заявка одобрена: Админ 1" in admin_call.kwargs["text"]
     assert player_call.kwargs["chat_id"] == 200
     assert player_call.kwargs["text"] == "Ваша заявка одобрена."
-    assert keyboards.MAIN_ADMIN not in keyboard_texts(player_call.kwargs["reply_markup"])
+    assert labels.MAIN_ADMIN not in keyboard_texts(player_call.kwargs["reply_markup"])
 
 
 async def test_webhook_rejects_invalid_secret(monkeypatch: pytest.MonkeyPatch) -> None:

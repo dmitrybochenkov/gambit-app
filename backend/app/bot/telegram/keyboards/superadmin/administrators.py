@@ -1,5 +1,15 @@
-# ruff: noqa: F403,F405
-from app.bot.telegram.keyboards.admin.common import *  # noqa: F403
+from enum import StrEnum
+
+from aiogram.filters.callback_data import CallbackData
+from aiogram.types import InlineKeyboardMarkup
+from aiogram.utils.keyboard import InlineKeyboardBuilder
+
+from app.bot.telegram.keyboards import labels
+from app.bot.telegram.keyboards.admin.common import _admin_candidate_page_label
+from app.services.dto import UserView
+from app.services.pagination import Page
+
+ADMIN_CANDIDATE_PAGE_SIZE = 6
 
 
 class AdminCandidateAction(StrEnum):
@@ -65,7 +75,7 @@ def admin_candidate_list_keyboard(page: Page[UserView]) -> InlineKeyboardMarkup:
             )
 
     builder.button(
-        text=buttons.ADMIN_CANCEL,
+        text=labels.ADMIN_CANCEL,
         callback_data=AdminCandidateCallback(
             action=AdminCandidateAction.CANCEL,
             page=page.page,
@@ -85,14 +95,14 @@ def admin_candidate_list_keyboard(page: Page[UserView]) -> InlineKeyboardMarkup:
 def admin_add_confirmation_keyboard(player_id: int) -> InlineKeyboardMarkup:
     builder = InlineKeyboardBuilder()
     builder.button(
-        text=buttons.ADMIN_ADD_CONFIRM,
+        text=labels.ADMIN_ADD_CONFIRM,
         callback_data=AdminAddCallback(
             action=AdminAddAction.CONFIRM,
             player_id=player_id,
         ),
     )
     builder.button(
-        text=buttons.ADMIN_CANCEL,
+        text=labels.ADMIN_CANCEL,
         callback_data=AdminAddCallback(
             action=AdminAddAction.CANCEL,
             player_id=player_id,

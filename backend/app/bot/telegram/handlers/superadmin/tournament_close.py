@@ -1,12 +1,41 @@
-# ruff: noqa: F403,F405
-from aiogram import Router
+import logging
 
-from app.bot.telegram.handlers.admin.common import *  # noqa: F403
+from aiogram import F, Router
+from aiogram.fsm.context import FSMContext
+from aiogram.types import CallbackQuery, Message
+
+from app.bot.telegram.formatters import results as result_fmt
+from app.bot.telegram.handlers.admin.shared import (
+    RESULT_SUMMARY_PARSE_MODE,
+)
+from app.bot.telegram.handlers.admin.shared import (
+    delete_callback_message as _delete_callback_message,
+)
+from app.bot.telegram.keyboards import labels
+from app.bot.telegram.keyboards.admin import results as admin_results_kb
+from app.bot.telegram.keyboards.superadmin import panel as superadmin_panel_kb
+from app.bot.telegram.keyboards.superadmin import tournament_close as superadmin_tournament_close_kb
+from app.bot.telegram.states import AdminResultStates
+from app.bot.telegram.texts.superadmin import panel as panel_text
+from app.bot.telegram.texts.superadmin import tournament_close as text
+from app.services.access_policy import AdminAccessDeniedError
+from app.services.pagination import pagination_service
+from app.services.result_service import (
+    FutureTournamentCannotBeClosedError,
+    ResultInvalidFundError,
+    ResultService,
+    ResultTournamentNotFoundError,
+    ResultValidationError,
+    result_service,
+)
+
+logger = logging.getLogger(__name__)
+
 
 router = Router(name="admin.tournament_close")
 
 
-@router.message(F.text == keyboards.ADMIN_PANEL_CLOSE_TOURNAMENT)
+@router.message(F.text == labels.ADMIN_PANEL_CLOSE_TOURNAMENT)
 async def show_close_tournament_flow(message: Message, state: FSMContext) -> None:
     if message.from_user is None:
         return
@@ -16,13 +45,13 @@ async def show_close_tournament_flow(message: Message, state: FSMContext) -> Non
             message.from_user.id
         )
     except AdminAccessDeniedError:
-        await message.answer(texts.admin.INSUFFICIENT_RIGHTS)
+        await message.answer(panel_text.INSUFFICIENT_RIGHTS)
         return
 
     if not tournaments:
         await message.answer(
             "Нет незакрытых турниров.",
-            reply_markup=keyboards.superadmin_panel_keyboard(),
+            reply_markup=superadmin_panel_kb.superadmin_panel_keyboard(),
         )
         return
 
@@ -39,50 +68,52 @@ async def show_close_tournament_flow(message: Message, state: FSMContext) -> Non
     page = pagination_service.paginate(
         tournaments,
         page=0,
-        page_size=keyboards.ADMIN_RESULT_PAGE_SIZE,
+        page_size=admin_results_kb.ADMIN_RESULT_PAGE_SIZE,
     )
     await message.answer(
-        format_admin_close_tournament_list(page),
-        reply_markup=keyboards.admin_close_tournament_list_keyboard(page),
+        result_fmt.close_tournament_list(page),
+        reply_markup=superadmin_tournament_close_kb.admin_close_tournament_list_keyboard(page),
     )
 
 
-@router.callback_query(keyboards.AdminCloseTournamentCallback.filter())
+@router.callback_query(superadmin_tournament_close_kb.AdminCloseTournamentCallback.filter())
 async def select_close_tournament_action(
     callback: CallbackQuery,
-    callback_data: keyboards.AdminCloseTournamentCallback,
+    callback_data: superadmin_tournament_close_kb.AdminCloseTournamentCallback,
     state: FSMContext,
 ) -> None:
     try:
-        if callback_data.action == keyboards.AdminCloseTournamentAction.CANCEL:
+        if callback_data.action == superadmin_tournament_close_kb.AdminCloseTournamentAction.CANCEL:
             await state.clear()
-            await callback.answer(texts.admin.ADMIN_RESULTS_CANCELLED)
+            await callback.answer(text.ADMIN_RESULTS_CANCELLED)
             if callback.message is not None:
                 await _delete_callback_message(callback)
                 await callback.message.answer(
-                    texts.admin.ADMIN_RESULTS_CANCELLED,
-                    reply_markup=keyboards.superadmin_panel_keyboard(),
+                    text.ADMIN_RESULTS_CANCELLED,
+                    reply_markup=superadmin_panel_kb.superadmin_panel_keyboard(),
                 )
             return
 
-        if callback_data.action == keyboards.AdminCloseTournamentAction.PAGE:
+        if callback_data.action == superadmin_tournament_close_kb.AdminCloseTournamentAction.PAGE:
             tournaments = await result_service.list_unclosed_tournaments_for_superadmin(
                 callback.from_user.id
             )
             page = pagination_service.paginate(
                 tournaments,
                 page=callback_data.page,
-                page_size=keyboards.ADMIN_RESULT_PAGE_SIZE,
+                page_size=admin_results_kb.ADMIN_RESULT_PAGE_SIZE,
             )
             await callback.answer()
             if callback.message is not None:
                 await callback.message.edit_text(
-                    format_admin_close_tournament_list(page),
-                    reply_markup=keyboards.admin_close_tournament_list_keyboard(page),
+                    result_fmt.close_tournament_list(page),
+                    reply_markup=superadmin_tournament_close_kb.admin_close_tournament_list_keyboard(
+                        page
+                    ),
                 )
             return
 
-        if callback_data.action == keyboards.AdminCloseTournamentAction.BACK:
+        if callback_data.action == superadmin_tournament_close_kb.AdminCloseTournamentAction.BACK:
             await state.clear()
             tournaments = await result_service.list_unclosed_tournaments_for_superadmin(
                 callback.from_user.id
@@ -94,24 +125,26 @@ async def select_close_tournament_action(
                 page = pagination_service.paginate(
                     tournaments,
                     page=callback_data.page,
-                    page_size=keyboards.ADMIN_RESULT_PAGE_SIZE,
+                    page_size=admin_results_kb.ADMIN_RESULT_PAGE_SIZE,
                 )
                 await callback.message.edit_text(
-                    format_admin_close_tournament_list(page),
-                    reply_markup=keyboards.admin_close_tournament_list_keyboard(page),
+                    result_fmt.close_tournament_list(page),
+                    reply_markup=superadmin_tournament_close_kb.admin_close_tournament_list_keyboard(
+                        page
+                    ),
                 )
                 return
             await _delete_callback_message(callback)
             await callback.message.answer(
                 "Добро пожаловать в админ-панель.",
-                reply_markup=keyboards.superadmin_panel_keyboard(),
+                reply_markup=superadmin_panel_kb.superadmin_panel_keyboard(),
             )
             return
 
         if callback_data.action in {
-            keyboards.AdminCloseTournamentAction.OPEN,
-            keyboards.AdminCloseTournamentAction.ENTER_FUND,
-            keyboards.AdminCloseTournamentAction.CHANGE_FUND,
+            superadmin_tournament_close_kb.AdminCloseTournamentAction.OPEN,
+            superadmin_tournament_close_kb.AdminCloseTournamentAction.ENTER_FUND,
+            superadmin_tournament_close_kb.AdminCloseTournamentAction.CHANGE_FUND,
         }:
             await callback.answer()
             if callback.message is not None:
@@ -123,7 +156,10 @@ async def select_close_tournament_action(
                 )
             return
 
-        if callback_data.action == keyboards.AdminCloseTournamentAction.CONFIRM:
+        if (
+            callback_data.action
+            == superadmin_tournament_close_kb.AdminCloseTournamentAction.CONFIRM
+        ):
             data = await state.get_data()
             tournament_fund = int(data["tournament_fund"])
             results = await result_service.close_tournament(
@@ -136,18 +172,18 @@ async def select_close_tournament_action(
             if callback.message is not None:
                 await _delete_callback_message(callback)
                 await callback.message.answer(
-                    format_admin_closed_tournament(results),
+                    result_fmt.closed_tournament(results),
                     parse_mode=RESULT_SUMMARY_PARSE_MODE,
                 )
             return
     except AdminAccessDeniedError:
-        await callback.answer(texts.admin.ACCESS_DENIED, show_alert=True)
+        await callback.answer(text.ACCESS_DENIED, show_alert=True)
         return
     except ResultInvalidFundError:
-        await callback.answer(format_admin_tournament_fund_error(), show_alert=True)
+        await callback.answer(result_fmt.tournament_fund_error(), show_alert=True)
         return
     except ResultTournamentNotFoundError:
-        await callback.answer(texts.admin.ADMIN_RESULTS_NOT_FOUND, show_alert=True)
+        await callback.answer(text.ADMIN_RESULTS_NOT_FOUND, show_alert=True)
         return
     except FutureTournamentCannotBeClosedError:
         await callback.answer("Будущий турнир нельзя закрыть.", show_alert=True)
@@ -155,10 +191,10 @@ async def select_close_tournament_action(
     except ResultValidationError as error:
         await callback.answer()
         if callback.message is not None:
-            await callback.message.answer(format_admin_close_tournament_blocked(error.errors))
+            await callback.message.answer(result_fmt.close_tournament_blocked(error.errors))
         return
 
-    await callback.answer(texts.admin.ADMIN_RESULTS_NOT_FOUND, show_alert=True)
+    await callback.answer(text.ADMIN_RESULTS_NOT_FOUND, show_alert=True)
 
 
 async def _send_close_tournament_card(
@@ -180,8 +216,8 @@ async def _send_close_tournament_card(
     if errors:
         await state.clear()
         await message.answer(
-            format_admin_close_tournament_blocked(errors),
-            reply_markup=keyboards.admin_close_tournament_card_keyboard(
+            result_fmt.close_tournament_blocked(errors),
+            reply_markup=superadmin_tournament_close_kb.admin_close_tournament_card_keyboard(
                 tournament_id=tournament_id,
                 page=page,
             ),
@@ -190,8 +226,8 @@ async def _send_close_tournament_card(
     await state.set_state(AdminResultStates.entering_tournament_fund)
     await state.update_data(close_tournament_id=tournament_id, close_tournament_page=page)
     await message.answer(
-        format_admin_close_tournament_card(results),
-        reply_markup=keyboards.admin_close_tournament_card_keyboard(
+        result_fmt.close_tournament_card(results),
+        reply_markup=superadmin_tournament_close_kb.admin_close_tournament_card_keyboard(
             tournament_id=tournament_id,
             page=page,
         ),
@@ -217,8 +253,8 @@ async def _edit_close_tournament_card(
     if errors:
         await state.clear()
         await callback.message.edit_text(
-            format_admin_close_tournament_blocked(errors),
-            reply_markup=keyboards.admin_close_tournament_card_keyboard(
+            result_fmt.close_tournament_blocked(errors),
+            reply_markup=superadmin_tournament_close_kb.admin_close_tournament_card_keyboard(
                 tournament_id=tournament_id,
                 page=page,
             ),
@@ -227,8 +263,8 @@ async def _edit_close_tournament_card(
     await state.set_state(AdminResultStates.entering_tournament_fund)
     await state.update_data(close_tournament_id=tournament_id, close_tournament_page=page)
     await callback.message.edit_text(
-        format_admin_close_tournament_card(results),
-        reply_markup=keyboards.admin_close_tournament_card_keyboard(
+        result_fmt.close_tournament_card(results),
+        reply_markup=superadmin_tournament_close_kb.admin_close_tournament_card_keyboard(
             tournament_id=tournament_id,
             page=page,
         ),
@@ -252,8 +288,8 @@ async def enter_tournament_fund(message: Message, state: FSMContext) -> None:
         )
     except (ValueError, ResultInvalidFundError):
         await message.answer(
-            format_admin_tournament_fund_error(),
-            reply_markup=keyboards.admin_close_tournament_fund_error_keyboard(
+            result_fmt.tournament_fund_error(),
+            reply_markup=superadmin_tournament_close_kb.admin_close_tournament_fund_error_keyboard(
                 tournament_id=tournament_id,
                 page=page_number,
             ),
@@ -261,11 +297,11 @@ async def enter_tournament_fund(message: Message, state: FSMContext) -> None:
         return
     except AdminAccessDeniedError:
         await state.clear()
-        await message.answer(texts.admin.ACCESS_DENIED)
+        await message.answer(text.ACCESS_DENIED)
         return
     except ResultTournamentNotFoundError:
         await state.clear()
-        await message.answer(texts.admin.ADMIN_RESULTS_NOT_FOUND)
+        await message.answer(text.ADMIN_RESULTS_NOT_FOUND)
         return
     except FutureTournamentCannotBeClosedError:
         await state.clear()
@@ -275,8 +311,8 @@ async def enter_tournament_fund(message: Message, state: FSMContext) -> None:
     await state.update_data(tournament_fund=int(tournament_fund))
     await state.set_state(None)
     await message.answer(
-        format_admin_close_tournament_confirmation(results, tournament_fund),
-        reply_markup=keyboards.admin_close_tournament_confirmation_keyboard(
+        result_fmt.close_tournament_confirmation(results, tournament_fund),
+        reply_markup=superadmin_tournament_close_kb.admin_close_tournament_confirmation_keyboard(
             tournament_id=tournament_id,
             page=page_number,
         ),

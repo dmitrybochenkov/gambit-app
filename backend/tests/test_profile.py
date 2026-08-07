@@ -5,7 +5,7 @@ from pathlib import Path
 from conftest import build_player, seed_tournament_types_async, tournament_type_id
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
-from app.bot.telegram.formatters import format_profile
+from app.bot.telegram.formatters.statistics import profile as profile_fmt
 from app.db.base import Base
 from app.db.models import (
     ScoringConfig,
@@ -19,7 +19,7 @@ from app.services.profile_service import ProfileKind, ProfileService
 
 
 def test_profile_formats_only_non_zero_prize_places() -> None:
-    message = format_profile(
+    message = profile_fmt.message(
         "Твой профиль — за всё время",
         PlayerProfileView(
             display_name="Дима Боченков",
@@ -213,11 +213,11 @@ async def test_profile_filters_current_season_and_all_time(tmp_path: Path) -> No
         assert empty_stats.total_points == Decimal("0")
         assert empty_stats.knockout_points == Decimal("0")
         assert empty_stats.tournaments_count == 0
-        all_time_message = format_profile(
+        all_time_message = profile_fmt.message(
             all_time_title,
             all_time_stats,
         )
-        empty_message = format_profile("Твой профиль — текущий сезон", empty_stats)
+        empty_message = profile_fmt.message("Твой профиль — текущий сезон", empty_stats)
         assert "Количество призовых мест:" in all_time_message
         assert "🥇 x1" in all_time_message
         assert "🥈 x1" in all_time_message

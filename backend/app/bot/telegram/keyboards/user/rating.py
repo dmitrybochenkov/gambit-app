@@ -4,7 +4,7 @@ from aiogram.filters.callback_data import CallbackData
 from aiogram.types import InlineKeyboardMarkup
 from aiogram.utils.keyboard import InlineKeyboardBuilder
 
-from app.bot.telegram.keyboards import buttons
+from app.bot.telegram.keyboards import labels
 from app.services.pagination import Page
 from app.services.rating_service import RatingKind
 
@@ -28,23 +28,23 @@ class RatingCancelCallback(CallbackData, prefix="rating_cancel"):
 def rating_keyboard() -> InlineKeyboardMarkup:
     builder = InlineKeyboardBuilder()
     builder.button(
-        text=buttons.RATING_CURRENT_SEASON,
+        text=labels.RATING_CURRENT_SEASON,
         callback_data=RatingCallback(kind=RatingKind.CURRENT_SEASON, page=-1),
     )
     builder.button(
-        text=buttons.RATING_ALL_TIME,
+        text=labels.RATING_ALL_TIME,
         callback_data=RatingCallback(kind=RatingKind.ALL_TIME, page=-1),
     )
     builder.button(
-        text=buttons.RATING_KNOCKOUTS_CURRENT_SEASON,
+        text=labels.RATING_KNOCKOUTS_CURRENT_SEASON,
         callback_data=RatingCallback(kind=RatingKind.KNOCKOUTS_CURRENT_SEASON, page=-1),
     )
     builder.button(
-        text=buttons.RATING_KNOCKOUTS_ALL_TIME,
+        text=labels.RATING_KNOCKOUTS_ALL_TIME,
         callback_data=RatingCallback(kind=RatingKind.KNOCKOUTS_ALL_TIME, page=-1),
     )
     builder.button(
-        text=buttons.CANCEL,
+        text=labels.CANCEL,
         callback_data=RatingCancelCallback(action=RatingCancelAction.CANCEL),
     )
     builder.adjust(1)
@@ -71,7 +71,7 @@ def rating_page_keyboard(
             callback_data=RatingCallback(kind=kind, page=page.next_page),
         )
     builder.button(
-        text=buttons.RATING_CLOSE,
+        text=labels.RATING_CLOSE,
         callback_data=RatingCancelCallback(action=RatingCancelAction.CLOSE),
     )
     navigation_buttons = 1 + int(page.has_previous) + int(page.has_next)

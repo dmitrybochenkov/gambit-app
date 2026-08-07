@@ -1,15 +1,16 @@
-# ruff: noqa: F403,F405
-from app.bot.telegram.keyboards.admin.common import *  # noqa: F403
+from aiogram.types import KeyboardButton, ReplyKeyboardMarkup
+
+from app.bot.telegram.keyboards import labels
 
 
 def superadmin_panel_keyboard() -> ReplyKeyboardMarkup:
     return ReplyKeyboardMarkup(
         keyboard=[
-            [KeyboardButton(text=buttons.ADMIN_PANEL_REGISTRATIONS)],
-            [KeyboardButton(text=buttons.ADMIN_PANEL_CALENDAR)],
-            [KeyboardButton(text=buttons.ADMIN_PANEL_ADD_ADMIN)],
-            [KeyboardButton(text=buttons.ADMIN_PANEL_CLOSE_TOURNAMENT)],
-            [KeyboardButton(text=buttons.ADMIN_PANEL_BACK)],
+            [KeyboardButton(text=labels.ADMIN_PANEL_REGISTRATIONS)],
+            [KeyboardButton(text=labels.ADMIN_PANEL_CALENDAR)],
+            [KeyboardButton(text=labels.ADMIN_PANEL_ADD_ADMIN)],
+            [KeyboardButton(text=labels.ADMIN_PANEL_CLOSE_TOURNAMENT)],
+            [KeyboardButton(text=labels.ADMIN_PANEL_BACK)],
         ],
         resize_keyboard=True,
     )

@@ -1,5 +1,10 @@
-# ruff: noqa: F403,F405
-from app.bot.telegram.keyboards.admin.common import *  # noqa: F403
+from enum import StrEnum
+
+from aiogram.filters.callback_data import CallbackData
+from aiogram.types import InlineKeyboardMarkup
+from aiogram.utils.keyboard import InlineKeyboardBuilder
+
+from app.bot.telegram.keyboards import labels
 
 
 class CalendarPromptAction(StrEnum):
@@ -27,14 +32,14 @@ class AdminCalendarCallback(CallbackData, prefix="admin_calendar"):
 def calendar_prompt_keyboard(prompt_id: int) -> InlineKeyboardMarkup:
     builder = InlineKeyboardBuilder()
     builder.button(
-        text=buttons.CONFIRM,
+        text=labels.CONFIRM,
         callback_data=CalendarPromptCallback(
             action=CalendarPromptAction.CONFIRM,
             prompt_id=prompt_id,
         ),
     )
     builder.button(
-        text=buttons.CANCEL,
+        text=labels.CANCEL,
         callback_data=CalendarPromptCallback(
             action=CalendarPromptAction.CANCEL,
             prompt_id=prompt_id,
@@ -47,15 +52,15 @@ def calendar_prompt_keyboard(prompt_id: int) -> InlineKeyboardMarkup:
 def admin_calendar_keyboard() -> InlineKeyboardMarkup:
     builder = InlineKeyboardBuilder()
     builder.button(
-        text=buttons.ADMIN_CALENDAR_SEASONS,
+        text=labels.ADMIN_CALENDAR_SEASONS,
         callback_data=AdminCalendarCallback(action=AdminCalendarAction.SEASONS),
     )
     builder.button(
-        text=buttons.ADMIN_CALENDAR_TOURNAMENTS,
+        text=labels.ADMIN_CALENDAR_TOURNAMENTS,
         callback_data=AdminCalendarCallback(action=AdminCalendarAction.TOURNAMENTS),
     )
     builder.button(
-        text=buttons.ADMIN_CALENDAR_CANCEL,
+        text=labels.ADMIN_CALENDAR_CANCEL,
         callback_data=AdminCalendarCallback(action=AdminCalendarAction.CANCEL),
     )
     builder.adjust(1)

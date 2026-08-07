@@ -5,7 +5,7 @@ from pathlib import Path
 from conftest import build_player, seed_tournament_types_async, tournament_type_id
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
-from app.bot.telegram.formatters import format_hall_of_fame
+from app.bot.telegram.formatters.statistics import hall_of_fame as hall_fmt
 from app.db.base import Base
 from app.db.models import ScoringConfig, Season, Tournament, TournamentResult
 from app.db.models.enums import TournamentStatus
@@ -120,9 +120,9 @@ async def test_hall_of_fame_uses_completed_seasons_and_tiebreakers(
         assert seasons[0].knockout_leader_display_name == "Иван"
         assert seasons[1].champion_display_name == "Иван"
         assert seasons[1].knockout_leader_display_name == "Петр"
-        assert "Открытый сезон" not in format_hall_of_fame(seasons)
+        assert "Открытый сезон" not in hall_fmt.message(seasons)
         assert (
-            format_hall_of_fame(seasons) == "🏆 Зал славы\n\n"
+            hall_fmt.message(seasons) == "🏆 Зал славы\n\n"
             "💍 — победитель сезона\n"
             "🥊 — лучший нокаутер сезона\n\n"
             "Сезон 2026\n"
@@ -137,6 +137,4 @@ async def test_hall_of_fame_uses_completed_seasons_and_tiebreakers(
 
 
 def test_hall_of_fame_empty_state() -> None:
-    assert format_hall_of_fame([]) == (
-        "🏆 Зал славы\n\nПока нет завершённых сезонов с результатами."
-    )
+    assert hall_fmt.message([]) == ("🏆 Зал славы\n\nПока нет завершённых сезонов с результатами.")

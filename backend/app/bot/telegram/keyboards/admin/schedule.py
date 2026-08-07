@@ -1,6 +1,11 @@
-# ruff: noqa: F403,F405
+from aiogram.filters.callback_data import CallbackData
+from aiogram.types import InlineKeyboardMarkup
+from aiogram.utils.keyboard import InlineKeyboardBuilder
+
+from app.bot.telegram.keyboards import labels
 from app.bot.telegram.keyboards.admin.calendar import CalendarPromptAction, CalendarPromptCallback
-from app.bot.telegram.keyboards.admin.common import *  # noqa: F403
+from app.bot.telegram.texts import common as common_texts
+from app.services.dto import TournamentPromptDayEditView, TournamentPromptView
 
 
 class TournamentPromptDayEditCallback(CallbackData, prefix="tour_prompt_day"):
@@ -45,14 +50,14 @@ def tournament_prompt_day_edit_keyboard(prompt: TournamentPromptView) -> InlineK
     builder = InlineKeyboardBuilder()
     for item in prompt.tournaments:
         builder.button(
-            text=texts.common.WEEKDAYS[item.date.weekday()],
+            text=common_texts.WEEKDAYS[item.date.weekday()],
             callback_data=TournamentPromptDayEditCallback(
                 prompt_id=prompt.id,
                 tournament_date=item.date.isoformat(),
             ),
         )
     builder.button(
-        text=buttons.ADMIN_CALENDAR_BACK,
+        text=labels.ADMIN_CALENDAR_BACK,
         callback_data=CalendarPromptCallback(
             action=CalendarPromptAction.BACK,
             prompt_id=prompt.id,
@@ -76,7 +81,7 @@ def tournament_type_edit_keyboard(
             ),
         )
     builder.button(
-        text=buttons.ADMIN_CALENDAR_BACK,
+        text=labels.ADMIN_CALENDAR_BACK,
         callback_data=CalendarPromptCallback(
             action=CalendarPromptAction.EDIT,
             prompt_id=edit_view.prompt_id,

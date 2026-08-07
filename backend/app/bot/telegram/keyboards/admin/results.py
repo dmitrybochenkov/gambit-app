@@ -1,5 +1,21 @@
-# ruff: noqa: F403,F405
-from app.bot.telegram.keyboards.admin.common import *  # noqa: F403
+from enum import StrEnum
+
+from aiogram.filters.callback_data import CallbackData
+from aiogram.types import InlineKeyboardMarkup
+from aiogram.utils.keyboard import InlineKeyboardBuilder
+
+from app.bot.telegram.keyboards import labels
+from app.bot.telegram.keyboards.admin.common import (
+    PLACE_EMOJIS,
+    _adjust_paged_keyboard,
+    _admin_candidate_page_label,
+)
+from app.services.dto import TournamentResultPlayerView, TournamentResultsView, TournamentView
+from app.services.pagination import Page
+from app.services.result_field_policy import is_result_field_allowed
+from app.services.result_fields import ResultField
+
+ADMIN_RESULT_PAGE_SIZE = 6
 
 
 class AdminResultTournamentAction(StrEnum):
@@ -83,7 +99,7 @@ def admin_result_tournament_list_keyboard(
         )
     _add_result_tournament_page_buttons(builder, page)
     builder.button(
-        text=buttons.ADMIN_CANCEL,
+        text=labels.ADMIN_CANCEL,
         callback_data=AdminResultTournamentCallback(
             action=AdminResultTournamentAction.CANCEL,
             page=page.page,
@@ -123,7 +139,7 @@ def admin_result_players_keyboard(
         ),
     )
     builder.button(
-        text=buttons.ADMIN_CANCEL,
+        text=labels.ADMIN_CANCEL,
         callback_data=AdminResultPlayerCallback(
             action=AdminResultPlayerAction.CANCEL,
             tournament_id=results.tournament.id,
@@ -194,7 +210,7 @@ def admin_result_player_fields_keyboard(
             ),
         )
     builder.button(
-        text=buttons.ADMIN_CANCEL,
+        text=labels.ADMIN_CANCEL,
         callback_data=AdminResultFieldCallback(
             action=AdminResultFieldAction.CANCEL,
             tournament_id=results.tournament.id,
@@ -277,7 +293,7 @@ def admin_result_value_keyboard(
     )
     footer_rows.append(1)
     builder.button(
-        text=buttons.ADMIN_CANCEL,
+        text=labels.ADMIN_CANCEL,
         callback_data=AdminResultValueCallback(
             action=AdminResultValueAction.CANCEL,
             tournament_id=tournament_id,
@@ -329,7 +345,7 @@ def admin_result_manual_value_keyboard(
         ),
     )
     builder.button(
-        text=buttons.ADMIN_CANCEL,
+        text=labels.ADMIN_CANCEL,
         callback_data=AdminResultValueCallback(
             action=AdminResultValueAction.CANCEL,
             tournament_id=tournament_id,

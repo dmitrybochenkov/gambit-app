@@ -8,7 +8,8 @@ from conftest import build_player, seed_tournament_types_async, tournament_type_
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
-from app.bot.telegram.formatters import format_public_weekly_schedule, format_tournament_schedule
+from app.bot.telegram.formatters import schedules as schedule_fmt
+from app.bot.telegram.formatters import tournaments as tournament_fmt
 from app.common.clock import FixedClock
 from app.db.base import Base
 from app.db.models import (
@@ -94,7 +95,7 @@ async def test_upcoming_schedule_uses_active_tournaments(tmp_path: Path) -> None
         tournament_type_id("classic"),
         tournament_type_id("freezeout"),
     ]
-    assert format_tournament_schedule(tournaments) == (
+    assert tournament_fmt.schedule(tournaments) == (
         "Расписание турниров\n\n"
         "• Среда, 8 июля — Баунти турнир\n"
         "• Четверг, 9 июля — Классика\n"
@@ -104,7 +105,7 @@ async def test_upcoming_schedule_uses_active_tournaments(tmp_path: Path) -> None
 
 
 def test_empty_schedule_message() -> None:
-    assert format_tournament_schedule([]) == "Ближайших турниров пока нет."
+    assert tournament_fmt.schedule([]) == "Ближайших турниров пока нет."
 
 
 def test_public_weekly_schedule_formats_full_economy_and_special_rules() -> None:
@@ -148,7 +149,7 @@ def test_public_weekly_schedule_formats_full_economy_and_special_rules() -> None
         ]
     )
 
-    messages = format_public_weekly_schedule(schedule)
+    messages = schedule_fmt.public_weekly(schedule)
 
     assert len(messages) == 1
     assert messages[0] == (
@@ -200,7 +201,7 @@ def test_public_weekly_schedule_omits_empty_rebuy_and_addon_sections() -> None:
         ]
     )
 
-    message = format_public_weekly_schedule(schedule)[0]
+    message = schedule_fmt.public_weekly(schedule)[0]
 
     assert "🗓 ЧЕТВЕРГ — ТЕСТОВЫЙ <ТУРНИР>" in message
     assert "Описание *без* markdown" in message
@@ -233,7 +234,7 @@ def test_public_weekly_schedule_splits_long_messages_on_tournament_blocks() -> N
         ]
     )
 
-    messages = format_public_weekly_schedule(schedule)
+    messages = schedule_fmt.public_weekly(schedule)
 
     assert len(messages) > 1
     assert messages[0].startswith("🔥 РАСПИСАНИЕ")
@@ -490,7 +491,7 @@ async def test_check_in_registered_player_creates_result_without_new_registratio
             )
         )
         await session.commit()
-        admin_id = admin.id
+        admin_user_id = admin.id
         tournament_id = tournament.id
         player_id = player.id
 
@@ -521,7 +522,7 @@ async def test_check_in_registered_player_creates_result_without_new_registratio
         assert results[0].tournament_id == tournament_id
         assert results[0].player_id == player_id
         assert results[0].source == TournamentResultSource.REGISTERED
-        assert results[0].checked_in_by_user_id == admin_id
+        assert results[0].checked_in_by_user_id == admin_user_id
     finally:
         await engine.dispose()
 
@@ -638,7 +639,7 @@ async def test_check_in_new_offline_player_creates_active_user_without_review(
         )
         session.add_all([admin, tournament])
         await session.commit()
-        admin_id = admin.id
+        admin_user_id = admin.id
         tournament_id = tournament.id
 
     check_in_service = TournamentCheckInService(
@@ -663,7 +664,7 @@ async def test_check_in_new_offline_player_creates_active_user_without_review(
         assert requests == []
         assert len(stored_results) == 1
         assert stored_results[0].source == TournamentResultSource.WALK_IN_NEW
-        assert stored_results[0].checked_in_by_user_id == admin_id
+        assert stored_results[0].checked_in_by_user_id == admin_user_id
     finally:
         await engine.dispose()
 

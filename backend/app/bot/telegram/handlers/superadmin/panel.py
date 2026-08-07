@@ -1,12 +1,23 @@
-# ruff: noqa: F403,F405
-from aiogram import Router
+import logging
 
-from app.bot.telegram.handlers.admin.common import *  # noqa: F403
+from aiogram import F, Router
+from aiogram.types import Message
+
+from app.bot.telegram.keyboards import labels
+from app.bot.telegram.keyboards.superadmin import panel as superadmin_panel_kb
+from app.bot.telegram.texts.superadmin import panel as panel_text
+from app.services.access_policy import AdminAccessDeniedError
+from app.services.user_service import (
+    user_service,
+)
+
+logger = logging.getLogger(__name__)
+
 
 router = Router(name="superadmin.panel")
 
 
-@router.message(F.text == keyboards.ADMIN_PANEL_SUPERADMIN)
+@router.message(F.text == labels.ADMIN_PANEL_SUPERADMIN)
 async def open_superadmin_panel(message: Message) -> None:
     if message.from_user is None:
         return
@@ -14,10 +25,10 @@ async def open_superadmin_panel(message: Message) -> None:
     try:
         await user_service.require_superadmin(message.from_user.id)
     except AdminAccessDeniedError:
-        await message.answer(texts.admin.INSUFFICIENT_RIGHTS)
+        await message.answer(panel_text.INSUFFICIENT_RIGHTS)
         return
 
     await message.answer(
-        texts.admin.SUPERADMIN_PANEL_WELCOME,
-        reply_markup=keyboards.superadmin_panel_keyboard(),
+        panel_text.SUPERADMIN_PANEL_WELCOME,
+        reply_markup=superadmin_panel_kb.superadmin_panel_keyboard(),
     )

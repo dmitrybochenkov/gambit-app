@@ -16,7 +16,7 @@ class RegistrationRequest(TimestampMixin, Base):
     __tablename__ = "registration_requests"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
-    telegram_id: Mapped[int | None] = mapped_column(BigInteger, nullable=True, index=True)
+    telegram_id: Mapped[int] = mapped_column(BigInteger, nullable=False, index=True)
     request_type: Mapped[RegistrationRequestType] = mapped_column(
         database_enum(RegistrationRequestType, "registration_request_type"),
         nullable=False,
@@ -39,7 +39,6 @@ class RegistrationRequest(TimestampMixin, Base):
         nullable=True,
         index=True,
     )
-    rejection_reason: Mapped[str | None] = mapped_column(String(500), nullable=True)
     reviewed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
     __table_args__ = (

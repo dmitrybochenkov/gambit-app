@@ -6,7 +6,7 @@ import pytest
 from conftest import build_player, seed_tournament_types_async, tournament_type_id
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
-from app.bot.telegram.formatters import format_historical_tournament_result
+from app.bot.telegram.formatters.statistics import history as history_fmt
 from app.db.base import Base
 from app.db.models import ScoringConfig, Season, Tournament, TournamentResult
 from app.db.models.enums import TournamentStatus, UserStatus
@@ -224,7 +224,7 @@ async def test_history_result_sorting_and_formatter(tmp_path: Path) -> None:
             Decimal("0.00"),
         ]
         page = pagination_service.paginate(result.rows, page=0, page_size=20)
-        text = format_historical_tournament_result(result, page)
+        text = history_fmt.tournament_result(result, page)
         assert "Место  Игрок                  🥊   👑🥊   Очки" in text
         assert "Борис" in text
         assert "Александр Очень Дли…" in text

@@ -5,8 +5,8 @@ from aiogram.filters.callback_data import CallbackData
 from aiogram.types import InlineKeyboardMarkup, KeyboardButton, ReplyKeyboardMarkup
 from aiogram.utils.keyboard import InlineKeyboardBuilder
 
-from app.bot.telegram import texts
-from app.bot.telegram.keyboards import buttons
+from app.bot.telegram.keyboards import labels
+from app.bot.telegram.texts import common as common_texts
 from app.services.dto import (
     CheckInCandidateView,
     RegistrationCandidateView,
@@ -22,18 +22,6 @@ from app.services.dto import (
 from app.services.pagination import Page
 from app.services.result_field_policy import is_result_field_allowed
 from app.services.result_fields import ResultField
-
-REGISTRATION_LIST_PAGE_SIZE = 6
-
-
-ADMIN_CANDIDATE_PAGE_SIZE = 6
-
-
-ADMIN_RESULT_PAGE_SIZE = 6
-
-
-ADMIN_CHECK_IN_PAGE_SIZE = 6
-
 
 PLACE_EMOJIS = {
     1: "1️⃣",

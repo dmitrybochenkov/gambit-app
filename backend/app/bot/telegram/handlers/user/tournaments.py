@@ -1,12 +1,28 @@
-# ruff: noqa: F403,F405
-from aiogram import Router
+from aiogram import F, Router
+from aiogram.fsm.context import FSMContext
+from aiogram.types import CallbackQuery, Message
 
-from app.bot.telegram.handlers.user.common import *  # noqa: F403
+from app.bot.telegram.formatters import tournaments as tournament_fmt
+from app.bot.telegram.handlers.user.shared import (
+    delete_message as _delete_message,
+)
+from app.bot.telegram.keyboards import labels
+from app.bot.telegram.keyboards.user import tournaments as user_tournaments_kb
+from app.bot.telegram.texts.user import tournaments as text
+from app.services.pagination import pagination_service
+from app.services.tournament_service import (
+    TournamentCancellationUnavailableError,
+    TournamentRegistrationAlreadyCheckedInError,
+    TournamentRegistrationNotAllowedError,
+    TournamentScheduleNotAllowedError,
+    TournamentUnavailableError,
+    tournament_service,
+)
 
 router = Router(name="user.tournaments")
 
 
-@router.message(F.text == keyboards.MAIN_SCHEDULE)
+@router.message(F.text == labels.MAIN_SCHEDULE)
 async def show_tournament_schedule(message: Message) -> None:
     if message.from_user is None:
         return
@@ -14,13 +30,13 @@ async def show_tournament_schedule(message: Message) -> None:
     try:
         tournaments = await tournament_service.get_schedule_for_player(message.from_user.id)
     except TournamentScheduleNotAllowedError:
-        await message.answer(texts.user.SCHEDULE_UNAVAILABLE)
+        await message.answer(text.SCHEDULE_UNAVAILABLE)
         return
 
-    await message.answer(format_tournament_schedule(tournaments))
+    await message.answer(tournament_fmt.schedule(tournaments))
 
 
-@router.message(F.text == keyboards.MAIN_REGISTER)
+@router.message(F.text == labels.MAIN_REGISTER)
 async def show_tournaments_for_registration(message: Message, state: FSMContext) -> None:
     if message.from_user is None:
         return
@@ -30,11 +46,11 @@ async def show_tournaments_for_registration(message: Message, state: FSMContext)
             message.from_user.id
         )
     except TournamentRegistrationNotAllowedError:
-        await message.answer(texts.user.TOURNAMENT_REGISTRATION_UNAVAILABLE)
+        await message.answer(text.TOURNAMENT_REGISTRATION_UNAVAILABLE)
         return
 
     if not tournaments:
-        await message.answer(texts.user.TOURNAMENT_REGISTRATION_EMPTY)
+        await message.answer(text.TOURNAMENT_REGISTRATION_EMPTY)
         return
 
     registered_tournaments = await tournament_service.get_player_upcoming_registrations(
@@ -48,33 +64,33 @@ async def show_tournaments_for_registration(message: Message, state: FSMContext)
     page = pagination_service.paginate(
         tournaments,
         page=0,
-        page_size=keyboards.TOURNAMENT_LIST_PAGE_SIZE,
+        page_size=user_tournaments_kb.TOURNAMENT_LIST_PAGE_SIZE,
     )
     await message.answer(
-        texts.user.TOURNAMENT_REGISTRATION_PROMPT,
-        reply_markup=keyboards.tournament_registration_keyboard(
+        text.TOURNAMENT_REGISTRATION_PROMPT,
+        reply_markup=user_tournaments_kb.tournament_registration_keyboard(
             page,
             set(selected_tournament_ids),
         ),
     )
 
 
-@router.callback_query(keyboards.TournamentRegistrationCallback.filter())
+@router.callback_query(user_tournaments_kb.TournamentRegistrationCallback.filter())
 async def register_for_tournament(
     callback: CallbackQuery,
-    callback_data: keyboards.TournamentRegistrationCallback,
+    callback_data: user_tournaments_kb.TournamentRegistrationCallback,
     state: FSMContext,
 ) -> None:
     data = await state.get_data()
     selected_tournament_ids = set(data.get("tournament_registration_selection", []))
-    if callback_data.action == keyboards.TournamentListAction.PAGE:
+    if callback_data.action == user_tournaments_kb.TournamentListAction.PAGE:
         answer = None
     elif callback_data.tournament_id in selected_tournament_ids:
         selected_tournament_ids.remove(callback_data.tournament_id)
-        answer = texts.user.TOURNAMENT_REMOVED_FROM_SELECTION
+        answer = text.TOURNAMENT_REMOVED_FROM_SELECTION
     else:
         selected_tournament_ids.add(callback_data.tournament_id)
-        answer = texts.user.TOURNAMENT_ADDED_TO_SELECTION
+        answer = text.TOURNAMENT_ADDED_TO_SELECTION
 
     try:
         tournaments = await tournament_service.get_registration_options_for_player(
@@ -82,7 +98,7 @@ async def register_for_tournament(
         )
     except TournamentRegistrationNotAllowedError:
         await callback.answer(
-            texts.user.TOURNAMENT_REGISTRATION_ACTIVE_ONLY,
+            text.TOURNAMENT_REGISTRATION_ACTIVE_ONLY,
             show_alert=True,
         )
         return
@@ -92,12 +108,12 @@ async def register_for_tournament(
     page = pagination_service.paginate(
         tournaments,
         page=callback_data.page,
-        page_size=keyboards.TOURNAMENT_LIST_PAGE_SIZE,
+        page_size=user_tournaments_kb.TOURNAMENT_LIST_PAGE_SIZE,
     )
 
     if callback.message is not None:
         await callback.message.edit_reply_markup(
-            reply_markup=keyboards.tournament_registration_keyboard(
+            reply_markup=user_tournaments_kb.tournament_registration_keyboard(
                 page,
                 selected_tournament_ids,
             )
@@ -108,7 +124,7 @@ async def register_for_tournament(
         await callback.answer(answer)
 
 
-@router.callback_query(F.data == keyboards.CONFIRM_TOURNAMENT_REGISTRATION_CALLBACK)
+@router.callback_query(F.data == user_tournaments_kb.CONFIRM_TOURNAMENT_REGISTRATION_CALLBACK)
 async def confirm_tournament_registration(
     callback: CallbackQuery,
     state: FSMContext,
@@ -116,7 +132,7 @@ async def confirm_tournament_registration(
     data = await state.get_data()
     tournament_ids = data.get("tournament_registration_selection", [])
     if not tournament_ids:
-        await callback.answer(texts.user.TOURNAMENT_SELECTION_EMPTY, show_alert=True)
+        await callback.answer(text.TOURNAMENT_SELECTION_EMPTY, show_alert=True)
         return
 
     try:
@@ -126,37 +142,37 @@ async def confirm_tournament_registration(
         )
     except TournamentRegistrationNotAllowedError:
         await callback.answer(
-            texts.user.TOURNAMENT_REGISTRATION_ACTIVE_ONLY,
+            text.TOURNAMENT_REGISTRATION_ACTIVE_ONLY,
             show_alert=True,
         )
         return
     except TournamentUnavailableError:
-        await callback.answer(texts.user.TOURNAMENT_UNAVAILABLE, show_alert=True)
+        await callback.answer(text.TOURNAMENT_UNAVAILABLE, show_alert=True)
         return
     await state.update_data(tournament_registration_selection=[])
-    await callback.answer(texts.user.ACTION_DONE)
+    await callback.answer(text.ACTION_DONE)
     if callback.message is not None:
         await _delete_message(callback.message)
         await callback.message.answer(
-            texts.user.tournament_registration_success(
-                [format_tournament_label(tournament) for tournament in tournaments]
+            text.registration_success(
+                [tournament_fmt.label(tournament) for tournament in tournaments]
             )
         )
 
 
-@router.callback_query(F.data == keyboards.CANCEL_TOURNAMENT_REGISTRATION_CALLBACK)
+@router.callback_query(F.data == user_tournaments_kb.CANCEL_TOURNAMENT_REGISTRATION_CALLBACK)
 async def cancel_tournament_registration_selection(
     callback: CallbackQuery,
     state: FSMContext,
 ) -> None:
     await state.update_data(tournament_registration_selection=[])
-    await callback.answer(texts.user.TOURNAMENT_REGISTRATION_CANCELLED)
+    await callback.answer(text.TOURNAMENT_REGISTRATION_CANCELLED)
     if callback.message is not None:
         await _delete_message(callback.message)
-        await callback.message.answer(texts.user.TOURNAMENT_REGISTRATION_CANCELLED)
+        await callback.message.answer(text.TOURNAMENT_REGISTRATION_CANCELLED)
 
 
-@router.message(F.text == keyboards.MAIN_CANCEL_REGISTRATION)
+@router.message(F.text == labels.MAIN_CANCEL_REGISTRATION)
 async def show_tournaments_for_cancellation(
     message: Message,
     state: FSMContext,
@@ -169,41 +185,41 @@ async def show_tournaments_for_cancellation(
             message.from_user.id
         )
     except TournamentRegistrationNotAllowedError:
-        await message.answer(texts.user.TOURNAMENT_CANCELLATION_UNAVAILABLE)
+        await message.answer(text.TOURNAMENT_CANCELLATION_UNAVAILABLE)
         return
 
     if not tournaments:
-        await message.answer(texts.user.TOURNAMENT_CANCELLATION_EMPTY)
+        await message.answer(text.TOURNAMENT_CANCELLATION_EMPTY)
         return
 
     await state.update_data(tournament_cancellation_selection=[])
     page = pagination_service.paginate(
         tournaments,
         page=0,
-        page_size=keyboards.TOURNAMENT_LIST_PAGE_SIZE,
+        page_size=user_tournaments_kb.TOURNAMENT_LIST_PAGE_SIZE,
     )
     await message.answer(
-        texts.user.TOURNAMENT_CANCELLATION_PROMPT,
-        reply_markup=keyboards.tournament_cancellation_keyboard(page),
+        text.TOURNAMENT_CANCELLATION_PROMPT,
+        reply_markup=user_tournaments_kb.tournament_cancellation_keyboard(page),
     )
 
 
-@router.callback_query(keyboards.TournamentCancellationCallback.filter())
+@router.callback_query(user_tournaments_kb.TournamentCancellationCallback.filter())
 async def select_tournament_for_cancellation(
     callback: CallbackQuery,
-    callback_data: keyboards.TournamentCancellationCallback,
+    callback_data: user_tournaments_kb.TournamentCancellationCallback,
     state: FSMContext,
 ) -> None:
     data = await state.get_data()
     selected_tournament_ids = set(data.get("tournament_cancellation_selection", []))
-    if callback_data.action == keyboards.TournamentListAction.PAGE:
+    if callback_data.action == user_tournaments_kb.TournamentListAction.PAGE:
         answer = None
     elif callback_data.tournament_id in selected_tournament_ids:
         selected_tournament_ids.remove(callback_data.tournament_id)
-        answer = texts.user.TOURNAMENT_REMOVED_FROM_SELECTION
+        answer = text.TOURNAMENT_REMOVED_FROM_SELECTION
     else:
         selected_tournament_ids.add(callback_data.tournament_id)
-        answer = texts.user.TOURNAMENT_ADDED_TO_SELECTION
+        answer = text.TOURNAMENT_ADDED_TO_SELECTION
 
     try:
         tournaments = await tournament_service.get_player_upcoming_registrations(
@@ -211,7 +227,7 @@ async def select_tournament_for_cancellation(
         )
     except TournamentRegistrationNotAllowedError:
         await callback.answer(
-            texts.user.TOURNAMENT_CANCELLATION_ACTIVE_ONLY,
+            text.TOURNAMENT_CANCELLATION_ACTIVE_ONLY,
             show_alert=True,
         )
         return
@@ -222,11 +238,11 @@ async def select_tournament_for_cancellation(
     page = pagination_service.paginate(
         tournaments,
         page=callback_data.page,
-        page_size=keyboards.TOURNAMENT_LIST_PAGE_SIZE,
+        page_size=user_tournaments_kb.TOURNAMENT_LIST_PAGE_SIZE,
     )
     if callback.message is not None:
         await callback.message.edit_reply_markup(
-            reply_markup=keyboards.tournament_cancellation_keyboard(
+            reply_markup=user_tournaments_kb.tournament_cancellation_keyboard(
                 page,
                 selected_tournament_ids,
             )
@@ -237,7 +253,7 @@ async def select_tournament_for_cancellation(
         await callback.answer(answer)
 
 
-@router.callback_query(F.data == keyboards.CONFIRM_TOURNAMENT_CANCELLATION_CALLBACK)
+@router.callback_query(F.data == user_tournaments_kb.CONFIRM_TOURNAMENT_CANCELLATION_CALLBACK)
 async def confirm_tournament_cancellation(
     callback: CallbackQuery,
     state: FSMContext,
@@ -245,7 +261,7 @@ async def confirm_tournament_cancellation(
     data = await state.get_data()
     tournament_ids = data.get("tournament_cancellation_selection", [])
     if not tournament_ids:
-        await callback.answer(texts.user.TOURNAMENT_SELECTION_EMPTY, show_alert=True)
+        await callback.answer(text.TOURNAMENT_SELECTION_EMPTY, show_alert=True)
         return
 
     try:
@@ -255,41 +271,41 @@ async def confirm_tournament_cancellation(
         )
     except TournamentRegistrationNotAllowedError:
         await callback.answer(
-            texts.user.TOURNAMENT_CANCELLATION_ACTIVE_ONLY,
+            text.TOURNAMENT_CANCELLATION_ACTIVE_ONLY,
             show_alert=True,
         )
         return
     except TournamentCancellationUnavailableError:
         await callback.answer(
-            texts.user.TOURNAMENT_CANCELLATION_UNAVAILABLE_ITEM,
+            text.TOURNAMENT_CANCELLATION_UNAVAILABLE_ITEM,
             show_alert=True,
         )
         return
     except TournamentRegistrationAlreadyCheckedInError:
         await callback.answer(
-            texts.user.TOURNAMENT_CANCELLATION_ALREADY_CHECKED_IN,
+            text.TOURNAMENT_CANCELLATION_ALREADY_CHECKED_IN,
             show_alert=True,
         )
         return
 
     await state.update_data(tournament_cancellation_selection=[])
-    await callback.answer(texts.user.ACTION_DONE)
+    await callback.answer(text.ACTION_DONE)
     if callback.message is not None:
         await _delete_message(callback.message)
         await callback.message.answer(
-            texts.user.tournament_cancellation_success(
-                [format_tournament_label(tournament) for tournament in tournaments]
+            text.cancellation_success(
+                [tournament_fmt.label(tournament) for tournament in tournaments]
             )
         )
 
 
-@router.callback_query(F.data == keyboards.CANCEL_TOURNAMENT_CANCELLATION_CALLBACK)
+@router.callback_query(F.data == user_tournaments_kb.CANCEL_TOURNAMENT_CANCELLATION_CALLBACK)
 async def cancel_tournament_cancellation_selection(
     callback: CallbackQuery,
     state: FSMContext,
 ) -> None:
     await state.update_data(tournament_cancellation_selection=[])
-    await callback.answer(texts.user.TOURNAMENT_CANCELLATION_CANCELLED)
+    await callback.answer(text.TOURNAMENT_CANCELLATION_CANCELLED)
     if callback.message is not None:
         await _delete_message(callback.message)
-        await callback.message.answer(texts.user.TOURNAMENT_CANCELLATION_CANCELLED)
+        await callback.message.answer(text.TOURNAMENT_CANCELLATION_CANCELLED)

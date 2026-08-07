@@ -128,44 +128,6 @@ class ResultService:
             tournament = await self._require_active_tournament(session, tournament_id)
             return await self._results_view(session, tournament.id)
 
-    async def update_player_result(
-        self,
-        admin_telegram_id: int,
-        tournament_id: int,
-        player_id: int,
-        place: int | None,
-        knockouts_count: int,
-        big_knockouts_count: int,
-        bonus_points: int = 0,
-    ) -> TournamentResultsView:
-        if knockouts_count < 0 or big_knockouts_count < 0 or bonus_points < 0:
-            raise ResultInvalidPlayerDataError
-        if place is not None and place not in {1, 2, 3, 4, 5}:
-            raise ResultInvalidPlayerDataError
-        async with self.session_factory() as session:
-            await access_policy.require_admin(session, admin_telegram_id)
-            tournament = await self._require_active_tournament(session, tournament_id)
-            result = await TournamentResultRepository(session).get_by_tournament_and_player(
-                tournament.id, player_id
-            )
-            if result is None:
-                raise ResultUserNotFoundError
-            if place is not None:
-                occupied = await TournamentResultRepository(session).list_by_tournament_and_place(
-                    tournament.id,
-                    place,
-                    exclude_result_id=result.id,
-                )
-                for other_result in occupied:
-                    other_result.place = None
-                await session.flush()
-            result.place = place
-            result.knockouts_count = knockouts_count
-            result.big_knockouts_count = big_knockouts_count
-            result.bonus_points = bonus_points
-            await session.commit()
-            return await self._results_view(session, tournament.id)
-
     async def update_player_result_field(
         self,
         admin_telegram_id: int,
@@ -336,7 +298,7 @@ class ResultService:
                 place=row.result.place,
                 knockouts_count=row.result.knockouts_count,
                 big_knockouts_count=row.result.big_knockouts_count,
-                bonus_points=int(row.result.bonus_points),
+                bonus_points=row.result.bonus_points,
                 tournament_points=row.result.tournament_points,
                 knockout_points=row.result.knockout_points,
             )
@@ -353,7 +315,6 @@ class ResultService:
             players=players,
             knockout_mode=knockout_mode.value,
             supports_bonus_points=supports_bonus_points,
-            checked_in_count=len(players),
         )
 
     @staticmethod
@@ -362,8 +323,7 @@ class ResultService:
         if not results.players:
             errors.append("Нет участников турнира.")
         places = [player.place for player in results.players if player.place is not None]
-        checked_in_count = results.checked_in_count or len(results.players)
-        required_places = set(range(1, min(5, checked_in_count) + 1))
+        required_places = set(range(1, min(5, len(results.players)) + 1))
         missing_places = sorted(required_places - set(places))
         if missing_places:
             errors.append("Введи места: " + ", ".join(str(place) for place in missing_places) + ".")

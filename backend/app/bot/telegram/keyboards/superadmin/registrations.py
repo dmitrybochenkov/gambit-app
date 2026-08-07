@@ -1,5 +1,14 @@
-# ruff: noqa: F403,F405
-from app.bot.telegram.keyboards.admin.common import *  # noqa: F403
+from enum import StrEnum
+
+from aiogram.filters.callback_data import CallbackData
+from aiogram.types import InlineKeyboardMarkup
+from aiogram.utils.keyboard import InlineKeyboardBuilder
+
+from app.bot.telegram.keyboards import labels
+from app.services.dto import RegistrationCandidateView, RegistrationReviewView
+from app.services.pagination import Page
+
+REGISTRATION_LIST_PAGE_SIZE = 6
 
 
 class RegistrationReviewAction(StrEnum):
@@ -55,21 +64,21 @@ def registration_review_keyboard(
             ),
         )
     builder.button(
-        text=buttons.ADMIN_APPROVE,
+        text=labels.ADMIN_APPROVE,
         callback_data=RegistrationReviewCallback(
             action=RegistrationReviewAction.APPROVE,
             request_id=request_id,
         ),
     )
     builder.button(
-        text=buttons.ADMIN_REJECT,
+        text=labels.ADMIN_REJECT,
         callback_data=RegistrationReviewCallback(
             action=RegistrationReviewAction.REJECT,
             request_id=request_id,
         ),
     )
     builder.button(
-        text=buttons.ADMIN_CANCEL,
+        text=labels.ADMIN_CANCEL,
         callback_data=RegistrationReviewCallback(
             action=RegistrationReviewAction.CANCEL,
             request_id=request_id,
@@ -112,7 +121,7 @@ def registration_list_keyboard(page: Page[RegistrationReviewView]) -> InlineKeyb
             )
 
     builder.button(
-        text=buttons.ADMIN_CANCEL,
+        text=labels.ADMIN_CANCEL,
         callback_data=RegistrationListCallback(
             action=RegistrationListAction.CANCEL,
             page=page.page,
@@ -145,21 +154,21 @@ def registration_candidate_selection_keyboard(
             ),
         )
     builder.button(
-        text=buttons.ADMIN_APPROVE,
+        text=labels.ADMIN_APPROVE,
         callback_data=RegistrationReviewCallback(
             action=RegistrationReviewAction.APPROVE,
             request_id=request_id,
         ),
     )
     builder.button(
-        text=buttons.ADMIN_REJECT,
+        text=labels.ADMIN_REJECT,
         callback_data=RegistrationReviewCallback(
             action=RegistrationReviewAction.REJECT,
             request_id=request_id,
         ),
     )
     builder.button(
-        text=buttons.ADMIN_CANCEL,
+        text=labels.ADMIN_CANCEL,
         callback_data=RegistrationReviewCallback(
             action=RegistrationReviewAction.CANCEL,
             request_id=request_id,

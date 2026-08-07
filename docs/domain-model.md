@@ -1,8 +1,20 @@
 # Domain Model
 
-## Entities
+## Identity Naming
 
-### User
+- `telegram_id` is the external Telegram user ID. It is used at Telegram
+  boundaries, public service use-cases, actor lookup, and notifications. It is
+  not a gameplay foreign key.
+- `user_id` is internal `users.id` in account, access, audit, and system-user
+  contexts.
+- `player_id` is internal `users.id` in gameplay contexts, such as
+  `TournamentRegistration.player_id`, `TournamentResult.player_id`, ratings,
+  history, and profile statistics.
+
+`Player` is not a separate ORM entity. Any `ACTIVE User` can act as a player;
+`role` controls access level, not play eligibility.
+
+## User
 
 Represents a Telegram user, historical player, or offline player profile.
 
@@ -12,24 +24,24 @@ Fields:
 - `telegram_id`
 - `display_name`
 - `display_name_normalized`
-- `status`: `active`, `blocked`
 - `role`: `player`, `admin`, `superadmin`
+- `status`: `active`, `blocked`
 - `approved_at`
 - `approved_by_admin_id`
 - `created_at`
 - `updated_at`
 
-Identity:
+Rules:
 
 - `id` is the stable internal identity.
-- `telegram_id` links a Telegram account when it exists.
-- `display_name_normalized` is used for search and matching, not as a database identity.
+- `telegram_id` is nullable for historical/offline users.
+- `display_name_normalized` is used for search and matching, not as a database
+  identity.
+- Duplicate normalized display names are allowed at database level.
+- Public self-registration blocks accidental duplicate names as a business
+  rule.
 
-### Admin
-
-Admin is a user with `role` set to `admin` or `superadmin`.
-
-### AdminPrompt
+## AdminPrompt
 
 Durable workflow record for administrative proposals.
 
@@ -46,29 +58,20 @@ Fields:
 - `created_at`
 - `updated_at`
 
-Constraints:
+Rules:
 
 - `key` has one authoritative named unique constraint:
   `uq_admin_prompts_key`.
-- `kind` is restricted by `ck_admin_prompts_kind`.
-- `status` is restricted by `ck_admin_prompts_status`.
-- `resolved_by_user_id` stores internal `users.id`, not Telegram ID.
-- `resolved_by_user_id` references `users.id`.
-- `pending` prompts must have empty `resolved_at` and
+- `kind` and `status` are restricted by schema checks.
+- `resolved_by_user_id` references internal `users.id`.
+- `pending` prompts have empty `resolved_at` and `resolved_by_user_id`.
+- `confirmed` and `cancelled` prompts have both `resolved_at` and
   `resolved_by_user_id`.
-- `confirmed` and `cancelled` prompts must have both `resolved_at` and
-  `resolved_by_user_id`.
-
-Rules:
-
-- A prompt is created as `pending`.
-- Editing changes only `payload`; status remains `pending`.
-- A prompt can move from `pending` to `confirmed` or `cancelled`.
 - There is no `needs_changes` state.
 
-### Season
+## Season
 
-Rating period.
+Rating period selected by tournament date.
 
 Fields:
 
@@ -77,35 +80,66 @@ Fields:
 - `scoring_config_id`
 - `starts_at`
 - `ends_at`
-- `status`: `active`, `closed`
 
-### ScoringConfig
+Rules:
 
-Scoring rules for a season.
+- Season lifecycle is date-driven; there is no persisted `Season.status`.
+- `ends_at IS NULL` means the open-ended current/future season range.
+- Tournament creation assigns the season found for that tournament date.
+- Technical `created_at` and `updated_at` timestamps are not part of the
+  current season domain contract.
+
+## RegistrationRequest
+
+Telegram-originated request to create a new player profile or link a Telegram
+account to an existing historical user.
 
 Fields:
 
 - `id`
-- `place_1_coefficient`: `0.45`
-- `place_2_coefficient`: `0.25`
-- `place_3_coefficient`: `0.15`
-- `place_4_coefficient`: `0.10`
-- `place_5_coefficient`: `0.05`
-- `knockout_points`: `15`
-- `big_knockout_points`: `60`
+- `telegram_id`
+- `request_type`: `new_player`, `link_existing_player`
+- `status`: `pending`, `approved`, `rejected`
+- `requested_display_name`
+- `requested_display_name_normalized`
+- `requested_link_name`
+- `candidate_user_id`
+- `reviewed_at`
 - `created_at`
 - `updated_at`
 
-Authoritative default knockout values live in
-`backend/app/domain/scoring.py::TournamentScoring`.
+Rules:
 
-Constraint:
+- `telegram_id` is required and stores the Telegram actor/source identity.
+- `candidate_user_id` stores internal `users.id` for the historical user the
+  actor wants to link.
+- Rejection has no persisted free-text reason in the current UX.
 
-- Coefficients are stored as decimal values, not floating-point values.
-- A scoring configuration can be shared by multiple seasons.
-- Once a configuration is used for tournament results, it is immutable. New rules require a new configuration.
+## ScoringConfig
 
-### Tournament
+Scoring rules linked from a season.
+
+Fields:
+
+- `id`
+- `place_1_coefficient`
+- `place_2_coefficient`
+- `place_3_coefficient`
+- `place_4_coefficient`
+- `place_5_coefficient`
+- `knockout_small_points`
+- `knockout_big_points`
+- `created_at`
+- `updated_at`
+
+Rules:
+
+- Coefficients are stored as decimals.
+- Knockout values are stored in the season's `ScoringConfig`; calculations use
+  the tournament season config, not hardcoded defaults.
+- New scoring rules require a new configuration.
+
+## Tournament
 
 Poker tournament in the club schedule.
 
@@ -113,23 +147,25 @@ Fields:
 
 - `id`
 - `season_id`
-- `type`: `1`, `2`, `3`
+- `tournament_type_id`
 - `date`
-- `tournament_fund`: nullable until tournament results are finalized
+- `tournament_fund`
 - `status`: `active`, `closed`, `cancelled`
 - `created_at`
 - `updated_at`
 
 Rules:
 
-- `tournament_fund` is set when finalizing the tournament.
-- A `closed` tournament must have `tournament_fund`; an `active` or `cancelled` tournament must leave it empty.
-- `tournament_fund` is a positive integer divisible by `10`.
-- Tournament dates are unique. A cancelled tournament still occupies its date.
+- `active` is editable/operational.
+- `closed` is the only published result state.
+- `cancelled` keeps the date occupied but has no fund.
+- `tournament_fund` is `NULL` before close, positive, integer, and divisible by
+  `10` when closed.
+- One tournament date is allowed in the database.
 
-### TournamentRegistration
+## TournamentRegistration
 
-Player intent to join a tournament before the tournament starts.
+Pre-registration intent before check-in.
 
 Fields:
 
@@ -137,25 +173,19 @@ Fields:
 - `tournament_id`
 - `player_id`
 - `created_at`
-- `updated_at`
-
-Constraint:
-
-- One registration row per player per tournament.
 
 Rules:
 
-- User self-registration and admin registration create the row.
-- User cancellation deletes the row.
-- User cancellation is blocked after check-in because the result row is already
+- Row exists means the player is registered.
+- Cancellation deletes the row.
+- Registration rows are immutable after creation.
+- Cancellation is blocked after check-in because `TournamentResult` is already
   the actual tournament composition.
-- Repeated registration and cancellation are idempotent from the user flow.
-- `TournamentRegistration` is not the final tournament composition. It is the
-  source list for check-in.
+- One registration row per player per tournament.
 
-### TournamentResult
+## TournamentResult
 
-Actual check-in row and final tournament result for a player.
+Actual check-in row and final result for a tournament player.
 
 Fields:
 
@@ -174,55 +204,41 @@ Fields:
 - `created_at`
 - `updated_at`
 
-Constraint:
-
-- One result/check-in row per player per tournament.
-- `source` is one of `registered`, `walk_in_existing`, `walk_in_new`.
-- `place` is either empty or an integer from `1` to `5`.
-- Each prize place can be assigned only once per tournament.
-- Knockout counts, rating point fields, and bonus points are nonnegative.
-- `bonus_points` is stored as an integer.
-
 Rules:
 
 - Check-in creates the row.
-- Admins edit result fields directly on this row.
-- Superadmin closing calculates rating points and closes the tournament.
-- Any active user can play regardless of `role`; `role` only controls access to
-  admin and superadmin actions.
+- Admin result entry edits fields on this same row.
+- One result/check-in row per player per tournament.
+- `place` is empty or `1..5`.
+- Prize places are unique inside a tournament.
+- Knockout counts and point fields are nonnegative.
+- `bonus_points` is an integer, `NOT NULL`, default `0`, and `>= 0`.
+- `total_points` is derived as
+  `tournament_points + knockout_points + bonus_points`.
 
-### TournamentTypeRule
+## TournamentType / TournamentTypeRule
+
+Tournament type stores reusable game/economy configuration. Weekly schedule
+management selects only date and tournament type; public schedule formatting
+reads details from the type configuration.
 
 Rules:
 
-- `prize_place_multiplier_places` stores JSON only through the domain codec in
-  `backend/app/domain/prize_multiplier_places.py`.
-- `NULL` means that prize-place multiplier is disabled.
+- `prize_place_multiplier_places` is persisted as JSON only through the domain
+  codec in `backend/app/domain/prize_multiplier_places.py`.
+- `NULL` means prize-place multiplier is disabled.
 - Non-empty values are sorted unique integer places from `1` to `5`.
 
-Derived values:
+## Import Semantics
 
-- `tournament_points` = tournament `tournament_fund` * coefficient for `place`
-- `knockout_points` = `knockouts_count` * config `knockout_points` + `big_knockouts_count` * config `big_knockout_points`
-- `total_points` = `tournament_points` + `knockout_points` + `bonus_points`
-- Tournament date is taken from the related tournament.
+Historical result import creates closed `legacy_unknown` tournaments and
+`TournamentResult` rows with `source = walk_in_existing`.
 
-## Status Lifecycles
+For historical tournaments:
 
-### User
-
-`active` -> `blocked`
-
-### Tournament
-
-`active` -> `closed`
-
-`active` -> `cancelled`
-
-### Tournament Registration
-
-No persisted status lifecycle.
-
-Row exists -> user is registered.
-
-Row absent -> user is not registered.
+- `tournament_fund = SUM(source field "Количество очков за турнир")` for every
+  source row on that date, including blank/unresolved players.
+- The fund belongs to the whole tournament, not only to resolved users.
+- Fund must be integer, positive, and divisible by `10`; otherwise import fails
+  fast.
+- Bonus points must be integer; fractional values fail fast.

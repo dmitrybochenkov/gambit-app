@@ -1049,7 +1049,7 @@ def print_report(plan: ImportPlan) -> None:
                 f"row {item.source_row}: {item.tournament_date.isoformat()} "
                 f"place={item.place} KO={item.knockouts_count} "
                 f"big={item.big_knockouts_count} tournament_points={money(item.tournament_points)} "
-                f"knockout_points={money(item.knockout_points)} bonus={money(item.bonus_points)}"
+                f"knockout_points={money(item.knockout_points)} bonus={item.bonus_points}"
             )
     print(f"\nVerdict: {'SAFE TO APPLY' if plan.safe_to_apply else 'NOT SAFE TO APPLY'}")
 
@@ -1190,7 +1190,7 @@ def blank_player_report_rows(plan: ImportPlan) -> list[dict[str, Any]]:
             "big_knockouts_count": item.big_knockouts_count,
             "tournament_points": money(item.tournament_points),
             "knockout_points": money(item.knockout_points),
-            "bonus_points": money(item.bonus_points),
+            "bonus_points": str(item.bonus_points),
             "reason": item.reason,
         }
         for item in plan.source.blank_player_rows
@@ -1239,7 +1239,7 @@ def plan_points(rows: list[ResolvedResultRow]) -> dict[str, str]:
     return {
         "tournament_points": money(sum((row.tournament_points for row in rows), ZERO)),
         "knockout_points": money(sum((row.knockout_points for row in rows), ZERO)),
-        "bonus_points": money(sum((row.bonus_points for row in rows), ZERO)),
+        "bonus_points": str(sum(row.bonus_points for row in rows)),
         "total_points": money(
             sum(
                 (row.tournament_points + row.knockout_points + row.bonus_points for row in rows),
@@ -1269,7 +1269,7 @@ def db_points_for_plan_dates(connection: sqlite3.Connection, plan: ImportPlan) -
     return {
         "tournament_points": money(tournament_points),
         "knockout_points": money(knockout_points),
-        "bonus_points": money(bonus_points),
+        "bonus_points": str(int(bonus_points)),
         "total_points": money(tournament_points + knockout_points + bonus_points),
     }
 

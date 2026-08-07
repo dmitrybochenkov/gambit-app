@@ -81,7 +81,10 @@ class TournamentResult(TimestampMixin, Base):
         ),
         CheckConstraint("tournament_points >= 0", name="tournament_points_nonnegative"),
         CheckConstraint("knockout_points >= 0", name="knockout_points_nonnegative"),
-        CheckConstraint("bonus_points >= 0", name="bonus_points_nonnegative"),
+        CheckConstraint(
+            "bonus_points >= 0 AND bonus_points = CAST(bonus_points AS INTEGER)",
+            name="bonus_points_nonnegative",
+        ),
         Index(
             "uq_tournament_results_tournament_place",
             "tournament_id",

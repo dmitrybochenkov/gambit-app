@@ -38,7 +38,7 @@ class TournamentRegistrationRepository:
         )
         return result.scalar_one_or_none() is not None
 
-    async def list_registered_user_ids(self, tournament_id: int) -> set[int]:
+    async def list_registered_player_ids(self, tournament_id: int) -> set[int]:
         result = await self.session.execute(
             select(TournamentRegistration.player_id).where(
                 TournamentRegistration.tournament_id == tournament_id
@@ -61,7 +61,7 @@ class TournamentRegistrationRepository:
     async def list_active_unchecked_registered_users(
         self,
         tournament_id: int,
-        checked_in_user_ids: set[int],
+        checked_in_player_ids: set[int],
     ) -> list[User]:
         statement = (
             select(User)
@@ -72,8 +72,8 @@ class TournamentRegistrationRepository:
             )
             .order_by(User.display_name, User.id)
         )
-        if checked_in_user_ids:
-            statement = statement.where(User.id.not_in(checked_in_user_ids))
+        if checked_in_player_ids:
+            statement = statement.where(User.id.not_in(checked_in_player_ids))
         result = await self.session.execute(statement)
         return list(result.scalars())
 

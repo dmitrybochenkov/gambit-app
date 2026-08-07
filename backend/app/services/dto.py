@@ -99,7 +99,7 @@ class RegistrationCandidateView:
 @dataclass(frozen=True)
 class RegistrationRequestView:
     id: int
-    telegram_id: int | None
+    telegram_id: int
     request_type: str
     status: str
     requested_display_name: str | None
@@ -196,7 +196,6 @@ class TournamentResultsView:
     players: list[TournamentResultPlayerView]
     knockout_mode: str = "none"
     supports_bonus_points: bool = False
-    checked_in_count: int = 0
 
 
 @dataclass(frozen=True)

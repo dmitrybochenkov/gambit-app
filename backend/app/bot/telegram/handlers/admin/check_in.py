@@ -1,12 +1,43 @@
-# ruff: noqa: F403,F405
-from aiogram import Router
+import logging
 
-from app.bot.telegram.handlers.admin.common import *  # noqa: F403
+from aiogram import F, Router
+from aiogram.exceptions import TelegramBadRequest, TelegramForbiddenError
+from aiogram.fsm.context import FSMContext
+from aiogram.types import CallbackQuery, Message
+
+from app.bot.telegram.formatters import check_in as check_in_fmt
+from app.bot.telegram.handlers.admin.shared import (
+    delete_callback_message as _delete_callback_message,
+)
+from app.bot.telegram.keyboards import labels
+from app.bot.telegram.keyboards.admin import check_in as admin_check_in_kb
+from app.bot.telegram.keyboards.admin import panel as admin_panel_kb
+from app.bot.telegram.keyboards.admin import results as admin_results_kb
+from app.bot.telegram.states import AdminResultStates
+from app.bot.telegram.texts.admin import panel as panel_text
+from app.bot.telegram.texts.admin import results as result_text
+from app.services.access_policy import AdminAccessDeniedError
+from app.services.pagination import pagination_service
+from app.services.tournament_check_in_service import (
+    CheckInResultView,
+    TournamentCheckInClosedError,
+    TournamentCheckInDuplicateNameError,
+    TournamentCheckInNotFoundError,
+    TournamentCheckInRegisteredUserError,
+    TournamentCheckInUserNotFoundError,
+    tournament_check_in_service,
+)
+from app.services.user_service import (
+    user_service,
+)
+
+logger = logging.getLogger(__name__)
+
 
 router = Router(name="admin.check_in")
 
 
-@router.message(F.text == keyboards.ADMIN_PANEL_CHECK_IN)
+@router.message(F.text == labels.ADMIN_PANEL_CHECK_IN)
 async def show_admin_check_in(message: Message) -> None:
     if message.from_user is None:
         return
@@ -14,7 +45,7 @@ async def show_admin_check_in(message: Message) -> None:
     try:
         tournaments = await tournament_check_in_service.list_today_tournaments(message.from_user.id)
     except AdminAccessDeniedError:
-        await message.answer(texts.admin.ACCESS_DENIED)
+        await message.answer(panel_text.ACCESS_DENIED)
         return
 
     if not tournaments:
@@ -25,11 +56,11 @@ async def show_admin_check_in(message: Message) -> None:
         page = pagination_service.paginate(
             tournaments,
             page=0,
-            page_size=keyboards.ADMIN_RESULT_PAGE_SIZE,
+            page_size=admin_results_kb.ADMIN_RESULT_PAGE_SIZE,
         )
         await message.answer(
-            format_admin_result_tournament_list(page),
-            reply_markup=keyboards.admin_result_tournament_list_keyboard(page),
+            check_in_fmt.tournament_list(page),
+            reply_markup=admin_results_kb.admin_result_tournament_list_keyboard(page),
         )
         return
 
@@ -38,31 +69,31 @@ async def show_admin_check_in(message: Message) -> None:
         tournament_id=tournaments[0].id,
     )
     await message.answer(
-        format_tournament_check_in(view),
-        reply_markup=keyboards.admin_check_in_keyboard(view),
+        check_in_fmt.summary(view),
+        reply_markup=admin_check_in_kb.admin_check_in_keyboard(view),
     )
 
 
-@router.callback_query(keyboards.AdminCheckInCallback.filter())
+@router.callback_query(admin_check_in_kb.AdminCheckInCallback.filter())
 async def select_check_in_action(
     callback: CallbackQuery,
-    callback_data: keyboards.AdminCheckInCallback,
+    callback_data: admin_check_in_kb.AdminCheckInCallback,
     state: FSMContext,
 ) -> None:
     try:
-        if callback_data.action == keyboards.AdminCheckInAction.CANCEL:
+        if callback_data.action == admin_check_in_kb.AdminCheckInAction.CANCEL:
             admin_panel = await user_service.get_admin_panel_for_admin(callback.from_user.id)
             await state.clear()
-            await callback.answer(texts.admin.ADMIN_RESULTS_CANCELLED)
+            await callback.answer(result_text.ADMIN_RESULTS_CANCELLED)
             if callback.message is not None:
                 await _delete_callback_message(callback)
                 await callback.message.answer(
-                    texts.admin.ADMIN_RESULTS_CANCELLED,
-                    reply_markup=keyboards.admin_panel_keyboard(admin_panel.admin),
+                    result_text.ADMIN_RESULTS_CANCELLED,
+                    reply_markup=admin_panel_kb.admin_panel_keyboard(admin_panel.admin),
                 )
             return
 
-        if callback_data.action == keyboards.AdminCheckInAction.BACK:
+        if callback_data.action == admin_check_in_kb.AdminCheckInAction.BACK:
             await callback.answer()
             if callback.message is not None and await _restore_check_in_previous_screen(
                 callback=callback,
@@ -72,10 +103,10 @@ async def select_check_in_action(
                 return
 
         if callback_data.action in {
-            keyboards.AdminCheckInAction.BACK,
-            keyboards.AdminCheckInAction.BACK_TO_TOURNAMENT,
+            admin_check_in_kb.AdminCheckInAction.BACK,
+            admin_check_in_kb.AdminCheckInAction.BACK_TO_TOURNAMENT,
         }:
-            if callback_data.action == keyboards.AdminCheckInAction.BACK_TO_TOURNAMENT:
+            if callback_data.action == admin_check_in_kb.AdminCheckInAction.BACK_TO_TOURNAMENT:
                 await callback.answer()
             await state.clear()
             view = await tournament_check_in_service.get_check_in(
@@ -85,12 +116,12 @@ async def select_check_in_action(
             if callback.message is not None:
                 await _delete_callback_message(callback)
                 await callback.message.answer(
-                    format_tournament_check_in(view),
-                    reply_markup=keyboards.admin_check_in_keyboard(view),
+                    check_in_fmt.summary(view),
+                    reply_markup=admin_check_in_kb.admin_check_in_keyboard(view),
                 )
             return
 
-        if callback_data.action == keyboards.AdminCheckInAction.REGISTERED_SEARCH:
+        if callback_data.action == admin_check_in_kb.AdminCheckInAction.REGISTERED_SEARCH:
             await state.set_state(AdminResultStates.entering_registered_check_in_search)
             await state.update_data(check_in_tournament_id=callback_data.tournament_id)
             await callback.answer()
@@ -98,13 +129,13 @@ async def select_check_in_action(
                 await _delete_callback_message(callback)
                 await callback.message.answer(
                     "Введи имя зарегистрированного игрока.",
-                    reply_markup=keyboards.admin_check_in_cancel_keyboard(
+                    reply_markup=admin_check_in_kb.admin_check_in_cancel_keyboard(
                         callback_data.tournament_id
                     ),
                 )
             return
 
-        if callback_data.action == keyboards.AdminCheckInAction.DATABASE_SEARCH:
+        if callback_data.action == admin_check_in_kb.AdminCheckInAction.DATABASE_SEARCH:
             await state.set_state(AdminResultStates.entering_database_check_in_search)
             await state.update_data(check_in_tournament_id=callback_data.tournament_id)
             await callback.answer()
@@ -112,13 +143,13 @@ async def select_check_in_action(
                 await _delete_callback_message(callback)
                 await callback.message.answer(
                     "Введи имя игрока из базы.",
-                    reply_markup=keyboards.admin_check_in_cancel_keyboard(
+                    reply_markup=admin_check_in_kb.admin_check_in_cancel_keyboard(
                         callback_data.tournament_id
                     ),
                 )
             return
 
-        if callback_data.action == keyboards.AdminCheckInAction.NEW_PLAYER:
+        if callback_data.action == admin_check_in_kb.AdminCheckInAction.NEW_PLAYER:
             await state.set_state(AdminResultStates.entering_new_check_in_player)
             await state.update_data(check_in_tournament_id=callback_data.tournament_id)
             await callback.answer()
@@ -126,13 +157,13 @@ async def select_check_in_action(
                 await _delete_callback_message(callback)
                 await callback.message.answer(
                     "Введи имя нового игрока.",
-                    reply_markup=keyboards.admin_check_in_cancel_keyboard(
+                    reply_markup=admin_check_in_kb.admin_check_in_cancel_keyboard(
                         callback_data.tournament_id
                     ),
                 )
             return
 
-        if callback_data.action == keyboards.AdminCheckInAction.CONFIRM_REGISTERED:
+        if callback_data.action == admin_check_in_kb.AdminCheckInAction.CONFIRM_REGISTERED:
             confirmation = await tournament_check_in_service.get_user_check_in_confirmation(
                 admin_telegram_id=callback.from_user.id,
                 tournament_id=callback_data.tournament_id,
@@ -141,19 +172,19 @@ async def select_check_in_action(
             await callback.answer()
             if callback.message is not None:
                 await callback.message.edit_text(
-                    format_registered_check_in_confirmation(
+                    check_in_fmt.registered_confirmation(
                         confirmation.tournament,
                         confirmation.user,
                     ),
-                    reply_markup=keyboards.admin_check_in_confirmation_keyboard(
+                    reply_markup=admin_check_in_kb.admin_check_in_confirmation_keyboard(
                         tournament_id=callback_data.tournament_id,
                         player_id=callback_data.player_id,
-                        confirm_action=keyboards.AdminCheckInAction.ADD_REGISTERED,
+                        confirm_action=admin_check_in_kb.AdminCheckInAction.ADD_REGISTERED,
                     ),
                 )
             return
 
-        if callback_data.action == keyboards.AdminCheckInAction.CONFIRM_EXISTING:
+        if callback_data.action == admin_check_in_kb.AdminCheckInAction.CONFIRM_EXISTING:
             confirmation = await tournament_check_in_service.get_user_check_in_confirmation(
                 admin_telegram_id=callback.from_user.id,
                 tournament_id=callback_data.tournament_id,
@@ -162,19 +193,19 @@ async def select_check_in_action(
             await callback.answer()
             if callback.message is not None:
                 await callback.message.edit_text(
-                    format_existing_check_in_confirmation(
+                    check_in_fmt.existing_confirmation(
                         confirmation.tournament,
                         confirmation.user,
                     ),
-                    reply_markup=keyboards.admin_check_in_confirmation_keyboard(
+                    reply_markup=admin_check_in_kb.admin_check_in_confirmation_keyboard(
                         tournament_id=callback_data.tournament_id,
                         player_id=callback_data.player_id,
-                        confirm_action=keyboards.AdminCheckInAction.ADD_EXISTING,
+                        confirm_action=admin_check_in_kb.AdminCheckInAction.ADD_EXISTING,
                     ),
                 )
             return
 
-        if callback_data.action == keyboards.AdminCheckInAction.CONFIRM_NEW:
+        if callback_data.action == admin_check_in_kb.AdminCheckInAction.CONFIRM_NEW:
             data = await state.get_data()
             display_name = str(data.get("new_check_in_display_name", ""))
             (
@@ -193,28 +224,28 @@ async def select_check_in_action(
             await callback.answer()
             if callback.message is not None:
                 await callback.message.edit_text(
-                    format_new_check_in_confirmation(tournament, display_name),
-                    reply_markup=keyboards.admin_check_in_confirmation_keyboard(
+                    check_in_fmt.new_confirmation(tournament, display_name),
+                    reply_markup=admin_check_in_kb.admin_check_in_confirmation_keyboard(
                         tournament_id=callback_data.tournament_id,
-                        confirm_action=keyboards.AdminCheckInAction.CREATE_NEW,
+                        confirm_action=admin_check_in_kb.AdminCheckInAction.CREATE_NEW,
                         confirm_text="✅ Создать",
                     ),
                 )
             return
 
-        if callback_data.action == keyboards.AdminCheckInAction.ADD_REGISTERED:
+        if callback_data.action == admin_check_in_kb.AdminCheckInAction.ADD_REGISTERED:
             result = await tournament_check_in_service.check_in_registered(
                 admin_telegram_id=callback.from_user.id,
                 tournament_id=callback_data.tournament_id,
                 user_id=callback_data.player_id,
             )
-        elif callback_data.action == keyboards.AdminCheckInAction.ADD_EXISTING:
+        elif callback_data.action == admin_check_in_kb.AdminCheckInAction.ADD_EXISTING:
             result = await tournament_check_in_service.check_in_existing_user(
                 admin_telegram_id=callback.from_user.id,
                 tournament_id=callback_data.tournament_id,
                 user_id=callback_data.player_id,
             )
-        elif callback_data.action == keyboards.AdminCheckInAction.CREATE_NEW:
+        elif callback_data.action == admin_check_in_kb.AdminCheckInAction.CREATE_NEW:
             data = await state.get_data()
             result = await tournament_check_in_service.create_user_and_check_in(
                 admin_telegram_id=callback.from_user.id,
@@ -222,7 +253,7 @@ async def select_check_in_action(
                 display_name=str(data.get("new_check_in_display_name", "")),
             )
         else:
-            await callback.answer(texts.admin.ADMIN_RESULTS_NOT_FOUND, show_alert=True)
+            await callback.answer(result_text.ADMIN_RESULTS_NOT_FOUND, show_alert=True)
             return
         view = await tournament_check_in_service.get_check_in(
             admin_telegram_id=callback.from_user.id,
@@ -230,14 +261,14 @@ async def select_check_in_action(
         )
     except AdminAccessDeniedError:
         await state.clear()
-        await callback.answer(texts.admin.ACCESS_DENIED, show_alert=True)
+        await callback.answer(panel_text.ACCESS_DENIED, show_alert=True)
         return
     except (
         TournamentCheckInNotFoundError,
         TournamentCheckInClosedError,
         TournamentCheckInUserNotFoundError,
     ):
-        await callback.answer(texts.admin.ADMIN_RESULTS_NOT_FOUND, show_alert=True)
+        await callback.answer(result_text.ADMIN_RESULTS_NOT_FOUND, show_alert=True)
         return
     except TournamentCheckInDuplicateNameError:
         await callback.answer("Игрок с таким именем уже существует.", show_alert=True)
@@ -252,13 +283,13 @@ async def select_check_in_action(
 
     await state.clear()
     await callback.answer(
-        texts.admin.ADMIN_RESULTS_SAVED if result.created else "Игрок уже прошёл check-in."
+        result_text.ADMIN_RESULTS_SAVED if result.created else "Игрок уже прошёл check-in."
     )
     await _send_check_in_notification(callback, result)
     if callback.message is not None:
         await callback.message.edit_text(
-            format_tournament_check_in(view),
-            reply_markup=keyboards.admin_check_in_keyboard(view),
+            check_in_fmt.summary(view),
+            reply_markup=admin_check_in_kb.admin_check_in_keyboard(view),
         )
 
 
@@ -274,7 +305,7 @@ async def _send_check_in_notification(
     try:
         await callback.bot.send_message(
             chat_id=user.telegram_id,
-            text=format_check_in_player_notification(result.tournament),
+            text=check_in_fmt.player_notification(result.tournament),
         )
     except (TelegramBadRequest, TelegramForbiddenError):
         logger.info("Failed to send check-in notification", exc_info=True)
@@ -297,10 +328,10 @@ async def _restore_check_in_previous_screen(
         )
         await callback.message.edit_text(
             "Нашел среди зарегистрированных:" if players else "Игроки не найдены.",
-            reply_markup=keyboards.admin_check_in_search_results_keyboard(
+            reply_markup=admin_check_in_kb.admin_check_in_search_results_keyboard(
                 tournament_id=tournament_id,
                 players=players,
-                action=keyboards.AdminCheckInAction.CONFIRM_REGISTERED,
+                action=admin_check_in_kb.AdminCheckInAction.CONFIRM_REGISTERED,
             )
             if players
             else None,
@@ -314,10 +345,10 @@ async def _restore_check_in_previous_screen(
         )
         await callback.message.edit_text(
             "Нашел игроков в базе:" if players else "Игроки не найдены.",
-            reply_markup=keyboards.admin_check_in_search_results_keyboard(
+            reply_markup=admin_check_in_kb.admin_check_in_search_results_keyboard(
                 tournament_id=tournament_id,
                 players=players,
-                action=keyboards.AdminCheckInAction.CONFIRM_EXISTING,
+                action=admin_check_in_kb.AdminCheckInAction.CONFIRM_EXISTING,
             )
             if players
             else None,
@@ -333,7 +364,7 @@ async def _restore_check_in_previous_screen(
         if exact_exists and candidates:
             await callback.message.edit_text(
                 "Игрок с таким именем уже существует.",
-                reply_markup=keyboards.admin_check_in_exact_match_keyboard(
+                reply_markup=admin_check_in_kb.admin_check_in_exact_match_keyboard(
                     tournament_id=tournament_id,
                     user_id=candidates[0].id,
                 ),
@@ -341,7 +372,7 @@ async def _restore_check_in_previous_screen(
             return True
         await callback.message.edit_text(
             "В базе найдены похожие игроки:",
-            reply_markup=keyboards.admin_check_in_similar_players_keyboard(
+            reply_markup=admin_check_in_kb.admin_check_in_similar_players_keyboard(
                 tournament_id=tournament_id,
                 players=candidates,
             ),
@@ -351,7 +382,7 @@ async def _restore_check_in_previous_screen(
         await state.set_state(AdminResultStates.entering_new_check_in_player)
         await callback.message.edit_text(
             "Введи имя нового игрока.",
-            reply_markup=keyboards.admin_check_in_cancel_keyboard(tournament_id),
+            reply_markup=admin_check_in_kb.admin_check_in_cancel_keyboard(tournament_id),
         )
         return True
     return False
@@ -372,11 +403,11 @@ async def enter_registered_check_in_search(message: Message, state: FSMContext) 
         )
     except AdminAccessDeniedError:
         await state.clear()
-        await message.answer(texts.admin.ACCESS_DENIED)
+        await message.answer(panel_text.ACCESS_DENIED)
         return
     except (TournamentCheckInNotFoundError, TournamentCheckInClosedError):
         await state.clear()
-        await message.answer(texts.admin.ADMIN_RESULTS_NOT_FOUND)
+        await message.answer(result_text.ADMIN_RESULTS_NOT_FOUND)
         return
 
     if not players:
@@ -387,9 +418,9 @@ async def enter_registered_check_in_search(message: Message, state: FSMContext) 
         )
         await message.answer(
             "Игроки не найдены.",
-            reply_markup=keyboards.admin_check_in_empty_search_keyboard(
+            reply_markup=admin_check_in_kb.admin_check_in_empty_search_keyboard(
                 tournament_id=tournament_id,
-                search_action=keyboards.AdminCheckInAction.REGISTERED_SEARCH,
+                search_action=admin_check_in_kb.AdminCheckInAction.REGISTERED_SEARCH,
             ),
         )
         return
@@ -400,10 +431,10 @@ async def enter_registered_check_in_search(message: Message, state: FSMContext) 
     )
     await message.answer(
         "Нашел среди зарегистрированных:",
-        reply_markup=keyboards.admin_check_in_search_results_keyboard(
+        reply_markup=admin_check_in_kb.admin_check_in_search_results_keyboard(
             tournament_id=tournament_id,
             players=players,
-            action=keyboards.AdminCheckInAction.CONFIRM_REGISTERED,
+            action=admin_check_in_kb.AdminCheckInAction.CONFIRM_REGISTERED,
         ),
     )
 
@@ -423,11 +454,11 @@ async def enter_database_check_in_search(message: Message, state: FSMContext) ->
         )
     except AdminAccessDeniedError:
         await state.clear()
-        await message.answer(texts.admin.ACCESS_DENIED)
+        await message.answer(panel_text.ACCESS_DENIED)
         return
     except (TournamentCheckInNotFoundError, TournamentCheckInClosedError):
         await state.clear()
-        await message.answer(texts.admin.ADMIN_RESULTS_NOT_FOUND)
+        await message.answer(result_text.ADMIN_RESULTS_NOT_FOUND)
         return
 
     if not players:
@@ -438,9 +469,9 @@ async def enter_database_check_in_search(message: Message, state: FSMContext) ->
         )
         await message.answer(
             "Игроки не найдены.",
-            reply_markup=keyboards.admin_check_in_empty_search_keyboard(
+            reply_markup=admin_check_in_kb.admin_check_in_empty_search_keyboard(
                 tournament_id=tournament_id,
-                search_action=keyboards.AdminCheckInAction.DATABASE_SEARCH,
+                search_action=admin_check_in_kb.AdminCheckInAction.DATABASE_SEARCH,
             ),
         )
         return
@@ -451,10 +482,10 @@ async def enter_database_check_in_search(message: Message, state: FSMContext) ->
     )
     await message.answer(
         "Нашел игроков в базе:",
-        reply_markup=keyboards.admin_check_in_search_results_keyboard(
+        reply_markup=admin_check_in_kb.admin_check_in_search_results_keyboard(
             tournament_id=tournament_id,
             players=players,
-            action=keyboards.AdminCheckInAction.CONFIRM_EXISTING,
+            action=admin_check_in_kb.AdminCheckInAction.CONFIRM_EXISTING,
         ),
     )
 
@@ -492,11 +523,11 @@ async def enter_new_check_in_player(message: Message, state: FSMContext) -> None
         )
     except AdminAccessDeniedError:
         await state.clear()
-        await message.answer(texts.admin.ACCESS_DENIED)
+        await message.answer(panel_text.ACCESS_DENIED)
         return
     except (TournamentCheckInNotFoundError, TournamentCheckInClosedError):
         await state.clear()
-        await message.answer(texts.admin.ADMIN_RESULTS_NOT_FOUND)
+        await message.answer(result_text.ADMIN_RESULTS_NOT_FOUND)
         return
     except ValueError:
         await message.answer("Имя игрока некорректное.")
@@ -506,7 +537,7 @@ async def enter_new_check_in_player(message: Message, state: FSMContext) -> None
         exact_candidate = candidates[0]
         await message.answer(
             "Игрок с таким именем уже существует.",
-            reply_markup=keyboards.admin_check_in_exact_match_keyboard(
+            reply_markup=admin_check_in_kb.admin_check_in_exact_match_keyboard(
                 tournament_id=tournament_id,
                 user_id=exact_candidate.id,
             ),
@@ -515,7 +546,7 @@ async def enter_new_check_in_player(message: Message, state: FSMContext) -> None
     if candidates:
         await message.answer(
             "В базе найдены похожие игроки:",
-            reply_markup=keyboards.admin_check_in_similar_players_keyboard(
+            reply_markup=admin_check_in_kb.admin_check_in_similar_players_keyboard(
                 tournament_id=tournament_id,
                 players=candidates,
             ),
@@ -525,10 +556,10 @@ async def enter_new_check_in_player(message: Message, state: FSMContext) -> None
     await state.set_state(AdminResultStates.confirming_new_check_in_player)
     await state.update_data(check_in_back="new_player_prompt")
     await message.answer(
-        format_new_check_in_confirmation(tournament, display_name),
-        reply_markup=keyboards.admin_check_in_confirmation_keyboard(
+        check_in_fmt.new_confirmation(tournament, display_name),
+        reply_markup=admin_check_in_kb.admin_check_in_confirmation_keyboard(
             tournament_id=tournament_id,
-            confirm_action=keyboards.AdminCheckInAction.CREATE_NEW,
+            confirm_action=admin_check_in_kb.AdminCheckInAction.CREATE_NEW,
             confirm_text="✅ Создать",
         ),
     )

@@ -1,5 +1,10 @@
-# ruff: noqa: F403,F405
-from app.bot.telegram.keyboards.admin.common import *  # noqa: F403
+from enum import StrEnum
+
+from aiogram.filters.callback_data import CallbackData
+from aiogram.types import InlineKeyboardMarkup
+from aiogram.utils.keyboard import InlineKeyboardBuilder
+
+from app.bot.telegram.keyboards import labels
 
 
 class SeasonOpenAction(StrEnum):
@@ -19,21 +24,21 @@ class SeasonOpenCallback(CallbackData, prefix="season_open"):
 def season_open_confirmation_keyboard(prompt_id: int) -> InlineKeyboardMarkup:
     builder = InlineKeyboardBuilder()
     builder.button(
-        text=buttons.ADMIN_CALENDAR_OPEN,
+        text=labels.ADMIN_CALENDAR_OPEN,
         callback_data=SeasonOpenCallback(
             action=SeasonOpenAction.CONFIRM,
             prompt_id=prompt_id,
         ),
     )
     builder.button(
-        text=buttons.ADMIN_CALENDAR_EDIT,
+        text=labels.ADMIN_CALENDAR_EDIT,
         callback_data=SeasonOpenCallback(
             action=SeasonOpenAction.CHANGE,
             prompt_id=prompt_id,
         ),
     )
     builder.button(
-        text=buttons.ADMIN_CALENDAR_CANCEL,
+        text=labels.ADMIN_CALENDAR_CANCEL,
         callback_data=SeasonOpenCallback(
             action=SeasonOpenAction.CANCEL,
             prompt_id=prompt_id,
@@ -46,21 +51,21 @@ def season_open_confirmation_keyboard(prompt_id: int) -> InlineKeyboardMarkup:
 def season_proposal_change_keyboard(prompt_id: int) -> InlineKeyboardMarkup:
     builder = InlineKeyboardBuilder()
     builder.button(
-        text=buttons.ADMIN_SEASON_EDIT_NAME,
+        text=labels.ADMIN_SEASON_EDIT_NAME,
         callback_data=SeasonOpenCallback(
             action=SeasonOpenAction.NAME,
             prompt_id=prompt_id,
         ),
     )
     builder.button(
-        text=buttons.ADMIN_SEASON_EDIT_START,
+        text=labels.ADMIN_SEASON_EDIT_START,
         callback_data=SeasonOpenCallback(
             action=SeasonOpenAction.STARTS_AT,
             prompt_id=prompt_id,
         ),
     )
     builder.button(
-        text=buttons.ADMIN_CALENDAR_BACK,
+        text=labels.ADMIN_CALENDAR_BACK,
         callback_data=SeasonOpenCallback(
             action=SeasonOpenAction.BACK,
             prompt_id=prompt_id,

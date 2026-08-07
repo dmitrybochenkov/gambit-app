@@ -84,7 +84,7 @@ class TournamentResultRepository:
         result = await self.session.execute(statement)
         return list(result.scalars())
 
-    async def list_checked_in_user_ids(self, tournament_id: int) -> set[int]:
+    async def list_checked_in_player_ids(self, tournament_id: int) -> set[int]:
         result = await self.session.execute(
             select(TournamentResult.player_id).where(
                 TournamentResult.tournament_id == tournament_id
@@ -96,14 +96,14 @@ class TournamentResultRepository:
         self,
         *,
         tournament_id: int,
-        user_id: int,
+        player_id: int,
         source: TournamentResultSource,
         checked_in_at: datetime,
         checked_in_by_user_id: int,
     ) -> TournamentResult:
         result = TournamentResult(
             tournament_id=tournament_id,
-            player_id=user_id,
+            player_id=player_id,
             source=source,
             checked_in_at=checked_in_at,
             checked_in_by_user_id=checked_in_by_user_id,

@@ -25,6 +25,7 @@ from app.db.models.enums import (
     UserRole,
     UserStatus,
 )
+from app.services.result_fields import ResultField
 from app.services.result_service import (
     FutureTournamentCannotBeClosedError,
     ResultInvalidPlayerDataError,
@@ -223,6 +224,7 @@ async def test_result_rows_are_edited_directly_and_close_tournament(
     service = ResultService(session_factory)
     results = await service.get_tournament_results(100, tournament_id)
 
+    assert not hasattr(results, "checked_in_count")
     assert results.knockout_mode == KnockoutMode.SMALL_BIG.value
     assert [player.player_id for player in results.players] == player_ids
     assert await service.validate_results(100, tournament_id) == [
@@ -230,30 +232,24 @@ async def test_result_rows_are_edited_directly_and_close_tournament(
         "Введи хотя бы один 🥊 или 👑🥊.",
     ]
 
-    await service.update_player_result(
-        100,
-        tournament_id,
-        player_ids[0],
-        place=1,
-        knockouts_count=2,
-        big_knockouts_count=1,
+    await service.update_player_result_field(
+        100, tournament_id, player_ids[0], ResultField.PLACE, 1
     )
-    await service.update_player_result(
-        100,
-        tournament_id,
-        player_ids[1],
-        place=2,
-        knockouts_count=1,
-        big_knockouts_count=0,
+    await service.update_player_result_field(
+        100, tournament_id, player_ids[0], ResultField.KNOCKOUTS, 2
+    )
+    await service.update_player_result_field(
+        100, tournament_id, player_ids[0], ResultField.BIG_KNOCKOUTS, 1
+    )
+    await service.update_player_result_field(
+        100, tournament_id, player_ids[1], ResultField.PLACE, 2
+    )
+    await service.update_player_result_field(
+        100, tournament_id, player_ids[1], ResultField.KNOCKOUTS, 1
     )
     for place, player_id in zip(range(3, 6), player_ids[2:], strict=True):
-        await service.update_player_result(
-            100,
-            tournament_id,
-            player_id,
-            place=place,
-            knockouts_count=0,
-            big_knockouts_count=0,
+        await service.update_player_result_field(
+            100, tournament_id, player_id, ResultField.PLACE, place
         )
     closed = await service.close_tournament(100, tournament_id, 1000)
 
@@ -478,13 +474,8 @@ async def test_result_moves_duplicate_place_to_latest_player(
 
     service = ResultService(session_factory)
     for player_id in player_ids:
-        await service.update_player_result(
-            100,
-            tournament_id,
-            player_id,
-            place=1,
-            knockouts_count=0,
-            big_knockouts_count=0,
+        await service.update_player_result_field(
+            100, tournament_id, player_id, ResultField.PLACE, 1
         )
 
     results = await service.get_tournament_results(100, tournament_id)
@@ -496,13 +487,8 @@ async def test_result_moves_duplicate_place_to_latest_player(
     assert await service.validate_results(100, tournament_id) == ["Введи места: 2."]
 
     try:
-        await service.update_player_result(
-            100,
-            tournament_id,
-            player_ids[0],
-            place=7,
-            knockouts_count=0,
-            big_knockouts_count=0,
+        await service.update_player_result_field(
+            100, tournament_id, player_ids[0], ResultField.PLACE, 7
         )
     except ResultInvalidPlayerDataError:
         pass

@@ -1,5 +1,15 @@
-# ruff: noqa: F403,F405
-from app.bot.telegram.keyboards.admin.common import *  # noqa: F403
+from enum import StrEnum
+
+from aiogram.filters.callback_data import CallbackData
+from aiogram.types import InlineKeyboardMarkup
+from aiogram.utils.keyboard import InlineKeyboardBuilder
+
+from app.bot.telegram.keyboards import labels
+from app.bot.telegram.keyboards.admin.common import _admin_candidate_page_label
+from app.services.dto import CheckInCandidateView, TournamentCheckInView, UserView
+from app.services.pagination import Page
+
+ADMIN_CHECK_IN_PAGE_SIZE = 6
 
 
 class AdminCheckInAction(StrEnum):
@@ -51,7 +61,7 @@ def admin_check_in_keyboard(
         ),
     )
     builder.button(
-        text=buttons.ADMIN_CANCEL,
+        text=labels.ADMIN_CANCEL,
         callback_data=AdminCheckInCallback(
             action=AdminCheckInAction.CANCEL,
             tournament_id=view.tournament.id,
@@ -89,7 +99,7 @@ def admin_check_in_search_results_keyboard(
         ),
     )
     builder.button(
-        text=buttons.ADMIN_CANCEL,
+        text=labels.ADMIN_CANCEL,
         callback_data=AdminCheckInCallback(
             action=AdminCheckInAction.CANCEL,
             tournament_id=tournament_id,
@@ -129,7 +139,7 @@ def admin_check_in_similar_players_keyboard(
         ),
     )
     builder.button(
-        text=buttons.ADMIN_CANCEL,
+        text=labels.ADMIN_CANCEL,
         callback_data=AdminCheckInCallback(
             action=AdminCheckInAction.CANCEL,
             tournament_id=tournament_id,
@@ -161,7 +171,7 @@ def admin_check_in_exact_match_keyboard(
         ),
     )
     builder.button(
-        text=buttons.ADMIN_CANCEL,
+        text=labels.ADMIN_CANCEL,
         callback_data=AdminCheckInCallback(
             action=AdminCheckInAction.CANCEL,
             tournament_id=tournament_id,
@@ -195,7 +205,7 @@ def admin_check_in_confirmation_keyboard(
         ),
     )
     builder.button(
-        text=buttons.ADMIN_CANCEL,
+        text=labels.ADMIN_CANCEL,
         callback_data=AdminCheckInCallback(
             action=AdminCheckInAction.CANCEL,
             tournament_id=tournament_id,
@@ -208,7 +218,7 @@ def admin_check_in_confirmation_keyboard(
 def admin_check_in_cancel_keyboard(tournament_id: int) -> InlineKeyboardMarkup:
     builder = InlineKeyboardBuilder()
     builder.button(
-        text=buttons.ADMIN_CANCEL,
+        text=labels.ADMIN_CANCEL,
         callback_data=AdminCheckInCallback(
             action=AdminCheckInAction.CANCEL,
             tournament_id=tournament_id,
@@ -239,7 +249,7 @@ def admin_check_in_empty_search_keyboard(
         ),
     )
     builder.button(
-        text=buttons.ADMIN_CANCEL,
+        text=labels.ADMIN_CANCEL,
         callback_data=AdminCheckInCallback(
             action=AdminCheckInAction.CANCEL,
             tournament_id=tournament_id,

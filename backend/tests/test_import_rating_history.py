@@ -251,6 +251,26 @@ def test_reads_all_eight_result_columns_and_big_knockouts(tmp_path: Path) -> Non
     assert row.knockout_points == import_rating_history.Decimal("30.00")
 
 
+def test_fractional_bonus_points_fail_fast(tmp_path: Path) -> None:
+    db_path = tmp_path / "gambit.db"
+    source_path = tmp_path / "history.xlsx"
+    create_database(db_path)
+    write_workbook(
+        source_path,
+        [[46050, "Raw", 1, 2, 3, "1.5", 100, 30]],
+        [["Raw", "", "Mapped", "", ""]],
+    )
+    insert_user(db_path, 1, "Mapped")
+
+    with pytest.raises(import_rating_history.ImportValidationError, match="Invalid integer value"):
+        import_rating_history.build_import_plan(
+            source_path=source_path,
+            db_path=db_path,
+            aliases_path=None,
+            strict_expectations=False,
+        )
+
+
 def test_import_rating_history_cli_default_is_dry_run(tmp_path: Path) -> None:
     db_path = tmp_path / "gambit.db"
     source_path = tmp_path / "history.xlsx"

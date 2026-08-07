@@ -1,0 +1,7 @@
+HISTORY_UNAVAILABLE = "История доступна только активным игрокам."
+HISTORY_YEARS_PROMPT = "Выберите год"
+HISTORY_MONTHS_PROMPT = "Выберите месяц"
+HISTORY_TOURNAMENTS_PROMPT = "Выберите турнир"
+HISTORY_EMPTY = "История турниров пока пуста."
+HISTORY_TOURNAMENT_UNAVAILABLE = "Этот турнир больше недоступен."
+HISTORY_CLOSED = "История закрыта"

@@ -5,7 +5,7 @@ from pathlib import Path
 from conftest import build_player, seed_tournament_types_async, tournament_type_id
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
-from app.bot.telegram.formatters import format_rating
+from app.bot.telegram.formatters.statistics import rating as rating_fmt
 from app.db.base import Base
 from app.db.models import (
     ScoringConfig,
@@ -229,14 +229,14 @@ async def test_rating_filters_current_season_and_all_time(tmp_path: Path) -> Non
             page=0,
             page_size=10,
         )
-        assert format_rating(
+        assert rating_fmt.message(
             current_title,
             current_page,
             current_player_id=second_player.id,
         ).startswith(
             "Рейтинг — текущий сезон\n🎲 - количество турниров\n\n👉 1. *King* — 120 | 🎲 1"
         )
-        knockout_message = format_rating(
+        knockout_message = rating_fmt.message(
             knockout_title,
             all_time_knockouts_page,
             current_player_id=first_player.id,
@@ -272,7 +272,7 @@ def test_points_rating_format_uses_half_up_rounding_and_current_marker() -> None
         page_size=10,
     )
 
-    message = format_rating("Рейтинг — за всё время", page, current_player_id=1)
+    message = rating_fmt.message("Рейтинг — за всё время", page, current_player_id=1)
 
     assert "⭐" not in message
     assert (
@@ -301,7 +301,7 @@ def test_knockout_rating_format_hides_points_and_repeats_titles() -> None:
         page_size=10,
     )
 
-    message = format_rating("Рейтинг по нокаутам — за всё время", page, current_player_id=2)
+    message = rating_fmt.message("Рейтинг по нокаутам — за всё время", page, current_player_id=2)
 
     assert "⭐🥊" not in message
     assert "🥊 6" not in message
@@ -335,7 +335,7 @@ def test_points_rating_format_marks_current_player_without_honours() -> None:
         page_size=1,
     )
 
-    message = format_rating("Рейтинг — за всё время", page, current_player_id=18)
+    message = rating_fmt.message("Рейтинг — за всё время", page, current_player_id=18)
 
     assert "👉 18. *Boxing* — 1750 | 🎲 14" in message
     assert "✅" not in message
@@ -368,7 +368,7 @@ def test_knockout_rating_format_marks_current_player_with_ring_and_knockout_titl
         page_size=1,
     )
 
-    message = format_rating("Рейтинг по нокаутам — за всё время", page, current_player_id=5)
+    message = rating_fmt.message("Рейтинг по нокаутам — за всё время", page, current_player_id=5)
 
     assert "👉 5. *Дима* 💍🥊 — 12 | 🎲 18" in message
     assert "✅" not in message

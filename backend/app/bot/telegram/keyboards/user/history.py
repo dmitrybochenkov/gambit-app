@@ -4,7 +4,7 @@ from aiogram.filters.callback_data import CallbackData
 from aiogram.types import InlineKeyboardMarkup
 from aiogram.utils.keyboard import InlineKeyboardBuilder
 
-from app.bot.telegram.keyboards import buttons
+from app.bot.telegram.keyboards import labels
 from app.services.dto import HistoricalTournamentView, HistoryMonthView, HistoryYearView
 from app.services.pagination import Page
 
@@ -79,7 +79,7 @@ def history_years_keyboard(page: Page[HistoryYearView]) -> InlineKeyboardMarkup:
     if page.total_pages > 1:
         _add_year_navigation(builder, page)
     builder.button(
-        text=buttons.CANCEL,
+        text=labels.CANCEL,
         callback_data=HistoryNavigationCallback(action=HistoryNavAction.CANCEL),
     )
     builder.adjust(3, 3, 3, 3, _navigation_width(page), 1)
@@ -109,7 +109,7 @@ def history_months_keyboard(
         callback_data=HistoryYearsPageCallback(page=years_page),
     )
     builder.button(
-        text=buttons.CANCEL,
+        text=labels.CANCEL,
         callback_data=HistoryNavigationCallback(action=HistoryNavAction.CANCEL),
     )
     builder.adjust(3, 3, _navigation_width(page), 1, 1)
@@ -149,7 +149,7 @@ def history_tournaments_keyboard(
         callback_data=HistoryMonthsPageCallback(year=year, page=months_page),
     )
     builder.button(
-        text=buttons.CANCEL,
+        text=labels.CANCEL,
         callback_data=HistoryNavigationCallback(action=HistoryNavAction.CANCEL),
     )
     builder.adjust(3, 3, 3, 3, _navigation_width(page), 1, 1)
@@ -212,7 +212,7 @@ def history_result_keyboard(
         ),
     )
     builder.button(
-        text=buttons.CANCEL,
+        text=labels.CANCEL,
         callback_data=HistoryNavigationCallback(action=HistoryNavAction.CANCEL),
     )
     builder.adjust(_navigation_width(page), 1, 1)

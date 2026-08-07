@@ -1,27 +1,27 @@
 from aiogram.types import KeyboardButton, ReplyKeyboardMarkup
 
-from app.bot.telegram.keyboards import buttons
+from app.bot.telegram.keyboards import labels
 from app.services.dto import UserView
 
 
 def main_keyboard(is_admin: bool = False) -> ReplyKeyboardMarkup:
     rows = [
         [
-            KeyboardButton(text=buttons.MAIN_SCHEDULE),
-            KeyboardButton(text=buttons.MAIN_ADDRESS),
+            KeyboardButton(text=labels.MAIN_SCHEDULE),
+            KeyboardButton(text=labels.MAIN_ADDRESS),
         ],
         [
-            KeyboardButton(text=buttons.MAIN_REGISTER),
-            KeyboardButton(text=buttons.MAIN_CANCEL_REGISTRATION),
+            KeyboardButton(text=labels.MAIN_REGISTER),
+            KeyboardButton(text=labels.MAIN_CANCEL_REGISTRATION),
         ],
-        [KeyboardButton(text=buttons.MAIN_RATING), KeyboardButton(text=buttons.MAIN_PROFILE)],
+        [KeyboardButton(text=labels.MAIN_RATING), KeyboardButton(text=labels.MAIN_PROFILE)],
         [
-            KeyboardButton(text=buttons.MAIN_HISTORY),
-            KeyboardButton(text=buttons.MAIN_HALL_OF_FAME),
+            KeyboardButton(text=labels.MAIN_HISTORY),
+            KeyboardButton(text=labels.MAIN_HALL_OF_FAME),
         ],
     ]
     if is_admin:
-        rows.append([KeyboardButton(text=buttons.MAIN_ADMIN)])
+        rows.append([KeyboardButton(text=labels.MAIN_ADMIN)])
 
     return ReplyKeyboardMarkup(keyboard=rows, resize_keyboard=True)
 

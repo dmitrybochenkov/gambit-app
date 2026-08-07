@@ -1,5 +1,13 @@
-# ruff: noqa: F403,F405
-from app.bot.telegram.keyboards.admin.common import *  # noqa: F403
+from enum import StrEnum
+
+from aiogram.filters.callback_data import CallbackData
+from aiogram.types import InlineKeyboardMarkup
+from aiogram.utils.keyboard import InlineKeyboardBuilder
+
+from app.bot.telegram.keyboards import labels
+from app.bot.telegram.keyboards.admin.common import _adjust_paged_keyboard
+from app.services.dto import TournamentView
+from app.services.pagination import Page
 
 
 class AdminCloseTournamentAction(StrEnum):
@@ -58,7 +66,7 @@ def admin_close_tournament_list_keyboard(page: Page[TournamentView]) -> InlineKe
                 ),
             )
     builder.button(
-        text=buttons.ADMIN_CANCEL,
+        text=labels.ADMIN_CANCEL,
         callback_data=AdminCloseTournamentCallback(
             action=AdminCloseTournamentAction.CANCEL,
             page=page.page,
@@ -80,7 +88,7 @@ def admin_close_tournament_card_keyboard(*, tournament_id: int, page: int) -> In
         ),
     )
     builder.button(
-        text=buttons.ADMIN_CANCEL,
+        text=labels.ADMIN_CANCEL,
         callback_data=AdminCloseTournamentCallback(
             action=AdminCloseTournamentAction.CANCEL,
             page=page,
@@ -114,7 +122,7 @@ def admin_close_tournament_fund_error_keyboard(
         ),
     )
     builder.button(
-        text=buttons.ADMIN_CANCEL,
+        text=labels.ADMIN_CANCEL,
         callback_data=AdminCloseTournamentCallback(
             action=AdminCloseTournamentAction.CANCEL,
             page=page,
@@ -156,7 +164,7 @@ def admin_close_tournament_confirmation_keyboard(
         ),
     )
     builder.button(
-        text=buttons.ADMIN_CANCEL,
+        text=labels.ADMIN_CANCEL,
         callback_data=AdminCloseTournamentCallback(
             action=AdminCloseTournamentAction.CANCEL,
             page=page,

@@ -197,6 +197,51 @@ def test_admin_prompt_resolved_by_user_id_fk_is_enforced(session: Session) -> No
         )
 
 
+def test_tournament_registration_has_only_created_at_timestamp(session: Session) -> None:
+    columns = {
+        row[1] for row in session.execute(text("PRAGMA table_info(tournament_registrations)")).all()
+    }
+
+    assert "created_at" in columns
+    assert "updated_at" not in columns
+
+
+def test_registration_request_telegram_id_is_required(session: Session) -> None:
+    columns = {
+        row[1]: row[3]
+        for row in session.execute(text("PRAGMA table_info(registration_requests)")).all()
+    }
+
+    assert columns["telegram_id"] == 1
+
+
+def test_registration_request_rejects_null_telegram_id(session: Session) -> None:
+    with pytest.raises(IntegrityError):
+        session.execute(
+            text(
+                """
+                INSERT INTO registration_requests (
+                    telegram_id, request_type, status, requested_display_name,
+                    requested_display_name_normalized, requested_link_name,
+                    candidate_user_id, reviewed_at, created_at, updated_at
+                )
+                VALUES (
+                    NULL, 'new_player', 'pending', 'Игрок', 'игрок', NULL,
+                    NULL, NULL, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
+                )
+                """
+            )
+        )
+
+
+def test_registration_request_rejection_reason_is_absent(session: Session) -> None:
+    columns = {
+        row[1] for row in session.execute(text("PRAGMA table_info(registration_requests)")).all()
+    }
+
+    assert "rejection_reason" not in columns
+
+
 def test_closed_tournament_requires_tournament_fund(session: Session) -> None:
     scoring_config = ScoringConfig()
     session.add(scoring_config)
@@ -401,6 +446,31 @@ def test_tournament_result_bonus_points_must_be_nonnegative(
 
     with pytest.raises(IntegrityError):
         session.commit()
+
+
+def test_tournament_result_bonus_points_must_be_integer(
+    session: Session,
+) -> None:
+    tournament, player, _other = _seed_result_context(session)
+
+    with pytest.raises(IntegrityError):
+        session.execute(
+            text(
+                """
+                INSERT INTO tournament_results (
+                    tournament_id, player_id, source, checked_in_at,
+                    place, knockouts_count, big_knockouts_count,
+                    tournament_points, knockout_points, bonus_points,
+                    created_at, updated_at
+                )
+                VALUES (
+                    :tournament_id, :player_id, 'walk_in_existing', CURRENT_TIMESTAMP,
+                    NULL, 0, 0, 0, 0, 1.5, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
+                )
+                """
+            ),
+            {"tournament_id": tournament.id, "player_id": player.id},
+        )
 
 
 def _seed_result_context(session: Session, tournament_date: date = date(2026, 7, 4)):

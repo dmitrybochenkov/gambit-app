@@ -1,12 +1,25 @@
-# ruff: noqa: F403,F405
-from aiogram import Router
+from aiogram import F, Router
+from aiogram.exceptions import TelegramBadRequest
+from aiogram.types import CallbackQuery, Message
 
-from app.bot.telegram.handlers.user.common import *  # noqa: F403
+from app.bot.telegram.formatters.statistics import rating as rating_fmt
+from app.bot.telegram.handlers.user.shared import (
+    delete_message as _delete_message,
+)
+from app.bot.telegram.keyboards import labels
+from app.bot.telegram.keyboards.user import rating as user_rating_kb
+from app.bot.telegram.texts.user import rating as text
+from app.services.access_policy import ActiveUserRequiredError
+from app.services.pagination import pagination_service
+from app.services.rating_service import RatingNotAllowedError, rating_service
+from app.services.user_service import (
+    user_service,
+)
 
 router = Router(name="user.rating")
 
 
-@router.message(F.text == keyboards.MAIN_RATING)
+@router.message(F.text == labels.MAIN_RATING)
 async def show_rating_menu(message: Message) -> None:
     if message.from_user is None:
         return
@@ -14,19 +27,19 @@ async def show_rating_menu(message: Message) -> None:
     try:
         await user_service.require_active_user(message.from_user.id)
     except ActiveUserRequiredError:
-        await message.answer(texts.user.RATING_UNAVAILABLE)
+        await message.answer(text.RATING_UNAVAILABLE)
         return
 
     await message.answer(
-        texts.user.RATING_MENU_PROMPT,
-        reply_markup=keyboards.rating_keyboard(),
+        text.RATING_MENU_PROMPT,
+        reply_markup=user_rating_kb.rating_keyboard(),
     )
 
 
-@router.callback_query(keyboards.RatingCallback.filter())
+@router.callback_query(user_rating_kb.RatingCallback.filter())
 async def show_rating(
     callback: CallbackQuery,
-    callback_data: keyboards.RatingCallback,
+    callback_data: user_rating_kb.RatingCallback,
 ) -> None:
     try:
         rating = await rating_service.get_rating_for_player(
@@ -35,7 +48,7 @@ async def show_rating(
         )
     except RatingNotAllowedError:
         await callback.answer(
-            texts.user.RATING_ACTIVE_ONLY,
+            text.RATING_ACTIVE_ONLY,
             show_alert=True,
         )
         return
@@ -48,14 +61,14 @@ async def show_rating(
     page = pagination_service.paginate(
         rating.rows,
         page=page_number,
-        page_size=keyboards.RATING_PAGE_SIZE,
+        page_size=user_rating_kb.RATING_PAGE_SIZE,
     )
     await callback.answer()
     if callback.message is not None:
         try:
             await callback.message.edit_text(
-                format_rating(rating.title, page, rating.current_player_id),
-                reply_markup=keyboards.rating_page_keyboard(callback_data.kind, page),
+                rating_fmt.message(rating.title, page, rating.current_player_id),
+                reply_markup=user_rating_kb.rating_page_keyboard(callback_data.kind, page),
                 parse_mode="Markdown",
             )
         except TelegramBadRequest:
@@ -72,17 +85,19 @@ def rating_page_for_player(
         return requested_page
     for index, row in enumerate(rows):
         if getattr(row, "player_id", None) == current_player_id:
-            return index // keyboards.RATING_PAGE_SIZE
+            return index // user_rating_kb.RATING_PAGE_SIZE
     return 0
 
 
-@router.callback_query(keyboards.RatingCancelCallback.filter())
+@router.callback_query(user_rating_kb.RatingCancelCallback.filter())
 async def cancel_rating(
     callback: CallbackQuery,
-    callback_data: keyboards.RatingCancelCallback,
+    callback_data: user_rating_kb.RatingCancelCallback,
 ) -> None:
     answer = (
-        "Рейтинг закрыт" if callback_data.action == keyboards.RatingCancelAction.CLOSE else "Отмена"
+        "Рейтинг закрыт"
+        if callback_data.action == user_rating_kb.RatingCancelAction.CLOSE
+        else "Отмена"
     )
     await callback.answer(answer)
     if callback.message is None:

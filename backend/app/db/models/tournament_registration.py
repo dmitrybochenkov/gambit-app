@@ -1,11 +1,13 @@
-from sqlalchemy import ForeignKey, Integer, UniqueConstraint
+from datetime import datetime
+
+from sqlalchemy import DateTime, ForeignKey, Integer, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.db.base import Base
-from app.db.models.mixins import TimestampMixin
+from app.db.models.mixins import utc_now
 
 
-class TournamentRegistration(TimestampMixin, Base):
+class TournamentRegistration(Base):
     __tablename__ = "tournament_registrations"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
@@ -18,6 +20,11 @@ class TournamentRegistration(TimestampMixin, Base):
         ForeignKey("users.id", ondelete="CASCADE"),
         nullable=False,
         index=True,
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        default=utc_now,
+        nullable=False,
     )
     __table_args__ = (
         UniqueConstraint(
