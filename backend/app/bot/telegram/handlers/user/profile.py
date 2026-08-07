@@ -10,9 +10,7 @@ from app.bot.telegram.keyboards.user import profile as user_profile_kb
 from app.bot.telegram.texts.user import profile as text
 from app.services.access_policy import ActiveUserRequiredError
 from app.services.profile_service import ProfileNotAllowedError, profile_service
-from app.services.user_service import (
-    user_service,
-)
+from app.services.user_access_service import user_access_service
 
 router = Router(name="user.profile")
 
@@ -23,7 +21,7 @@ async def show_profile_menu(message: Message) -> None:
         return
 
     try:
-        await user_service.require_active_user(message.from_user.id)
+        await user_access_service.require_active_user(message.from_user.id)
     except ActiveUserRequiredError:
         await message.answer(text.PROFILE_UNAVAILABLE)
         return

@@ -29,9 +29,7 @@ from app.services.season_service import (
     SeasonStartDateError,
     season_service,
 )
-from app.services.user_service import (
-    user_service,
-)
+from app.services.user_access_service import user_access_service
 
 logger = logging.getLogger(__name__)
 
@@ -52,7 +50,7 @@ async def enter_season_proposal_name(message: Message, state: FSMContext) -> Non
         return
 
     try:
-        await user_service.require_superadmin(message.from_user.id)
+        await user_access_service.require_superadmin(message.from_user.id)
         proposal = await season_service.update_season_proposal_name(
             admin_telegram_id=message.from_user.id,
             prompt_id=prompt_id,
@@ -90,7 +88,7 @@ async def enter_season_proposal_starts_at(message: Message, state: FSMContext) -
         return
 
     try:
-        await user_service.require_superadmin(message.from_user.id)
+        await user_access_service.require_superadmin(message.from_user.id)
         starts_at = parse_admin_date(message.text or "")
         proposal = await season_service.update_season_proposal_start_date(
             admin_telegram_id=message.from_user.id,

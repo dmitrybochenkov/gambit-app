@@ -16,7 +16,7 @@ from app.bot.telegram.texts.admin import schedule as schedule_text
 from app.bot.telegram.texts.superadmin import panel as superadmin_panel_text
 from app.db.models.enums import AdminPromptKind
 from app.services.access_policy import AdminAccessDeniedError
-from app.services.calendar_service import (
+from app.services.tournament_proposal_service import (
     CalendarDefaultTournamentTypeNotFoundError,
     CalendarPromptAction,
     CalendarPromptAlreadyResolvedError,
@@ -27,11 +27,10 @@ from app.services.calendar_service import (
     CalendarWeeklyPendingConflictError,
     CalendarWeeklyPromptEmptyError,
     CalendarWeeklyPromptIntegrityError,
-    calendar_service,
+    tournament_proposal_service,
 )
-from app.services.user_service import (
-    user_service,
-)
+from app.services.tournament_schedule_service import tournament_schedule_service
+from app.services.user_access_service import user_access_service
 
 logger = logging.getLogger(__name__)
 
@@ -46,10 +45,10 @@ async def review_calendar_prompt(
     state: FSMContext,
 ) -> None:
     try:
-        await user_service.require_superadmin(callback.from_user.id)
+        await user_access_service.require_superadmin(callback.from_user.id)
         if callback_data.action == admin_calendar_kb.CalendarPromptAction.EDIT:
             await state.clear()
-            prompt = await calendar_service.get_tournament_prompt(
+            prompt = await tournament_proposal_service.get_tournament_prompt(
                 callback.from_user.id,
                 callback_data.prompt_id,
             )
@@ -64,7 +63,7 @@ async def review_calendar_prompt(
 
         if callback_data.action == admin_calendar_kb.CalendarPromptAction.BACK:
             await state.clear()
-            prompt = await calendar_service.get_tournament_prompt(
+            prompt = await tournament_proposal_service.get_tournament_prompt(
                 callback.from_user.id,
                 callback_data.prompt_id,
             )
@@ -79,7 +78,7 @@ async def review_calendar_prompt(
 
         await state.clear()
         action = CalendarPromptAction(callback_data.action.value)
-        resolved_prompt = await calendar_service.resolve_prompt(
+        resolved_prompt = await tournament_proposal_service.resolve_prompt(
             actor_telegram_id=callback.from_user.id,
             prompt_id=callback_data.prompt_id,
             action=action,
@@ -125,7 +124,7 @@ async def review_calendar_prompt(
             await _delete_callback_message(callback)
             await callback.message.answer(schedule_fmt.created_prompt(resolved_prompt))
             if resolved_prompt.kind == AdminPromptKind.TOURNAMENTS_PROPOSAL:
-                schedule = await calendar_service.get_created_weekly_schedule(
+                schedule = await tournament_schedule_service.get_created_weekly_schedule(
                     callback.from_user.id, callback_data.prompt_id
                 )
                 for schedule_message in schedule_fmt.public_weekly(schedule):
@@ -148,8 +147,8 @@ async def select_tournament_prompt_day(
     state: FSMContext,
 ) -> None:
     try:
-        await user_service.require_superadmin(callback.from_user.id)
-        edit_view = await calendar_service.get_weekly_prompt_day_edit_options(
+        await user_access_service.require_superadmin(callback.from_user.id)
+        edit_view = await tournament_proposal_service.get_weekly_prompt_day_edit_options(
             actor_telegram_id=callback.from_user.id,
             prompt_id=callback_data.prompt_id,
             tournament_date=date.fromisoformat(callback_data.tournament_date),
@@ -185,8 +184,8 @@ async def select_tournament_type(
     state: FSMContext,
 ) -> None:
     try:
-        await user_service.require_superadmin(callback.from_user.id)
-        prompt = await calendar_service.update_weekly_prompt_day_type(
+        await user_access_service.require_superadmin(callback.from_user.id)
+        prompt = await tournament_proposal_service.update_weekly_prompt_day_type(
             actor_telegram_id=callback.from_user.id,
             prompt_id=callback_data.prompt_id,
             tournament_date=date.fromisoformat(callback_data.tournament_date),

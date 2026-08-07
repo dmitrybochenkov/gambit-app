@@ -1,7 +1,7 @@
 from aiogram.types import KeyboardButton, ReplyKeyboardMarkup
 
 from app.bot.telegram.keyboards import labels
-from app.services.dto import UserView
+from app.services.dto.users import UserView
 
 
 def main_keyboard(is_admin: bool = False) -> ReplyKeyboardMarkup:

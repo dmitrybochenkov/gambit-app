@@ -26,7 +26,7 @@ from app.db.models.enums import (
     UserRole,
     UserStatus,
 )
-from app.services.dto import (
+from app.services.dto.schedules import (
     TournamentRebuyView,
     WeeklyScheduleTournamentView,
     WeeklyScheduleView,

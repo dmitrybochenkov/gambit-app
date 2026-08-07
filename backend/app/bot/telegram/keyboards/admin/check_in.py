@@ -6,7 +6,8 @@ from aiogram.utils.keyboard import InlineKeyboardBuilder
 
 from app.bot.telegram.keyboards import labels
 from app.bot.telegram.keyboards.admin.common import _admin_candidate_page_label
-from app.services.dto import CheckInCandidateView, TournamentCheckInView, UserView
+from app.services.dto.check_in import CheckInCandidateView, TournamentCheckInView
+from app.services.dto.users import UserView
 from app.services.pagination import Page
 
 ADMIN_CHECK_IN_PAGE_SIZE = 6

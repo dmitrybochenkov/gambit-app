@@ -16,7 +16,7 @@ from app.db.models.enums import (
     UserStatus,
 )
 from app.db.repositories.season_repository import SeasonRepository
-from app.services.dto import SeasonLifecycleStateView
+from app.services.dto.seasons import SeasonLifecycleStateView
 from app.services.season_service import (
     SeasonConflictError,
     SeasonDateOverlapError,
@@ -156,7 +156,48 @@ async def test_create_season_proposal_uses_tomorrow_and_creates_no_season(
 
         assert seasons == []
         assert len(prompts) == 1
+        assert prompts[0].key == "season:1"
+        assert prompts[0].scope_key == "season"
         assert prompts[0].status == AdminPromptStatus.PENDING
+    finally:
+        await engine.dispose()
+
+
+async def test_create_season_proposal_reuses_single_pending_scope(
+    tmp_path: Path,
+) -> None:
+    service, session_factory, engine = await create_season_service(tmp_path / "season.db")
+    try:
+        await seed_admin_and_config(session_factory)
+
+        first = await service.create_season_proposal(
+            admin_telegram_id=100,
+            today=date(2026, 7, 27),
+        )
+        second = await service.create_season_proposal(
+            admin_telegram_id=100,
+            today=date(2026, 7, 28),
+        )
+
+        assert second.id == first.id
+        assert second.starts_at == first.starts_at
+
+        await service.cancel_season_proposal(admin_telegram_id=100, prompt_id=first.id)
+        third = await service.create_season_proposal(
+            admin_telegram_id=100,
+            today=date(2026, 7, 28),
+        )
+
+        assert third.id != first.id
+        async with session_factory() as session:
+            prompts = list(
+                (await session.execute(select(AdminPrompt).order_by(AdminPrompt.id))).scalars()
+            )
+
+        assert [(prompt.key, prompt.scope_key, prompt.status) for prompt in prompts] == [
+            ("season:1", "season", AdminPromptStatus.CANCELLED),
+            ("season:2", "season", AdminPromptStatus.PENDING),
+        ]
     finally:
         await engine.dispose()
 

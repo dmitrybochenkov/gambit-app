@@ -1,27 +1,7 @@
-# ruff: noqa: F401
-from enum import StrEnum
-
-from aiogram.filters.callback_data import CallbackData
-from aiogram.types import InlineKeyboardMarkup, KeyboardButton, ReplyKeyboardMarkup
 from aiogram.utils.keyboard import InlineKeyboardBuilder
 
-from app.bot.telegram.keyboards import labels
-from app.bot.telegram.texts import common as common_texts
-from app.services.dto import (
-    CheckInCandidateView,
-    RegistrationCandidateView,
-    RegistrationReviewView,
-    TournamentCheckInView,
-    TournamentPromptDayEditView,
-    TournamentPromptView,
-    TournamentResultPlayerView,
-    TournamentResultsView,
-    TournamentView,
-    UserView,
-)
+from app.services.dto.users import UserView
 from app.services.pagination import Page
-from app.services.result_field_policy import is_result_field_allowed
-from app.services.result_fields import ResultField
 
 PLACE_EMOJIS = {
     1: "1️⃣",
@@ -52,4 +32,4 @@ def _adjust_paged_keyboard(
         builder.adjust(*item_rows, *footer_rows)
 
 
-__all__ = [name for name in globals() if not name.startswith("__")]
+__all__ = ["PLACE_EMOJIS", "_admin_candidate_page_label", "_adjust_paged_keyboard"]

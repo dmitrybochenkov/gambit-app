@@ -18,21 +18,19 @@ from app.bot.telegram.texts.admin import calendar as calendar_text
 from app.bot.telegram.texts.admin import panel as panel_text
 from app.bot.telegram.texts.superadmin import panel as superadmin_panel_text
 from app.services.access_policy import AdminAccessDeniedError
-from app.services.calendar_service import (
-    CalendarDefaultTournamentTypeNotFoundError,
-    CalendarTournamentDateAlreadyExistsError,
-    CalendarWeeklyPendingConflictError,
-    CalendarWeeklyPromptIntegrityError,
-    calendar_service,
-)
 from app.services.season_service import (
     SeasonScoringConfigAmbiguousError,
     SeasonScoringConfigNotFoundError,
     season_service,
 )
-from app.services.user_service import (
-    user_service,
+from app.services.tournament_proposal_service import (
+    CalendarDefaultTournamentTypeNotFoundError,
+    CalendarTournamentDateAlreadyExistsError,
+    CalendarWeeklyPendingConflictError,
+    CalendarWeeklyPromptIntegrityError,
+    tournament_proposal_service,
 )
+from app.services.user_access_service import user_access_service
 
 logger = logging.getLogger(__name__)
 
@@ -46,7 +44,7 @@ async def exit_admin_panel(message: Message) -> None:
         return
 
     try:
-        admin_panel = await user_service.get_admin_panel_for_admin(message.from_user.id)
+        admin_panel = await user_access_service.get_admin_panel_for_admin(message.from_user.id)
     except AdminAccessDeniedError:
         await message.answer(panel_text.ACCESS_DENIED)
         return
@@ -63,7 +61,7 @@ async def open_admin_calendar(message: Message) -> None:
         return
 
     try:
-        await user_service.require_superadmin(message.from_user.id)
+        await user_access_service.require_superadmin(message.from_user.id)
     except AdminAccessDeniedError:
         await message.answer(superadmin_panel_text.INSUFFICIENT_RIGHTS)
         return
@@ -81,7 +79,7 @@ async def select_admin_calendar_section(
     state: FSMContext,
 ) -> None:
     try:
-        await user_service.require_superadmin(callback.from_user.id)
+        await user_access_service.require_superadmin(callback.from_user.id)
     except AdminAccessDeniedError:
         await callback.answer(superadmin_panel_text.INSUFFICIENT_RIGHTS, show_alert=True)
         return
@@ -118,7 +116,9 @@ async def select_admin_calendar_section(
         return
 
     try:
-        prompt = await calendar_service.create_weekly_tournament_prompt(callback.from_user.id)
+        prompt = await tournament_proposal_service.create_weekly_tournament_prompt(
+            callback.from_user.id
+        )
     except CalendarTournamentDateAlreadyExistsError:
         await callback.answer(calendar_text.ADMIN_CALENDAR_TOURNAMENT_DATE_EXISTS)
         if callback.message is not None:

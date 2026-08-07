@@ -12,7 +12,7 @@ from app.db.repositories.profile_repository import (
 from app.db.repositories.season_repository import SeasonRepository
 from app.db.session import SessionFactory
 from app.services.access_policy import ActiveUserRequiredError, access_policy
-from app.services.dto import PlayerProfileView
+from app.services.dto.statistics.profile import PlayerProfileView
 
 
 class ProfileKind(StrEnum):

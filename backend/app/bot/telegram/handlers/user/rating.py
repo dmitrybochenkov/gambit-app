@@ -12,9 +12,7 @@ from app.bot.telegram.texts.user import rating as text
 from app.services.access_policy import ActiveUserRequiredError
 from app.services.pagination import pagination_service
 from app.services.rating_service import RatingNotAllowedError, rating_service
-from app.services.user_service import (
-    user_service,
-)
+from app.services.user_access_service import user_access_service
 
 router = Router(name="user.rating")
 
@@ -25,7 +23,7 @@ async def show_rating_menu(message: Message) -> None:
         return
 
     try:
-        await user_service.require_active_user(message.from_user.id)
+        await user_access_service.require_active_user(message.from_user.id)
     except ActiveUserRequiredError:
         await message.answer(text.RATING_UNAVAILABLE)
         return

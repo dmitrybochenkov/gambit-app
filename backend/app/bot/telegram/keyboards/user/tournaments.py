@@ -6,7 +6,7 @@ from aiogram.utils.keyboard import InlineKeyboardBuilder
 
 from app.bot.telegram.formatters import tournaments as tournament_fmt
 from app.bot.telegram.keyboards import labels
-from app.services.dto import TournamentView
+from app.services.dto.tournaments import TournamentView
 from app.services.pagination import Page
 
 TOURNAMENT_LIST_PAGE_SIZE = 6

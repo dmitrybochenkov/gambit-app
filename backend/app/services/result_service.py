@@ -26,11 +26,8 @@ from app.domain.prize_multiplier_places import (
 from app.domain.tournament_close_policy import is_tournament_closeable
 from app.domain.tournament_result_edit_policy import is_tournament_result_editable
 from app.services.access_policy import access_policy
-from app.services.dto import (
-    TournamentResultPlayerView,
-    TournamentResultsView,
-    TournamentView,
-)
+from app.services.dto.results import TournamentResultPlayerView, TournamentResultsView
+from app.services.dto.tournaments import TournamentView
 from app.services.result_field_policy import is_result_field_allowed
 from app.services.result_fields import ResultField
 from app.services.tournament_service import tournament_view

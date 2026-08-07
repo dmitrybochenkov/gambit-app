@@ -42,8 +42,15 @@ Pure rules, enums, value-object codecs, and policy helpers live under
 
 ### DTO
 
-DTOs in `backend/app/services/dto.py` are immutable service-to-presentation
+DTOs under `backend/app/services/dto/` are immutable service-to-presentation
 contracts. Presentation code should format DTOs, not ORM models.
+
+DTO packages are grouped by domain or scenario. `dto/__init__.py` may expose
+modules, but it must not become a flat facade of every DTO symbol.
+
+Persisted domain enums are used directly in service DTOs when the view state is
+identical to storage state. Separate `*View` enums are reserved for actual
+presentation/use-case state, such as start or lifecycle screens.
 
 ## Transactions
 
@@ -65,18 +72,26 @@ not call `date.today()` directly for domain decisions.
 
 Current service classes include:
 
-- `UserService`
+- `UserAccessService`
+- `RegistrationService`
+- `RegistrationReviewService`
+- `AdminManagementService`
 - `TournamentService`
+- `TournamentProposalService`
+- `TournamentScheduleService`
+- `TournamentPlanningService`
 - `TournamentCheckInService`
 - `ResultService`
 - `RatingService`
 - `ProfileService`
 - `UserStatisticsService`
-- `CalendarService`
 - `SeasonService`
 - `AdminPromptService`
 
 This list documents the current tree, not a future split plan.
+
+`UserService`, `CalendarService`, and the old `services/dto.py` module are
+retired runtime monoliths.
 
 ## Repository Pattern
 
@@ -91,6 +106,30 @@ Repositories:
 - never create a session;
 - never commit;
 - never call services.
+
+Repository projection objects are persistence-layer records. Services map them
+explicitly into service DTOs before returning data to Telegram handlers.
+
+## Proposals
+
+`AdminPrompt.payload` remains JSON in the database, but services work with typed
+payload value objects at the boundary:
+
+- `SeasonProposalPayload`
+- `WeeklyTournamentPromptPayload`
+
+Raw JSON decode/encode errors are converted to domain prompt errors.
+
+Only one pending season proposal is allowed at a time. The stable scope key is
+`season`; repeated entry returns the existing pending proposal. After it is
+confirmed or cancelled, a later entry creates the next attempt key.
+
+Weekly tournament Sunday rotation is configured by active
+`WeeklyTournamentTemplate` rows with `rotation_order`. The planning flow sorts
+Sunday templates by `rotation_order`; if an earlier Sunday tournament exists,
+the next template after its type is selected, otherwise the first configured
+Sunday template is used. Adding another Sunday template in the database changes
+the rotation without Python code changes.
 
 ## Telegram Presentation
 

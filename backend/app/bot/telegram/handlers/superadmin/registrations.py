@@ -11,13 +11,13 @@ from app.bot.telegram.notifications import format_registration_review
 from app.bot.telegram.texts.superadmin import panel as panel_text
 from app.bot.telegram.texts.superadmin import registrations as text
 from app.services.access_policy import AdminAccessDeniedError
-from app.services.dto import RegistrationReviewResultView
+from app.services.dto.registrations import RegistrationReviewResultView
 from app.services.pagination import pagination_service
-from app.services.user_service import (
+from app.services.registration_review_service import registration_review_service
+from app.services.user_common import (
     RegistrationAlreadyReviewedError,
     RegistrationCandidateNotFoundError,
     UserNotFoundError,
-    user_service,
 )
 
 logger = logging.getLogger(__name__)
@@ -32,13 +32,13 @@ async def show_pending_registrations(message: Message) -> None:
         return
 
     try:
-        await user_service.require_superadmin(message.from_user.id)
-        admin_panel = await user_service.get_admin_panel_for_admin(message.from_user.id)
+        reviews = await registration_review_service.list_pending_reviews_for_superadmin(
+            message.from_user.id
+        )
     except AdminAccessDeniedError:
         await message.answer(panel_text.INSUFFICIENT_RIGHTS)
         return
 
-    reviews = admin_panel.reviews
     if not reviews:
         await message.answer(text.NO_PENDING_REGISTRATIONS)
         return
@@ -70,7 +70,7 @@ async def review_registration_list(
             return
 
         if callback_data.action == superadmin_registrations_kb.RegistrationListAction.OPEN:
-            review = await user_service.get_registration_review_for_admin(
+            review = await registration_review_service.get_registration_review_for_admin(
                 admin_telegram_id=callback.from_user.id,
                 request_id=callback_data.request_id,
             )
@@ -86,9 +86,9 @@ async def review_registration_list(
                 )
             return
 
-        await user_service.require_superadmin(callback.from_user.id)
-        admin_panel = await user_service.get_admin_panel_for_admin(callback.from_user.id)
-        reviews = admin_panel.reviews
+        reviews = await registration_review_service.list_pending_reviews_for_superadmin(
+            callback.from_user.id
+        )
         if not reviews:
             await callback.answer()
             if callback.message is not None:
@@ -129,7 +129,7 @@ async def review_registration(
             callback_data.action
             == superadmin_registrations_kb.RegistrationReviewAction.SELECT_CANDIDATE
         ):
-            review = await user_service.get_registration_review_for_admin(
+            review = await registration_review_service.get_registration_review_for_admin(
                 admin_telegram_id=callback.from_user.id,
                 request_id=callback_data.request_id,
             )
@@ -148,7 +148,7 @@ async def review_registration(
             return
 
         if callback_data.action == superadmin_registrations_kb.RegistrationReviewAction.APPROVE:
-            review_result = await user_service.approve_registration(
+            review_result = await registration_review_service.approve_registration(
                 superadmin_telegram_id=callback.from_user.id,
                 request_id=callback_data.request_id,
             )
@@ -164,7 +164,7 @@ async def review_registration(
                     pass
             return
         else:
-            review_result = await user_service.reject_registration(
+            review_result = await registration_review_service.reject_registration(
                 superadmin_telegram_id=callback.from_user.id,
                 request_id=callback_data.request_id,
             )
@@ -199,7 +199,7 @@ async def select_registration_candidate(
     callback_data: superadmin_registrations_kb.RegistrationCandidateSelectionCallback,
 ) -> None:
     try:
-        review = await user_service.select_registration_candidate(
+        review = await registration_review_service.select_registration_candidate(
             superadmin_telegram_id=callback.from_user.id,
             request_id=callback_data.request_id,
             user_id=callback_data.user_id,

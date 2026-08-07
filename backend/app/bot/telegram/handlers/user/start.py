@@ -11,10 +11,8 @@ from app.bot.telegram.keyboards.user import menu as user_menu_kb
 from app.bot.telegram.texts.user import registration as registration_text
 from app.bot.telegram.texts.user import start as text
 from app.services.access_policy import ActiveUserRequiredError
-from app.services.dto import UserStartStatusView
-from app.services.user_service import (
-    user_service,
-)
+from app.services.dto.users import UserStartStatusView
+from app.services.user_access_service import user_access_service
 
 router = Router(name="user.start")
 
@@ -25,7 +23,7 @@ async def start_command(message: Message, state: FSMContext) -> None:
     if message.from_user is None:
         return
 
-    start_view = await user_service.get_start_view(message.from_user.id)
+    start_view = await user_access_service.get_start_view(message.from_user.id)
     if start_view.status == UserStartStatusView.PENDING_REGISTRATION:
         await message.answer(
             registration_text.REGISTRATION_PENDING,
@@ -55,7 +53,7 @@ async def show_club_address(message: Message) -> None:
         return
 
     try:
-        await user_service.require_active_user(message.from_user.id)
+        await user_access_service.require_active_user(message.from_user.id)
     except ActiveUserRequiredError:
         await message.answer(text.ADDRESS_UNAVAILABLE)
         return

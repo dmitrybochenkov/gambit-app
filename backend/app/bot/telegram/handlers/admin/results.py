@@ -42,9 +42,7 @@ from app.services.tournament_check_in_service import (
     TournamentCheckInNotFoundError,
     TournamentCheckInUserNotFoundError,
 )
-from app.services.user_service import (
-    user_service,
-)
+from app.services.user_access_service import user_access_service
 
 logger = logging.getLogger(__name__)
 
@@ -55,7 +53,7 @@ router = Router(name="admin.results")
 @router.callback_query(admin_results_kb.AdminResultBackToMenuCallback.filter())
 async def back_to_admin_from_results(callback: CallbackQuery) -> None:
     try:
-        admin_panel = await user_service.get_admin_panel_for_admin(callback.from_user.id)
+        admin_panel = await user_access_service.get_admin_panel_for_admin(callback.from_user.id)
     except AdminAccessDeniedError:
         await callback.answer(panel_text.ACCESS_DENIED, show_alert=True)
         return

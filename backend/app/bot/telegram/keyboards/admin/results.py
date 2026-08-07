@@ -10,7 +10,8 @@ from app.bot.telegram.keyboards.admin.common import (
     _adjust_paged_keyboard,
     _admin_candidate_page_label,
 )
-from app.services.dto import TournamentResultPlayerView, TournamentResultsView, TournamentView
+from app.services.dto.results import TournamentResultPlayerView, TournamentResultsView
+from app.services.dto.tournaments import TournamentView
 from app.services.pagination import Page
 from app.services.result_field_policy import is_result_field_allowed
 from app.services.result_fields import ResultField

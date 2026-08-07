@@ -24,12 +24,14 @@ from app.bot.telegram.keyboards.user import registration as user_registration_kb
 from app.bot.telegram.notifications import notify_admins_about_registration
 from app.bot.telegram.states import RegistrationStates
 from app.bot.telegram.texts.user import registration as text
-from app.services.user_service import (
+from app.services.registration_service import (
+    RegistrationCandidateNotFoundError,
+    registration_service,
+)
+from app.services.user_common import (
     IdentityAlreadyExistsError,
     InvalidDisplayNameError,
-    RegistrationCandidateNotFoundError,
     RegistrationNotAllowedError,
-    user_service,
 )
 
 router = Router(name="user.registration")
@@ -84,7 +86,7 @@ async def enter_new_display_name(message: Message, state: FSMContext) -> None:
         return
 
     try:
-        request = await user_service.submit_new_player_registration(
+        request = await registration_service.submit_new_player_registration(
             message.from_user.id,
             display_name,
         )
@@ -117,7 +119,7 @@ async def enter_link_name(message: Message, state: FSMContext) -> None:
         return
 
     try:
-        request = await user_service.submit_link_existing_registration(
+        request = await registration_service.submit_link_existing_registration(
             message.from_user.id,
             requested_link_name,
         )

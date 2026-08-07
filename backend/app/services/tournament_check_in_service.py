@@ -18,18 +18,15 @@ from app.db.repositories.tournament_result_repository import TournamentResultRep
 from app.db.repositories.user_repository import UserRepository
 from app.db.session import SessionFactory
 from app.services.access_policy import access_policy
-from app.services.dto import (
-    CheckInCandidateView,
-    TournamentCheckInView,
-    TournamentView,
-    UserView,
-)
+from app.services.dto.check_in import CheckInCandidateView, TournamentCheckInView
+from app.services.dto.tournaments import TournamentView
+from app.services.dto.users import UserView
 from app.services.player_search import (
     rank_player_candidates,
     validate_display_name,
 )
 from app.services.tournament_service import tournament_view
-from app.services.user_service import (
+from app.services.user_common import (
     IdentityAlreadyExistsError,
     required_user_view,
 )

@@ -3,8 +3,8 @@ from aiogram.exceptions import TelegramBadRequest, TelegramForbiddenError
 
 from app.bot.telegram.keyboards.superadmin import registrations as superadmin_registrations_kb
 from app.bot.telegram.texts.superadmin import registrations as registration_text
-from app.services.dto import RegistrationReviewView
-from app.services.user_service import user_service
+from app.services.dto.registrations import RegistrationReviewView
+from app.services.registration_review_service import registration_review_service
 
 
 def format_registration_review(review: RegistrationReviewView) -> str:
@@ -12,7 +12,7 @@ def format_registration_review(review: RegistrationReviewView) -> str:
 
 
 async def notify_admins_about_registration(bot: Bot, request_id: int) -> None:
-    notification = await user_service.get_registration_notification(request_id)
+    notification = await registration_review_service.get_registration_notification(request_id)
     review = RegistrationReviewView(
         request=notification.request,
         candidates=notification.candidates,

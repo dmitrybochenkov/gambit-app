@@ -27,9 +27,7 @@ from app.services.tournament_check_in_service import (
     TournamentCheckInUserNotFoundError,
     tournament_check_in_service,
 )
-from app.services.user_service import (
-    user_service,
-)
+from app.services.user_access_service import user_access_service
 
 logger = logging.getLogger(__name__)
 
@@ -82,7 +80,7 @@ async def select_check_in_action(
 ) -> None:
     try:
         if callback_data.action == admin_check_in_kb.AdminCheckInAction.CANCEL:
-            admin_panel = await user_service.get_admin_panel_for_admin(callback.from_user.id)
+            admin_panel = await user_access_service.get_admin_panel_for_admin(callback.from_user.id)
             await state.clear()
             await callback.answer(result_text.ADMIN_RESULTS_CANCELLED)
             if callback.message is not None:

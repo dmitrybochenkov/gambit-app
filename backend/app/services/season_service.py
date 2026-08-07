@@ -1,6 +1,6 @@
 import json
+from dataclasses import dataclass
 from datetime import date, timedelta
-from uuid import uuid4
 
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
@@ -14,7 +14,7 @@ from app.db.repositories.season_repository import SeasonRepository
 from app.db.session import SessionFactory
 from app.services.access_policy import access_policy
 from app.services.admin_prompt_service import admin_prompt_service
-from app.services.dto import (
+from app.services.dto.seasons import (
     ScoringConfigView,
     SeasonLifecycleStateView,
     SeasonProposalView,
@@ -70,12 +70,72 @@ class SeasonProposalInvalidPayloadError(ValueError):
     pass
 
 
+@dataclass(frozen=True)
+class SeasonProposalPayload:
+    name: str
+    starts_at: date
+    scoring_config_id: int
+
+    @classmethod
+    def create(
+        cls,
+        *,
+        name: object,
+        starts_at: date,
+        scoring_config_id: int,
+    ) -> "SeasonProposalPayload":
+        return cls(
+            name=validate_season_name(name),
+            starts_at=starts_at,
+            scoring_config_id=scoring_config_id,
+        )
+
+    @classmethod
+    def from_json(cls, raw_payload: str) -> "SeasonProposalPayload":
+        try:
+            payload = json.loads(raw_payload)
+            if not isinstance(payload, dict):
+                raise SeasonProposalInvalidPayloadError
+            return cls.create(
+                name=payload.get("name"),
+                starts_at=date.fromisoformat(str(payload["starts_at"])),
+                scoring_config_id=int(payload["scoring_config_id"]),
+            )
+        except (KeyError, TypeError, ValueError, json.JSONDecodeError) as error:
+            raise SeasonProposalInvalidPayloadError from error
+
+    def to_json(self) -> str:
+        return json.dumps(
+            {
+                "name": self.name,
+                "starts_at": self.starts_at.isoformat(),
+                "scoring_config_id": self.scoring_config_id,
+            },
+            ensure_ascii=False,
+        )
+
+    def with_name(self, name: str) -> "SeasonProposalPayload":
+        return SeasonProposalPayload.create(
+            name=name,
+            starts_at=self.starts_at,
+            scoring_config_id=self.scoring_config_id,
+        )
+
+    def with_starts_at(self, starts_at: date) -> "SeasonProposalPayload":
+        return SeasonProposalPayload.create(
+            name=self.name,
+            starts_at=starts_at,
+            scoring_config_id=self.scoring_config_id,
+        )
+
+
 SEASON_NAME_BY_QUARTER = {
     1: "Зима",
     2: "Весна",
     3: "Лето",
     4: "Осень",
 }
+SEASON_PROPOSAL_SCOPE_KEY = "season"
 
 
 class SeasonService:
@@ -116,27 +176,62 @@ class SeasonService:
         starts_at = business_date + timedelta(days=1)
         async with self.session_factory() as session:
             await access_policy.require_admin(session, admin_telegram_id)
+            repository = AdminPromptRepository(session)
+            pending_proposal = await repository.get_pending_by_scope(
+                AdminPromptKind.SEASON_PROPOSAL,
+                SEASON_PROPOSAL_SCOPE_KEY,
+            )
+            if pending_proposal is not None:
+                return await self._season_proposal_view(
+                    session,
+                    pending_proposal,
+                    today=business_date,
+                )
+
             scoring_config = await self._default_scoring_config(session, starts_at)
             if scoring_config is None:
                 raise SeasonScoringConfigNotFoundError
-            proposal = AdminPrompt(
-                key=season_proposal_key(admin_telegram_id, self.clock),
+            proposal = await repository.create_prompt(
+                key=await next_season_proposal_key(repository),
                 kind=AdminPromptKind.SEASON_PROPOSAL,
-                payload=season_proposal_payload(
+                payload=SeasonProposalPayload.create(
                     name=season_name_for_date(starts_at),
                     starts_at=starts_at,
                     scoring_config_id=scoring_config.id,
-                ),
-                status=AdminPromptStatus.PENDING,
+                ).to_json(),
+                scope_key=SEASON_PROPOSAL_SCOPE_KEY,
             )
-            AdminPromptRepository(session).add(proposal)
-            await session.commit()
+            try:
+                await session.commit()
+            except IntegrityError as exc:
+                await session.rollback()
+                recovered_proposal = await self._recover_pending_season_proposal(business_date)
+                if recovered_proposal is not None:
+                    return recovered_proposal
+                raise SeasonConflictError from exc
             await session.refresh(proposal)
             return await self._season_proposal_view(
                 session,
                 proposal,
                 starts_at,
                 today=business_date,
+            )
+
+    async def _recover_pending_season_proposal(
+        self,
+        today: date,
+    ) -> SeasonProposalView | None:
+        async with self.session_factory() as session:
+            pending_proposal = await AdminPromptRepository(session).get_pending_by_scope(
+                AdminPromptKind.SEASON_PROPOSAL,
+                SEASON_PROPOSAL_SCOPE_KEY,
+            )
+            if pending_proposal is None:
+                return None
+            return await self._season_proposal_view(
+                session,
+                pending_proposal,
+                today=today,
             )
 
     async def get_season_proposal(
@@ -160,9 +255,8 @@ class SeasonService:
         async with self.session_factory() as session:
             await access_policy.require_admin(session, admin_telegram_id)
             prompt = await self._get_pending_season_proposal(session, prompt_id)
-            payload = season_proposal_dict(prompt)
-            payload["name"] = validated_name
-            prompt.payload = json.dumps(payload, ensure_ascii=False)
+            payload = SeasonProposalPayload.from_json(prompt.payload)
+            prompt.payload = payload.with_name(validated_name).to_json()
             await session.commit()
             await session.refresh(prompt)
             return await self._season_proposal_view(session, prompt)
@@ -177,9 +271,8 @@ class SeasonService:
             await access_policy.require_admin(session, admin_telegram_id)
             await self._validate_season_start_date(session, starts_at)
             prompt = await self._get_pending_season_proposal(session, prompt_id)
-            payload = season_proposal_dict(prompt)
-            payload["starts_at"] = starts_at.isoformat()
-            prompt.payload = json.dumps(payload, ensure_ascii=False)
+            payload = SeasonProposalPayload.from_json(prompt.payload)
+            prompt.payload = payload.with_starts_at(starts_at).to_json()
             await session.commit()
             await session.refresh(prompt)
             return await self._season_proposal_view(session, prompt, starts_at)
@@ -195,12 +288,12 @@ class SeasonService:
             try:
                 actor = await access_policy.require_admin(session, admin_telegram_id)
                 prompt = await self._get_pending_season_proposal(session, prompt_id)
-                payload = season_proposal_dict(prompt)
+                payload = SeasonProposalPayload.from_json(prompt.payload)
                 season = await self._create_proposed_season_in_session(
                     session=session,
-                    name=str(payload["name"]),
-                    starts_at=date.fromisoformat(str(payload["starts_at"])),
-                    scoring_config_id=int(payload["scoring_config_id"]),
+                    name=payload.name,
+                    starts_at=payload.starts_at,
+                    scoring_config_id=payload.scoring_config_id,
                     today=business_date,
                 )
                 admin_prompt_service.confirm(
@@ -404,7 +497,7 @@ class SeasonService:
             raise SeasonProposalNotFoundError
         if prompt.status != AdminPromptStatus.PENDING:
             raise SeasonProposalAlreadyResolvedError
-        season_proposal_dict(prompt)
+        SeasonProposalPayload.from_json(prompt.payload)
         return prompt
 
     @classmethod
@@ -460,45 +553,12 @@ def scoring_config_view(config: ScoringConfig) -> ScoringConfigView:
 
 
 def season_proposal_view(prompt: AdminPrompt) -> SeasonProposalView:
-    payload = season_proposal_dict(prompt)
+    payload = SeasonProposalPayload.from_json(prompt.payload)
     return SeasonProposalView(
         id=prompt.id,
-        name=str(payload["name"]),
-        starts_at=date.fromisoformat(str(payload["starts_at"])),
-        scoring_config_id=int(payload["scoring_config_id"]),
-    )
-
-
-def season_proposal_dict(prompt: AdminPrompt) -> dict[str, object]:
-    try:
-        payload = json.loads(prompt.payload)
-        if not isinstance(payload, dict):
-            raise SeasonProposalInvalidPayloadError
-        name = validate_season_name(payload.get("name"))
-        starts_at = date.fromisoformat(str(payload["starts_at"]))
-        scoring_config_id = int(payload["scoring_config_id"])
-    except (KeyError, TypeError, ValueError, json.JSONDecodeError) as error:
-        raise SeasonProposalInvalidPayloadError from error
-    return {
-        "name": name,
-        "starts_at": starts_at.isoformat(),
-        "scoring_config_id": scoring_config_id,
-    }
-
-
-def season_proposal_payload(
-    *,
-    name: str,
-    starts_at: date,
-    scoring_config_id: int,
-) -> str:
-    return json.dumps(
-        {
-            "name": validate_season_name(name),
-            "starts_at": starts_at.isoformat(),
-            "scoring_config_id": scoring_config_id,
-        },
-        ensure_ascii=False,
+        name=payload.name,
+        starts_at=payload.starts_at,
+        scoring_config_id=payload.scoring_config_id,
     )
 
 
@@ -516,8 +576,12 @@ def season_name_for_date(value: date) -> str:
     return f"{SEASON_NAME_BY_QUARTER[quarter]} {value.year}"
 
 
-def season_proposal_key(admin_telegram_id: int, clock: Clock = club_clock) -> str:
-    return f"season:{admin_telegram_id}:{clock.now().isoformat()}:{uuid4().hex}"
+async def next_season_proposal_key(repository: AdminPromptRepository) -> str:
+    prompts = await repository.list_by_scope(
+        AdminPromptKind.SEASON_PROPOSAL,
+        SEASON_PROPOSAL_SCOPE_KEY,
+    )
+    return f"{SEASON_PROPOSAL_SCOPE_KEY}:{len(prompts) + 1}"
 
 
 season_service = SeasonService(SessionFactory)

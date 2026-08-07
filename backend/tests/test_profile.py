@@ -14,7 +14,7 @@ from app.db.models import (
     TournamentResult,
 )
 from app.db.models.enums import TournamentStatus, UserRole, UserStatus
-from app.services.dto import PlayerProfileView
+from app.services.dto.statistics.profile import PlayerProfileView
 from app.services.profile_service import ProfileKind, ProfileService
 
 

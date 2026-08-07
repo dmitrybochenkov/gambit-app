@@ -14,7 +14,7 @@ from app.db.models import (
     TournamentResult,
 )
 from app.db.models.enums import TournamentStatus, UserRole, UserStatus
-from app.services.dto import KnockoutsRatingView, PointsRatingView
+from app.services.dto.statistics.rating import KnockoutsRatingView, PointsRatingView
 from app.services.pagination import pagination_service
 from app.services.rating_service import RatingKind, RatingService
 

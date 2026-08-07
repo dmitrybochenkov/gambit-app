@@ -6,7 +6,7 @@ from aiogram.utils.keyboard import InlineKeyboardBuilder
 
 from app.bot.telegram.keyboards import labels
 from app.bot.telegram.keyboards.admin.common import _adjust_paged_keyboard
-from app.services.dto import TournamentView
+from app.services.dto.tournaments import TournamentView
 from app.services.pagination import Page
 
 

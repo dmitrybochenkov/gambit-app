@@ -30,33 +30,33 @@ from app.db.models.enums import (
     UserStatus,
 )
 from app.services.access_policy import ActiveUserRequiredError, AdminAccessDeniedError
-from app.services.calendar_service import (
+from app.services.tournament_proposal_service import (
     AdminPromptKind,
     CalendarDefaultTournamentTypeNotFoundError,
     CalendarPromptAction,
     CalendarPromptAlreadyResolvedError,
     CalendarPromptInvalidPayloadError,
-    CalendarService,
     CalendarSundayTournamentDateError,
-    CalendarSundayTournamentTypeNotFoundError,
     CalendarTournamentDateAlreadyExistsError,
     CalendarTournamentDateNotInPromptError,
     CalendarWeeklyPendingConflictError,
     CalendarWeeklyPromptEmptyError,
     CalendarWeeklyPromptIntegrityError,
+    TournamentProposalService,
     next_complete_game_week,
     weekly_tournaments_prompt_key,
 )
+from app.services.tournament_schedule_service import TournamentScheduleService
 
 
-async def create_calendar_service(
+async def create_proposal_service(
     database_path: Path,
-) -> tuple[CalendarService, async_sessionmaker, AsyncEngine]:
+) -> tuple[TournamentProposalService, async_sessionmaker, AsyncEngine]:
     engine = create_async_engine(f"sqlite+aiosqlite:///{database_path}")
     async with engine.begin() as connection:
         await connection.run_sync(Base.metadata.create_all)
     session_factory = async_sessionmaker(engine, expire_on_commit=False)
-    return CalendarService(session_factory), session_factory, engine
+    return TournamentProposalService(session_factory), session_factory, engine
 
 
 async def seed_calendar_data(session_factory: async_sessionmaker) -> None:
@@ -134,7 +134,7 @@ async def test_calendar_weekly_prompt_requires_active_superadmin(
     status: UserStatus | None,
     expected_error: type[Exception],
 ) -> None:
-    service, session_factory, engine = await create_calendar_service(tmp_path / "calendar.db")
+    service, session_factory, engine = await create_proposal_service(tmp_path / "calendar.db")
     try:
         if role is not None and status is not None:
             await seed_calendar_actor(
@@ -156,7 +156,7 @@ async def test_calendar_weekly_prompt_requires_active_superadmin(
 async def test_calendar_weekly_prompt_allows_superadmin(
     tmp_path: Path,
 ) -> None:
-    service, session_factory, engine = await create_calendar_service(tmp_path / "calendar.db")
+    service, session_factory, engine = await create_proposal_service(tmp_path / "calendar.db")
     try:
         await seed_calendar_data(session_factory)
 
@@ -204,7 +204,7 @@ def test_next_complete_game_week_crosses_year_boundary() -> None:
 async def test_weekly_tournament_prompt_contains_five_minimal_items(
     tmp_path: Path,
 ) -> None:
-    service, session_factory, engine = await create_calendar_service(tmp_path / "calendar.db")
+    service, session_factory, engine = await create_proposal_service(tmp_path / "calendar.db")
     try:
         await seed_calendar_data(session_factory)
 
@@ -268,7 +268,7 @@ async def test_weekly_tournament_prompt_contains_five_minimal_items(
 async def test_weekly_prompt_uses_deterministic_sunday_rotation(
     tmp_path: Path,
 ) -> None:
-    service, session_factory, engine = await create_calendar_service(tmp_path / "calendar.db")
+    service, session_factory, engine = await create_proposal_service(tmp_path / "calendar.db")
     try:
         await seed_calendar_data(session_factory)
 
@@ -290,7 +290,7 @@ async def test_weekly_prompt_uses_deterministic_sunday_rotation(
 async def test_weekly_prompt_uses_latest_actual_sunday_tournament_for_rotation(
     tmp_path: Path,
 ) -> None:
-    service, session_factory, engine = await create_calendar_service(tmp_path / "calendar.db")
+    service, session_factory, engine = await create_proposal_service(tmp_path / "calendar.db")
     try:
         await seed_calendar_data(session_factory)
         async with session_factory() as session:
@@ -316,7 +316,7 @@ async def test_weekly_prompt_uses_latest_actual_sunday_tournament_for_rotation(
 async def test_pending_prompts_do_not_advance_sunday_rotation(
     tmp_path: Path,
 ) -> None:
-    service, session_factory, engine = await create_calendar_service(tmp_path / "calendar.db")
+    service, session_factory, engine = await create_proposal_service(tmp_path / "calendar.db")
     try:
         await seed_calendar_data(session_factory)
         await service.create_weekly_tournament_prompt(100, today=date(2026, 7, 21))
@@ -332,7 +332,7 @@ async def test_pending_prompts_do_not_advance_sunday_rotation(
 async def test_confirmed_sunday_advances_sunday_rotation_default(
     tmp_path: Path,
 ) -> None:
-    service, session_factory, engine = await create_calendar_service(tmp_path / "calendar.db")
+    service, session_factory, engine = await create_proposal_service(tmp_path / "calendar.db")
     try:
         await seed_calendar_data(session_factory)
         prompt = await service.create_weekly_tournament_prompt(100, today=date(2026, 7, 21))
@@ -356,7 +356,7 @@ async def test_confirmed_sunday_advances_sunday_rotation_default(
 async def test_confirmed_manual_sunday_override_drives_next_rotation_default(
     tmp_path: Path,
 ) -> None:
-    service, session_factory, engine = await create_calendar_service(tmp_path / "calendar.db")
+    service, session_factory, engine = await create_proposal_service(tmp_path / "calendar.db")
     try:
         await seed_calendar_data(session_factory)
         prompt = await service.create_weekly_tournament_prompt(100, today=date(2026, 7, 28))
@@ -383,7 +383,7 @@ async def test_confirmed_manual_sunday_override_drives_next_rotation_default(
 async def test_confirmed_prompt_without_tournaments_does_not_advance_sunday_rotation(
     tmp_path: Path,
 ) -> None:
-    service, session_factory, engine = await create_calendar_service(tmp_path / "calendar.db")
+    service, session_factory, engine = await create_proposal_service(tmp_path / "calendar.db")
     try:
         await seed_calendar_data(session_factory)
         target_dates = next_complete_game_week(date(2026, 7, 21))
@@ -420,7 +420,7 @@ async def test_confirmed_prompt_without_tournaments_does_not_advance_sunday_rota
 async def test_non_rotation_sunday_tournament_is_ignored_for_rotation_default(
     tmp_path: Path,
 ) -> None:
-    service, session_factory, engine = await create_calendar_service(tmp_path / "calendar.db")
+    service, session_factory, engine = await create_proposal_service(tmp_path / "calendar.db")
     try:
         await seed_calendar_data(session_factory)
         async with session_factory() as session:
@@ -445,7 +445,7 @@ async def test_non_rotation_sunday_tournament_is_ignored_for_rotation_default(
 async def test_confirming_weekly_tournament_prompt_creates_all_tournaments(
     tmp_path: Path,
 ) -> None:
-    service, session_factory, engine = await create_calendar_service(tmp_path / "calendar.db")
+    service, session_factory, engine = await create_proposal_service(tmp_path / "calendar.db")
     try:
         await seed_calendar_data(session_factory)
 
@@ -473,7 +473,7 @@ async def test_confirming_weekly_tournament_prompt_creates_all_tournaments(
 async def test_confirming_weekly_prompt_rejects_missing_date_payload(
     tmp_path: Path,
 ) -> None:
-    service, session_factory, engine = await create_calendar_service(tmp_path / "calendar.db")
+    service, session_factory, engine = await create_proposal_service(tmp_path / "calendar.db")
     try:
         await seed_calendar_data(session_factory)
 
@@ -504,7 +504,7 @@ async def test_confirming_weekly_prompt_rejects_missing_date_payload(
 async def test_confirming_weekly_prompt_assigns_season_by_tournament_date(
     tmp_path: Path,
 ) -> None:
-    service, session_factory, engine = await create_calendar_service(tmp_path / "calendar.db")
+    service, session_factory, engine = await create_proposal_service(tmp_path / "calendar.db")
     try:
         await seed_calendar_data(session_factory)
         async with session_factory() as session:
@@ -549,7 +549,7 @@ async def test_confirming_weekly_prompt_assigns_season_by_tournament_date(
 async def test_weekly_prompt_type_update_changes_displayed_parameters(
     tmp_path: Path,
 ) -> None:
-    service, session_factory, engine = await create_calendar_service(tmp_path / "calendar.db")
+    service, session_factory, engine = await create_proposal_service(tmp_path / "calendar.db")
     try:
         await seed_calendar_data(session_factory)
 
@@ -582,7 +582,7 @@ async def test_weekly_prompt_type_update_changes_displayed_parameters(
 async def test_weekly_prompt_thursday_and_saturday_can_be_edited_independently(
     tmp_path: Path,
 ) -> None:
-    service, session_factory, engine = await create_calendar_service(tmp_path / "calendar.db")
+    service, session_factory, engine = await create_proposal_service(tmp_path / "calendar.db")
     try:
         await seed_calendar_data(session_factory)
 
@@ -621,7 +621,7 @@ async def test_weekly_prompt_thursday_and_saturday_can_be_edited_independently(
 async def test_weekly_prompt_day_edit_options_require_prompt_date(
     tmp_path: Path,
 ) -> None:
-    service, session_factory, engine = await create_calendar_service(tmp_path / "calendar.db")
+    service, session_factory, engine = await create_proposal_service(tmp_path / "calendar.db")
     try:
         await seed_calendar_data(session_factory)
 
@@ -668,7 +668,7 @@ async def test_weekly_prompt_day_edit_options_require_prompt_date(
 async def test_weekly_prompt_rejects_inactive_selected_type(
     tmp_path: Path,
 ) -> None:
-    service, session_factory, engine = await create_calendar_service(tmp_path / "calendar.db")
+    service, session_factory, engine = await create_proposal_service(tmp_path / "calendar.db")
     try:
         await seed_calendar_data(session_factory)
         prompt = await service.create_weekly_tournament_prompt(100, today=date(2026, 7, 21))
@@ -692,7 +692,7 @@ async def test_weekly_prompt_rejects_inactive_selected_type(
 async def test_creating_weekly_prompt_rejects_existing_tournament_on_any_target_date(
     tmp_path: Path,
 ) -> None:
-    service, session_factory, engine = await create_calendar_service(tmp_path / "calendar.db")
+    service, session_factory, engine = await create_proposal_service(tmp_path / "calendar.db")
     try:
         await seed_calendar_data(session_factory)
         async with session_factory() as session:
@@ -715,7 +715,7 @@ async def test_creating_weekly_prompt_rejects_existing_tournament_on_any_target_
 async def test_creating_weekly_prompt_reuses_pending_prompt_for_same_week(
     tmp_path: Path,
 ) -> None:
-    service, session_factory, engine = await create_calendar_service(tmp_path / "calendar.db")
+    service, session_factory, engine = await create_proposal_service(tmp_path / "calendar.db")
     try:
         await seed_calendar_data(session_factory)
 
@@ -731,7 +731,7 @@ async def test_creating_weekly_prompt_reuses_pending_prompt_for_same_week(
 async def test_creating_weekly_prompt_preserves_manual_edits_to_pending_payload(
     tmp_path: Path,
 ) -> None:
-    service, session_factory, engine = await create_calendar_service(tmp_path / "calendar.db")
+    service, session_factory, engine = await create_proposal_service(tmp_path / "calendar.db")
     try:
         await seed_calendar_data(session_factory)
 
@@ -756,7 +756,7 @@ async def test_creating_weekly_prompt_preserves_manual_edits_to_pending_payload(
 async def test_confirming_weekly_prompt_rejects_non_consecutive_payload(
     tmp_path: Path,
 ) -> None:
-    service, session_factory, engine = await create_calendar_service(tmp_path / "calendar.db")
+    service, session_factory, engine = await create_proposal_service(tmp_path / "calendar.db")
     try:
         await seed_calendar_data(session_factory)
 
@@ -796,7 +796,7 @@ async def test_confirming_weekly_prompt_rejects_non_consecutive_payload(
 async def test_cancelled_weekly_prompt_remains_historical_and_new_open_creates_new_row(
     tmp_path: Path,
 ) -> None:
-    service, session_factory, engine = await create_calendar_service(tmp_path / "calendar.db")
+    service, session_factory, engine = await create_proposal_service(tmp_path / "calendar.db")
     try:
         await seed_calendar_data(session_factory)
 
@@ -848,7 +848,7 @@ async def test_cancelled_weekly_prompt_remains_historical_and_new_open_creates_n
 async def test_weekly_prompt_attempt_key_uses_max_existing_numeric_suffix(
     tmp_path: Path,
 ) -> None:
-    service, session_factory, engine = await create_calendar_service(tmp_path / "calendar.db")
+    service, session_factory, engine = await create_proposal_service(tmp_path / "calendar.db")
     try:
         await seed_calendar_data(session_factory)
 
@@ -904,10 +904,10 @@ async def test_weekly_prompt_attempt_key_uses_max_existing_numeric_suffix(
 async def test_confirmed_weekly_prompt_remains_terminal_when_tournaments_exist(
     tmp_path: Path,
 ) -> None:
-    service, session_factory, engine = await create_calendar_service(tmp_path / "calendar.db")
+    service, session_factory, engine = await create_proposal_service(tmp_path / "calendar.db")
     try:
         resolved_at = datetime(2026, 7, 21, 12, 15)
-        service = CalendarService(session_factory, clock=FixedClock(resolved_at))
+        service = TournamentProposalService(session_factory, clock=FixedClock(resolved_at))
         await seed_calendar_data(session_factory)
 
         prompt = await service.create_weekly_tournament_prompt(100, today=date(2026, 7, 21))
@@ -933,7 +933,7 @@ async def test_confirmed_weekly_prompt_remains_terminal_when_tournaments_exist(
 async def test_confirmed_weekly_prompt_with_wrong_type_is_integrity_error(
     tmp_path: Path,
 ) -> None:
-    service, session_factory, engine = await create_calendar_service(tmp_path / "calendar.db")
+    service, session_factory, engine = await create_proposal_service(tmp_path / "calendar.db")
     try:
         await seed_calendar_data(session_factory)
 
@@ -1007,7 +1007,7 @@ async def test_confirmed_weekly_prompt_with_wrong_type_is_integrity_error(
 async def test_confirmed_weekly_prompt_without_tournaments_is_integrity_error(
     tmp_path: Path,
 ) -> None:
-    service, session_factory, engine = await create_calendar_service(tmp_path / "calendar.db")
+    service, session_factory, engine = await create_proposal_service(tmp_path / "calendar.db")
     try:
         await seed_calendar_data(session_factory)
 
@@ -1047,7 +1047,7 @@ async def test_confirmed_weekly_prompt_without_tournaments_is_integrity_error(
 async def test_weekly_scope_allows_resolved_prompts_and_one_pending_prompt(
     tmp_path: Path,
 ) -> None:
-    service, session_factory, engine = await create_calendar_service(tmp_path / "calendar.db")
+    service, session_factory, engine = await create_proposal_service(tmp_path / "calendar.db")
     try:
         await seed_calendar_data(session_factory)
 
@@ -1068,7 +1068,7 @@ async def test_weekly_scope_allows_resolved_prompts_and_one_pending_prompt(
 async def test_weekly_scope_rejects_second_pending_prompt_at_database_level(
     tmp_path: Path,
 ) -> None:
-    service, session_factory, engine = await create_calendar_service(tmp_path / "calendar.db")
+    service, session_factory, engine = await create_proposal_service(tmp_path / "calendar.db")
     try:
         await seed_calendar_data(session_factory)
 
@@ -1095,7 +1095,7 @@ async def test_weekly_prompt_creation_recovers_existing_pending_after_scope_conf
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    service, session_factory, engine = await create_calendar_service(tmp_path / "calendar.db")
+    service, session_factory, engine = await create_proposal_service(tmp_path / "calendar.db")
     try:
         await seed_calendar_data(session_factory)
         calls = 0
@@ -1122,7 +1122,7 @@ async def test_weekly_prompt_creation_recovers_existing_pending_after_scope_conf
             raise CalendarWeeklyPendingConflictError
 
         monkeypatch.setattr(
-            CalendarService,
+            TournamentProposalService,
             "_commit_tournament_prompt",
             staticmethod(fake_commit),
         )
@@ -1143,7 +1143,7 @@ async def test_weekly_prompt_creation_recovers_existing_pending_after_scope_conf
 async def test_confirming_weekly_prompt_rejects_duplicate_tournament_date(
     tmp_path: Path,
 ) -> None:
-    service, session_factory, engine = await create_calendar_service(tmp_path / "calendar.db")
+    service, session_factory, engine = await create_proposal_service(tmp_path / "calendar.db")
     try:
         await seed_calendar_data(session_factory)
 
@@ -1178,7 +1178,7 @@ async def test_confirming_weekly_prompt_rejects_duplicate_tournament_date(
 async def test_confirming_weekly_prompt_rejects_conflict_on_any_target_date(
     tmp_path: Path,
 ) -> None:
-    service, session_factory, engine = await create_calendar_service(tmp_path / "calendar.db")
+    service, session_factory, engine = await create_proposal_service(tmp_path / "calendar.db")
     try:
         await seed_calendar_data(session_factory)
 
@@ -1214,7 +1214,7 @@ async def test_confirming_weekly_prompt_rejects_conflict_on_any_target_date(
 async def test_repeated_weekly_prompt_confirmation_does_not_create_second_schedule(
     tmp_path: Path,
 ) -> None:
-    service, session_factory, engine = await create_calendar_service(tmp_path / "calendar.db")
+    service, session_factory, engine = await create_proposal_service(tmp_path / "calendar.db")
     try:
         await seed_calendar_data(session_factory)
 
@@ -1242,7 +1242,7 @@ async def test_repeated_weekly_prompt_confirmation_does_not_create_second_schedu
 async def test_created_weekly_schedule_uses_materialized_tournaments(
     tmp_path: Path,
 ) -> None:
-    service, _session_factory, engine = await create_calendar_service(tmp_path / "calendar.db")
+    service, session_factory, engine = await create_proposal_service(tmp_path / "calendar.db")
     try:
         await seed_calendar_data(service.session_factory)
         prompt = await service.create_weekly_tournament_prompt(100, today=date(2026, 7, 21))
@@ -1252,7 +1252,9 @@ async def test_created_weekly_schedule_uses_materialized_tournaments(
             action=CalendarPromptAction.CONFIRM,
         )
 
-        schedule = await service.get_created_weekly_schedule(100, prompt.id)
+        schedule = await TournamentScheduleService(session_factory).get_created_weekly_schedule(
+            100, prompt.id
+        )
 
         assert [(item.date, item.tournament_type_name) for item in schedule.tournaments] == [
             (date(2026, 7, 22), "Баунти турнир"),
@@ -1279,13 +1281,15 @@ async def test_created_weekly_schedule_uses_materialized_tournaments(
 async def test_created_weekly_schedule_rejects_unconfirmed_prompt(
     tmp_path: Path,
 ) -> None:
-    service, _session_factory, engine = await create_calendar_service(tmp_path / "calendar.db")
+    service, session_factory, engine = await create_proposal_service(tmp_path / "calendar.db")
     try:
         await seed_calendar_data(service.session_factory)
         prompt = await service.create_weekly_tournament_prompt(100, today=date(2026, 7, 21))
 
         with pytest.raises(CalendarPromptAlreadyResolvedError):
-            await service.get_created_weekly_schedule(100, prompt.id)
+            await TournamentScheduleService(session_factory).get_created_weekly_schedule(
+                100, prompt.id
+            )
     finally:
         await engine.dispose()
 
@@ -1293,7 +1297,7 @@ async def test_created_weekly_schedule_rejects_unconfirmed_prompt(
 async def test_weekly_prompt_requires_configured_default_types(
     tmp_path: Path,
 ) -> None:
-    service, session_factory, engine = await create_calendar_service(tmp_path / "calendar.db")
+    service, session_factory, engine = await create_proposal_service(tmp_path / "calendar.db")
     try:
         await seed_calendar_data(session_factory)
         async with session_factory() as session:
@@ -1311,7 +1315,7 @@ async def test_weekly_prompt_requires_configured_default_types(
 async def test_confirming_weekly_prompt_rejects_non_weekly_payload(
     tmp_path: Path,
 ) -> None:
-    service, session_factory, engine = await create_calendar_service(tmp_path / "calendar.db")
+    service, session_factory, engine = await create_proposal_service(tmp_path / "calendar.db")
     try:
         await seed_calendar_data(session_factory)
         prompt = await service.create_weekly_tournament_prompt(100, today=date(2026, 7, 21))
@@ -1342,7 +1346,7 @@ async def test_confirming_weekly_prompt_rejects_non_weekly_payload(
 async def test_confirming_weekly_prompt_rejects_empty_payload(
     tmp_path: Path,
 ) -> None:
-    service, session_factory, engine = await create_calendar_service(tmp_path / "calendar.db")
+    service, session_factory, engine = await create_proposal_service(tmp_path / "calendar.db")
     try:
         await seed_calendar_data(session_factory)
         prompt = await service.create_weekly_tournament_prompt(100, today=date(2026, 7, 21))
@@ -1365,7 +1369,7 @@ async def test_confirming_weekly_prompt_rejects_empty_payload(
 async def test_confirming_weekly_prompt_rolls_back_when_selected_type_is_unavailable(
     tmp_path: Path,
 ) -> None:
-    service, session_factory, engine = await create_calendar_service(tmp_path / "calendar.db")
+    service, session_factory, engine = await create_proposal_service(tmp_path / "calendar.db")
     try:
         await seed_calendar_data(session_factory)
 
@@ -1400,7 +1404,7 @@ async def test_commit_maps_tournament_date_unique_integrity_error() -> None:
     )
 
     with pytest.raises(CalendarTournamentDateAlreadyExistsError):
-        await CalendarService._commit_tournament_prompt(session)
+        await TournamentProposalService._commit_tournament_prompt(session)
 
     session.rollback.assert_awaited_once()
 
@@ -1414,7 +1418,7 @@ async def test_commit_maps_pending_scope_unique_integrity_error() -> None:
     )
 
     with pytest.raises(CalendarWeeklyPendingConflictError):
-        await CalendarService._commit_tournament_prompt(session)
+        await TournamentProposalService._commit_tournament_prompt(session)
 
     session.rollback.assert_awaited_once()
 
@@ -1422,7 +1426,7 @@ async def test_commit_maps_pending_scope_unique_integrity_error() -> None:
 async def test_weekly_prompt_date_update_is_not_supported(
     tmp_path: Path,
 ) -> None:
-    service, session_factory, engine = await create_calendar_service(tmp_path / "calendar.db")
+    service, session_factory, engine = await create_proposal_service(tmp_path / "calendar.db")
     try:
         await seed_calendar_data(session_factory)
         prompt = await service.create_weekly_tournament_prompt(100, today=date(2026, 7, 21))
@@ -1441,7 +1445,7 @@ async def test_weekly_prompt_date_update_is_not_supported(
 async def test_recommended_sunday_tournament_type_resolves_active_type(
     tmp_path: Path,
 ) -> None:
-    service, session_factory, engine = await create_calendar_service(tmp_path / "calendar.db")
+    service, session_factory, engine = await create_proposal_service(tmp_path / "calendar.db")
     try:
         await seed_calendar_data(session_factory)
 
@@ -1458,7 +1462,7 @@ async def test_recommended_sunday_tournament_type_resolves_active_type(
 async def test_recommended_sunday_tournament_type_rejects_non_sunday(
     tmp_path: Path,
 ) -> None:
-    service, session_factory, engine = await create_calendar_service(tmp_path / "calendar.db")
+    service, session_factory, engine = await create_proposal_service(tmp_path / "calendar.db")
     try:
         await seed_calendar_superadmin(session_factory)
 
@@ -1471,7 +1475,7 @@ async def test_recommended_sunday_tournament_type_rejects_non_sunday(
 async def test_recommended_sunday_tournament_type_requires_configured_type(
     tmp_path: Path,
 ) -> None:
-    service, session_factory, engine = await create_calendar_service(tmp_path / "calendar.db")
+    service, session_factory, engine = await create_proposal_service(tmp_path / "calendar.db")
     try:
         await seed_calendar_superadmin(session_factory)
         async with session_factory() as session:
@@ -1481,7 +1485,7 @@ async def test_recommended_sunday_tournament_type_requires_configured_type(
             await session.delete(boss)
             await session.commit()
 
-        with pytest.raises(CalendarSundayTournamentTypeNotFoundError):
+        with pytest.raises(CalendarDefaultTournamentTypeNotFoundError):
             await service.get_recommended_sunday_tournament_type(100, date(2026, 8, 2))
     finally:
         await engine.dispose()
@@ -1490,7 +1494,7 @@ async def test_recommended_sunday_tournament_type_requires_configured_type(
 async def test_recommended_sunday_tournament_type_requires_active_type(
     tmp_path: Path,
 ) -> None:
-    service, session_factory, engine = await create_calendar_service(tmp_path / "calendar.db")
+    service, session_factory, engine = await create_proposal_service(tmp_path / "calendar.db")
     try:
         await seed_calendar_superadmin(session_factory)
         async with session_factory() as session:
@@ -1500,7 +1504,7 @@ async def test_recommended_sunday_tournament_type_requires_active_type(
             boss.status = TournamentTypeStatus.ARCHIVED
             await session.commit()
 
-        with pytest.raises(CalendarSundayTournamentTypeNotFoundError):
+        with pytest.raises(CalendarDefaultTournamentTypeNotFoundError):
             await service.get_recommended_sunday_tournament_type(100, date(2026, 8, 2))
     finally:
         await engine.dispose()
@@ -1509,7 +1513,7 @@ async def test_recommended_sunday_tournament_type_requires_active_type(
 async def test_latest_previous_sunday_tournament_drives_sunday_recommendation(
     tmp_path: Path,
 ) -> None:
-    service, session_factory, engine = await create_calendar_service(tmp_path / "calendar.db")
+    service, session_factory, engine = await create_proposal_service(tmp_path / "calendar.db")
     try:
         await seed_calendar_data(session_factory)
         async with session_factory() as session:
@@ -1567,7 +1571,7 @@ async def test_latest_previous_sunday_tournament_drives_sunday_recommendation(
 async def test_closed_sunday_tournament_drives_rotation_but_cancelled_is_ignored(
     tmp_path: Path,
 ) -> None:
-    service, session_factory, engine = await create_calendar_service(tmp_path / "calendar.db")
+    service, session_factory, engine = await create_proposal_service(tmp_path / "calendar.db")
     try:
         await seed_calendar_data(session_factory)
         async with session_factory() as session:

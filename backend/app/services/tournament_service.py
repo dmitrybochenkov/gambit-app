@@ -12,7 +12,7 @@ from app.db.repositories.tournament_repository import TournamentRepository
 from app.db.repositories.tournament_result_repository import TournamentResultRepository
 from app.db.session import SessionFactory
 from app.services.access_policy import ActiveUserRequiredError, access_policy
-from app.services.dto import TournamentView
+from app.services.dto.tournaments import TournamentView
 
 
 class TournamentRegistrationNotAllowedError(ValueError):

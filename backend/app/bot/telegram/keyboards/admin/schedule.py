@@ -5,7 +5,7 @@ from aiogram.utils.keyboard import InlineKeyboardBuilder
 from app.bot.telegram.keyboards import labels
 from app.bot.telegram.keyboards.admin.calendar import CalendarPromptAction, CalendarPromptCallback
 from app.bot.telegram.texts import common as common_texts
-from app.services.dto import TournamentPromptDayEditView, TournamentPromptView
+from app.services.dto.schedules import TournamentPromptDayEditView, TournamentPromptView
 
 
 class TournamentPromptDayEditCallback(CallbackData, prefix="tour_prompt_day"):

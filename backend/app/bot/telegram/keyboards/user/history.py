@@ -5,7 +5,11 @@ from aiogram.types import InlineKeyboardMarkup
 from aiogram.utils.keyboard import InlineKeyboardBuilder
 
 from app.bot.telegram.keyboards import labels
-from app.services.dto import HistoricalTournamentView, HistoryMonthView, HistoryYearView
+from app.services.dto.statistics.history import (
+    HistoricalTournamentView,
+    HistoryMonthView,
+    HistoryYearView,
+)
 from app.services.pagination import Page
 
 HISTORY_YEAR_PAGE_SIZE = 12

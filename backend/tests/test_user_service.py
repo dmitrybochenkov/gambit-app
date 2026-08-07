@@ -1,4 +1,5 @@
 from pathlib import Path
+from typing import Any
 
 import pytest
 from sqlalchemy import select
@@ -12,20 +13,39 @@ from app.db.models.enums import (
     RegistrationRequestType,
     UserRole,
 )
-from app.services.dto import UserRoleView, UserStartStatusView
-from app.services.user_service import (
+from app.services.admin_management_service import AdminManagementService
+from app.services.dto.users import UserStartStatusView
+from app.services.registration_review_service import RegistrationReviewService
+from app.services.registration_service import RegistrationService
+from app.services.user_access_service import UserAccessService
+from app.services.user_common import (
     IdentityAlreadyExistsError,
     RegistrationCandidateNotFoundError,
     RegistrationNotAllowedError,
-    UserService,
 )
 
 
-async def create_user_service(database_path: Path) -> tuple[UserService, object]:
+class UserLifecycleServices:
+    def __init__(self, session_factory: async_sessionmaker) -> None:
+        self._services = (
+            RegistrationService(session_factory),
+            RegistrationReviewService(session_factory),
+            UserAccessService(session_factory),
+            AdminManagementService(session_factory),
+        )
+
+    def __getattr__(self, name: str) -> Any:
+        for service in self._services:
+            if hasattr(service, name):
+                return getattr(service, name)
+        raise AttributeError(name)
+
+
+async def create_user_service(database_path: Path) -> tuple[UserLifecycleServices, object]:
     engine = create_async_engine(f"sqlite+aiosqlite:///{database_path}")
     async with engine.begin() as connection:
         await connection.run_sync(Base.metadata.create_all)
-    return UserService(async_sessionmaker(engine, expire_on_commit=False)), engine
+    return UserLifecycleServices(async_sessionmaker(engine, expire_on_commit=False)), engine
 
 
 @pytest.mark.asyncio
@@ -121,7 +141,7 @@ async def test_approve_new_player_registration_creates_active_player(tmp_path: P
         assert result.user is not None
         assert result.user.display_name == "Ace"
         assert result.user.telegram_id == 1001
-        assert result.user.role == UserRoleView.PLAYER
+        assert result.user.role == UserRole.PLAYER
         assert result.request.status == RegistrationRequestStatus.APPROVED.value
     finally:
         await engine.dispose()

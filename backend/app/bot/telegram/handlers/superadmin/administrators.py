@@ -14,11 +14,11 @@ from app.bot.telegram.texts.admin import calendar as calendar_text
 from app.bot.telegram.texts.superadmin import administrators as administrator_text
 from app.bot.telegram.texts.superadmin import panel as panel_text
 from app.services.access_policy import AdminAccessDeniedError
+from app.services.admin_management_service import admin_management_service
 from app.services.pagination import pagination_service
-from app.services.user_service import (
+from app.services.user_common import (
     UserNotFoundError,
     UserRoleAlreadyAssignedError,
-    user_service,
 )
 
 logger = logging.getLogger(__name__)
@@ -33,7 +33,9 @@ async def show_admin_candidates(message: Message) -> None:
         return
 
     try:
-        players = await user_service.list_admin_candidates_for_superadmin(message.from_user.id)
+        players = await admin_management_service.list_admin_candidates_for_superadmin(
+            message.from_user.id
+        )
     except AdminAccessDeniedError:
         await message.answer(panel_text.INSUFFICIENT_RIGHTS)
         return
@@ -66,7 +68,9 @@ async def select_admin_candidate(
                 await callback.message.answer(calendar_text.ADMIN_CALENDAR_CANCELLED)
             return
 
-        players = await user_service.list_admin_candidates_for_superadmin(callback.from_user.id)
+        players = await admin_management_service.list_admin_candidates_for_superadmin(
+            callback.from_user.id
+        )
     except AdminAccessDeniedError:
         await callback.answer(panel_text.INSUFFICIENT_RIGHTS, show_alert=True)
         return
@@ -115,7 +119,7 @@ async def confirm_add_admin(
         return
 
     try:
-        player = await user_service.add_admin(
+        player = await admin_management_service.add_admin(
             superadmin_telegram_id=callback.from_user.id,
             user_id=callback_data.player_id,
         )
