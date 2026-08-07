@@ -2,7 +2,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.models import AdminPrompt
-from app.db.models.enums import AdminPromptStatus
+from app.db.models.enums import AdminPromptKind, AdminPromptStatus
 
 
 class AdminPromptRepository:
@@ -18,7 +18,7 @@ class AdminPromptRepository:
 
     async def get_pending_by_scope(
         self,
-        kind: str,
+        kind: AdminPromptKind,
         scope_key: str,
     ) -> AdminPrompt | None:
         result = await self.session.execute(
@@ -32,7 +32,7 @@ class AdminPromptRepository:
 
     async def list_by_scope(
         self,
-        kind: str,
+        kind: AdminPromptKind,
         scope_key: str,
     ) -> list[AdminPrompt]:
         result = await self.session.execute(
@@ -47,7 +47,7 @@ class AdminPromptRepository:
 
     async def get_latest_confirmed_by_scope(
         self,
-        kind: str,
+        kind: AdminPromptKind,
         scope_key: str,
     ) -> AdminPrompt | None:
         result = await self.session.execute(
@@ -65,7 +65,7 @@ class AdminPromptRepository:
     async def create_prompt(
         self,
         key: str,
-        kind: str,
+        kind: AdminPromptKind,
         payload: str,
         scope_key: str | None = None,
     ) -> AdminPrompt:

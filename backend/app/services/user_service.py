@@ -17,8 +17,6 @@ from app.db.repositories.registration_request_repository import (
 from app.db.repositories.user_repository import UserRepository
 from app.db.session import SessionFactory
 from app.services.access_policy import (
-    ActiveUserRequiredError,  # noqa: F401
-    AdminAccessDeniedError,  # noqa: F401
     access_policy,
 )
 from app.services.dto import (
@@ -107,7 +105,7 @@ class UserService:
 
     async def require_active_user(self, telegram_id: int) -> UserView:
         async with self.session_factory() as session:
-            user = await require_active_user(UserRepository(session), telegram_id)
+            user = await access_policy.require_active_user(session, telegram_id)
             return required_user_view(user)
 
     async def get_pending_registration_by_telegram_id(
@@ -212,7 +210,7 @@ class UserService:
         async with self.session_factory() as session:
             user_repository = UserRepository(session)
             request_repository = RegistrationRequestRepository(session)
-            admin = await self._require_admin(user_repository, admin_telegram_id)
+            admin = await access_policy.require_admin(session, admin_telegram_id)
             reviews = [
                 await self._registration_review_view(user_repository, request)
                 for request in await request_repository.list_pending()
@@ -224,7 +222,7 @@ class UserService:
 
     async def require_superadmin(self, telegram_id: int) -> UserView:
         async with self.session_factory() as session:
-            user = await self._require_superadmin(UserRepository(session), telegram_id)
+            user = await access_policy.require_superadmin(session, telegram_id)
             return required_user_view(user)
 
     async def list_admin_candidates_for_superadmin(
@@ -233,7 +231,7 @@ class UserService:
     ) -> list[UserView]:
         async with self.session_factory() as session:
             repository = UserRepository(session)
-            await self._require_superadmin(repository, superadmin_telegram_id)
+            await access_policy.require_superadmin(session, superadmin_telegram_id)
             users = await repository.list_admin_candidates()
             return [required_user_view(user) for user in users]
 
@@ -244,7 +242,7 @@ class UserService:
     ) -> UserView:
         async with self.session_factory() as session:
             repository = UserRepository(session)
-            await self._require_superadmin(repository, superadmin_telegram_id)
+            await access_policy.require_superadmin(session, superadmin_telegram_id)
             user = await repository.get_by_id(user_id)
             if user is None or user.status != UserStatus.ACTIVE:
                 raise UserNotFoundError
@@ -264,7 +262,7 @@ class UserService:
         _require_valid_display_name(display_name)
         async with self.session_factory() as session:
             user_repository = UserRepository(session)
-            await self._require_admin(user_repository, admin_telegram_id)
+            await access_policy.require_admin(session, admin_telegram_id)
             user = create_user(display_name=display_name)
             user_repository.add(user)
             try:
@@ -299,7 +297,7 @@ class UserService:
     ) -> RegistrationReviewView:
         async with self.session_factory() as session:
             user_repository = UserRepository(session)
-            await self._require_superadmin(user_repository, admin_telegram_id)
+            await access_policy.require_superadmin(session, admin_telegram_id)
             request = await self._require_pending_request(
                 RegistrationRequestRepository(session),
                 request_id,
@@ -316,7 +314,7 @@ class UserService:
         async with self.session_factory() as session:
             user_repository = UserRepository(session)
             request_repository = RegistrationRequestRepository(session)
-            await self._require_superadmin(user_repository, superadmin_telegram_id)
+            await access_policy.require_superadmin(session, superadmin_telegram_id)
             request = await self._require_pending_request(request_repository, request_id)
             if request.request_type != RegistrationRequestType.NEW_PLAYER:
                 raise RegistrationRequestNotFoundError
@@ -335,7 +333,7 @@ class UserService:
         async with self.session_factory() as session:
             user_repository = UserRepository(session)
             request_repository = RegistrationRequestRepository(session)
-            await self._require_superadmin(user_repository, superadmin_telegram_id)
+            await access_policy.require_superadmin(session, superadmin_telegram_id)
             request = await self._require_pending_request(request_repository, request_id)
             candidate = await self._require_link_candidate(user_repository, user_id)
             request.candidate_user_id = candidate.id
@@ -351,7 +349,7 @@ class UserService:
         async with self.session_factory() as session:
             user_repository = UserRepository(session)
             request_repository = RegistrationRequestRepository(session)
-            await self._require_superadmin(user_repository, superadmin_telegram_id)
+            await access_policy.require_superadmin(session, superadmin_telegram_id)
             request = await self._require_pending_request(request_repository, request_id)
             admins = await user_repository.list_active_admins()
             if await user_repository.get_by_telegram_id(request.telegram_id) is not None:
@@ -409,7 +407,7 @@ class UserService:
         async with self.session_factory() as session:
             user_repository = UserRepository(session)
             request_repository = RegistrationRequestRepository(session)
-            await self._require_superadmin(user_repository, superadmin_telegram_id)
+            await access_policy.require_superadmin(session, superadmin_telegram_id)
             request = await self._require_pending_request(request_repository, request_id)
             admins = await user_repository.list_active_admins()
             request.status = RegistrationRequestStatus.REJECTED
@@ -480,14 +478,6 @@ class UserService:
             raise IdentityAlreadyExistsError("display_name")
 
     @staticmethod
-    async def _require_admin(repository: UserRepository, telegram_id: int) -> User:
-        return await access_policy.require_admin(repository.session, telegram_id)
-
-    @staticmethod
-    async def _require_superadmin(repository: UserRepository, telegram_id: int) -> User:
-        return await access_policy.require_superadmin(repository.session, telegram_id)
-
-    @staticmethod
     async def _require_pending_request(
         repository: RegistrationRequestRepository,
         request_id: int,
@@ -508,10 +498,6 @@ class UserService:
 
 
 user_service = UserService(SessionFactory)
-
-
-async def require_active_user(repository: UserRepository, telegram_id: int) -> User:
-    return await access_policy.require_active_user(repository.session, telegram_id)
 
 
 def user_view(user: User | None) -> UserView | None:

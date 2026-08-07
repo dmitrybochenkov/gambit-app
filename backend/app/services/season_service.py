@@ -7,19 +7,18 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from app.common.clock import Clock, club_clock
 from app.db.models import AdminPrompt, ScoringConfig, Season
-from app.db.models.enums import AdminPromptStatus, UserRole, UserStatus
+from app.db.models.enums import AdminPromptKind, AdminPromptStatus
 from app.db.repositories.admin_prompt_repository import AdminPromptRepository
 from app.db.repositories.scoring_config_repository import ScoringConfigRepository
 from app.db.repositories.season_repository import SeasonRepository
-from app.db.repositories.user_repository import UserRepository
 from app.db.session import SessionFactory
+from app.services.access_policy import access_policy
 from app.services.dto import (
     ScoringConfigView,
     SeasonLifecycleStateView,
     SeasonProposalView,
     SeasonView,
 )
-from app.services.user_service import AdminAccessDeniedError
 
 
 class SeasonNotFoundError(ValueError):
@@ -70,7 +69,6 @@ class SeasonProposalInvalidPayloadError(ValueError):
     pass
 
 
-SEASON_PROPOSAL_KIND = "season_proposal"
 SEASON_NAME_BY_QUARTER = {
     1: "Зима",
     2: "Весна",
@@ -104,7 +102,7 @@ class SeasonService:
 
     async def list_scoring_configs(self, admin_telegram_id: int) -> list[ScoringConfigView]:
         async with self.session_factory() as session:
-            await self._require_admin(session, admin_telegram_id)
+            await access_policy.require_admin(session, admin_telegram_id)
             configs = await ScoringConfigRepository(session).list_all()
             return [scoring_config_view(config) for config in configs]
 
@@ -116,13 +114,13 @@ class SeasonService:
         business_date = today or self.clock.today()
         starts_at = business_date + timedelta(days=1)
         async with self.session_factory() as session:
-            await self._require_admin(session, admin_telegram_id)
+            await access_policy.require_admin(session, admin_telegram_id)
             scoring_config = await self._default_scoring_config(session, starts_at)
             if scoring_config is None:
                 raise SeasonScoringConfigNotFoundError
             proposal = AdminPrompt(
                 key=season_proposal_key(admin_telegram_id, self.clock),
-                kind=SEASON_PROPOSAL_KIND,
+                kind=AdminPromptKind.SEASON_PROPOSAL,
                 payload=season_proposal_payload(
                     name=season_name_for_date(starts_at),
                     starts_at=starts_at,
@@ -147,7 +145,7 @@ class SeasonService:
         today: date | None = None,
     ) -> SeasonProposalView:
         async with self.session_factory() as session:
-            await self._require_admin(session, admin_telegram_id)
+            await access_policy.require_admin(session, admin_telegram_id)
             prompt = await self._get_pending_season_proposal(session, prompt_id)
             return await self._season_proposal_view(session, prompt, today=today)
 
@@ -159,7 +157,7 @@ class SeasonService:
     ) -> SeasonProposalView:
         validated_name = validate_season_name(name)
         async with self.session_factory() as session:
-            await self._require_admin(session, admin_telegram_id)
+            await access_policy.require_admin(session, admin_telegram_id)
             prompt = await self._get_pending_season_proposal(session, prompt_id)
             payload = season_proposal_dict(prompt)
             payload["name"] = validated_name
@@ -175,7 +173,7 @@ class SeasonService:
         starts_at: date,
     ) -> SeasonProposalView:
         async with self.session_factory() as session:
-            await self._require_admin(session, admin_telegram_id)
+            await access_policy.require_admin(session, admin_telegram_id)
             await self._validate_season_start_date(session, starts_at)
             prompt = await self._get_pending_season_proposal(session, prompt_id)
             payload = season_proposal_dict(prompt)
@@ -194,11 +192,11 @@ class SeasonService:
         business_date = today or self.clock.today()
         async with self.session_factory() as session:
             try:
+                actor = await access_policy.require_admin(session, admin_telegram_id)
                 prompt = await self._get_pending_season_proposal(session, prompt_id)
                 payload = season_proposal_dict(prompt)
                 season = await self._create_proposed_season_in_session(
                     session=session,
-                    admin_telegram_id=admin_telegram_id,
                     name=str(payload["name"]),
                     starts_at=date.fromisoformat(str(payload["starts_at"])),
                     scoring_config_id=int(payload["scoring_config_id"]),
@@ -206,7 +204,7 @@ class SeasonService:
                 )
                 prompt.status = AdminPromptStatus.CONFIRMED
                 prompt.resolved_at = self.clock.now()
-                prompt.resolved_by_admin_id = admin_telegram_id
+                prompt.resolved_by_user_id = actor.id
                 await session.commit()
             except IntegrityError as exc:
                 await session.rollback()
@@ -223,11 +221,11 @@ class SeasonService:
         prompt_id: int,
     ) -> None:
         async with self.session_factory() as session:
-            await self._require_admin(session, admin_telegram_id)
+            actor = await access_policy.require_admin(session, admin_telegram_id)
             prompt = await self._get_pending_season_proposal(session, prompt_id)
             prompt.status = AdminPromptStatus.CANCELLED
             prompt.resolved_at = self.clock.now()
-            prompt.resolved_by_admin_id = admin_telegram_id
+            prompt.resolved_by_user_id = actor.id
             await session.commit()
 
     async def open_season(
@@ -239,9 +237,9 @@ class SeasonService:
     ) -> SeasonView:
         async with self.session_factory() as session:
             try:
+                await access_policy.require_admin(session, admin_telegram_id)
                 season = await self._open_season_in_session(
                     session=session,
-                    admin_telegram_id=admin_telegram_id,
                     name=name,
                     scoring_config_id=scoring_config_id,
                     starts_at=starts_at,
@@ -260,13 +258,11 @@ class SeasonService:
     async def _open_season_in_session(
         cls,
         session: AsyncSession,
-        admin_telegram_id: int,
         name: str,
         starts_at: date,
         scoring_config_id: int,
     ) -> Season:
         name = validate_season_name(name)
-        await cls._require_admin(session, admin_telegram_id)
         repository = SeasonRepository(session)
         if await repository.get_by_name(name) is not None:
             raise SeasonNameAlreadyExistsError
@@ -303,14 +299,12 @@ class SeasonService:
     async def _create_proposed_season_in_session(
         cls,
         session: AsyncSession,
-        admin_telegram_id: int,
         name: str,
         starts_at: date,
         scoring_config_id: int,
         today: date,
     ) -> Season:
         name = validate_season_name(name)
-        await cls._require_admin(session, admin_telegram_id)
         repository = SeasonRepository(session)
         if await repository.get_by_name(name) is not None:
             raise SeasonNameAlreadyExistsError
@@ -401,7 +395,7 @@ class SeasonService:
         prompt_id: int,
     ) -> AdminPrompt:
         prompt = await AdminPromptRepository(session).get_by_id(prompt_id)
-        if prompt is None or prompt.kind != SEASON_PROPOSAL_KIND:
+        if prompt is None or prompt.kind != AdminPromptKind.SEASON_PROPOSAL:
             raise SeasonProposalNotFoundError
         if prompt.status != AdminPromptStatus.PENDING:
             raise SeasonProposalAlreadyResolvedError
@@ -417,16 +411,6 @@ class SeasonService:
         open_ended_season = await SeasonRepository(session).get_open_ended()
         if open_ended_season is not None and starts_at <= open_ended_season.starts_at:
             raise SeasonStartDateError
-
-    @staticmethod
-    async def _require_admin(session: AsyncSession, telegram_id: int) -> None:
-        admin = await UserRepository(session).get_by_telegram_id(telegram_id)
-        if (
-            admin is None
-            or admin.status != UserStatus.ACTIVE
-            or admin.role not in {UserRole.ADMIN, UserRole.SUPERADMIN}
-        ):
-            raise AdminAccessDeniedError
 
 
 def season_view(season: Season, *, today: date) -> SeasonView:

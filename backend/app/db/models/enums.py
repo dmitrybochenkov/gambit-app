@@ -18,7 +18,11 @@ class AdminPromptStatus(StrEnum):
     PENDING = "pending"
     CONFIRMED = "confirmed"
     CANCELLED = "cancelled"
-    NEEDS_CHANGES = "needs_changes"
+
+
+class AdminPromptKind(StrEnum):
+    TOURNAMENTS_PROPOSAL = "tournaments_proposal"
+    SEASON_PROPOSAL = "season_proposal"
 
 
 class TournamentStatus(StrEnum):

@@ -210,7 +210,7 @@ async def test_weekly_tournament_prompt_contains_five_minimal_items(
         prompt = await service.create_weekly_tournament_prompt(100, today=date(2026, 7, 21))
         stored_prompt = await service.get_prompt(100, prompt.id)
 
-        assert prompt.kind == "tournaments_proposal"
+        assert prompt.kind == AdminPromptKind.TOURNAMENTS_PROPOSAL
         async with session_factory() as session:
             prompt_model = await session.get(AdminPrompt, prompt.id)
             assert prompt_model is not None

@@ -1,24 +1,23 @@
 import logging
 from decimal import ROUND_HALF_UP, Decimal
 
-from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
-from sqlalchemy.orm import selectinload
 
 from app.common.clock import Clock, club_clock
 from app.db.models import (
     ScoringConfig,
-    Season,
     Tournament,
-    TournamentResult,
     TournamentTypeRule,
-    User,
 )
 from app.db.models.enums import (
     KnockoutMode,
     TournamentStatus,
 )
+from app.db.repositories.scoring_config_repository import ScoringConfigRepository
+from app.db.repositories.season_repository import SeasonRepository
 from app.db.repositories.tournament_repository import TournamentRepository
+from app.db.repositories.tournament_result_repository import TournamentResultRepository
+from app.db.repositories.tournament_type_repository import TournamentTypeRepository
 from app.db.session import SessionFactory
 from app.domain.prize_multiplier_places import (
     PrizeMultiplierPlacesError,
@@ -90,18 +89,9 @@ class ResultService:
         admin_telegram_id: int,
     ) -> TournamentResultsView:
         async with self.session_factory() as session:
-            await self._require_admin(session, admin_telegram_id)
+            await access_policy.require_admin(session, admin_telegram_id)
             business_date = self.clock.today()
-            result = await session.execute(
-                select(Tournament)
-                .options(selectinload(Tournament.tournament_type))
-                .where(
-                    Tournament.status == TournamentStatus.ACTIVE,
-                    Tournament.date == business_date,
-                )
-                .order_by(Tournament.date, Tournament.tournament_type_id)
-            )
-            tournaments = list(result.scalars())
+            tournaments = await TournamentRepository(session).list_active_on_date(business_date)
             if not tournaments:
                 raise ResultTodayTournamentNotFoundError
             if len(tournaments) > 1:
@@ -121,18 +111,12 @@ class ResultService:
         superadmin_telegram_id: int,
     ) -> list[TournamentView]:
         async with self.session_factory() as session:
-            await self._require_superadmin(session, superadmin_telegram_id)
+            await access_policy.require_superadmin(session, superadmin_telegram_id)
             business_date = self.clock.today()
-            result = await session.execute(
-                select(Tournament)
-                .options(selectinload(Tournament.tournament_type))
-                .where(
-                    Tournament.status == TournamentStatus.ACTIVE,
-                    Tournament.date <= business_date,
-                )
-                .order_by(Tournament.date.desc(), Tournament.id.desc())
+            tournaments = await TournamentRepository(session).list_active_on_or_before(
+                business_date
             )
-            return [tournament_view(tournament) for tournament in result.scalars()]
+            return [tournament_view(tournament) for tournament in tournaments]
 
     async def get_tournament_results(
         self,
@@ -140,7 +124,7 @@ class ResultService:
         tournament_id: int,
     ) -> TournamentResultsView:
         async with self.session_factory() as session:
-            await self._require_admin(session, admin_telegram_id)
+            await access_policy.require_admin(session, admin_telegram_id)
             tournament = await self._require_active_tournament(session, tournament_id)
             return await self._results_view(session, tournament.id)
 
@@ -159,20 +143,20 @@ class ResultService:
         if place is not None and place not in {1, 2, 3, 4, 5}:
             raise ResultInvalidPlayerDataError
         async with self.session_factory() as session:
-            await self._require_admin(session, admin_telegram_id)
+            await access_policy.require_admin(session, admin_telegram_id)
             tournament = await self._require_active_tournament(session, tournament_id)
-            result = await self._get_result(session, tournament.id, player_id)
+            result = await TournamentResultRepository(session).get_by_tournament_and_player(
+                tournament.id, player_id
+            )
             if result is None:
                 raise ResultUserNotFoundError
             if place is not None:
-                occupied = await session.execute(
-                    select(TournamentResult).where(
-                        TournamentResult.tournament_id == tournament.id,
-                        TournamentResult.place == place,
-                        TournamentResult.id != result.id,
-                    )
+                occupied = await TournamentResultRepository(session).list_by_tournament_and_place(
+                    tournament.id,
+                    place,
+                    exclude_result_id=result.id,
                 )
-                for other_result in occupied.scalars():
+                for other_result in occupied:
                     other_result.place = None
                 await session.flush()
             result.place = place
@@ -191,9 +175,11 @@ class ResultService:
         value: int,
     ) -> TournamentResultsView:
         async with self.session_factory() as session:
-            await self._require_admin(session, admin_telegram_id)
+            await access_policy.require_admin(session, admin_telegram_id)
             tournament = await self._require_active_tournament(session, tournament_id)
-            result = await self._get_result(session, tournament.id, player_id)
+            result = await TournamentResultRepository(session).get_by_tournament_and_player(
+                tournament.id, player_id
+            )
             if result is None:
                 raise ResultUserNotFoundError
 
@@ -213,14 +199,12 @@ class ResultService:
                 raise ResultInvalidPlayerDataError
 
             if field == ResultField.PLACE:
-                occupied = await session.execute(
-                    select(TournamentResult).where(
-                        TournamentResult.tournament_id == tournament.id,
-                        TournamentResult.place == value,
-                        TournamentResult.id != result.id,
-                    )
+                occupied = await TournamentResultRepository(session).list_by_tournament_and_place(
+                    tournament.id,
+                    value,
+                    exclude_result_id=result.id,
                 )
-                for other_result in occupied.scalars():
+                for other_result in occupied:
                     other_result.place = None
                 await session.flush()
                 result.place = value
@@ -242,7 +226,7 @@ class ResultService:
     ) -> TournamentResultsView:
         fund = self.validate_tournament_fund(tournament_fund)
         async with self.session_factory() as session:
-            await self._require_superadmin(session, superadmin_telegram_id)
+            await access_policy.require_superadmin(session, superadmin_telegram_id)
             tournament = await self._require_closeable_tournament(session, tournament_id)
             view = await self._results_view(session, tournament.id)
             errors = self._validate_game_results(view)
@@ -252,10 +236,8 @@ class ResultService:
             scoring_config, rule = await self._scoring(session, tournament)
             tournament.tournament_fund = fund
             tournament.status = TournamentStatus.CLOSED
-            result = await session.execute(
-                select(TournamentResult).where(TournamentResult.tournament_id == tournament.id)
-            )
-            for item in result.scalars():
+            results = await TournamentResultRepository(session).list_by_tournament(tournament.id)
+            for item in results:
                 item.tournament_points = self._tournament_points(
                     tournament_fund=Decimal(fund),
                     place=item.place,
@@ -277,7 +259,7 @@ class ResultService:
         tournament_id: int,
     ) -> TournamentResultsView:
         async with self.session_factory() as session:
-            await self._require_superadmin(session, superadmin_telegram_id)
+            await access_policy.require_superadmin(session, superadmin_telegram_id)
             tournament = await self._require_closeable_tournament(session, tournament_id)
             return await self._results_view(session, tournament.id)
 
@@ -287,7 +269,7 @@ class ResultService:
         tournament_id: int,
     ) -> list[str]:
         async with self.session_factory() as session:
-            await self._require_superadmin(session, superadmin_telegram_id)
+            await access_policy.require_superadmin(session, superadmin_telegram_id)
             tournament = await self._require_closeable_tournament(session, tournament_id)
             view = await self._results_view(session, tournament.id)
             return self._validate_game_results(view)
@@ -298,24 +280,10 @@ class ResultService:
         tournament_id: int,
     ) -> list[str]:
         async with self.session_factory() as session:
-            await self._require_admin(session, admin_telegram_id)
+            await access_policy.require_admin(session, admin_telegram_id)
             tournament = await self._require_active_tournament(session, tournament_id)
             view = await self._results_view(session, tournament.id)
             return self._validate_game_results(view)
-
-    async def _require_admin(
-        self,
-        session: AsyncSession,
-        telegram_id: int,
-    ) -> User:
-        return await access_policy.require_admin(session, telegram_id)
-
-    async def _require_superadmin(
-        self,
-        session: AsyncSession,
-        telegram_id: int,
-    ) -> User:
-        return await access_policy.require_superadmin(session, telegram_id)
 
     async def _require_active_tournament(
         self,
@@ -337,32 +305,14 @@ class ResultService:
             raise FutureTournamentCannotBeClosedError
         return tournament
 
-    async def _get_result(
-        self,
-        session: AsyncSession,
-        tournament_id: int,
-        player_id: int,
-    ) -> TournamentResult | None:
-        result = await session.execute(
-            select(TournamentResult).where(
-                TournamentResult.tournament_id == tournament_id,
-                TournamentResult.player_id == player_id,
-            )
-        )
-        return result.scalar_one_or_none()
-
     async def _result_capabilities(
         self,
         session: AsyncSession,
         tournament: Tournament,
     ) -> tuple[KnockoutMode, bool]:
-        rule_result = await session.execute(
-            select(
-                TournamentTypeRule.knockout_mode,
-                TournamentTypeRule.supports_bonus_points,
-            ).where(TournamentTypeRule.tournament_type_id == tournament.tournament_type_id)
+        rule_row = await TournamentTypeRepository(session).get_rule_capabilities(
+            tournament.tournament_type_id
         )
-        rule_row = rule_result.one_or_none()
         if rule_row is None:
             return KnockoutMode.NONE, False
         return rule_row.knockout_mode, bool(rule_row.supports_bonus_points)
@@ -375,24 +325,22 @@ class ResultService:
         tournament = await TournamentRepository(session).get_by_id(tournament_id)
         if tournament is None:
             raise ResultTournamentNotFoundError
-        result = await session.execute(
-            select(TournamentResult, User)
-            .join(User, User.id == TournamentResult.player_id)
-            .where(TournamentResult.tournament_id == tournament_id)
-            .order_by(User.id)
+        result_rows = await TournamentResultRepository(session).list_with_users(
+            tournament_id,
+            order_by_user_id=True,
         )
         players = [
             TournamentResultPlayerView(
-                player_id=player.id,
-                display_name=player.display_name,
-                place=item.place,
-                knockouts_count=item.knockouts_count,
-                big_knockouts_count=item.big_knockouts_count,
-                bonus_points=int(item.bonus_points),
-                tournament_points=item.tournament_points,
-                knockout_points=item.knockout_points,
+                player_id=row.user.id,
+                display_name=row.user.display_name,
+                place=row.result.place,
+                knockouts_count=row.result.knockouts_count,
+                big_knockouts_count=row.result.big_knockouts_count,
+                bonus_points=int(row.result.bonus_points),
+                tournament_points=row.result.tournament_points,
+                knockout_points=row.result.knockout_points,
             )
-            for item, player in result.all()
+            for row in result_rows
         ]
         players.sort(key=lambda player: player.display_name.casefold())
         knockout_mode, supports_bonus_points = await self._result_capabilities(
@@ -450,18 +398,15 @@ class ResultService:
         session: AsyncSession,
         tournament: Tournament,
     ) -> tuple[ScoringConfig, TournamentTypeRule | None]:
-        season = await session.get(Season, tournament.season_id)
+        season = await SeasonRepository(session).get_by_id(tournament.season_id)
         if season is None:
             raise ResultTournamentNotFoundError
-        scoring_config = await session.get(ScoringConfig, season.scoring_config_id)
+        scoring_config = await ScoringConfigRepository(session).get_by_id(season.scoring_config_id)
         if scoring_config is None:
             raise ResultTournamentNotFoundError
-        rule_result = await session.execute(
-            select(TournamentTypeRule).where(
-                TournamentTypeRule.tournament_type_id == tournament.tournament_type_id
-            )
+        return scoring_config, await TournamentTypeRepository(session).get_rule(
+            tournament.tournament_type_id
         )
-        return scoring_config, rule_result.scalar_one_or_none()
 
     @staticmethod
     def _tournament_points(

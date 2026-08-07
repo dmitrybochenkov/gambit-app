@@ -9,10 +9,9 @@ from app.db.repositories.profile_repository import (
     ProfileRepository,
 )
 from app.db.repositories.season_repository import SeasonRepository
-from app.db.repositories.user_repository import UserRepository
 from app.db.session import SessionFactory
+from app.services.access_policy import ActiveUserRequiredError, access_policy
 from app.services.dto import PlayerProfileView
-from app.services.user_service import ActiveUserRequiredError, require_active_user
 
 
 class ProfileKind(StrEnum):
@@ -42,7 +41,7 @@ class ProfileService:
         business_date = today or self.clock.today()
         async with self.session_factory() as session:
             try:
-                user = await require_active_user(UserRepository(session), telegram_id)
+                user = await access_policy.require_active_user(session, telegram_id)
             except ActiveUserRequiredError as exc:
                 raise ProfileNotAllowedError from exc
             return await self._get_profile(

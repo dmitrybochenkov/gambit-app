@@ -8,8 +8,10 @@ from sqlalchemy.orm import selectinload
 
 from app.db.models import (
     Tournament,
+    TournamentEconomyConfig,
     TournamentResult,
     TournamentType,
+    TournamentTypeRule,
     User,
     WeeklyTournamentTemplate,
 )
@@ -37,6 +39,24 @@ class HistoricalTournamentResultRow:
     total_points: Decimal
 
 
+@dataclass(frozen=True)
+class WeeklyScheduleTournamentRecord:
+    id: int
+    date: date
+    tournament_type_id: int
+    tournament_type_code: str
+    tournament_type_name: str
+    description: str | None
+    entry_fee: int
+    entry_stack: int
+    addon_fee: int
+    addon_stack: int
+    knockout_mode: object | None
+    points_multiplier: Decimal | None
+    prize_place_multiplier: Decimal | None
+    prize_place_multiplier_places: str | None
+
+
 class TournamentRepository:
     def __init__(self, session: AsyncSession) -> None:
         self.session = session
@@ -55,6 +75,30 @@ class TournamentRepository:
             )
             .order_by(Tournament.date, Tournament.tournament_type_id)
             .limit(limit)
+        )
+        return list(result.scalars())
+
+    async def list_active_on_date(self, tournament_date: date) -> list[Tournament]:
+        result = await self.session.execute(
+            select(Tournament)
+            .options(selectinload(Tournament.tournament_type))
+            .where(
+                Tournament.status == TournamentStatus.ACTIVE,
+                Tournament.date == tournament_date,
+            )
+            .order_by(Tournament.date, Tournament.tournament_type_id)
+        )
+        return list(result.scalars())
+
+    async def list_active_on_or_before(self, tournament_date: date) -> list[Tournament]:
+        result = await self.session.execute(
+            select(Tournament)
+            .options(selectinload(Tournament.tournament_type))
+            .where(
+                Tournament.status == TournamentStatus.ACTIVE,
+                Tournament.date <= tournament_date,
+            )
+            .order_by(Tournament.date.desc(), Tournament.id.desc())
         )
         return list(result.scalars())
 
@@ -84,6 +128,70 @@ class TournamentRepository:
             select(Tournament.id).where(Tournament.date == tournament_date)
         )
         return result.scalar_one_or_none() is not None
+
+    async def add(self, tournament: Tournament) -> Tournament:
+        self.session.add(tournament)
+        await self.session.flush()
+        return tournament
+
+    async def list_weekly_schedule_records(
+        self,
+        *,
+        dates: tuple[date, ...],
+        tournament_type_ids: tuple[int, ...],
+    ) -> list[WeeklyScheduleTournamentRecord]:
+        result = await self.session.execute(
+            select(
+                Tournament.id,
+                Tournament.date,
+                TournamentType.id.label("tournament_type_id"),
+                TournamentType.code.label("tournament_type_code"),
+                TournamentType.name.label("tournament_type_name"),
+                TournamentType.description,
+                TournamentEconomyConfig.entry_fee,
+                TournamentEconomyConfig.entry_stack,
+                TournamentEconomyConfig.addon_fee,
+                TournamentEconomyConfig.addon_stack,
+                TournamentTypeRule.knockout_mode,
+                TournamentTypeRule.points_multiplier,
+                TournamentTypeRule.prize_place_multiplier,
+                TournamentTypeRule.prize_place_multiplier_places,
+            )
+            .join(TournamentType, TournamentType.id == Tournament.tournament_type_id)
+            .join(
+                TournamentEconomyConfig,
+                TournamentEconomyConfig.tournament_type_id == TournamentType.id,
+            )
+            .outerjoin(
+                TournamentTypeRule,
+                TournamentTypeRule.tournament_type_id == TournamentType.id,
+            )
+            .where(
+                Tournament.status != TournamentStatus.CANCELLED,
+                Tournament.date.in_(dates),
+                Tournament.tournament_type_id.in_(tournament_type_ids),
+            )
+            .order_by(Tournament.date, Tournament.id)
+        )
+        return [
+            WeeklyScheduleTournamentRecord(
+                id=row.id,
+                date=row.date,
+                tournament_type_id=row.tournament_type_id,
+                tournament_type_code=row.tournament_type_code,
+                tournament_type_name=row.tournament_type_name,
+                description=row.description,
+                entry_fee=row.entry_fee,
+                entry_stack=row.entry_stack,
+                addon_fee=row.addon_fee,
+                addon_stack=row.addon_stack,
+                knockout_mode=row.knockout_mode,
+                points_multiplier=row.points_multiplier,
+                prize_place_multiplier=row.prize_place_multiplier,
+                prize_place_multiplier_places=row.prize_place_multiplier_places,
+            )
+            for row in result
+        ]
 
     async def get_latest_sunday_rotation_tournament_before(
         self,

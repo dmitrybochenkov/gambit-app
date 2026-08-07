@@ -86,7 +86,6 @@ CALENDAR_PROMPT_STALE = "Предложение устарело. Открой �
 CALENDAR_PROMPT_ALREADY_RESOLVED = "Предложение уже обработано."
 CALENDAR_PROMPT_CONFIRMED = "Подтверждено"
 CALENDAR_PROMPT_CANCELLED = "Отменено"
-CALENDAR_PROMPT_NEEDS_CHANGES = "Нужны правки. Ручное редактирование добавим в админке."
 CALENDAR_WEEKLY_PROMPT_EMPTY = "В расписании должен остаться хотя бы один турнир."
 
 SEASON_PROPOSAL_TITLE = "Нужно подготовить следующий сезон."

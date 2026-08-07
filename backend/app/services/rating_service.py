@@ -6,10 +6,9 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from app.common.clock import Clock, club_clock
 from app.db.repositories.rating_repository import RatingHonours, RatingRepository
 from app.db.repositories.season_repository import SeasonRepository
-from app.db.repositories.user_repository import UserRepository
 from app.db.session import SessionFactory
+from app.services.access_policy import ActiveUserRequiredError, access_policy
 from app.services.dto import KnockoutsRatingView, PointsRatingView, RatingResultView
-from app.services.user_service import ActiveUserRequiredError, require_active_user
 
 
 class RatingKind(StrEnum):
@@ -41,7 +40,7 @@ class RatingService:
         business_date = today or self.clock.today()
         async with self.session_factory() as session:
             try:
-                player = await require_active_user(UserRepository(session), telegram_id)
+                player = await access_policy.require_active_user(session, telegram_id)
             except ActiveUserRequiredError as exc:
                 raise RatingNotAllowedError from exc
             title, rows = await self._get_rating(

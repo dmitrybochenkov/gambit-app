@@ -6,28 +6,21 @@ from datetime import date
 from decimal import Decimal
 from enum import StrEnum
 
-from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from app.common.clock import Clock, club_clock
-from app.db.models import (
-    AdminPrompt,
-    Tournament,
-    TournamentEconomyConfig,
-    TournamentRebuyConfig,
-    TournamentType,
-    TournamentTypeRule,
-)
+from app.db.models import AdminPrompt, Tournament
 from app.db.models.enums import (
+    AdminPromptKind,
     AdminPromptStatus,
     KnockoutMode,
     TournamentStatus,
-    TournamentTypeStatus,
 )
 from app.db.repositories.admin_prompt_repository import AdminPromptRepository
 from app.db.repositories.season_repository import SeasonRepository
 from app.db.repositories.tournament_repository import TournamentRepository
+from app.db.repositories.tournament_type_repository import TournamentTypeRepository
 from app.db.session import SessionFactory
 from app.services.access_policy import access_policy
 from app.services.dto import (
@@ -48,10 +41,6 @@ from app.services.sunday_tournament_rotation import (
 )
 
 logger = logging.getLogger(__name__)
-
-
-class AdminPromptKind(StrEnum):
-    TOURNAMENTS_PROPOSAL = "tournaments_proposal"
 
 
 class CalendarPromptAction(StrEnum):
@@ -278,7 +267,7 @@ class CalendarService:
         action: CalendarPromptAction,
     ) -> TournamentPromptView:
         async with self.session_factory() as session:
-            await access_policy.require_superadmin(session, actor_telegram_id)
+            actor = await access_policy.require_superadmin(session, actor_telegram_id)
             repository = AdminPromptRepository(session)
             prompt = await repository.get_by_id(prompt_id)
             if prompt is None:
@@ -292,10 +281,10 @@ class CalendarService:
             elif action == CalendarPromptAction.CANCEL:
                 prompt.status = AdminPromptStatus.CANCELLED
             else:
-                prompt.status = AdminPromptStatus.NEEDS_CHANGES
+                raise CalendarPromptUnsupportedError(action)
 
             prompt.resolved_at = self.clock.now()
-            prompt.resolved_by_admin_id = actor_telegram_id
+            prompt.resolved_by_user_id = actor.id
             await self._commit_tournament_prompt(session)
             await session.refresh(prompt)
             return await self._tournament_prompt_view(session, prompt)
@@ -516,17 +505,9 @@ class CalendarService:
         self,
         session: AsyncSession,
     ) -> list[TournamentTypeOptionView]:
-        result = await session.execute(
-            select(TournamentType)
-            .where(
-                TournamentType.status == TournamentTypeStatus.ACTIVE,
-                TournamentType.code != LEGACY_UNKNOWN_TOURNAMENT_TYPE_CODE,
-            )
-            .order_by(TournamentType.id)
-        )
         return [
             TournamentTypeOptionView(id=tournament_type.id, name=tournament_type.name)
-            for tournament_type in result.scalars()
+            for tournament_type in await TournamentTypeRepository(session).list_active_real_types()
         ]
 
     async def _tournament_type_detail(
@@ -534,48 +515,24 @@ class CalendarService:
         session: AsyncSession,
         tournament_type_id: int,
     ) -> TournamentTypeDetailView | None:
-        type_result = await session.execute(
-            select(TournamentType).where(
-                TournamentType.id == tournament_type_id,
-                TournamentType.status == TournamentTypeStatus.ACTIVE,
-                TournamentType.code != LEGACY_UNKNOWN_TOURNAMENT_TYPE_CODE,
-            )
+        config = await TournamentTypeRepository(session).get_active_real_config(
+            tournament_type_id,
+            legacy_unknown_code=LEGACY_UNKNOWN_TOURNAMENT_TYPE_CODE,
         )
-        tournament_type = type_result.scalar_one_or_none()
-        if tournament_type is None:
+        if config is None:
             return None
-
-        economy_result = await session.execute(
-            select(TournamentEconomyConfig).where(
-                TournamentEconomyConfig.tournament_type_id == tournament_type_id
-            )
-        )
-        economy = economy_result.scalar_one_or_none()
-        if economy is None:
-            return None
-
-        rebuys_result = await session.execute(
-            select(TournamentRebuyConfig)
-            .where(TournamentRebuyConfig.tournament_type_id == tournament_type_id)
-            .order_by(TournamentRebuyConfig.rebuy_order)
-        )
-        rebuys = list(rebuys_result.scalars())
-        rule_result = await session.execute(
-            select(TournamentTypeRule).where(
-                TournamentTypeRule.tournament_type_id == tournament_type_id
-            )
-        )
-        rule = rule_result.scalar_one_or_none()
         return TournamentTypeDetailView(
-            id=tournament_type.id,
-            name=tournament_type.name,
-            description=tournament_type.description,
-            entry_fee=economy.entry_fee,
-            entry_stack=economy.entry_stack,
-            addon_fee=economy.addon_fee,
-            addon_stack=economy.addon_stack,
-            rebuys=[TournamentRebuyView(fee=rebuy.fee, stack=rebuy.stack) for rebuy in rebuys],
-            knockout_mode=rule.knockout_mode.value if rule is not None else "none",
+            id=config.tournament_type.id,
+            name=config.tournament_type.name,
+            description=config.tournament_type.description,
+            entry_fee=config.economy.entry_fee,
+            entry_stack=config.economy.entry_stack,
+            addon_fee=config.economy.addon_fee,
+            addon_stack=config.economy.addon_stack,
+            rebuys=[
+                TournamentRebuyView(fee=rebuy.fee, stack=rebuy.stack) for rebuy in config.rebuys
+            ],
+            knockout_mode=(config.rule.knockout_mode.value if config.rule is not None else "none"),
         )
 
     async def _tournament_prompt_view(
@@ -636,7 +593,7 @@ class CalendarService:
             tournament_type_id = int(item["tournament_type_id"])
             if await self._tournament_type_detail(session, tournament_type_id) is None:
                 raise CalendarPromptInvalidPayloadError
-            session.add(
+            await tournament_repository.add(
                 Tournament(
                     season_id=season.id,
                     tournament_type_id=tournament_type_id,
@@ -655,40 +612,10 @@ class CalendarService:
         expected_keys = [
             (_payload_date(item), int(item["tournament_type_id"])) for item in prompt_items
         ]
-        result = await session.execute(
-            select(
-                Tournament.id,
-                Tournament.date,
-                TournamentType.id.label("tournament_type_id"),
-                TournamentType.code.label("tournament_type_code"),
-                TournamentType.name.label("tournament_type_name"),
-                TournamentType.description,
-                TournamentEconomyConfig.entry_fee,
-                TournamentEconomyConfig.entry_stack,
-                TournamentEconomyConfig.addon_fee,
-                TournamentEconomyConfig.addon_stack,
-                TournamentTypeRule.knockout_mode,
-                TournamentTypeRule.points_multiplier,
-                TournamentTypeRule.prize_place_multiplier,
-                TournamentTypeRule.prize_place_multiplier_places,
-            )
-            .join(TournamentType, TournamentType.id == Tournament.tournament_type_id)
-            .join(
-                TournamentEconomyConfig,
-                TournamentEconomyConfig.tournament_type_id == TournamentType.id,
-            )
-            .outerjoin(
-                TournamentTypeRule,
-                TournamentTypeRule.tournament_type_id == TournamentType.id,
-            )
-            .where(
-                Tournament.status != TournamentStatus.CANCELLED,
-                Tournament.date.in_([key[0] for key in expected_keys]),
-                Tournament.tournament_type_id.in_([key[1] for key in expected_keys]),
-            )
-            .order_by(Tournament.date, Tournament.id)
+        tournament_rows = await TournamentRepository(session).list_weekly_schedule_records(
+            dates=tuple(key[0] for key in expected_keys),
+            tournament_type_ids=tuple(key[1] for key in expected_keys),
         )
-        tournament_rows = list(result)
         tournaments_by_key = {(row.date, row.tournament_type_id): row for row in tournament_rows}
         if set(tournaments_by_key) != set(expected_keys):
             raise CalendarWeeklyPromptIntegrityError
@@ -728,23 +655,14 @@ class CalendarService:
         session: AsyncSession,
         tournament_type_ids: tuple[int, ...],
     ) -> dict[int, list[TournamentRebuyView]]:
-        result = await session.execute(
-            select(
-                TournamentRebuyConfig.tournament_type_id,
-                TournamentRebuyConfig.fee,
-                TournamentRebuyConfig.stack,
-            )
-            .where(TournamentRebuyConfig.tournament_type_id.in_(tournament_type_ids))
-            .order_by(
-                TournamentRebuyConfig.tournament_type_id,
-                TournamentRebuyConfig.rebuy_order,
-            )
+        rebuys = await TournamentTypeRepository(session).list_rebuys_by_type_ids(
+            tournament_type_ids
         )
         rebuys_by_type_id: dict[int, list[TournamentRebuyView]] = {}
-        for row in result:
-            rebuys_by_type_id.setdefault(row.tournament_type_id, []).append(
-                TournamentRebuyView(fee=row.fee, stack=row.stack)
-            )
+        for tournament_type_id, rows in rebuys.items():
+            rebuys_by_type_id[tournament_type_id] = [
+                TournamentRebuyView(fee=rebuy.fee, stack=rebuy.stack) for rebuy in rows
+            ]
         return rebuys_by_type_id
 
     async def _confirmed_weekly_prompt_is_materialized(

@@ -1,22 +1,18 @@
 from datetime import date
 
-from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from app.common.clock import Clock, club_clock
-from app.db.models import Tournament, TournamentRegistration, TournamentResult
+from app.db.models import Tournament, TournamentRegistration
 from app.db.models.enums import TournamentStatus
 from app.db.repositories.tournament_registration_repository import (
     TournamentRegistrationRepository,
 )
 from app.db.repositories.tournament_repository import TournamentRepository
-from app.db.repositories.user_repository import UserRepository
+from app.db.repositories.tournament_result_repository import TournamentResultRepository
 from app.db.session import SessionFactory
+from app.services.access_policy import ActiveUserRequiredError, access_policy
 from app.services.dto import TournamentView
-from app.services.user_service import (
-    ActiveUserRequiredError,
-    require_active_user,
-)
 
 
 class TournamentRegistrationNotAllowedError(ValueError):
@@ -65,7 +61,7 @@ class TournamentService:
     ) -> list[TournamentView]:
         async with self.session_factory() as session:
             try:
-                await require_active_user(UserRepository(session), telegram_id)
+                await access_policy.require_active_user(session, telegram_id)
             except ActiveUserRequiredError as exc:
                 raise TournamentScheduleNotAllowedError from exc
             tournaments = await TournamentRepository(session).list_upcoming_active(
@@ -80,7 +76,7 @@ class TournamentService:
     ) -> list[TournamentView]:
         async with self.session_factory() as session:
             try:
-                await require_active_user(UserRepository(session), telegram_id)
+                await access_policy.require_active_user(session, telegram_id)
             except ActiveUserRequiredError as exc:
                 raise TournamentRegistrationNotAllowedError from exc
             tournaments = await TournamentRepository(session).list_upcoming_active(
@@ -95,7 +91,7 @@ class TournamentService:
     ) -> list[TournamentView]:
         async with self.session_factory() as session:
             try:
-                player = await require_active_user(UserRepository(session), telegram_id)
+                player = await access_policy.require_active_user(session, telegram_id)
             except ActiveUserRequiredError as exc:
                 raise TournamentRegistrationNotAllowedError from exc
             tournaments = await TournamentRegistrationRepository(session).list_registered_upcoming(
@@ -116,7 +112,7 @@ class TournamentService:
 
         async with self.session_factory() as session:
             try:
-                player = await require_active_user(UserRepository(session), telegram_id)
+                player = await access_policy.require_active_user(session, telegram_id)
             except ActiveUserRequiredError as exc:
                 raise TournamentRegistrationNotAllowedError from exc
 
@@ -142,11 +138,9 @@ class TournamentService:
 
             for tournament, registration in selected:
                 if registration is None:
-                    session.add(
-                        TournamentRegistration(
-                            tournament_id=tournament.id,
-                            player_id=player.id,
-                        )
+                    await registration_repository.add(
+                        tournament_id=tournament.id,
+                        player_id=player.id,
                     )
 
             await session.commit()
@@ -164,7 +158,7 @@ class TournamentService:
 
         async with self.session_factory() as session:
             try:
-                player = await require_active_user(UserRepository(session), telegram_id)
+                player = await access_policy.require_active_user(session, telegram_id)
             except ActiveUserRequiredError as exc:
                 raise TournamentRegistrationNotAllowedError from exc
 
@@ -185,15 +179,15 @@ class TournamentService:
                 registration = await registration_repository.get(tournament.id, player.id)
                 if registration is None:
                     continue
-                checked_in = await session.scalar(
-                    select(TournamentResult.id).where(
-                        TournamentResult.tournament_id == tournament.id,
-                        TournamentResult.player_id == player.id,
-                    )
+                checked_in = await TournamentResultRepository(
+                    session
+                ).exists_for_tournament_and_player(
+                    tournament.id,
+                    player.id,
                 )
-                if checked_in is not None:
+                if checked_in:
                     raise TournamentRegistrationAlreadyCheckedInError
-                await session.delete(registration)
+                await registration_repository.delete(registration)
 
             await session.commit()
             return [
@@ -206,10 +200,9 @@ tournament_service = TournamentService(SessionFactory)
 
 
 def tournament_view(tournament: Tournament) -> TournamentView:
-    tournament_type = tournament.__dict__.get("tournament_type")
     return TournamentView(
         id=tournament.id,
         date=tournament.date,
         tournament_type_id=tournament.tournament_type_id,
-        tournament_type_name=tournament_type.name if tournament_type is not None else None,
+        tournament_type_name=tournament.tournament_type.name,
     )

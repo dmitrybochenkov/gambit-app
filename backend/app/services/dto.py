@@ -3,6 +3,8 @@ from datetime import date
 from decimal import Decimal
 from enum import StrEnum
 
+from app.db.models.enums import AdminPromptKind, AdminPromptStatus
+
 
 class UserStatusView(StrEnum):
     ACTIVE = "active"
@@ -219,9 +221,9 @@ class TournamentCheckInView:
 @dataclass(frozen=True)
 class AdminPromptView:
     id: int
-    kind: str
+    kind: AdminPromptKind
     payload: str
-    status: str
+    status: AdminPromptStatus
 
 
 @dataclass(frozen=True)
@@ -258,8 +260,8 @@ class TournamentPromptItemView:
 @dataclass(frozen=True)
 class TournamentPromptView:
     id: int
-    kind: str
-    status: str
+    kind: AdminPromptKind
+    status: AdminPromptStatus
     tournaments: list[TournamentPromptItemView]
 
 

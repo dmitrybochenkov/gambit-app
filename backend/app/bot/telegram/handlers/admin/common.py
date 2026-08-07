@@ -37,6 +37,8 @@ from app.bot.telegram.states import (
     AdminResultStates,
     CalendarSeasonProposalEditStates,
 )
+from app.db.models.enums import AdminPromptKind
+from app.services.access_policy import AdminAccessDeniedError
 from app.services.calendar_service import (
     CalendarDefaultTournamentTypeNotFoundError,
     CalendarPromptAction,
@@ -91,7 +93,6 @@ from app.services.tournament_check_in_service import (
     tournament_check_in_service,
 )
 from app.services.user_service import (
-    AdminAccessDeniedError,
     RegistrationAlreadyReviewedError,
     RegistrationCandidateNotFoundError,
     UserNotFoundError,

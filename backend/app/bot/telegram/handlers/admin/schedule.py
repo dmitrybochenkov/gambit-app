@@ -84,14 +84,14 @@ async def review_calendar_prompt(
     if callback_data.action == keyboards.CalendarPromptAction.CONFIRM:
         result_text = (
             texts.admin.ADMIN_CALENDAR_TOURNAMENTS_CREATED
-            if resolved_prompt.kind == "tournaments_proposal"
+            if resolved_prompt.kind == AdminPromptKind.TOURNAMENTS_PROPOSAL
             else texts.admin.CALENDAR_PROMPT_CONFIRMED
         )
         await callback.answer(result_text)
         if callback.message is not None:
             await _delete_callback_message(callback)
             await callback.message.answer(format_created_tournaments_prompt(resolved_prompt))
-            if resolved_prompt.kind == "tournaments_proposal":
+            if resolved_prompt.kind == AdminPromptKind.TOURNAMENTS_PROPOSAL:
                 schedule = await calendar_service.get_created_weekly_schedule(
                     callback.from_user.id, callback_data.prompt_id
                 )
@@ -106,22 +106,6 @@ async def review_calendar_prompt(
             await _delete_callback_message(callback)
             await callback.message.answer(result_text)
         return
-    else:
-        result_text = texts.admin.CALENDAR_PROMPT_NEEDS_CHANGES
-
-    await callback.answer(result_text)
-    if callback.message is not None:
-        try:
-            await callback.message.edit_reply_markup(reply_markup=None)
-        except TelegramBadRequest:
-            pass
-        await callback.message.answer(
-            texts.admin.calendar_reviewed_by_admin(
-                prompt_text=callback.message.text or "",
-                result_text=result_text,
-                admin_name=callback.from_user.full_name,
-            )
-        )
 
 
 @router.callback_query(keyboards.TournamentPromptDayEditCallback.filter())

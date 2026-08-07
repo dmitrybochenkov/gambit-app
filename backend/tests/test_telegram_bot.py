@@ -57,7 +57,15 @@ from app.db.models import (
     TournamentResult,
     User,
 )
-from app.db.models.enums import TournamentResultSource, TournamentStatus, UserRole, UserStatus
+from app.db.models.enums import (
+    AdminPromptKind,
+    AdminPromptStatus,
+    TournamentResultSource,
+    TournamentStatus,
+    UserRole,
+    UserStatus,
+)
+from app.services.access_policy import AdminAccessDeniedError
 from app.services.calendar_service import CalendarTournamentDateAlreadyExistsError
 from app.services.dto import (
     AdminPanelView,
@@ -101,7 +109,7 @@ from app.services.rating_service import RatingKind
 from app.services.result_service import FutureTournamentCannotBeClosedError, ResultService
 from app.services.tournament_check_in_service import TournamentCheckInService
 from app.services.tournament_service import TournamentRegistrationAlreadyCheckedInError
-from app.services.user_service import AdminAccessDeniedError, UserService
+from app.services.user_service import UserService
 
 
 class RecordingBot(Bot):
@@ -196,8 +204,8 @@ def tournament_prompt_view(
 ) -> TournamentPromptView:
     return TournamentPromptView(
         id=prompt_id,
-        kind="tournaments_proposal",
-        status="pending",
+        kind=AdminPromptKind.TOURNAMENTS_PROPOSAL,
+        status=AdminPromptStatus.PENDING,
         tournaments=tournaments
         or [
             TournamentPromptItemView(

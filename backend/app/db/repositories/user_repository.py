@@ -16,6 +16,15 @@ class UserRepository:
     async def get_by_id(self, user_id: int) -> User | None:
         return await self.session.get(User, user_id)
 
+    async def get_active_by_id(self, user_id: int) -> User | None:
+        result = await self.session.execute(
+            select(User).where(
+                User.id == user_id,
+                User.status == UserStatus.ACTIVE,
+            )
+        )
+        return result.scalar_one_or_none()
+
     async def list_by_display_name_normalized(self, display_name_normalized: str) -> list[User]:
         result = await self.session.execute(
             select(User).where(User.display_name_normalized == display_name_normalized)

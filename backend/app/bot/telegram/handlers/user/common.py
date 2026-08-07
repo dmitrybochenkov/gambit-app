@@ -21,6 +21,7 @@ from app.bot.telegram.formatters import (
 )
 from app.bot.telegram.notifications import notify_admins_about_registration
 from app.bot.telegram.states import RegistrationStates
+from app.services.access_policy import ActiveUserRequiredError
 from app.services.dto import UserStartStatusView
 from app.services.pagination import pagination_service
 from app.services.profile_service import ProfileNotAllowedError, profile_service
@@ -34,7 +35,6 @@ from app.services.tournament_service import (
     tournament_service,
 )
 from app.services.user_service import (
-    ActiveUserRequiredError,
     IdentityAlreadyExistsError,
     InvalidDisplayNameError,
     RegistrationCandidateNotFoundError,
