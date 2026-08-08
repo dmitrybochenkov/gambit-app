@@ -46,9 +46,12 @@ class SeasonTimelineView:
         return self.future_seasons[-1] if self.future_seasons else None
 
     @property
-    def has_open_ended_future_season(self) -> bool:
-        last_future = self.last_future_season
-        return last_future is not None and last_future.ends_at is None
+    def future_season(self) -> SeasonView | None:
+        return self.nearest_future_season
+
+    @property
+    def has_future_season(self) -> bool:
+        return self.future_season is not None
 
 
 @dataclass(frozen=True)

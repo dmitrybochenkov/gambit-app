@@ -2637,12 +2637,12 @@ async def test_admin_calendar_seasons_callback_shows_timeline_management(
     message.delete.assert_awaited_once_with()
     answer = message.answer.await_args
     assert answer.args[0] == (
-        "🏆 Новый сезон\n\n"
+        "🏆 Сезоны\n\n"
         "Текущий сезон:\n"
         "Лето 2026\n"
         "с 1 июня 2026\n"
         "без даты окончания\n\n"
-        "Можно создать следующий сезон."
+        "Будущий сезон отсутствует."
     )
     assert [
         button.text for row in answer.kwargs["reply_markup"].inline_keyboard for button in row
@@ -3375,7 +3375,7 @@ async def test_season_management_create_next_without_suggested_start_prompts_for
     ] == ["⬅️ Назад", "❌ Отмена"]
 
 
-async def test_season_management_edit_future_shows_future_edit_screen(
+async def test_season_management_delete_future_shows_confirmation(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     future = SeasonView(
@@ -3399,7 +3399,7 @@ async def test_season_management_edit_future_shows_future_edit_screen(
     await superadmin_season_handlers.manage_seasons(
         callback,
         SimpleNamespace(
-            action=superadmin_seasons_kb.SeasonManageAction.EDIT_FUTURE,
+            action=superadmin_seasons_kb.SeasonManageAction.DELETE_FUTURE,
             season_id=7,
         ),
         state,
@@ -3407,13 +3407,17 @@ async def test_season_management_edit_future_shows_future_edit_screen(
 
     callback.message.edit_text.assert_awaited_once()
     assert callback.message.edit_text.await_args.args[0] == (
-        "✏️ Будущий сезон\n\nСезон в следующем году\nс 1.09.2027"
+        "Удалить будущий сезон?\n\n"
+        "Сезон в следующем году\n\n"
+        "Начало:\n"
+        "1 сентября 2027\n\n"
+        "Предыдущий сезон снова станет открытым."
     )
     assert [
         button.text
         for row in callback.message.edit_text.await_args.kwargs["reply_markup"].inline_keyboard
         for button in row
-    ] == ["✏️ Название", "📅 Дата начала", "⬅️ Назад", "❌ Отмена"]
+    ] == ["✅ Удалить", "⬅️ Назад", "❌ Отмена"]
 
 
 async def test_enter_initial_season_start_creates_proposal(
@@ -3440,6 +3444,64 @@ async def test_enter_initial_season_start_creates_proposal(
     assert message.answer.await_args.args[0] == (
         "🏆 Новый сезон\n\nНазвание: Лето 2026\nДата начала: 28 июля 2026"
     )
+
+
+async def test_cancel_future_season_delete_does_not_mutate(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    season_service = SimpleNamespace(delete_future_season=AsyncMock())
+    monkeypatch.setattr(superadmin_season_handlers, "season_service", season_service)
+    callback = SimpleNamespace(
+        from_user=SimpleNamespace(id=100),
+        message=SimpleNamespace(edit_text=AsyncMock(), answer=AsyncMock(), delete=AsyncMock()),
+        answer=AsyncMock(),
+    )
+    state = SimpleNamespace(clear=AsyncMock())
+
+    await superadmin_season_handlers.select_future_season_delete_action(
+        callback,
+        SimpleNamespace(
+            action=superadmin_seasons_kb.SeasonDeleteFutureAction.CANCEL,
+            season_id=7,
+        ),
+        state,
+    )
+
+    season_service.delete_future_season.assert_not_awaited()
+    state.clear.assert_awaited_once()
+    callback.message.delete.assert_awaited_once_with()
+    callback.message.answer.assert_awaited_once_with("Отмена.")
+
+
+async def test_confirm_future_season_delete_returns_management_screen(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    timeline = season_timeline_view()
+    season_service = SimpleNamespace(delete_future_season=AsyncMock(return_value=timeline))
+    monkeypatch.setattr(superadmin_season_handlers, "season_service", season_service)
+    callback = SimpleNamespace(
+        from_user=SimpleNamespace(id=100),
+        message=SimpleNamespace(edit_text=AsyncMock(), answer=AsyncMock(), delete=AsyncMock()),
+        answer=AsyncMock(),
+    )
+    state = SimpleNamespace(clear=AsyncMock())
+
+    await superadmin_season_handlers.select_future_season_delete_action(
+        callback,
+        SimpleNamespace(
+            action=superadmin_seasons_kb.SeasonDeleteFutureAction.CONFIRM,
+            season_id=7,
+        ),
+        state,
+    )
+
+    season_service.delete_future_season.assert_awaited_once_with(
+        admin_telegram_id=100,
+        season_id=7,
+    )
+    state.clear.assert_awaited_once()
+    callback.message.edit_text.assert_awaited_once()
+    assert callback.message.edit_text.await_args.args[0].startswith("🏆 Сезоны\n\n")
 
 
 async def test_season_change_back_returns_preview(

@@ -34,7 +34,7 @@ def created(season: object) -> str:
 
 
 def management(timeline: object) -> str:
-    lines = ["🏆 Новый сезон", ""]
+    lines = ["🏆 Сезоны", ""]
     if timeline.current_season is not None:
         lines.extend(["Текущий сезон:", timeline.current_season.name])
         if timeline.current_season.ends_at is None:
@@ -45,29 +45,17 @@ def management(timeline: object) -> str:
     else:
         lines.append("Текущего сезона нет.")
 
-    nearest_future = timeline.nearest_future_season
-    last_future = timeline.last_future_season
-    if nearest_future is None:
-        lines.extend(["", "Можно создать следующий сезон."])
-    elif last_future is not None and last_future.ends_at is None:
-        lines.extend(
-            [
-                "",
-                "Уже есть будущий открытый сезон:",
-                "",
-                last_future.name,
-                f"с {fmt_common.date_long(last_future.starts_at)}",
-                "",
-                "Сначала измени его или определи границу следующего сезона.",
-            ]
-        )
+    future_season = timeline.future_season
+    if future_season is None:
+        lines.extend(["", "Будущий сезон отсутствует."])
     else:
         lines.extend(
             [
                 "",
-                "Уже запланирован следующий сезон:",
-                nearest_future.name,
-                f"с {fmt_common.date_long(nearest_future.starts_at)}",
+                "Будущий сезон:",
+                "",
+                future_season.name,
+                f"с {fmt_common.date_long(future_season.starts_at)}",
             ]
         )
 
@@ -85,8 +73,19 @@ def list_page(page: object) -> str:
     return "\n".join(lines)
 
 
-def future_edit(season: object) -> str:
-    return "\n".join(["✏️ Будущий сезон", "", season.name, _season_period(season)])
+def future_delete_confirmation(season: object) -> str:
+    return "\n".join(
+        [
+            "Удалить будущий сезон?",
+            "",
+            season.name,
+            "",
+            "Начало:",
+            fmt_common.date_long(season.starts_at),
+            "",
+            "Предыдущий сезон снова станет открытым.",
+        ]
+    )
 
 
 def _season_period(season: object) -> str:

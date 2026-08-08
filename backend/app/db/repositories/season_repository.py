@@ -50,6 +50,15 @@ class SeasonRepository:
         )
         return list(result.scalars())
 
+    async def get_previous_before(self, target_date: date) -> Season | None:
+        result = await self.session.execute(
+            select(Season)
+            .where(Season.starts_at < target_date)
+            .order_by(Season.starts_at.desc(), Season.id.desc())
+            .limit(1)
+        )
+        return result.scalar_one_or_none()
+
     async def get_open_ended(self) -> Season | None:
         result = await self.session.execute(
             select(Season).where(Season.ends_at.is_(None)).order_by(Season.starts_at).limit(1)
@@ -87,3 +96,6 @@ class SeasonRepository:
 
     def add(self, season: Season) -> None:
         self.session.add(season)
+
+    async def delete(self, season: Season) -> None:
+        await self.session.delete(season)

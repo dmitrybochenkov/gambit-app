@@ -25,7 +25,7 @@ class SeasonManageAction(StrEnum):
     CREATE_NEXT = "create_next"
     LIST = "list"
     LIST_PAGE = "list_page"
-    EDIT_FUTURE = "edit_future"
+    DELETE_FUTURE = "delete_future"
     CANCEL = "cancel"
 
 
@@ -35,22 +35,21 @@ class SeasonManageCallback(CallbackData, prefix="season_manage"):
     season_id: int = 0
 
 
-class SeasonFutureEditAction(StrEnum):
-    NAME = "name"
-    STARTS_AT = "starts_at"
+class SeasonDeleteFutureAction(StrEnum):
+    CONFIRM = "confirm"
     BACK = "back"
     CANCEL = "cancel"
 
 
-class SeasonFutureEditCallback(CallbackData, prefix="season_future"):
-    action: SeasonFutureEditAction
+class SeasonDeleteFutureCallback(CallbackData, prefix="season_future_delete"):
+    action: SeasonDeleteFutureAction
     season_id: int
 
 
 def season_management_keyboard(
     *,
     can_create: bool,
-    can_edit_future: bool,
+    can_delete_future: bool,
     future_season_id: int | None = None,
 ) -> InlineKeyboardMarkup:
     builder = InlineKeyboardBuilder()
@@ -59,11 +58,11 @@ def season_management_keyboard(
             text="➕ Создать следующий сезон",
             callback_data=SeasonManageCallback(action=SeasonManageAction.CREATE_NEXT),
         )
-    if can_edit_future and future_season_id is not None:
+    if can_delete_future and future_season_id is not None:
         builder.button(
-            text="✏️ Изменить будущий сезон",
+            text="🗑 Удалить будущий сезон",
             callback_data=SeasonManageCallback(
-                action=SeasonManageAction.EDIT_FUTURE,
+                action=SeasonManageAction.DELETE_FUTURE,
                 season_id=future_season_id,
             ),
         )
@@ -145,52 +144,28 @@ def season_input_navigation_keyboard(prompt_id: int | None = None) -> InlineKeyb
     return builder.as_markup()
 
 
-def season_future_edit_keyboard(season_id: int) -> InlineKeyboardMarkup:
+def season_delete_future_confirmation_keyboard(season_id: int) -> InlineKeyboardMarkup:
     builder = InlineKeyboardBuilder()
     builder.button(
-        text=labels.ADMIN_SEASON_EDIT_NAME,
-        callback_data=SeasonFutureEditCallback(
-            action=SeasonFutureEditAction.NAME,
-            season_id=season_id,
-        ),
-    )
-    builder.button(
-        text=labels.ADMIN_SEASON_EDIT_START,
-        callback_data=SeasonFutureEditCallback(
-            action=SeasonFutureEditAction.STARTS_AT,
+        text="✅ Удалить",
+        callback_data=SeasonDeleteFutureCallback(
+            action=SeasonDeleteFutureAction.CONFIRM,
             season_id=season_id,
         ),
     )
     builder.button(
         text=labels.ADMIN_CALENDAR_BACK,
-        callback_data=SeasonFutureEditCallback(
-            action=SeasonFutureEditAction.BACK,
+        callback_data=SeasonDeleteFutureCallback(
+            action=SeasonDeleteFutureAction.BACK,
             season_id=season_id,
         ),
     )
     builder.button(
         text=labels.ADMIN_CALENDAR_CANCEL,
-        callback_data=SeasonFutureEditCallback(
-            action=SeasonFutureEditAction.CANCEL,
+        callback_data=SeasonDeleteFutureCallback(
+            action=SeasonDeleteFutureAction.CANCEL,
             season_id=season_id,
         ),
-    )
-    builder.adjust(1)
-    return builder.as_markup()
-
-
-def season_future_input_navigation_keyboard(season_id: int) -> InlineKeyboardMarkup:
-    builder = InlineKeyboardBuilder()
-    builder.button(
-        text=labels.ADMIN_CALENDAR_BACK,
-        callback_data=SeasonManageCallback(
-            action=SeasonManageAction.EDIT_FUTURE,
-            season_id=season_id,
-        ),
-    )
-    builder.button(
-        text=labels.ADMIN_CALENDAR_CANCEL,
-        callback_data=SeasonManageCallback(action=SeasonManageAction.CANCEL),
     )
     builder.adjust(1)
     return builder.as_markup()

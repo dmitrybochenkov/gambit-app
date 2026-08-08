@@ -15,8 +15,6 @@ class CalendarSeasonProposalEditStates(StatesGroup):
     entering_name = State()
     entering_starts_at = State()
     entering_initial_starts_at = State()
-    entering_future_name = State()
-    entering_future_starts_at = State()
 
 
 class AdminResultStates(StatesGroup):
