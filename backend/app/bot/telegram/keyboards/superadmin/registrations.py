@@ -15,7 +15,6 @@ class RegistrationReviewAction(StrEnum):
     APPROVE = "approve"
     REJECT = "reject"
     CANCEL = "cancel"
-    EDIT_NAME = "edit_name"
     SELECT_CANDIDATE = "select_candidate"
 
 
@@ -43,7 +42,6 @@ class RegistrationListCallback(CallbackData, prefix="registration_list"):
 
 def registration_review_keyboard(
     request_id: int,
-    can_edit_name: bool = False,
     can_select_candidate: bool = False,
 ) -> InlineKeyboardMarkup:
     builder = InlineKeyboardBuilder()
@@ -52,14 +50,6 @@ def registration_review_keyboard(
             text="🔗 Выбрать игрока",
             callback_data=RegistrationReviewCallback(
                 action=RegistrationReviewAction.SELECT_CANDIDATE,
-                request_id=request_id,
-            ),
-        )
-    if can_edit_name:
-        builder.button(
-            text="✏️ Изменить имя",
-            callback_data=RegistrationReviewCallback(
-                action=RegistrationReviewAction.EDIT_NAME,
                 request_id=request_id,
             ),
         )

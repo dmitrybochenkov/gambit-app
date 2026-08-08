@@ -20,7 +20,6 @@ async def notify_admins_about_registration(bot: Bot, request_id: int) -> None:
     text = format_registration_review(review)
     keyboard = superadmin_registrations_kb.registration_review_keyboard(
         notification.request.id,
-        can_edit_name=notification.request.request_type == "new_player",
         can_select_candidate=notification.request.request_type == "link_existing_player",
     )
 

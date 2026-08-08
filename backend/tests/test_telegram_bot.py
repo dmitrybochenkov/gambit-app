@@ -2210,6 +2210,75 @@ async def test_pending_registration_notifies_admins(monkeypatch: pytest.MonkeyPa
     assert "Telegram ID" not in bot.send_message.await_args_list[0].kwargs["text"]
 
 
+async def test_new_player_name_input_shows_confirmation_without_request(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    service = SimpleNamespace(
+        validate_new_player_display_name=AsyncMock(),
+        submit_new_player_registration=AsyncMock(),
+    )
+    monkeypatch.setattr(user_registration_handlers, "registration_service", service)
+    state = MutableState()
+    message = SimpleNamespace(
+        from_user=SimpleNamespace(id=100),
+        text="  Antony   Easy ",
+        chat=SimpleNamespace(id=100),
+        bot=SimpleNamespace(delete_message=AsyncMock()),
+        delete=AsyncMock(),
+        answer=AsyncMock(),
+    )
+
+    await user_registration_handlers.enter_new_display_name(message, state)
+
+    service.validate_new_player_display_name.assert_awaited_once_with("Antony Easy")
+    service.submit_new_player_registration.assert_not_awaited()
+    assert state.state == user_registration_handlers.RegistrationStates.confirming_new_display_name
+    assert state.data["new_player_display_name"] == "Antony Easy"
+    answer = message.answer.await_args
+    assert answer.args[0] == registration_text.new_player_confirmation("Antony Easy")
+    assert inline_keyboard_texts(answer.kwargs["reply_markup"]) == [
+        "✅ Подтвердить",
+        "✏️ Изменить",
+        "❌ Отмена",
+    ]
+
+
+async def test_new_player_confirmation_creates_request_and_notifies(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    request = RegistrationRequestView(
+        id=10,
+        telegram_id=100,
+        request_type="new_player",
+        status="pending",
+        requested_display_name="Antony Easy",
+        requested_link_name=None,
+        candidate_user_id=None,
+        created_at="01.01.2026 12:00",
+    )
+    service = SimpleNamespace(submit_new_player_registration=AsyncMock(return_value=request))
+    notify = AsyncMock()
+    monkeypatch.setattr(user_registration_handlers, "registration_service", service)
+    monkeypatch.setattr(user_registration_handlers, "notify_admins_about_registration", notify)
+    state = MutableState()
+    await state.update_data(new_player_display_name="Antony Easy")
+    message = SimpleNamespace(delete=AsyncMock(), answer=AsyncMock())
+    callback = SimpleNamespace(
+        from_user=SimpleNamespace(id=100),
+        message=message,
+        bot=SimpleNamespace(),
+        answer=AsyncMock(),
+    )
+
+    await user_registration_handlers.confirm_new_player_registration(callback, state)
+
+    service.submit_new_player_registration.assert_awaited_once_with(100, "Antony Easy")
+    notify.assert_awaited_once_with(callback.bot, 10)
+    message.delete.assert_awaited_once_with()
+    message.answer.assert_awaited_once_with(registration_text.REGISTRATION_SUBMITTED)
+    assert state.data == {}
+
+
 async def test_admin_panel_entry_sends_admin_keyboard(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -2293,7 +2362,7 @@ async def test_superadmin_panel_button_opens_superadmin_keyboard(
     assert keyboard_texts(message.answer.await_args.kwargs["reply_markup"]) == [
         "📝 Заявки на регистрацию",
         "🗓 Календарь",
-        "➕ Добавить админа",
+        "➕ Добавить администратора",
         "🔒 Закрыть турнир",
         "⬅️ Назад",
     ]
@@ -2354,42 +2423,124 @@ async def test_admin_calendar_button_shows_inline_menu(
 async def test_add_admin_button_shows_candidates(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    candidate = active_player()
-    service = SimpleNamespace(
-        list_admin_candidates_for_superadmin=AsyncMock(return_value=[candidate])
-    )
+    service = SimpleNamespace(require_add_admin_access=AsyncMock())
     monkeypatch.setattr(superadmin_administrator_handlers, "admin_management_service", service)
+    state = MutableState()
     message = SimpleNamespace(
         from_user=SimpleNamespace(id=100),
         answer=AsyncMock(),
     )
 
-    await superadmin_administrator_handlers.show_admin_candidates(message)
+    await superadmin_administrator_handlers.prompt_admin_candidate_search(message, state)
 
-    service.list_admin_candidates_for_superadmin.assert_awaited_once_with(100)
-    answer = message.answer.await_args
-    assert answer.args[0] == "Кого назначаем админом?\n\n1 — Игрок Первый"
-    buttons = [
-        button.text for row in answer.kwargs["reply_markup"].inline_keyboard for button in row
-    ]
-    assert buttons == ["1. Игрок Первый", "❌ Отмена"]
+    service.require_add_admin_access.assert_awaited_once_with(100)
+    assert state.state == superadmin_administrator_handlers.AdminAddStates.entering_candidate_name
+    message.answer.assert_awaited_once_with("Введи ник игрока")
 
 
 async def test_add_admin_button_denies_regular_admin(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     service = SimpleNamespace(
-        list_admin_candidates_for_superadmin=AsyncMock(side_effect=AdminAccessDeniedError)
+        require_add_admin_access=AsyncMock(side_effect=AdminAccessDeniedError)
     )
     monkeypatch.setattr(superadmin_administrator_handlers, "admin_management_service", service)
+    state = MutableState()
     message = SimpleNamespace(
         from_user=SimpleNamespace(id=100),
         answer=AsyncMock(),
     )
 
-    await superadmin_administrator_handlers.show_admin_candidates(message)
+    await superadmin_administrator_handlers.prompt_admin_candidate_search(message, state)
 
     message.answer.assert_awaited_once_with("Недостаточно прав.")
+
+
+async def test_add_admin_search_with_one_candidate_shows_confirmation(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    candidate = active_player()
+    service = SimpleNamespace(
+        search_admin_candidates_for_superadmin=AsyncMock(return_value=[candidate])
+    )
+    monkeypatch.setattr(superadmin_administrator_handlers, "admin_management_service", service)
+    state = MutableState()
+    message = SimpleNamespace(
+        from_user=SimpleNamespace(id=100),
+        text="Игрок",
+        answer=AsyncMock(),
+    )
+
+    await superadmin_administrator_handlers.search_admin_candidate(message, state)
+
+    service.search_admin_candidates_for_superadmin.assert_awaited_once_with(100, "Игрок")
+    answer = message.answer.await_args
+    assert answer.args[0] == "Назначить администратором:\n\nИгрок Первый?"
+    assert inline_keyboard_texts(answer.kwargs["reply_markup"]) == [
+        "✅ Назначить",
+        "↩️ Назад",
+        "❌ Отмена",
+    ]
+
+
+async def test_add_admin_search_with_multiple_candidates_shows_names_without_ids(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    candidates = [
+        active_player(),
+        UserView(
+            id=2,
+            telegram_id=124,
+            display_name="Игрок Второй",
+            status=UserStatus.ACTIVE,
+            role=UserRole.PLAYER,
+        ),
+    ]
+    service = SimpleNamespace(
+        search_admin_candidates_for_superadmin=AsyncMock(return_value=candidates)
+    )
+    monkeypatch.setattr(superadmin_administrator_handlers, "admin_management_service", service)
+    state = MutableState()
+    message = SimpleNamespace(
+        from_user=SimpleNamespace(id=100),
+        text="Игрок",
+        answer=AsyncMock(),
+    )
+
+    await superadmin_administrator_handlers.search_admin_candidate(message, state)
+
+    answer = message.answer.await_args
+    assert answer.args[0] == "Выбери игрока:"
+    assert inline_keyboard_texts(answer.kwargs["reply_markup"]) == [
+        "Игрок Первый",
+        "Игрок Второй",
+        "🔎 Искать снова",
+        "❌ Отмена",
+    ]
+
+
+async def test_add_admin_search_not_found_keeps_search_state(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    service = SimpleNamespace(search_admin_candidates_for_superadmin=AsyncMock(return_value=[]))
+    monkeypatch.setattr(superadmin_administrator_handlers, "admin_management_service", service)
+    state = MutableState()
+    await state.set_state(superadmin_administrator_handlers.AdminAddStates.entering_candidate_name)
+    message = SimpleNamespace(
+        from_user=SimpleNamespace(id=100),
+        text="Нет такого",
+        answer=AsyncMock(),
+    )
+
+    await superadmin_administrator_handlers.search_admin_candidate(message, state)
+
+    assert state.state == superadmin_administrator_handlers.AdminAddStates.entering_candidate_name
+    answer = message.answer.await_args
+    assert answer.args[0] == "Игроки не найдены.\n\nПопробуй ввести другое имя."
+    assert inline_keyboard_texts(answer.kwargs["reply_markup"]) == [
+        "🔎 Искать снова",
+        "❌ Отмена",
+    ]
 
 
 async def test_confirm_add_admin_promotes_player_and_notifies(
@@ -2412,6 +2563,7 @@ async def test_confirm_add_admin_promotes_player_and_notifies(
 
     service = UserAccessServiceContractFake()
     monkeypatch.setattr(superadmin_administrator_handlers, "admin_management_service", service)
+    state = MutableState()
     bot = SimpleNamespace(send_message=AsyncMock())
     message = SimpleNamespace(delete=AsyncMock(), answer=AsyncMock())
     callback = SimpleNamespace(
@@ -2425,12 +2577,13 @@ async def test_confirm_add_admin_promotes_player_and_notifies(
         player_id=2,
     )
 
-    await superadmin_administrator_handlers.confirm_add_admin(callback, callback_data)
+    await superadmin_administrator_handlers.confirm_add_admin(callback, callback_data, state)
 
     assert service.calls == [{"superadmin_telegram_id": 100, "user_id": 2}]
-    callback.answer.assert_awaited_once_with("Админ добавлен.")
+    callback.answer.assert_awaited_once_with("✅ Админ 2 назначен администратором.")
     message.delete.assert_awaited_once_with()
-    message.answer.assert_awaited_once_with("Админ добавлен.")
+    message.answer.assert_awaited_once()
+    assert message.answer.await_args.args[0] == "✅ Админ 2 назначен администратором."
     bot.send_message.assert_awaited_once()
     assert bot.send_message.await_args.kwargs["chat_id"] == 200
     assert bot.send_message.await_args.kwargs["text"] == "Тебе назначена роль админа."
@@ -3446,7 +3599,7 @@ async def test_admin_registration_list_open_edits_message_to_review(
         for row in message.edit_text.await_args.kwargs["reply_markup"].inline_keyboard
         for button in row
     ]
-    assert buttons == ["✏️ Изменить имя", "✅ Одобрить", "🚫 Отклонить", "❌ Отмена"]
+    assert buttons == ["✅ Одобрить", "🚫 Отклонить", "❌ Отмена"]
 
 
 async def test_admin_panel_exit_returns_main_keyboard(
@@ -3492,19 +3645,17 @@ async def test_admin_panel_denies_regular_player(
 async def test_registration_review_keyboard_with_history_has_action_labels() -> None:
     keyboard = superadmin_registrations_kb.registration_review_keyboard(
         request_id=10,
-        can_edit_name=True,
         can_select_candidate=True,
     )
 
     buttons = [button.text for row in keyboard.inline_keyboard for button in row]
     assert buttons == [
         "🔗 Выбрать игрока",
-        "✏️ Изменить имя",
         "✅ Одобрить",
         "🚫 Отклонить",
         "❌ Отмена",
     ]
-    assert [len(row) for row in keyboard.inline_keyboard] == [1, 1, 1, 1, 1]
+    assert [len(row) for row in keyboard.inline_keyboard] == [1, 1, 1, 1]
 
 
 async def test_registration_review_cancel_deletes_message_without_review(

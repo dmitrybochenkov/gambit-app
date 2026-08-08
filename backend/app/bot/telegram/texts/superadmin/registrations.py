@@ -12,6 +12,7 @@ REGISTRATION_REJECTION_MESSAGE = "Ты не зарегистрирован/а. �
 REGISTRATION_CANCELLED = "Заявка скрыта"
 PLAYER_NOT_FOUND = "Игрок не найден."
 REGISTRATION_ALREADY_REVIEWED = "Заявка уже обработана."
+REGISTRATION_NOT_ALLOWED = "Заявку нельзя одобрить."
 REGISTRATION_MATCHES_TITLE = "Возможные совпадения с историей:"
 REGISTRATION_MATCH_TOURNAMENTS_LABEL = "турниров"
 REGISTRATION_MATCH_POINTS_LABEL = "очков"

@@ -14,13 +14,12 @@ from app.services.dto.registrations import (
     RegistrationReviewResultView,
     RegistrationReviewView,
 )
-from app.services.registration_service import find_link_candidates
+from app.services.registration_service import RegistrationService, find_link_candidates
 from app.services.user_common import (
     RegistrationAlreadyReviewedError,
     RegistrationCandidateNotFoundError,
     RegistrationNotAllowedError,
     RegistrationRequestNotFoundError,
-    require_valid_display_name,
     required_registration_request_view,
     required_user_view,
 )
@@ -80,26 +79,6 @@ class RegistrationReviewService:
             )
             return await self._registration_review_view(user_repository, request)
 
-    async def update_registration_display_name(
-        self,
-        superadmin_telegram_id: int,
-        request_id: int,
-        display_name: str,
-    ) -> RegistrationReviewView:
-        display_name_normalized = require_valid_display_name(display_name)
-        async with self.session_factory() as session:
-            user_repository = UserRepository(session)
-            request_repository = RegistrationRequestRepository(session)
-            await access_policy.require_superadmin(session, superadmin_telegram_id)
-            request = await self._require_pending_request(request_repository, request_id)
-            if request.request_type != RegistrationRequestType.NEW_PLAYER:
-                raise RegistrationRequestNotFoundError
-            request.requested_display_name = display_name
-            request.requested_display_name_normalized = display_name_normalized
-            await session.commit()
-            await session.refresh(request)
-            return await self._registration_review_view(user_repository, request)
-
     async def select_registration_candidate(
         self,
         superadmin_telegram_id: int,
@@ -137,6 +116,10 @@ class RegistrationReviewService:
                     or not request.requested_display_name_normalized
                 ):
                     raise RegistrationRequestNotFoundError
+                await RegistrationService._ensure_public_registration_name_available(
+                    session=session,
+                    display_name_normalized=request.requested_display_name_normalized,
+                )
                 user = create_user(
                     telegram_id=request.telegram_id,
                     display_name=request.requested_display_name,

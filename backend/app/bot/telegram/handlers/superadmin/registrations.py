@@ -15,8 +15,10 @@ from app.services.dto.registrations import RegistrationReviewResultView
 from app.services.pagination import pagination_service
 from app.services.registration_review_service import registration_review_service
 from app.services.user_common import (
+    IdentityAlreadyExistsError,
     RegistrationAlreadyReviewedError,
     RegistrationCandidateNotFoundError,
+    RegistrationNotAllowedError,
     UserNotFoundError,
 )
 
@@ -80,7 +82,6 @@ async def review_registration_list(
                     format_registration_review(review),
                     reply_markup=superadmin_registrations_kb.registration_review_keyboard(
                         review.request.id,
-                        can_edit_name=review.request.request_type == "new_player",
                         can_select_candidate=review.request.request_type == "link_existing_player",
                     ),
                 )
@@ -141,10 +142,6 @@ async def review_registration(
                         review.candidates,
                     )
                 )
-            return
-
-        if callback_data.action == superadmin_registrations_kb.RegistrationReviewAction.EDIT_NAME:
-            await callback.answer("Редактирование имени добавим следующим шагом.", show_alert=True)
             return
 
         if callback_data.action == superadmin_registrations_kb.RegistrationReviewAction.APPROVE:
@@ -215,6 +212,9 @@ async def select_registration_candidate(
             text.REGISTRATION_ALREADY_REVIEWED,
             show_alert=True,
         )
+        return
+    except (IdentityAlreadyExistsError, RegistrationNotAllowedError):
+        await callback.answer(text.REGISTRATION_NOT_ALLOWED, show_alert=True)
         return
 
     await callback.answer("Игрок выбран.")

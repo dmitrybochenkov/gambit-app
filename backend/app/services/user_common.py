@@ -11,6 +11,14 @@ class IdentityAlreadyExistsError(ValueError):
         super().__init__(f"{field} already exists")
 
 
+class DisplayNameLinkedUserExistsError(IdentityAlreadyExistsError):
+    pass
+
+
+class DisplayNameHistoricalUserExistsError(IdentityAlreadyExistsError):
+    pass
+
+
 class RegistrationNotAllowedError(ValueError):
     pass
 

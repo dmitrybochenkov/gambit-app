@@ -12,6 +12,7 @@ from app.db.models.enums import (
     RegistrationRequestStatus,
     RegistrationRequestType,
     UserRole,
+    UserStatus,
 )
 from app.services.admin_management_service import AdminManagementService
 from app.services.dto.users import UserStartStatusView
@@ -19,9 +20,13 @@ from app.services.registration_review_service import RegistrationReviewService
 from app.services.registration_service import RegistrationService
 from app.services.user_access_service import UserAccessService
 from app.services.user_common import (
+    DisplayNameHistoricalUserExistsError,
+    DisplayNameLinkedUserExistsError,
     IdentityAlreadyExistsError,
     RegistrationCandidateNotFoundError,
     RegistrationNotAllowedError,
+    UserNotFoundError,
+    UserRoleAlreadyAssignedError,
 )
 
 
@@ -86,6 +91,42 @@ async def test_new_player_registration_rejects_existing_display_name(tmp_path: P
 
 
 @pytest.mark.asyncio
+async def test_new_player_registration_rejects_linked_display_name(
+    tmp_path: Path,
+) -> None:
+    service, engine = await create_user_service(tmp_path / "users.db")
+    try:
+        async with async_sessionmaker(engine, expire_on_commit=False)() as session:
+            session.add(create_user(display_name="Antony Easy", telegram_id=1))
+            await session.commit()
+
+        with pytest.raises(DisplayNameLinkedUserExistsError):
+            await service.validate_new_player_display_name(" antony   easy ")
+        with pytest.raises(DisplayNameLinkedUserExistsError):
+            await service.submit_new_player_registration(1001, "Antony Easy")
+    finally:
+        await engine.dispose()
+
+
+@pytest.mark.asyncio
+async def test_new_player_registration_rejects_historical_display_name(
+    tmp_path: Path,
+) -> None:
+    service, engine = await create_user_service(tmp_path / "users.db")
+    try:
+        async with async_sessionmaker(engine, expire_on_commit=False)() as session:
+            session.add(create_user(display_name="Antony Easy"))
+            await session.commit()
+
+        with pytest.raises(DisplayNameHistoricalUserExistsError):
+            await service.validate_new_player_display_name(" antony   easy ")
+        with pytest.raises(DisplayNameHistoricalUserExistsError):
+            await service.submit_new_player_registration(1001, "Antony Easy")
+    finally:
+        await engine.dispose()
+
+
+@pytest.mark.asyncio
 async def test_database_allows_duplicate_display_name_normalized(tmp_path: Path) -> None:
     _, engine = await create_user_service(tmp_path / "users.db")
     try:
@@ -143,6 +184,48 @@ async def test_approve_new_player_registration_creates_active_player(tmp_path: P
         assert result.user.telegram_id == 1001
         assert result.user.role == UserRole.PLAYER
         assert result.request.status == RegistrationRequestStatus.APPROVED.value
+    finally:
+        await engine.dispose()
+
+
+@pytest.mark.asyncio
+async def test_approve_new_player_registration_rechecks_display_name_conflict(
+    tmp_path: Path,
+) -> None:
+    service, engine = await create_user_service(tmp_path / "users.db")
+    try:
+        async with async_sessionmaker(engine, expire_on_commit=False)() as session:
+            session.add(
+                create_user(
+                    display_name="Супер Админ",
+                    telegram_id=1,
+                    role=UserRole.SUPERADMIN,
+                )
+            )
+            await session.commit()
+
+        request = await service.submit_new_player_registration(telegram_id=1001, display_name="Ace")
+        async with async_sessionmaker(engine, expire_on_commit=False)() as session:
+            session.add(create_user(display_name="Ace", telegram_id=2002))
+            await session.commit()
+
+        with pytest.raises(DisplayNameLinkedUserExistsError):
+            await service.approve_registration(
+                superadmin_telegram_id=1,
+                request_id=request.id,
+            )
+
+        async with async_sessionmaker(engine, expire_on_commit=False)() as session:
+            stored_request = await session.get(RegistrationRequest, request.id)
+            users = (
+                (await session.execute(select(User).where(User.display_name == "Ace")))
+                .scalars()
+                .all()
+            )
+
+        assert stored_request is not None
+        assert stored_request.status == RegistrationRequestStatus.PENDING
+        assert len(users) == 1
     finally:
         await engine.dispose()
 
@@ -406,5 +489,96 @@ async def test_start_view_reports_pending_registration(tmp_path: Path) -> None:
 
         assert start_view.status == UserStartStatusView.PENDING_REGISTRATION
         assert start_view.user is None
+    finally:
+        await engine.dispose()
+
+
+@pytest.mark.asyncio
+async def test_admin_candidate_search_only_returns_active_linked_players(
+    tmp_path: Path,
+) -> None:
+    service, engine = await create_user_service(tmp_path / "users.db")
+    try:
+        async with async_sessionmaker(engine, expire_on_commit=False)() as session:
+            session.add(
+                create_user(
+                    display_name="Супер Админ",
+                    telegram_id=1,
+                    role=UserRole.SUPERADMIN,
+                )
+            )
+            session.add(create_user(display_name="Antony Easy", telegram_id=1001))
+            session.add(create_user(display_name="Antony Offline"))
+            session.add(
+                create_user(
+                    display_name="Antony Blocked",
+                    telegram_id=1002,
+                    status=UserStatus.BLOCKED,
+                )
+            )
+            session.add(
+                create_user(
+                    display_name="Antony Admin",
+                    telegram_id=1003,
+                    role=UserRole.ADMIN,
+                )
+            )
+            session.add(
+                create_user(
+                    display_name="Antony Super",
+                    telegram_id=1004,
+                    role=UserRole.SUPERADMIN,
+                )
+            )
+            await session.commit()
+
+        candidates = await service.search_admin_candidates_for_superadmin(1, "Antony")
+
+        assert [candidate.display_name for candidate in candidates] == ["Antony Easy"]
+    finally:
+        await engine.dispose()
+
+
+@pytest.mark.asyncio
+async def test_add_admin_requires_active_linked_player(tmp_path: Path) -> None:
+    service, engine = await create_user_service(tmp_path / "users.db")
+    try:
+        async with async_sessionmaker(engine, expire_on_commit=False)() as session:
+            session.add(
+                create_user(
+                    display_name="Супер Админ",
+                    telegram_id=1,
+                    role=UserRole.SUPERADMIN,
+                )
+            )
+            offline = create_user(display_name="Offline")
+            blocked = create_user(
+                display_name="Blocked",
+                telegram_id=1002,
+                status=UserStatus.BLOCKED,
+            )
+            admin = create_user(
+                display_name="Admin",
+                telegram_id=1003,
+                role=UserRole.ADMIN,
+            )
+            player = create_user(display_name="Player", telegram_id=1004)
+            session.add_all([offline, blocked, admin, player])
+            await session.commit()
+            offline_id = offline.id
+            blocked_id = blocked.id
+            admin_id = admin.id
+            player_id = player.id
+
+        with pytest.raises(UserNotFoundError):
+            await service.add_admin(1, offline_id)
+        with pytest.raises(UserNotFoundError):
+            await service.add_admin(1, blocked_id)
+        with pytest.raises(UserRoleAlreadyAssignedError):
+            await service.add_admin(1, admin_id)
+
+        promoted = await service.add_admin(1, player_id)
+
+        assert promoted.role == UserRole.ADMIN
     finally:
         await engine.dispose()

@@ -10,7 +10,8 @@ from app.db.session import SessionFactory
 from app.services.dto.registrations import RegistrationCandidateView, RegistrationRequestView
 from app.services.player_search import rank_player_candidates
 from app.services.user_common import (
-    IdentityAlreadyExistsError,
+    DisplayNameHistoricalUserExistsError,
+    DisplayNameLinkedUserExistsError,
     RegistrationCandidateNotFoundError,
     RegistrationNotAllowedError,
     registration_candidate_score,
@@ -124,8 +125,11 @@ class RegistrationService:
         users = await UserRepository(session).list_by_display_name_normalized(
             display_name_normalized
         )
-        if users:
-            raise IdentityAlreadyExistsError("display_name")
+        if not users:
+            return
+        if any(user.telegram_id is not None for user in users):
+            raise DisplayNameLinkedUserExistsError("display_name")
+        raise DisplayNameHistoricalUserExistsError("display_name")
 
 
 async def find_link_candidates(
