@@ -15,6 +15,7 @@ from app.services.dto.registrations import (
     RegistrationReviewResultView,
     RegistrationReviewView,
 )
+from app.services.pagination import Page
 from app.services.registration_service import RegistrationService, find_link_candidates
 from app.services.user_common import (
     RegistrationAlreadyReviewedError,
@@ -65,6 +66,37 @@ class RegistrationReviewService:
                 await self._registration_review_view(user_repository, request)
                 for request in await request_repository.list_pending()
             ]
+
+    async def list_pending_reviews_page_for_superadmin(
+        self,
+        superadmin_telegram_id: int,
+        *,
+        page: int,
+        page_size: int,
+    ) -> Page[RegistrationReviewView]:
+        async with self.session_factory() as session:
+            user_repository = UserRepository(session)
+            request_repository = RegistrationRequestRepository(session)
+            await access_policy.require_superadmin(session, superadmin_telegram_id)
+            total_items = await request_repository.count_pending()
+            normalized_page = self._normalize_page(
+                page=page,
+                page_size=page_size,
+                total_items=total_items,
+            )
+            requests = await request_repository.list_pending_page(
+                limit=page_size,
+                offset=normalized_page * page_size,
+            )
+            return Page(
+                items=[
+                    await self._registration_review_view(user_repository, request)
+                    for request in requests
+                ],
+                page=normalized_page,
+                page_size=page_size,
+                total_items=total_items,
+            )
 
     async def get_registration_review_for_admin(
         self,
@@ -259,6 +291,15 @@ class RegistrationReviewService:
         if request.status != RegistrationRequestStatus.PENDING:
             raise RegistrationAlreadyReviewedError
         return request
+
+    @staticmethod
+    def _normalize_page(*, page: int, page_size: int, total_items: int) -> int:
+        if page_size < 1:
+            raise ValueError("page_size must be positive")
+        if total_items <= 0:
+            return 0
+        total_pages = (total_items + page_size - 1) // page_size
+        return min(max(0, page), total_pages - 1)
 
     @staticmethod
     async def _require_link_candidate(repository: UserRepository, user_id: int) -> User:

@@ -5,6 +5,7 @@ from aiogram.exceptions import TelegramBadRequest, TelegramForbiddenError
 from aiogram.types import CallbackQuery, Message, ReplyKeyboardRemove
 
 from app.bot.telegram.keyboards import labels
+from app.bot.telegram.keyboards.superadmin import panel as superadmin_panel_kb
 from app.bot.telegram.keyboards.superadmin import registrations as superadmin_registrations_kb
 from app.bot.telegram.keyboards.user import menu as user_menu_kb
 from app.bot.telegram.notifications import format_registration_review
@@ -12,7 +13,7 @@ from app.bot.telegram.texts.superadmin import panel as panel_text
 from app.bot.telegram.texts.superadmin import registrations as text
 from app.services.access_policy import AdminAccessDeniedError
 from app.services.dto.registrations import RegistrationReviewResultView
-from app.services.pagination import pagination_service
+from app.services.pagination import Page
 from app.services.registration_review_service import registration_review_service
 from app.services.user_common import (
     IdentityAlreadyExistsError,
@@ -34,26 +35,12 @@ async def show_pending_registrations(message: Message) -> None:
         return
 
     try:
-        reviews = await registration_review_service.list_pending_reviews_for_superadmin(
-            message.from_user.id
-        )
+        page = await _get_pending_reviews_page(message.from_user.id, page=0)
     except AdminAccessDeniedError:
         await message.answer(panel_text.INSUFFICIENT_RIGHTS)
         return
 
-    if not reviews:
-        await message.answer(text.NO_PENDING_REGISTRATIONS)
-        return
-
-    page = pagination_service.paginate(
-        reviews,
-        page=0,
-        page_size=superadmin_registrations_kb.REGISTRATION_LIST_PAGE_SIZE,
-    )
-    await message.answer(
-        text.registration_list(page),
-        reply_markup=superadmin_registrations_kb.registration_list_keyboard(page),
-    )
+    await _answer_pending_reviews(message, page)
 
 
 @router.callback_query(superadmin_registrations_kb.RegistrationListCallback.filter())
@@ -64,51 +51,19 @@ async def review_registration_list(
     try:
         if callback_data.action == superadmin_registrations_kb.RegistrationListAction.CANCEL:
             await callback.answer(text.REGISTRATION_CANCELLED)
-            if callback.message is not None:
-                try:
-                    await callback.message.delete()
-                except TelegramBadRequest:
-                    pass
+            await _return_to_superadmin_menu(callback)
             return
 
         if callback_data.action == superadmin_registrations_kb.RegistrationListAction.OPEN:
-            review = await registration_review_service.get_registration_review_for_admin(
-                admin_telegram_id=callback.from_user.id,
-                request_id=callback_data.request_id,
-            )
+            review = await _get_review(callback.from_user.id, callback_data.request_id)
             await callback.answer()
             if callback.message is not None:
-                await callback.message.edit_text(
-                    format_registration_review(review),
-                    reply_markup=superadmin_registrations_kb.registration_review_keyboard_for_review(
-                        review
-                    ),
-                )
+                await _edit_registration_review(callback, review, callback_data.page)
             return
 
-        reviews = await registration_review_service.list_pending_reviews_for_superadmin(
-            callback.from_user.id
-        )
-        if not reviews:
-            await callback.answer()
-            if callback.message is not None:
-                await callback.message.edit_text(
-                    text.NO_PENDING_REGISTRATIONS,
-                    reply_markup=None,
-                )
-            return
-
-        page = pagination_service.paginate(
-            reviews,
-            page=callback_data.page,
-            page_size=superadmin_registrations_kb.REGISTRATION_LIST_PAGE_SIZE,
-        )
+        page = await _get_pending_reviews_page(callback.from_user.id, page=callback_data.page)
         await callback.answer()
-        if callback.message is not None:
-            await callback.message.edit_text(
-                text.registration_list(page),
-                reply_markup=superadmin_registrations_kb.registration_list_keyboard(page),
-            )
+        await _edit_pending_reviews(callback, page)
     except AdminAccessDeniedError:
         await callback.answer(panel_text.INSUFFICIENT_RIGHTS, show_alert=True)
         return
@@ -129,18 +84,26 @@ async def review_registration(
             callback_data.action
             == superadmin_registrations_kb.RegistrationReviewAction.SELECT_CANDIDATE
         ):
-            review = await registration_review_service.get_registration_review_for_admin(
-                admin_telegram_id=callback.from_user.id,
-                request_id=callback_data.request_id,
-            )
+            review = await _get_review(callback.from_user.id, callback_data.request_id)
             await callback.answer()
             if callback.message is not None:
-                await callback.message.edit_reply_markup(
+                await callback.message.edit_text(
+                    format_registration_review(review),
                     reply_markup=superadmin_registrations_kb.registration_candidate_selection_keyboard(
                         callback_data.request_id,
                         review.candidates,
-                    )
+                        callback_data.page,
+                    ),
                 )
+            return
+
+        if callback_data.action == superadmin_registrations_kb.RegistrationReviewAction.BACK:
+            page = await _get_pending_reviews_page(
+                callback.from_user.id,
+                page=callback_data.page,
+            )
+            await callback.answer()
+            await _edit_pending_reviews(callback, page)
             return
 
         if callback_data.action == superadmin_registrations_kb.RegistrationReviewAction.APPROVE:
@@ -153,11 +116,7 @@ async def review_registration(
             player_keyboard = user_menu_kb.main_keyboard_after_registration()
         elif callback_data.action == superadmin_registrations_kb.RegistrationReviewAction.CANCEL:
             await callback.answer(text.REGISTRATION_CANCELLED)
-            if callback.message is not None:
-                try:
-                    await callback.message.delete()
-                except TelegramBadRequest:
-                    pass
+            await _return_to_superadmin_menu(callback)
             return
         else:
             review_result = await registration_review_service.reject_registration(
@@ -193,6 +152,7 @@ async def review_registration(
         result_text=result_text,
         player_text=player_text,
         player_keyboard=player_keyboard,
+        page=callback_data.page,
     )
 
 
@@ -234,6 +194,7 @@ async def select_registration_candidate(
             reply_markup=superadmin_registrations_kb.registration_candidate_confirmation_keyboard(
                 callback_data.request_id,
                 callback_data.user_id,
+                callback_data.page,
             ),
         )
 
@@ -249,21 +210,14 @@ async def confirm_registration_candidate(
             == superadmin_registrations_kb.RegistrationCandidateConfirmAction.CANCEL
         ):
             await callback.answer(text.REGISTRATION_CANCELLED)
-            if callback.message is not None:
-                try:
-                    await callback.message.delete()
-                except TelegramBadRequest:
-                    pass
+            await _return_to_superadmin_menu(callback)
             return
 
         if (
             callback_data.action
             == superadmin_registrations_kb.RegistrationCandidateConfirmAction.BACK
         ):
-            review = await registration_review_service.get_registration_review_for_admin(
-                admin_telegram_id=callback.from_user.id,
-                request_id=callback_data.request_id,
-            )
+            review = await _get_review(callback.from_user.id, callback_data.request_id)
             await callback.answer()
             if callback.message is not None:
                 await callback.message.edit_text(
@@ -271,6 +225,7 @@ async def confirm_registration_candidate(
                     reply_markup=superadmin_registrations_kb.registration_candidate_selection_keyboard(
                         callback_data.request_id,
                         review.candidates,
+                        callback_data.page,
                     ),
                 )
             return
@@ -302,6 +257,7 @@ async def confirm_registration_candidate(
         result_text=text.REGISTRATION_APPROVED,
         player_text="Ваша заявка одобрена.",
         player_keyboard=user_menu_kb.main_keyboard_after_registration(),
+        page=callback_data.page,
     )
 
 
@@ -311,6 +267,7 @@ async def _send_registration_review_result(
     result_text: str,
     player_text: str,
     player_keyboard: object,
+    page: int,
 ) -> None:
     await callback.answer(result_text)
     admin_review_text = callback.message.text if callback.message is not None else ""
@@ -320,10 +277,8 @@ async def _send_registration_review_result(
         admin_name=callback.from_user.full_name,
     )
     if callback.message is not None:
-        try:
-            await callback.message.edit_text(reviewed_text)
-        except TelegramBadRequest:
-            pass
+        updated_page = await _get_pending_reviews_page(callback.from_user.id, page=page)
+        await _edit_pending_reviews(callback, updated_page)
 
     for admin in review_result.admins:
         if admin.telegram_id is None or admin.telegram_id == callback.from_user.id:
@@ -344,3 +299,81 @@ async def _send_registration_review_result(
         )
     except (TelegramBadRequest, TelegramForbiddenError):
         pass
+
+
+async def _get_pending_reviews_page(
+    superadmin_telegram_id: int,
+    *,
+    page: int,
+) -> Page:
+    return await registration_review_service.list_pending_reviews_page_for_superadmin(
+        superadmin_telegram_id,
+        page=page,
+        page_size=superadmin_registrations_kb.REGISTRATION_LIST_PAGE_SIZE,
+    )
+
+
+async def _get_review(superadmin_telegram_id: int, request_id: int):
+    return await registration_review_service.get_registration_review_for_admin(
+        admin_telegram_id=superadmin_telegram_id,
+        request_id=request_id,
+    )
+
+
+async def _answer_pending_reviews(message: Message, page: Page) -> None:
+    if not page.items:
+        await message.answer(
+            text.NO_PENDING_REGISTRATIONS,
+            reply_markup=superadmin_panel_kb.superadmin_panel_keyboard(),
+        )
+        return
+
+    await message.answer(
+        text.registration_list(page),
+        reply_markup=superadmin_registrations_kb.registration_list_keyboard(page),
+    )
+
+
+async def _edit_pending_reviews(callback: CallbackQuery, page: Page) -> None:
+    if callback.message is None:
+        return
+    if not page.items:
+        await callback.message.edit_text(text.NO_PENDING_REGISTRATIONS, reply_markup=None)
+        await callback.message.answer(
+            panel_text.SUPERADMIN_PANEL_WELCOME,
+            reply_markup=superadmin_panel_kb.superadmin_panel_keyboard(),
+        )
+        return
+
+    await callback.message.edit_text(
+        text.registration_list(page),
+        reply_markup=superadmin_registrations_kb.registration_list_keyboard(page),
+    )
+
+
+async def _edit_registration_review(
+    callback: CallbackQuery,
+    review: object,
+    page: int,
+) -> None:
+    if callback.message is None:
+        return
+    await callback.message.edit_text(
+        format_registration_review(review),
+        reply_markup=superadmin_registrations_kb.registration_review_keyboard_for_review(
+            review,
+            page,
+        ),
+    )
+
+
+async def _return_to_superadmin_menu(callback: CallbackQuery) -> None:
+    if callback.message is not None:
+        try:
+            await callback.message.delete()
+        except TelegramBadRequest:
+            pass
+        await callback.message.answer(
+            panel_text.SUPERADMIN_PANEL_WELCOME,
+            reply_markup=superadmin_panel_kb.superadmin_panel_keyboard(),
+        )

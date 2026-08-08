@@ -1723,7 +1723,7 @@ async def test_history_cancel_deletes_message_and_sends_confirmation() -> None:
 
 
 async def test_hall_of_fame_close_deletes_message() -> None:
-    message = SimpleNamespace(delete=AsyncMock())
+    message = SimpleNamespace(delete=AsyncMock(), answer=AsyncMock())
     callback = SimpleNamespace(message=message, answer=AsyncMock())
 
     await user_hall_of_fame_handlers.close_hall_of_fame(callback)
@@ -3468,7 +3468,9 @@ async def test_admin_panel_registration_requests_button_shows_pending(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     service = SimpleNamespace(
-        list_pending_reviews_for_superadmin=AsyncMock(return_value=[]),
+        list_pending_reviews_page_for_superadmin=AsyncMock(
+            return_value=Page(items=[], page=0, page_size=5, total_items=0)
+        ),
     )
     monkeypatch.setattr(superadmin_registration_handlers, "registration_review_service", service)
     message = SimpleNamespace(
@@ -3478,16 +3480,26 @@ async def test_admin_panel_registration_requests_button_shows_pending(
 
     await superadmin_registration_handlers.show_pending_registrations(message)
 
-    service.list_pending_reviews_for_superadmin.assert_awaited_once_with(100)
-    message.answer.assert_awaited_once_with("Новых заявок нет.")
+    service.list_pending_reviews_page_for_superadmin.assert_awaited_once_with(
+        100,
+        page=0,
+        page_size=5,
+    )
+    message.answer.assert_awaited_once()
+    assert message.answer.await_args.args[0] == "Заявок на регистрацию нет."
+    assert labels.ADMIN_PANEL_REGISTRATIONS in keyboard_texts(
+        message.answer.await_args.kwargs["reply_markup"]
+    )
 
 
 async def test_admin_panel_registration_requests_button_shows_paginated_list(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    reviews = [registration_review(player_id) for player_id in range(10, 17)]
+    reviews = [registration_review(player_id) for player_id in range(10, 15)]
     service = SimpleNamespace(
-        list_pending_reviews_for_superadmin=AsyncMock(return_value=reviews),
+        list_pending_reviews_page_for_superadmin=AsyncMock(
+            return_value=Page(items=reviews, page=0, page_size=5, total_items=6)
+        ),
     )
     monkeypatch.setattr(superadmin_registration_handlers, "registration_review_service", service)
     message = SimpleNamespace(
@@ -3497,31 +3509,87 @@ async def test_admin_panel_registration_requests_button_shows_paginated_list(
 
     await superadmin_registration_handlers.show_pending_registrations(message)
 
-    service.list_pending_reviews_for_superadmin.assert_awaited_once_with(100)
+    service.list_pending_reviews_page_for_superadmin.assert_awaited_once_with(
+        100,
+        page=0,
+        page_size=5,
+    )
     message.answer.assert_awaited_once()
     answer = message.answer.await_args
-    assert answer.args[0] == (
-        "Заявки на регистрацию\n\n"
-        "10 — Игрок 10\n"
-        "11 — Игрок 11\n"
-        "12 — Игрок 12\n"
-        "13 — Игрок 13\n"
-        "14 — Игрок 14\n"
-        "15 — Игрок 15\n\n"
-        "Страница 1/2"
-    )
+    assert answer.args[0] == "Заявки на регистрацию"
     buttons = [
         button.text for row in answer.kwargs["reply_markup"].inline_keyboard for button in row
     ]
-    assert buttons == ["10", "11", "12", "13", "14", "15", "➡️", "❌ Отмена"]
+    assert buttons == [
+        "Игрок 10",
+        "Игрок 11",
+        "Игрок 12",
+        "Игрок 13",
+        "Игрок 14",
+        "1/2",
+        "➡️",
+        "❌ Отмена",
+    ]
+
+
+def test_registration_list_keyboard_hides_pagination_for_one_pending() -> None:
+    page = Page(items=[registration_review(10)], page=0, page_size=5, total_items=1)
+
+    keyboard = superadmin_registrations_kb.registration_list_keyboard(page)
+
+    assert inline_keyboard_texts(keyboard) == ["Игрок 10", "❌ Отмена"]
+
+
+def test_registration_list_keyboard_hides_pagination_for_five_pending() -> None:
+    page = Page(
+        items=[registration_review(player_id) for player_id in range(10, 15)],
+        page=0,
+        page_size=5,
+        total_items=5,
+    )
+
+    keyboard = superadmin_registrations_kb.registration_list_keyboard(page)
+
+    assert inline_keyboard_texts(keyboard) == [
+        "Игрок 10",
+        "Игрок 11",
+        "Игрок 12",
+        "Игрок 13",
+        "Игрок 14",
+        "❌ Отмена",
+    ]
+
+
+def test_registration_list_keyboard_shows_pagination_for_six_pending() -> None:
+    page = Page(
+        items=[registration_review(player_id) for player_id in range(10, 15)],
+        page=0,
+        page_size=5,
+        total_items=6,
+    )
+
+    keyboard = superadmin_registrations_kb.registration_list_keyboard(page)
+
+    assert inline_keyboard_texts(keyboard) == [
+        "Игрок 10",
+        "Игрок 11",
+        "Игрок 12",
+        "Игрок 13",
+        "Игрок 14",
+        "1/2",
+        "➡️",
+        "❌ Отмена",
+    ]
 
 
 async def test_admin_registration_list_page_callback_edits_list(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    reviews = [registration_review(player_id) for player_id in range(10, 17)]
+    reviews = [registration_review(15)]
     service = SimpleNamespace(
-        list_pending_reviews_for_superadmin=AsyncMock(return_value=reviews),
+        list_pending_reviews_page_for_superadmin=AsyncMock(
+            return_value=Page(items=reviews, page=1, page_size=5, total_items=6)
+        ),
     )
     monkeypatch.setattr(superadmin_registration_handlers, "registration_review_service", service)
     message = SimpleNamespace(edit_text=AsyncMock())
@@ -3533,38 +3601,42 @@ async def test_admin_registration_list_page_callback_edits_list(
     callback_data = SimpleNamespace(
         action=superadmin_registrations_kb.RegistrationListAction.PAGE,
         page=1,
-        player_id=0,
+        request_id=0,
     )
 
     await superadmin_registration_handlers.review_registration_list(callback, callback_data)
 
-    service.list_pending_reviews_for_superadmin.assert_awaited_once_with(100)
+    service.list_pending_reviews_page_for_superadmin.assert_awaited_once_with(
+        100,
+        page=1,
+        page_size=5,
+    )
     callback.answer.assert_awaited_once_with()
     message.edit_text.assert_awaited_once()
-    assert message.edit_text.await_args.args[0] == (
-        "Заявки на регистрацию\n\n16 — Игрок 16\n\nСтраница 2/2"
-    )
+    assert message.edit_text.await_args.args[0] == "Заявки на регистрацию"
     buttons = [
         button.text
         for row in message.edit_text.await_args.kwargs["reply_markup"].inline_keyboard
         for button in row
     ]
-    assert buttons == ["16", "⬅️", "❌ Отмена"]
+    assert buttons == ["Игрок 15", "⬅️", "2/2", "❌ Отмена"]
 
 
 async def test_admin_registration_list_cancel_deletes_message() -> None:
-    message = SimpleNamespace(delete=AsyncMock())
+    message = SimpleNamespace(delete=AsyncMock(), answer=AsyncMock())
     callback = SimpleNamespace(message=message, answer=AsyncMock())
     callback_data = SimpleNamespace(
         action=superadmin_registrations_kb.RegistrationListAction.CANCEL,
         page=0,
-        player_id=0,
+        request_id=0,
     )
 
     await superadmin_registration_handlers.review_registration_list(callback, callback_data)
 
     callback.answer.assert_awaited_once_with("Заявка скрыта")
     message.delete.assert_awaited_once()
+    message.answer.assert_awaited_once()
+    assert message.answer.await_args.args[0] == "Суперадмин."
 
 
 async def test_admin_registration_list_open_edits_message_to_review(
@@ -3599,7 +3671,43 @@ async def test_admin_registration_list_open_edits_message_to_review(
         for row in message.edit_text.await_args.kwargs["reply_markup"].inline_keyboard
         for button in row
     ]
-    assert buttons == ["✅ Одобрить", "🚫 Отклонить", "❌ Отмена"]
+    assert buttons == ["✅ Одобрить", "🚫 Отклонить", "↩️ Назад", "❌ Отмена"]
+
+
+async def test_registration_review_back_returns_to_source_page(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    page = Page(items=[registration_review(15)], page=1, page_size=5, total_items=6)
+    service = SimpleNamespace(
+        list_pending_reviews_page_for_superadmin=AsyncMock(return_value=page),
+    )
+    monkeypatch.setattr(superadmin_registration_handlers, "registration_review_service", service)
+    message = SimpleNamespace(edit_text=AsyncMock())
+    callback = SimpleNamespace(
+        from_user=SimpleNamespace(id=100),
+        message=message,
+        answer=AsyncMock(),
+    )
+    callback_data = SimpleNamespace(
+        action=superadmin_registrations_kb.RegistrationReviewAction.BACK,
+        request_id=10,
+        page=1,
+    )
+
+    await superadmin_registration_handlers.review_registration(callback, callback_data)
+
+    service.list_pending_reviews_page_for_superadmin.assert_awaited_once_with(
+        100,
+        page=1,
+        page_size=5,
+    )
+    assert message.edit_text.await_args.args[0] == "Заявки на регистрацию"
+    assert inline_keyboard_texts(message.edit_text.await_args.kwargs["reply_markup"]) == [
+        "Игрок 15",
+        "⬅️",
+        "2/2",
+        "❌ Отмена",
+    ]
 
 
 async def test_admin_panel_exit_returns_main_keyboard(
@@ -3653,9 +3761,10 @@ async def test_registration_review_keyboard_with_history_has_action_labels() -> 
     assert buttons == [
         "👤 Выбрать игрока",
         "🚫 Отклонить",
+        "↩️ Назад",
         "❌ Отмена",
     ]
-    assert [len(row) for row in keyboard.inline_keyboard] == [1, 1, 1]
+    assert [len(row) for row in keyboard.inline_keyboard] == [1, 1, 1, 1]
 
 
 def test_link_registration_review_with_one_candidate_is_user_friendly() -> None:
@@ -3687,7 +3796,12 @@ def test_link_registration_review_with_one_candidate_is_user_friendly() -> None:
     assert "id 20" not in rendered
     assert "1." not in rendered
     assert "имя" not in rendered
-    assert inline_keyboard_texts(keyboard) == ["✅ Привязать", "🚫 Отклонить", "❌ Отмена"]
+    assert inline_keyboard_texts(keyboard) == [
+        "✅ Привязать",
+        "🚫 Отклонить",
+        "↩️ Назад",
+        "❌ Отмена",
+    ]
 
 
 def test_link_registration_review_with_multiple_candidates_requires_selection() -> None:
@@ -3711,7 +3825,12 @@ def test_link_registration_review_with_multiple_candidates_requires_selection() 
     assert "Найдено несколько похожих игроков." in rendered
     assert "Исторический 20" not in rendered
     assert "100%" not in rendered
-    assert inline_keyboard_texts(keyboard) == ["👤 Выбрать игрока", "🚫 Отклонить", "❌ Отмена"]
+    assert inline_keyboard_texts(keyboard) == [
+        "👤 Выбрать игрока",
+        "🚫 Отклонить",
+        "↩️ Назад",
+        "❌ Отмена",
+    ]
 
 
 def test_link_registration_review_without_candidates_has_safe_fallback() -> None:
@@ -3733,7 +3852,7 @@ def test_link_registration_review_without_candidates_has_safe_fallback() -> None
     keyboard = superadmin_registrations_kb.registration_review_keyboard_for_review(review)
 
     assert "Подходящий игрок больше не найден." in rendered
-    assert inline_keyboard_texts(keyboard) == ["🚫 Отклонить", "❌ Отмена"]
+    assert inline_keyboard_texts(keyboard) == ["🚫 Отклонить", "↩️ Назад", "❌ Отмена"]
 
 
 async def test_registration_review_cancel_deletes_message_without_review(
@@ -3744,7 +3863,7 @@ async def test_registration_review_cancel_deletes_message_without_review(
         reject_registration=AsyncMock(),
     )
     monkeypatch.setattr(superadmin_registration_handlers, "registration_review_service", service)
-    message = SimpleNamespace(delete=AsyncMock())
+    message = SimpleNamespace(delete=AsyncMock(), answer=AsyncMock())
     callback = SimpleNamespace(
         from_user=SimpleNamespace(id=100, full_name="Админ 1"),
         message=message,
@@ -3753,12 +3872,14 @@ async def test_registration_review_cancel_deletes_message_without_review(
     callback_data = SimpleNamespace(
         action=superadmin_registrations_kb.RegistrationReviewAction.CANCEL,
         request_id=10,
+        page=0,
     )
 
     await superadmin_registration_handlers.review_registration(callback, callback_data)
 
     callback.answer.assert_awaited_once_with("Заявка скрыта")
     message.delete.assert_awaited_once()
+    message.answer.assert_awaited_once()
     service.approve_registration.assert_not_awaited()
     service.reject_registration.assert_not_awaited()
 
@@ -3785,12 +3906,16 @@ async def test_registration_review_reject_deletes_pending_and_notifies(
                 request=request,
                 admins=[reviewer, other_admin],
             )
-        )
+        ),
+        list_pending_reviews_page_for_superadmin=AsyncMock(
+            return_value=Page(items=[], page=0, page_size=5, total_items=0)
+        ),
     )
     monkeypatch.setattr(superadmin_registration_handlers, "registration_review_service", service)
     message = SimpleNamespace(
         text="Новая заявка на регистрацию\n\nФамилия и имя: Игрок Второй",
         edit_text=AsyncMock(),
+        answer=AsyncMock(),
     )
     bot = SimpleNamespace(send_message=AsyncMock())
     callback = SimpleNamespace(
@@ -3802,6 +3927,7 @@ async def test_registration_review_reject_deletes_pending_and_notifies(
     callback_data = SimpleNamespace(
         action=superadmin_registrations_kb.RegistrationReviewAction.REJECT,
         request_id=10,
+        page=0,
     )
 
     await superadmin_registration_handlers.review_registration(callback, callback_data)
@@ -3810,13 +3936,77 @@ async def test_registration_review_reject_deletes_pending_and_notifies(
         superadmin_telegram_id=100,
         request_id=10,
     )
+    service.list_pending_reviews_page_for_superadmin.assert_awaited_once_with(
+        100,
+        page=0,
+        page_size=5,
+    )
     message.edit_text.assert_awaited_once()
+    assert message.edit_text.await_args.args[0] == "Заявок на регистрацию нет."
     assert callback.answer.await_args.args[0] == "Заявка отклонена"
     assert bot.send_message.await_count == 2
     admin_call, player_call = bot.send_message.await_args_list
     assert admin_call.kwargs["chat_id"] == 101
     assert "Заявка отклонена: Админ 1" in admin_call.kwargs["text"]
     assert player_call.kwargs["chat_id"] == 200
+
+
+async def test_registration_review_result_moves_empty_last_page_to_previous_page(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    request = RegistrationRequestView(
+        id=15,
+        telegram_id=200,
+        request_type="new_player",
+        status="approved",
+        requested_display_name="Игрок 15",
+        requested_link_name=None,
+        candidate_user_id=None,
+        created_at="27.07.2026 12:00",
+    )
+    service = SimpleNamespace(
+        approve_registration=AsyncMock(
+            return_value=RegistrationReviewResultView(
+                user=active_player(),
+                request=request,
+                admins=[admin_player(1, 100, UserRole.SUPERADMIN)],
+            )
+        ),
+        list_pending_reviews_page_for_superadmin=AsyncMock(
+            return_value=Page(
+                items=[registration_review(14)],
+                page=0,
+                page_size=5,
+                total_items=1,
+            )
+        ),
+    )
+    monkeypatch.setattr(superadmin_registration_handlers, "registration_review_service", service)
+    message = SimpleNamespace(text="review", edit_text=AsyncMock())
+    bot = SimpleNamespace(send_message=AsyncMock())
+    callback = SimpleNamespace(
+        from_user=SimpleNamespace(id=100, full_name="Админ 1"),
+        message=message,
+        bot=bot,
+        answer=AsyncMock(),
+    )
+    callback_data = SimpleNamespace(
+        action=superadmin_registrations_kb.RegistrationReviewAction.APPROVE,
+        request_id=15,
+        page=1,
+    )
+
+    await superadmin_registration_handlers.review_registration(callback, callback_data)
+
+    service.list_pending_reviews_page_for_superadmin.assert_awaited_once_with(
+        100,
+        page=1,
+        page_size=5,
+    )
+    assert inline_keyboard_texts(message.edit_text.await_args.kwargs["reply_markup"]) == [
+        "Игрок 14",
+        "❌ Отмена",
+    ]
 
 
 async def test_registration_review_with_multiple_matches_shows_selection(
@@ -3844,7 +4034,7 @@ async def test_registration_review_with_multiple_matches_shows_selection(
     monkeypatch.setattr(superadmin_registration_handlers, "registration_review_service", service)
     message = SimpleNamespace(
         text="Новая заявка на регистрацию\n\nФамилия и имя: Игрок Второй",
-        edit_reply_markup=AsyncMock(),
+        edit_text=AsyncMock(),
     )
     callback = SimpleNamespace(
         from_user=SimpleNamespace(id=100, full_name="Админ 1"),
@@ -3854,6 +4044,7 @@ async def test_registration_review_with_multiple_matches_shows_selection(
     callback_data = SimpleNamespace(
         action=superadmin_registrations_kb.RegistrationReviewAction.SELECT_CANDIDATE,
         request_id=10,
+        page=1,
     )
 
     await superadmin_registration_handlers.review_registration(callback, callback_data)
@@ -3864,12 +4055,13 @@ async def test_registration_review_with_multiple_matches_shows_selection(
     )
     service.approve_registration.assert_not_awaited()
     callback.answer.assert_awaited_once_with()
-    message.edit_reply_markup.assert_awaited_once()
-    selection_keyboard = message.edit_reply_markup.await_args.kwargs["reply_markup"]
+    message.edit_text.assert_awaited_once()
+    selection_keyboard = message.edit_text.await_args.kwargs["reply_markup"]
     buttons = [button.text for row in selection_keyboard.inline_keyboard for button in row]
     assert buttons == [
         "Исторический 20",
         "Исторический 21",
+        "↩️ Назад",
         "❌ Отмена",
     ]
 
@@ -3902,7 +4094,7 @@ async def test_selected_registration_candidate_shows_confirmation_without_mutati
         message=message,
         answer=AsyncMock(),
     )
-    callback_data = SimpleNamespace(request_id=10, user_id=21)
+    callback_data = SimpleNamespace(request_id=10, user_id=21, page=1)
 
     await superadmin_registration_handlers.select_registration_candidate(callback, callback_data)
 
@@ -3950,10 +4142,13 @@ async def test_confirm_selected_registration_candidate_links_user(
                 request=request,
                 admins=[admin_player(1, 100, UserRole.SUPERADMIN)],
             )
-        )
+        ),
+        list_pending_reviews_page_for_superadmin=AsyncMock(
+            return_value=Page(items=[], page=0, page_size=5, total_items=0)
+        ),
     )
     monkeypatch.setattr(superadmin_registration_handlers, "registration_review_service", service)
-    message = SimpleNamespace(text="confirmation", edit_text=AsyncMock())
+    message = SimpleNamespace(text="confirmation", edit_text=AsyncMock(), answer=AsyncMock())
     bot = SimpleNamespace(send_message=AsyncMock())
     callback = SimpleNamespace(
         from_user=SimpleNamespace(id=100, full_name="Админ 1"),
@@ -3965,6 +4160,7 @@ async def test_confirm_selected_registration_candidate_links_user(
         action=superadmin_registrations_kb.RegistrationCandidateConfirmAction.CONFIRM,
         request_id=10,
         user_id=21,
+        page=0,
     )
 
     await superadmin_registration_handlers.confirm_registration_candidate(
@@ -3976,6 +4172,11 @@ async def test_confirm_selected_registration_candidate_links_user(
         superadmin_telegram_id=100,
         request_id=10,
         candidate_user_id=21,
+    )
+    service.list_pending_reviews_page_for_superadmin.assert_awaited_once_with(
+        100,
+        page=0,
+        page_size=5,
     )
     callback.answer.assert_awaited_once_with("Заявка одобрена")
     message.edit_text.assert_awaited_once()
@@ -4009,6 +4210,7 @@ async def test_registration_candidate_confirmation_back_returns_to_candidate_lis
         action=superadmin_registrations_kb.RegistrationCandidateConfirmAction.BACK,
         request_id=10,
         user_id=21,
+        page=1,
     )
 
     await superadmin_registration_handlers.confirm_registration_candidate(
@@ -4023,6 +4225,7 @@ async def test_registration_candidate_confirmation_back_returns_to_candidate_lis
     assert inline_keyboard_texts(message.edit_text.await_args.kwargs["reply_markup"]) == [
         "Исторический 20",
         "Исторический 21",
+        "↩️ Назад",
         "❌ Отмена",
     ]
 
@@ -4056,11 +4259,15 @@ async def test_registration_review_result_is_sent_to_other_admins(
                 admins=[reviewer, other_admin],
             )
         ),
+        list_pending_reviews_page_for_superadmin=AsyncMock(
+            return_value=Page(items=[], page=0, page_size=5, total_items=0)
+        ),
     )
     monkeypatch.setattr(superadmin_registration_handlers, "registration_review_service", service)
     message = SimpleNamespace(
         text="Новая заявка на регистрацию\n\nФамилия и имя: Игрок Второй",
         edit_text=AsyncMock(),
+        answer=AsyncMock(),
     )
     bot = SimpleNamespace(send_message=AsyncMock())
     callback = SimpleNamespace(
@@ -4072,6 +4279,7 @@ async def test_registration_review_result_is_sent_to_other_admins(
     callback_data = SimpleNamespace(
         action=superadmin_registrations_kb.RegistrationReviewAction.APPROVE,
         request_id=10,
+        page=0,
     )
 
     await superadmin_registration_handlers.review_registration(callback, callback_data)
@@ -4080,7 +4288,13 @@ async def test_registration_review_result_is_sent_to_other_admins(
         superadmin_telegram_id=100,
         request_id=10,
     )
+    service.list_pending_reviews_page_for_superadmin.assert_awaited_once_with(
+        100,
+        page=0,
+        page_size=5,
+    )
     message.edit_text.assert_awaited_once()
+    assert message.edit_text.await_args.args[0] == "Заявок на регистрацию нет."
     assert callback.answer.await_args.args[0] == "Заявка одобрена"
     assert bot.send_message.await_count == 2
     admin_call, player_call = bot.send_message.await_args_list

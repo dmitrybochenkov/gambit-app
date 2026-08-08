@@ -1,7 +1,6 @@
-NO_PENDING_REGISTRATIONS = "Новых заявок нет."
+NO_PENDING_REGISTRATIONS = "Заявок на регистрацию нет."
 PENDING_REGISTRATIONS_COUNT = "Заявок на проверке: {count}"
 REGISTRATION_LIST_TITLE = "Заявки на регистрацию"
-REGISTRATION_LIST_PAGE = "Страница {page}/{total_pages}"
 
 REGISTRATION_REVIEW_TITLE = "Новая заявка на регистрацию"
 DISPLAY_NAME_LABEL = "Имя игрока"
@@ -21,22 +20,8 @@ REGISTRATION_MATCH_KNOCKOUTS_LABEL = "🥊"
 
 
 def registration_list(page: object) -> str:
-    lines = [REGISTRATION_LIST_TITLE, ""]
-    for review in page.items:
-        name = review.request.requested_display_name or review.request.requested_link_name or "—"
-        lines.append(f"{review.request.id} — {name}")
-
-    if page.total_pages > 1:
-        lines.extend(
-            [
-                "",
-                REGISTRATION_LIST_PAGE.format(
-                    page=page.page + 1,
-                    total_pages=page.total_pages,
-                ),
-            ]
-        )
-    return "\n".join(lines)
+    del page
+    return REGISTRATION_LIST_TITLE
 
 
 def registration_review(review: object) -> str:

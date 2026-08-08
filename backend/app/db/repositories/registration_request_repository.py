@@ -1,4 +1,4 @@
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.models import RegistrationRequest
@@ -33,6 +33,29 @@ class RegistrationRequestRepository:
         if limit is not None:
             query = query.limit(limit)
         result = await self.session.execute(query)
+        return list(result.scalars())
+
+    async def count_pending(self) -> int:
+        result = await self.session.execute(
+            select(func.count())
+            .select_from(RegistrationRequest)
+            .where(RegistrationRequest.status == RegistrationRequestStatus.PENDING)
+        )
+        return result.scalar_one()
+
+    async def list_pending_page(
+        self,
+        *,
+        limit: int,
+        offset: int,
+    ) -> list[RegistrationRequest]:
+        result = await self.session.execute(
+            select(RegistrationRequest)
+            .where(RegistrationRequest.status == RegistrationRequestStatus.PENDING)
+            .order_by(RegistrationRequest.created_at, RegistrationRequest.id)
+            .limit(limit)
+            .offset(offset)
+        )
         return list(result.scalars())
 
     def add(self, request: RegistrationRequest) -> None:
