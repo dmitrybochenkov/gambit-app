@@ -4000,6 +4000,108 @@ async def test_registration_review_back_returns_to_source_page(
     ]
 
 
+async def test_registration_review_dispatcher_card_back_returns_to_list(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    review = registration_review(10)
+    page = Page(items=[review], page=0, page_size=5, total_items=1)
+    service = SimpleNamespace(
+        get_registration_review_for_admin=AsyncMock(return_value=review),
+        list_pending_reviews_page_for_superadmin=AsyncMock(return_value=page),
+    )
+    monkeypatch.setattr(superadmin_registration_handlers, "registration_review_service", service)
+    bot = RecordingBot()
+
+    def callback_update(update_id: int, data: str, text: str) -> dict[str, object]:
+        return {
+            "update_id": update_id,
+            "callback_query": {
+                "id": f"registration-callback-{update_id}",
+                "from": {"id": 100, "is_bot": False, "first_name": "Админ"},
+                "message": {
+                    "message_id": 10,
+                    "date": 1783598400,
+                    "chat": {"id": 100, "type": "private"},
+                    "text": text,
+                },
+                "chat_instance": "chat-instance",
+                "data": data,
+            },
+        }
+
+    try:
+        await runtime.telegram_dispatcher.feed_raw_update(
+            bot,
+            callback_update(
+                1,
+                superadmin_registrations_kb.RegistrationListCallback(
+                    action=superadmin_registrations_kb.RegistrationListAction.OPEN,
+                    page=0,
+                    request_id=10,
+                ).pack(),
+                "Заявки на регистрацию",
+            ),
+        )
+        await runtime.telegram_dispatcher.feed_raw_update(
+            bot,
+            callback_update(
+                2,
+                superadmin_registrations_kb.RegistrationReviewCallback(
+                    action=superadmin_registrations_kb.RegistrationReviewAction.BACK,
+                    page=0,
+                    request_id=10,
+                ).pack(),
+                "Новая заявка на регистрацию",
+            ),
+        )
+
+        edited_texts = [
+            call.text for call in bot.calls if call.__class__.__name__ == "EditMessageText"
+        ]
+        assert len(edited_texts) == 2
+        assert "Новая заявка на регистрацию" in edited_texts[0]
+        assert edited_texts[1] == "Заявки на регистрацию"
+        last_edit = [call for call in bot.calls if call.__class__.__name__ == "EditMessageText"][-1]
+        assert inline_keyboard_texts(last_edit.reply_markup) == ["Игрок 10", "❌ Отмена"]
+    finally:
+        await bot.session.close()
+
+
+def test_registration_review_back_callback_returns_to_list() -> None:
+    keyboard = superadmin_registrations_kb.registration_review_keyboard(request_id=10, page=1)
+    back_button = next(
+        button for row in keyboard.inline_keyboard for button in row if button.text == "↩️ Назад"
+    )
+
+    callback_data = superadmin_registrations_kb.RegistrationReviewCallback.unpack(
+        back_button.callback_data or ""
+    )
+
+    assert callback_data.action == superadmin_registrations_kb.RegistrationReviewAction.BACK
+    assert callback_data.request_id == 10
+    assert callback_data.page == 1
+
+
+def test_registration_candidate_selection_back_callback_returns_to_card() -> None:
+    review = registration_review(10)
+    keyboard = superadmin_registrations_kb.registration_candidate_selection_keyboard(
+        request_id=10,
+        candidates=review.candidates,
+        page=1,
+    )
+    back_button = next(
+        button for row in keyboard.inline_keyboard for button in row if button.text == "↩️ Назад"
+    )
+
+    callback_data = superadmin_registrations_kb.RegistrationListCallback.unpack(
+        back_button.callback_data or ""
+    )
+
+    assert callback_data.action == superadmin_registrations_kb.RegistrationListAction.OPEN
+    assert callback_data.request_id == 10
+    assert callback_data.page == 1
+
+
 async def test_admin_panel_exit_returns_main_keyboard(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

@@ -28,7 +28,7 @@ def bad_request(message: str) -> TelegramBadRequest:
 
 
 @pytest.mark.asyncio
-async def test_edit_message_if_changed_skips_identical_local_content() -> None:
+async def test_edit_message_if_changed_always_calls_telegram_for_identical_local_content() -> None:
     markup = keyboard()
     message = SimpleNamespace(text="Экран", reply_markup=markup, edit_text=AsyncMock())
 
@@ -38,8 +38,8 @@ async def test_edit_message_if_changed_skips_identical_local_content() -> None:
         reply_markup=keyboard(),
     )
 
-    assert changed is False
-    message.edit_text.assert_not_awaited()
+    assert changed is True
+    message.edit_text.assert_awaited_once()
 
 
 @pytest.mark.asyncio
@@ -109,4 +109,15 @@ async def test_edit_reply_markup_if_changed_suppresses_message_not_modified() ->
     changed = await edit_reply_markup_if_changed(message, reply_markup=keyboard("Два"))
 
     assert changed is False
+    message.edit_reply_markup.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_edit_reply_markup_if_changed_calls_telegram_for_identical_local_markup() -> None:
+    markup = keyboard("Один")
+    message = SimpleNamespace(reply_markup=markup, edit_reply_markup=AsyncMock())
+
+    changed = await edit_reply_markup_if_changed(message, reply_markup=keyboard("Один"))
+
+    assert changed is True
     message.edit_reply_markup.assert_awaited_once()

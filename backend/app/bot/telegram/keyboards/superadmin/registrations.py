@@ -92,10 +92,10 @@ def registration_review_keyboard(
     )
     builder.button(
         text="↩️ Назад",
-        callback_data=RegistrationListCallback(
-            action=RegistrationListAction.OPEN,
-            page=page,
+        callback_data=RegistrationReviewCallback(
+            action=RegistrationReviewAction.BACK,
             request_id=request_id,
+            page=page,
         ),
     )
     builder.button(
@@ -212,8 +212,8 @@ def registration_candidate_selection_keyboard(
         )
     builder.button(
         text="↩️ Назад",
-        callback_data=RegistrationReviewCallback(
-            action=RegistrationReviewAction.BACK,
+        callback_data=RegistrationListCallback(
+            action=RegistrationListAction.OPEN,
             request_id=request_id,
             page=page,
         ),
