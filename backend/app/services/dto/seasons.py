@@ -30,6 +30,28 @@ class SeasonProposalView:
 
 
 @dataclass(frozen=True)
+class SeasonTimelineView:
+    completed_seasons: list[SeasonView]
+    current_season: SeasonView | None
+    future_seasons: list[SeasonView]
+    pending_proposal: SeasonProposalView | None
+    suggested_start: date | None
+
+    @property
+    def nearest_future_season(self) -> SeasonView | None:
+        return self.future_seasons[0] if self.future_seasons else None
+
+    @property
+    def last_future_season(self) -> SeasonView | None:
+        return self.future_seasons[-1] if self.future_seasons else None
+
+    @property
+    def has_open_ended_future_season(self) -> bool:
+        last_future = self.last_future_season
+        return last_future is not None and last_future.ends_at is None
+
+
+@dataclass(frozen=True)
 class ScoringConfigView:
     id: int
     place_1_coefficient: Decimal

@@ -42,6 +42,14 @@ class SeasonRepository:
         )
         return list(result.scalars())
 
+    async def list_future_after(self, target_date: date) -> list[Season]:
+        result = await self.session.execute(
+            select(Season)
+            .where(Season.starts_at > target_date)
+            .order_by(Season.starts_at, Season.id)
+        )
+        return list(result.scalars())
+
     async def get_open_ended(self) -> Season | None:
         result = await self.session.execute(
             select(Season).where(Season.ends_at.is_(None)).order_by(Season.starts_at).limit(1)
@@ -67,6 +75,10 @@ class SeasonRepository:
 
     async def list_all(self) -> list[Season]:
         result = await self.session.execute(select(Season).order_by(Season.starts_at.desc()))
+        return list(result.scalars())
+
+    async def list_all_ordered(self) -> list[Season]:
+        result = await self.session.execute(select(Season).order_by(Season.starts_at, Season.id))
         return list(result.scalars())
 
     async def get_by_name(self, name: str) -> Season | None:

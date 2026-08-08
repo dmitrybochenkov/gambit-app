@@ -95,7 +95,7 @@ async def select_admin_calendar_section(
 
     if callback_data.action == admin_calendar_kb.AdminCalendarAction.SEASONS:
         try:
-            proposal = await season_service.create_season_proposal(callback.from_user.id)
+            timeline = await season_service.get_season_timeline(callback.from_user.id)
         except AdminAccessDeniedError:
             await state.clear()
             await callback.answer(superadmin_panel_text.INSUFFICIENT_RIGHTS, show_alert=True)
@@ -110,8 +110,16 @@ async def select_admin_calendar_section(
         await callback.answer()
         if callback.message is not None:
             await callback.message.answer(
-                season_fmt.proposal(proposal),
-                reply_markup=superadmin_seasons_kb.season_open_confirmation_keyboard(proposal.id),
+                season_fmt.management(timeline),
+                reply_markup=superadmin_seasons_kb.season_management_keyboard(
+                    can_create=not timeline.has_open_ended_future_season,
+                    can_edit_future=timeline.has_open_ended_future_season,
+                    future_season_id=(
+                        timeline.last_future_season.id
+                        if timeline.last_future_season is not None
+                        else None
+                    ),
+                ),
             )
         return
 

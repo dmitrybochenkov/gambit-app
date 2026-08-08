@@ -18,7 +18,10 @@ TOURNAMENT_ADDON_LABEL = "Аддон:"
 ADMIN_CALENDAR_EDIT_SEASON = "Ок, не открываю сезон. Пришли правки отдельным сообщением."
 ADMIN_CALENDAR_EDIT_MENU = "Что меняем?"
 ADMIN_CALENDAR_ENTER_SEASON_NEW_NAME = "Введи новое название сезона."
-ADMIN_CALENDAR_ENTER_SEASON_NEW_START = "Введи новую дату начала в формате 1.09.2026."
+ADMIN_CALENDAR_ENTER_SEASON_NEW_START = (
+    "Введи новую дату начала в формате 1.09.2026. "
+    "Дата начала нового сезона должна быть позже сегодняшней даты!"
+)
 ADMIN_CALENDAR_INVALID_DATE = "Дата должна быть в формате 1.09.2026."
 ADMIN_CALENDAR_SEASON_NAME_EXISTS = "Сезон с таким названием уже существует."
 ADMIN_CALENDAR_SCORING_CONFIG_NOT_FOUND = "Конфигурация начисления рейтинга не найдена."

@@ -97,6 +97,7 @@ from app.services.dto.seasons import (
     ScoringConfigView,
     SeasonLifecycleStateView,
     SeasonProposalView,
+    SeasonTimelineView,
     SeasonView,
 )
 from app.services.dto.statistics.hall_of_fame import HallOfFameSeasonView
@@ -177,6 +178,23 @@ def season_proposal_view(proposal_id: int = 9) -> SeasonProposalView:
         name="Лето 2026",
         starts_at=date(2026, 7, 28),
         scoring_config_id=1,
+    )
+
+
+def season_timeline_view() -> SeasonTimelineView:
+    return SeasonTimelineView(
+        completed_seasons=[],
+        current_season=SeasonView(
+            id=1,
+            name="Лето 2026",
+            starts_at=date(2026, 6, 1),
+            ends_at=None,
+            lifecycle_state=SeasonLifecycleStateView.CURRENT,
+            scoring_config_id=1,
+        ),
+        future_seasons=[],
+        pending_proposal=None,
+        suggested_start=None,
     )
 
 
@@ -2590,13 +2608,13 @@ async def test_confirm_add_admin_promotes_player_and_notifies(
     assert "🛠 Админ-панель" in keyboard_texts(bot.send_message.await_args.kwargs["reply_markup"])
 
 
-async def test_admin_calendar_seasons_callback_shows_generated_proposal(
+async def test_admin_calendar_seasons_callback_shows_timeline_management(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     admin = admin_player(1, 100, UserRole.SUPERADMIN)
     user_service = SimpleNamespace(require_superadmin=AsyncMock(return_value=admin))
     season_service = SimpleNamespace(
-        create_season_proposal=AsyncMock(return_value=season_proposal_view())
+        get_season_timeline=AsyncMock(return_value=season_timeline_view())
     )
     monkeypatch.setattr(admin_calendar_handlers, "user_access_service", user_service)
     monkeypatch.setattr(admin_calendar_handlers, "season_service", season_service)
@@ -2612,16 +2630,23 @@ async def test_admin_calendar_seasons_callback_shows_generated_proposal(
     await admin_calendar_handlers.select_admin_calendar_section(callback, callback_data, state)
 
     user_service.require_superadmin.assert_awaited_once_with(100)
-    season_service.create_season_proposal.assert_awaited_once_with(100)
+    season_service.get_season_timeline.assert_awaited_once_with(100)
     state.set_state.assert_not_awaited()
     state.update_data.assert_not_awaited()
     state.clear.assert_awaited_once()
     message.delete.assert_awaited_once_with()
     answer = message.answer.await_args
-    assert answer.args[0] == ("🏆 Новый сезон\n\nНазвание: Лето 2026\nДата начала: 28 июля 2026")
+    assert answer.args[0] == (
+        "🏆 Новый сезон\n\n"
+        "Текущий сезон:\n"
+        "Лето 2026\n"
+        "с 1 июня 2026\n"
+        "без даты окончания\n\n"
+        "Можно создать следующий сезон."
+    )
     assert [
         button.text for row in answer.kwargs["reply_markup"].inline_keyboard for button in row
-    ] == ["✅ Создать", "✏️ Изменить", "❌ Отмена"]
+    ] == ["➕ Создать следующий сезон", "📋 Все сезоны", "❌ Отмена"]
 
 
 def test_season_proposal_preview_shows_active_season_transition_from_dto() -> None:
@@ -2647,7 +2672,7 @@ async def test_admin_calendar_seasons_callback_handles_missing_scoring_configs(
 ) -> None:
     user_service = SimpleNamespace(require_superadmin=AsyncMock(return_value=admin_player(1, 100)))
     season_service = SimpleNamespace(
-        create_season_proposal=AsyncMock(
+        get_season_timeline=AsyncMock(
             side_effect=admin_calendar_handlers.SeasonScoringConfigNotFoundError
         )
     )
@@ -2667,7 +2692,7 @@ async def test_admin_calendar_seasons_callback_handles_missing_scoring_configs(
         state,
     )
 
-    season_service.create_season_proposal.assert_awaited_once_with(100)
+    season_service.get_season_timeline.assert_awaited_once_with(100)
     state.set_state.assert_not_awaited()
     callback.answer.assert_awaited_once_with("Нет конфигураций начисления рейтинга.")
     message.answer.assert_awaited_once_with("Нет конфигураций начисления рейтинга.")
@@ -3250,7 +3275,171 @@ async def test_season_change_name_button_prompts_for_input(
     )
     state.update_data.assert_awaited_once_with(season_proposal_id=9)
     message.delete.assert_awaited_once_with()
-    message.answer.assert_awaited_once_with("Введи новое название сезона.")
+    message.answer.assert_awaited_once()
+    answer = message.answer.await_args
+    assert answer.args[0] == "Введи новое название сезона."
+    assert [
+        button.text for row in answer.kwargs["reply_markup"].inline_keyboard for button in row
+    ] == ["⬅️ Назад", "❌ Отмена"]
+
+
+async def test_season_management_list_shows_timeline_page(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    page = Page(
+        items=[
+            SeasonView(
+                id=1,
+                name="Сезон 1",
+                starts_at=date(2025, 10, 16),
+                ends_at=date(2026, 1, 25),
+                lifecycle_state=SeasonLifecycleStateView.COMPLETED,
+                scoring_config_id=1,
+            ),
+            SeasonView(
+                id=2,
+                name="Лето 2026",
+                starts_at=date(2026, 6, 1),
+                ends_at=None,
+                lifecycle_state=SeasonLifecycleStateView.CURRENT,
+                scoring_config_id=1,
+            ),
+        ],
+        page=0,
+        page_size=5,
+        total_items=2,
+    )
+    season_service = SimpleNamespace(list_seasons_page_for_admin=AsyncMock(return_value=page))
+    monkeypatch.setattr(superadmin_season_handlers, "season_service", season_service)
+    callback = SimpleNamespace(
+        from_user=SimpleNamespace(id=100),
+        message=SimpleNamespace(edit_text=AsyncMock(), answer=AsyncMock(), delete=AsyncMock()),
+        answer=AsyncMock(),
+    )
+    state = SimpleNamespace(clear=AsyncMock())
+
+    await superadmin_season_handlers.manage_seasons(
+        callback,
+        SimpleNamespace(action=superadmin_seasons_kb.SeasonManageAction.LIST),
+        state,
+    )
+
+    season_service.list_seasons_page_for_admin.assert_awaited_once_with(
+        100,
+        page=0,
+        page_size=5,
+    )
+    callback.message.edit_text.assert_awaited_once()
+    assert callback.message.edit_text.await_args.args[0] == (
+        "📋 Сезоны\n\nСезон 1\n16.10.2025 — 25.01.2026\nЗавершён\n\nЛето 2026\nс 1.06.2026\nТекущий"
+    )
+    assert [
+        button.text
+        for row in callback.message.edit_text.await_args.kwargs["reply_markup"].inline_keyboard
+        for button in row
+    ] == ["⬅️ Назад", "❌ Отмена"]
+
+
+async def test_season_management_create_next_without_suggested_start_prompts_for_date(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    season_service = SimpleNamespace(
+        get_season_timeline=AsyncMock(return_value=season_timeline_view())
+    )
+    monkeypatch.setattr(superadmin_season_handlers, "season_service", season_service)
+    callback = SimpleNamespace(
+        from_user=SimpleNamespace(id=100),
+        message=SimpleNamespace(edit_text=AsyncMock(), answer=AsyncMock(), delete=AsyncMock()),
+        answer=AsyncMock(),
+    )
+    state = SimpleNamespace(set_state=AsyncMock(), clear=AsyncMock())
+
+    await superadmin_season_handlers.manage_seasons(
+        callback,
+        SimpleNamespace(action=superadmin_seasons_kb.SeasonManageAction.CREATE_NEXT),
+        state,
+    )
+
+    state.set_state.assert_awaited_once_with(
+        superadmin_season_handlers.CalendarSeasonProposalEditStates.entering_initial_starts_at
+    )
+    callback.message.edit_text.assert_awaited_once()
+    assert callback.message.edit_text.await_args.args[0] == (
+        "Введи новую дату начала в формате 1.09.2026. "
+        "Дата начала нового сезона должна быть позже сегодняшней даты!"
+    )
+    assert [
+        button.text
+        for row in callback.message.edit_text.await_args.kwargs["reply_markup"].inline_keyboard
+        for button in row
+    ] == ["⬅️ Назад", "❌ Отмена"]
+
+
+async def test_season_management_edit_future_shows_future_edit_screen(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    future = SeasonView(
+        id=7,
+        name="Сезон в следующем году",
+        starts_at=date(2027, 9, 1),
+        ends_at=None,
+        lifecycle_state=SeasonLifecycleStateView.SCHEDULED,
+        scoring_config_id=1,
+    )
+    page = Page(items=[future], page=0, page_size=1000, total_items=1)
+    season_service = SimpleNamespace(list_seasons_page_for_admin=AsyncMock(return_value=page))
+    monkeypatch.setattr(superadmin_season_handlers, "season_service", season_service)
+    callback = SimpleNamespace(
+        from_user=SimpleNamespace(id=100),
+        message=SimpleNamespace(edit_text=AsyncMock(), answer=AsyncMock(), delete=AsyncMock()),
+        answer=AsyncMock(),
+    )
+    state = SimpleNamespace(clear=AsyncMock())
+
+    await superadmin_season_handlers.manage_seasons(
+        callback,
+        SimpleNamespace(
+            action=superadmin_seasons_kb.SeasonManageAction.EDIT_FUTURE,
+            season_id=7,
+        ),
+        state,
+    )
+
+    callback.message.edit_text.assert_awaited_once()
+    assert callback.message.edit_text.await_args.args[0] == (
+        "✏️ Будущий сезон\n\nСезон в следующем году\nс 1.09.2027"
+    )
+    assert [
+        button.text
+        for row in callback.message.edit_text.await_args.kwargs["reply_markup"].inline_keyboard
+        for button in row
+    ] == ["✏️ Название", "📅 Дата начала", "⬅️ Назад", "❌ Отмена"]
+
+
+async def test_enter_initial_season_start_creates_proposal(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    season_service = SimpleNamespace(
+        create_season_proposal=AsyncMock(return_value=season_proposal_view())
+    )
+    monkeypatch.setattr(superadmin_season_handlers, "season_service", season_service)
+    message = SimpleNamespace(
+        from_user=SimpleNamespace(id=100),
+        text="28.07.2026",
+        answer=AsyncMock(),
+    )
+    state = SimpleNamespace(clear=AsyncMock())
+
+    await superadmin_season_handlers.enter_initial_season_proposal_starts_at(message, state)
+
+    season_service.create_season_proposal.assert_awaited_once_with(
+        admin_telegram_id=100,
+        starts_at=date(2026, 7, 28),
+    )
+    state.clear.assert_awaited_once()
+    assert message.answer.await_args.args[0] == (
+        "🏆 Новый сезон\n\nНазвание: Лето 2026\nДата начала: 28 июля 2026"
+    )
 
 
 async def test_season_change_back_returns_preview(

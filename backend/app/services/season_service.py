@@ -18,8 +18,10 @@ from app.services.dto.seasons import (
     ScoringConfigView,
     SeasonLifecycleStateView,
     SeasonProposalView,
+    SeasonTimelineView,
     SeasonView,
 )
+from app.services.pagination import Page
 
 
 class SeasonNotFoundError(ValueError):
@@ -161,6 +163,40 @@ class SeasonService:
             seasons = await SeasonRepository(session).list_all()
             return [season_view(season, today=business_date) for season in seasons]
 
+    async def get_season_timeline(
+        self,
+        admin_telegram_id: int,
+        today: date | None = None,
+    ) -> SeasonTimelineView:
+        business_date = today or self.clock.today()
+        async with self.session_factory() as session:
+            await access_policy.require_admin(session, admin_telegram_id)
+            return await self._season_timeline_view(session, today=business_date)
+
+    async def list_seasons_page_for_admin(
+        self,
+        admin_telegram_id: int,
+        *,
+        page: int,
+        page_size: int,
+        today: date | None = None,
+    ) -> Page[SeasonView]:
+        business_date = today or self.clock.today()
+        async with self.session_factory() as session:
+            await access_policy.require_admin(session, admin_telegram_id)
+            seasons = await SeasonRepository(session).list_all_ordered()
+            total_items = len(seasons)
+            total_pages = max(1, (total_items + page_size - 1) // page_size)
+            normalized_page = min(max(0, page), total_pages - 1)
+            start = normalized_page * page_size
+            end = start + page_size
+            return Page(
+                items=[season_view(season, today=business_date) for season in seasons[start:end]],
+                page=normalized_page,
+                page_size=page_size,
+                total_items=total_items,
+            )
+
     async def list_scoring_configs(self, admin_telegram_id: int) -> list[ScoringConfigView]:
         async with self.session_factory() as session:
             await access_policy.require_admin(session, admin_telegram_id)
@@ -170,10 +206,10 @@ class SeasonService:
     async def create_season_proposal(
         self,
         admin_telegram_id: int,
+        starts_at: date | None = None,
         today: date | None = None,
     ) -> SeasonProposalView:
         business_date = today or self.clock.today()
-        starts_at = business_date + timedelta(days=1)
         async with self.session_factory() as session:
             await access_policy.require_admin(session, admin_telegram_id)
             repository = AdminPromptRepository(session)
@@ -188,15 +224,24 @@ class SeasonService:
                     today=business_date,
                 )
 
-            scoring_config = await self._default_scoring_config(session, starts_at)
+            timeline = await self._season_timeline_view(session, today=business_date)
+            proposal_starts_at = starts_at or timeline.suggested_start
+            if proposal_starts_at is None:
+                raise SeasonStartDateError
+            await self._validate_new_season_timeline(
+                session,
+                starts_at=proposal_starts_at,
+                today=business_date,
+            )
+            scoring_config = await self._default_scoring_config(session, proposal_starts_at)
             if scoring_config is None:
                 raise SeasonScoringConfigNotFoundError
             proposal = await repository.create_prompt(
                 key=await next_season_proposal_key(repository),
                 kind=AdminPromptKind.SEASON_PROPOSAL,
                 payload=SeasonProposalPayload.create(
-                    name=season_name_for_date(starts_at),
-                    starts_at=starts_at,
+                    name=season_name_for_date(proposal_starts_at),
+                    starts_at=proposal_starts_at,
                     scoring_config_id=scoring_config.id,
                 ).to_json(),
                 scope_key=SEASON_PROPOSAL_SCOPE_KEY,
@@ -213,7 +258,7 @@ class SeasonService:
             return await self._season_proposal_view(
                 session,
                 proposal,
-                starts_at,
+                proposal_starts_at,
                 today=business_date,
             )
 
@@ -269,13 +314,59 @@ class SeasonService:
     ) -> SeasonProposalView:
         async with self.session_factory() as session:
             await access_policy.require_admin(session, admin_telegram_id)
-            await self._validate_season_start_date(session, starts_at)
+            await self._validate_new_season_timeline(
+                session,
+                starts_at=starts_at,
+                today=self.clock.today(),
+            )
             prompt = await self._get_pending_season_proposal(session, prompt_id)
             payload = SeasonProposalPayload.from_json(prompt.payload)
             prompt.payload = payload.with_starts_at(starts_at).to_json()
             await session.commit()
             await session.refresh(prompt)
             return await self._season_proposal_view(session, prompt, starts_at)
+
+    async def update_future_season_name(
+        self,
+        admin_telegram_id: int,
+        season_id: int,
+        name: str,
+    ) -> SeasonView:
+        validated_name = validate_season_name(name)
+        business_date = self.clock.today()
+        async with self.session_factory() as session:
+            await access_policy.require_admin(session, admin_telegram_id)
+            repository = SeasonRepository(session)
+            season = await self._require_future_season(repository, season_id, business_date)
+            existing = await repository.get_by_name(validated_name)
+            if existing is not None and existing.id != season.id:
+                raise SeasonNameAlreadyExistsError
+            season.name = validated_name
+            await session.commit()
+            await session.refresh(season)
+            return season_view(season, today=business_date)
+
+    async def update_future_season_start_date(
+        self,
+        admin_telegram_id: int,
+        season_id: int,
+        starts_at: date,
+    ) -> SeasonView:
+        business_date = self.clock.today()
+        async with self.session_factory() as session:
+            await access_policy.require_admin(session, admin_telegram_id)
+            repository = SeasonRepository(session)
+            season = await self._require_future_season(repository, season_id, business_date)
+            await self._validate_future_season_update(
+                repository,
+                season=season,
+                starts_at=starts_at,
+                today=business_date,
+            )
+            season.starts_at = starts_at
+            await session.commit()
+            await session.refresh(season)
+            return season_view(season, today=business_date)
 
     async def confirm_season_proposal(
         self,
@@ -412,11 +503,13 @@ class SeasonService:
         if starts_at < today:
             raise SeasonStartDateError
 
-        active_season = await repository.get_for_date(today)
-        scheduled_season = await repository.get_scheduled_after(today)
-        if scheduled_season is not None:
-            raise SeasonScheduledConflictError
+        await cls._validate_new_season_timeline(
+            session,
+            starts_at=starts_at,
+            today=today,
+        )
 
+        active_season = await repository.get_for_date(today)
         if active_season is not None:
             if starts_at == today:
                 raise SeasonConflictError
@@ -433,10 +526,6 @@ class SeasonService:
             if overlaps:
                 raise SeasonDateOverlapError
             active_season.ends_at = active_ends_at
-        else:
-            overlaps = await repository.find_overlapping(starts_at=starts_at, ends_at=None)
-            if overlaps:
-                raise SeasonDateOverlapError
 
         if await repository.get_for_date(starts_at) is not None:
             raise SeasonConflictError
@@ -487,6 +576,54 @@ class SeasonService:
             active_season_ends_at=active_season_ends_at,
         )
 
+    @classmethod
+    async def _season_timeline_view(
+        cls,
+        session: AsyncSession,
+        today: date,
+    ) -> SeasonTimelineView:
+        repository = SeasonRepository(session)
+        seasons = await repository.list_all_ordered()
+        completed = [
+            season_view(season, today=today)
+            for season in seasons
+            if season.ends_at is not None and season.ends_at < today
+        ]
+        current = next(
+            (
+                season_view(season, today=today)
+                for season in seasons
+                if season.starts_at <= today and (season.ends_at is None or season.ends_at >= today)
+            ),
+            None,
+        )
+        future = [
+            season_view(season, today=today) for season in seasons if season.starts_at > today
+        ]
+        pending_prompt = await AdminPromptRepository(session).get_pending_by_scope(
+            AdminPromptKind.SEASON_PROPOSAL,
+            SEASON_PROPOSAL_SCOPE_KEY,
+        )
+        pending_proposal = (
+            season_proposal_view(pending_prompt) if pending_prompt is not None else None
+        )
+        return SeasonTimelineView(
+            completed_seasons=completed,
+            current_season=current,
+            future_seasons=future,
+            pending_proposal=pending_proposal,
+            suggested_start=cls._suggested_next_start(seasons, today),
+        )
+
+    @staticmethod
+    def _suggested_next_start(seasons: list[Season], today: date) -> date | None:
+        if not seasons:
+            return today
+        last_season = seasons[-1]
+        if last_season.ends_at is None:
+            return None
+        return last_season.ends_at + timedelta(days=1)
+
     @staticmethod
     async def _get_pending_season_proposal(
         session: AsyncSession,
@@ -500,6 +637,50 @@ class SeasonService:
         SeasonProposalPayload.from_json(prompt.payload)
         return prompt
 
+    @staticmethod
+    async def _require_future_season(
+        repository: SeasonRepository,
+        season_id: int,
+        today: date,
+    ) -> Season:
+        season = await repository.get_by_id(season_id)
+        if season is None:
+            raise SeasonNotFoundError
+        if season.starts_at <= today:
+            raise SeasonDateOverlapError
+        return season
+
+    @staticmethod
+    async def _validate_future_season_update(
+        repository: SeasonRepository,
+        *,
+        season: Season,
+        starts_at: date,
+        today: date,
+    ) -> None:
+        if starts_at <= today:
+            raise SeasonStartDateError
+
+        seasons = await repository.list_all_ordered()
+        previous_season: Season | None = None
+        next_season: Season | None = None
+        for index, existing in enumerate(seasons):
+            if existing.id != season.id:
+                continue
+            previous_season = seasons[index - 1] if index > 0 else None
+            next_season = seasons[index + 1] if index < len(seasons) - 1 else None
+            break
+
+        if previous_season is not None:
+            if previous_season.ends_at is None or starts_at <= previous_season.ends_at:
+                raise SeasonDateOverlapError
+        if season.ends_at is not None and starts_at > season.ends_at:
+            raise SeasonStartDateError
+        if next_season is not None:
+            season_ends_at = season.ends_at
+            if season_ends_at is None or season_ends_at >= next_season.starts_at:
+                raise SeasonDateOverlapError
+
     @classmethod
     async def _validate_season_start_date(
         cls,
@@ -509,6 +690,32 @@ class SeasonService:
         open_ended_season = await SeasonRepository(session).get_open_ended()
         if open_ended_season is not None and starts_at <= open_ended_season.starts_at:
             raise SeasonStartDateError
+
+    @classmethod
+    async def _validate_new_season_timeline(
+        cls,
+        session: AsyncSession,
+        starts_at: date,
+        today: date,
+    ) -> None:
+        if starts_at < today:
+            raise SeasonStartDateError
+
+        seasons = await SeasonRepository(session).list_all_ordered()
+        if not seasons:
+            return
+
+        last_season = seasons[-1]
+        if last_season.ends_at is None:
+            if last_season.starts_at > today:
+                raise SeasonScheduledConflictError
+            if starts_at <= last_season.starts_at:
+                raise SeasonStartDateError
+            return
+
+        expected_start = last_season.ends_at + timedelta(days=1)
+        if starts_at != expected_start:
+            raise SeasonDateOverlapError
 
 
 def season_view(season: Season, *, today: date) -> SeasonView:
