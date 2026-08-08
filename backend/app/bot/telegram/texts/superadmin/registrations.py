@@ -14,6 +14,7 @@ PLAYER_NOT_FOUND = "Игрок не найден."
 REGISTRATION_ALREADY_REVIEWED = "Заявка уже обработана."
 REGISTRATION_NOT_ALLOWED = "Заявку нельзя одобрить."
 REGISTRATION_MATCHES_TITLE = "Возможные совпадения с историей:"
+REGISTRATION_LINK_NO_CANDIDATES = "Подходящий игрок больше не найден.\n\nЗаявку можно отклонить."
 REGISTRATION_MATCH_TOURNAMENTS_LABEL = "турниров"
 REGISTRATION_MATCH_POINTS_LABEL = "очков"
 REGISTRATION_MATCH_KNOCKOUTS_LABEL = "🥊"
@@ -50,17 +51,24 @@ def registration_review(review: object) -> str:
         )
     else:
         lines.extend(["Тип: привязка к истории", f"Искали: {request.requested_link_name}"])
-        if request.candidate_user_id is not None:
-            lines.append(f"Выбран игрок id {request.candidate_user_id}")
     lines.append(f"Создана: {request.created_at}")
-    if review.candidates:
-        lines.extend(["", REGISTRATION_MATCHES_TITLE])
-        for position, candidate in enumerate(
-            review.candidates,
-            start=1,
-        ):
-            lines.append(f"{position}. {candidate.user.display_name} — {candidate.reason}")
+    if request.request_type == "link_existing_player":
+        lines.extend(["", _link_candidates_text(review)])
     return "\n".join(lines)
+
+
+def _link_candidates_text(review: object) -> str:
+    if review.selected_candidate is not None:
+        return f"Выбран игрок: {review.selected_candidate.user.display_name}"
+    if not review.candidates:
+        return REGISTRATION_LINK_NO_CANDIDATES
+    if len(review.candidates) == 1:
+        return f"Найден игрок:\n{review.candidates[0].user.display_name}"
+    return "Найдено несколько похожих игроков.\nВыбери нужного игрока."
+
+
+def registration_candidate_confirmation(display_name: str) -> str:
+    return f"Привязать Telegram-пользователя к игроку:\n\n{display_name}?"
 
 
 def reviewed_by_admin(review_text: str, result_text: str, admin_name: str) -> str:

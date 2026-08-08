@@ -3646,16 +3646,94 @@ async def test_registration_review_keyboard_with_history_has_action_labels() -> 
     keyboard = superadmin_registrations_kb.registration_review_keyboard(
         request_id=10,
         can_select_candidate=True,
+        can_approve=False,
     )
 
     buttons = [button.text for row in keyboard.inline_keyboard for button in row]
     assert buttons == [
-        "🔗 Выбрать игрока",
-        "✅ Одобрить",
+        "👤 Выбрать игрока",
         "🚫 Отклонить",
         "❌ Отмена",
     ]
-    assert [len(row) for row in keyboard.inline_keyboard] == [1, 1, 1, 1]
+    assert [len(row) for row in keyboard.inline_keyboard] == [1, 1, 1]
+
+
+def test_link_registration_review_with_one_candidate_is_user_friendly() -> None:
+    review = RegistrationReviewView(
+        request=RegistrationRequestView(
+            id=10,
+            telegram_id=200,
+            request_type="link_existing_player",
+            status="pending",
+            requested_display_name=None,
+            requested_link_name="Лиза Савинкова",
+            candidate_user_id=None,
+            created_at="08.08.2026 14:19",
+        ),
+        candidates=[registration_candidate(20, 100)],
+    )
+
+    rendered = notifications.format_registration_review(review)
+    keyboard = superadmin_registrations_kb.registration_review_keyboard_for_review(review)
+
+    assert rendered == (
+        "Новая заявка на регистрацию\n\n"
+        "Тип: привязка к истории\n"
+        "Искали: Лиза Савинкова\n"
+        "Создана: 08.08.2026 14:19\n\n"
+        "Найден игрок:\n"
+        "Исторический 20"
+    )
+    assert "id 20" not in rendered
+    assert "1." not in rendered
+    assert "имя" not in rendered
+    assert inline_keyboard_texts(keyboard) == ["✅ Привязать", "🚫 Отклонить", "❌ Отмена"]
+
+
+def test_link_registration_review_with_multiple_candidates_requires_selection() -> None:
+    review = RegistrationReviewView(
+        request=RegistrationRequestView(
+            id=10,
+            telegram_id=200,
+            request_type="link_existing_player",
+            status="pending",
+            requested_display_name=None,
+            requested_link_name="Лиза Савинкова",
+            candidate_user_id=None,
+            created_at="08.08.2026 14:19",
+        ),
+        candidates=[registration_candidate(20, 100), registration_candidate(21, 92)],
+    )
+
+    rendered = notifications.format_registration_review(review)
+    keyboard = superadmin_registrations_kb.registration_review_keyboard_for_review(review)
+
+    assert "Найдено несколько похожих игроков." in rendered
+    assert "Исторический 20" not in rendered
+    assert "100%" not in rendered
+    assert inline_keyboard_texts(keyboard) == ["👤 Выбрать игрока", "🚫 Отклонить", "❌ Отмена"]
+
+
+def test_link_registration_review_without_candidates_has_safe_fallback() -> None:
+    review = RegistrationReviewView(
+        request=RegistrationRequestView(
+            id=10,
+            telegram_id=200,
+            request_type="link_existing_player",
+            status="pending",
+            requested_display_name=None,
+            requested_link_name="Лиза Савинкова",
+            candidate_user_id=None,
+            created_at="08.08.2026 14:19",
+        ),
+        candidates=[],
+    )
+
+    rendered = notifications.format_registration_review(review)
+    keyboard = superadmin_registrations_kb.registration_review_keyboard_for_review(review)
+
+    assert "Подходящий игрок больше не найден." in rendered
+    assert inline_keyboard_texts(keyboard) == ["🚫 Отклонить", "❌ Отмена"]
 
 
 async def test_registration_review_cancel_deletes_message_without_review(
@@ -3745,8 +3823,18 @@ async def test_registration_review_with_multiple_matches_shows_selection(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     matches = [registration_candidate(20, 100), registration_candidate(21, 92)]
+    request = RegistrationRequestView(
+        id=10,
+        telegram_id=200,
+        request_type="link_existing_player",
+        status="pending",
+        requested_display_name=None,
+        requested_link_name="Исторический",
+        candidate_user_id=None,
+        created_at="27.07.2026 12:00",
+    )
     review = RegistrationReviewView(
-        request=registration_review(10).request,
+        request=request,
         candidates=matches,
     )
     service = SimpleNamespace(
@@ -3780,15 +3868,13 @@ async def test_registration_review_with_multiple_matches_shows_selection(
     selection_keyboard = message.edit_reply_markup.await_args.kwargs["reply_markup"]
     buttons = [button.text for row in selection_keyboard.inline_keyboard for button in row]
     assert buttons == [
-        "1. Исторический 20 (100%)",
-        "2. Исторический 21 (92%)",
-        "✅ Одобрить",
-        "🚫 Отклонить",
+        "Исторический 20",
+        "Исторический 21",
         "❌ Отмена",
     ]
 
 
-async def test_selected_registration_candidate_is_saved(
+async def test_selected_registration_candidate_shows_confirmation_without_mutation(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     review = RegistrationReviewView(
@@ -3803,6 +3889,7 @@ async def test_selected_registration_candidate_is_saved(
             created_at="27.07.2026 12:00",
         ),
         candidates=[registration_candidate(21, 100)],
+        selected_candidate=registration_candidate(21, 100),
     )
     service = SimpleNamespace(select_registration_candidate=AsyncMock(return_value=review))
     monkeypatch.setattr(superadmin_registration_handlers, "registration_review_service", service)
@@ -3825,7 +3912,119 @@ async def test_selected_registration_candidate_is_saved(
         user_id=21,
     )
     message.edit_text.assert_awaited_once()
+    assert message.edit_text.await_args.args[0] == (
+        "Привязать Telegram-пользователя к игроку:\n\nИсторический 21?"
+    )
+    assert inline_keyboard_texts(message.edit_text.await_args.kwargs["reply_markup"]) == [
+        "✅ Привязать",
+        "↩️ Назад",
+        "❌ Отмена",
+    ]
     callback.answer.assert_awaited_once_with("Игрок выбран.")
+
+
+async def test_confirm_selected_registration_candidate_links_user(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    player = UserView(
+        id=21,
+        telegram_id=200,
+        display_name="Исторический 21",
+        status=UserStatus.ACTIVE,
+        role=UserRole.PLAYER,
+    )
+    request = RegistrationRequestView(
+        id=10,
+        telegram_id=200,
+        request_type="link_existing_player",
+        status="approved",
+        requested_display_name=None,
+        requested_link_name="Исторический",
+        candidate_user_id=None,
+        created_at="27.07.2026 12:00",
+    )
+    service = SimpleNamespace(
+        approve_registration=AsyncMock(
+            return_value=RegistrationReviewResultView(
+                user=player,
+                request=request,
+                admins=[admin_player(1, 100, UserRole.SUPERADMIN)],
+            )
+        )
+    )
+    monkeypatch.setattr(superadmin_registration_handlers, "registration_review_service", service)
+    message = SimpleNamespace(text="confirmation", edit_text=AsyncMock())
+    bot = SimpleNamespace(send_message=AsyncMock())
+    callback = SimpleNamespace(
+        from_user=SimpleNamespace(id=100, full_name="Админ 1"),
+        message=message,
+        bot=bot,
+        answer=AsyncMock(),
+    )
+    callback_data = SimpleNamespace(
+        action=superadmin_registrations_kb.RegistrationCandidateConfirmAction.CONFIRM,
+        request_id=10,
+        user_id=21,
+    )
+
+    await superadmin_registration_handlers.confirm_registration_candidate(
+        callback,
+        callback_data,
+    )
+
+    service.approve_registration.assert_awaited_once_with(
+        superadmin_telegram_id=100,
+        request_id=10,
+        candidate_user_id=21,
+    )
+    callback.answer.assert_awaited_once_with("Заявка одобрена")
+    message.edit_text.assert_awaited_once()
+
+
+async def test_registration_candidate_confirmation_back_returns_to_candidate_list(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    review = RegistrationReviewView(
+        request=RegistrationRequestView(
+            id=10,
+            telegram_id=200,
+            request_type="link_existing_player",
+            status="pending",
+            requested_display_name=None,
+            requested_link_name="Исторический",
+            candidate_user_id=None,
+            created_at="27.07.2026 12:00",
+        ),
+        candidates=[registration_candidate(20, 100), registration_candidate(21, 92)],
+    )
+    service = SimpleNamespace(get_registration_review_for_admin=AsyncMock(return_value=review))
+    monkeypatch.setattr(superadmin_registration_handlers, "registration_review_service", service)
+    message = SimpleNamespace(edit_text=AsyncMock())
+    callback = SimpleNamespace(
+        from_user=SimpleNamespace(id=100, full_name="Админ 1"),
+        message=message,
+        answer=AsyncMock(),
+    )
+    callback_data = SimpleNamespace(
+        action=superadmin_registrations_kb.RegistrationCandidateConfirmAction.BACK,
+        request_id=10,
+        user_id=21,
+    )
+
+    await superadmin_registration_handlers.confirm_registration_candidate(
+        callback,
+        callback_data,
+    )
+
+    service.get_registration_review_for_admin.assert_awaited_once_with(
+        admin_telegram_id=100,
+        request_id=10,
+    )
+    assert inline_keyboard_texts(message.edit_text.await_args.kwargs["reply_markup"]) == [
+        "Исторический 20",
+        "Исторический 21",
+        "❌ Отмена",
+    ]
 
 
 async def test_registration_review_result_is_sent_to_other_admins(

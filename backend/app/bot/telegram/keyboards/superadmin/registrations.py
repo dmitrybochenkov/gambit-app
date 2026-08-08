@@ -28,6 +28,18 @@ class RegistrationCandidateSelectionCallback(CallbackData, prefix="registration_
     user_id: int
 
 
+class RegistrationCandidateConfirmAction(StrEnum):
+    CONFIRM = "confirm"
+    BACK = "back"
+    CANCEL = "cancel"
+
+
+class RegistrationCandidateConfirmCallback(CallbackData, prefix="registration_candidate_confirm"):
+    action: RegistrationCandidateConfirmAction
+    request_id: int
+    user_id: int
+
+
 class RegistrationListAction(StrEnum):
     OPEN = "open"
     PAGE = "page"
@@ -43,23 +55,26 @@ class RegistrationListCallback(CallbackData, prefix="registration_list"):
 def registration_review_keyboard(
     request_id: int,
     can_select_candidate: bool = False,
+    can_approve: bool = True,
+    approve_text: str = labels.ADMIN_APPROVE,
 ) -> InlineKeyboardMarkup:
     builder = InlineKeyboardBuilder()
     if can_select_candidate:
         builder.button(
-            text="🔗 Выбрать игрока",
+            text="👤 Выбрать игрока",
             callback_data=RegistrationReviewCallback(
                 action=RegistrationReviewAction.SELECT_CANDIDATE,
                 request_id=request_id,
             ),
         )
-    builder.button(
-        text=labels.ADMIN_APPROVE,
-        callback_data=RegistrationReviewCallback(
-            action=RegistrationReviewAction.APPROVE,
-            request_id=request_id,
-        ),
-    )
+    if can_approve:
+        builder.button(
+            text=approve_text,
+            callback_data=RegistrationReviewCallback(
+                action=RegistrationReviewAction.APPROVE,
+                request_id=request_id,
+            ),
+        )
     builder.button(
         text=labels.ADMIN_REJECT,
         callback_data=RegistrationReviewCallback(
@@ -76,6 +91,29 @@ def registration_review_keyboard(
     )
     builder.adjust(1)
     return builder.as_markup()
+
+
+def registration_review_keyboard_for_review(
+    review: RegistrationReviewView,
+) -> InlineKeyboardMarkup:
+    if review.request.request_type != "link_existing_player":
+        return registration_review_keyboard(review.request.id)
+    if not review.candidates:
+        return registration_review_keyboard(
+            review.request.id,
+            can_approve=False,
+        )
+    if len(review.candidates) == 1:
+        return registration_review_keyboard(
+            review.request.id,
+            can_approve=True,
+            approve_text="✅ Привязать",
+        )
+    return registration_review_keyboard(
+        review.request.id,
+        can_select_candidate=True,
+        can_approve=False,
+    )
 
 
 def registration_list_keyboard(page: Page[RegistrationReviewView]) -> InlineKeyboardMarkup:
@@ -135,33 +173,52 @@ def registration_candidate_selection_keyboard(
     candidates: list[RegistrationCandidateView],
 ) -> InlineKeyboardMarkup:
     builder = InlineKeyboardBuilder()
-    for position, candidate in enumerate(candidates, start=1):
+    for candidate in candidates:
         builder.button(
-            text=(f"{position}. {candidate.user.display_name} ({candidate.score}%)"),
+            text=candidate.user.display_name,
             callback_data=RegistrationCandidateSelectionCallback(
                 request_id=request_id,
                 user_id=candidate.user.id,
             ),
         )
     builder.button(
-        text=labels.ADMIN_APPROVE,
-        callback_data=RegistrationReviewCallback(
-            action=RegistrationReviewAction.APPROVE,
-            request_id=request_id,
-        ),
-    )
-    builder.button(
-        text=labels.ADMIN_REJECT,
-        callback_data=RegistrationReviewCallback(
-            action=RegistrationReviewAction.REJECT,
-            request_id=request_id,
-        ),
-    )
-    builder.button(
         text=labels.ADMIN_CANCEL,
         callback_data=RegistrationReviewCallback(
             action=RegistrationReviewAction.CANCEL,
             request_id=request_id,
+        ),
+    )
+    builder.adjust(1)
+    return builder.as_markup()
+
+
+def registration_candidate_confirmation_keyboard(
+    request_id: int,
+    user_id: int,
+) -> InlineKeyboardMarkup:
+    builder = InlineKeyboardBuilder()
+    builder.button(
+        text="✅ Привязать",
+        callback_data=RegistrationCandidateConfirmCallback(
+            action=RegistrationCandidateConfirmAction.CONFIRM,
+            request_id=request_id,
+            user_id=user_id,
+        ),
+    )
+    builder.button(
+        text="↩️ Назад",
+        callback_data=RegistrationCandidateConfirmCallback(
+            action=RegistrationCandidateConfirmAction.BACK,
+            request_id=request_id,
+            user_id=user_id,
+        ),
+    )
+    builder.button(
+        text=labels.ADMIN_CANCEL,
+        callback_data=RegistrationCandidateConfirmCallback(
+            action=RegistrationCandidateConfirmAction.CANCEL,
+            request_id=request_id,
+            user_id=user_id,
         ),
     )
     builder.adjust(1)

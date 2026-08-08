@@ -10,6 +10,7 @@ from app.db.repositories.user_repository import UserRepository
 from app.db.session import SessionFactory
 from app.services.access_policy import access_policy
 from app.services.dto.registrations import (
+    RegistrationCandidateView,
     RegistrationNotificationView,
     RegistrationReviewResultView,
     RegistrationReviewView,
@@ -90,16 +91,17 @@ class RegistrationReviewService:
             request_repository = RegistrationRequestRepository(session)
             await access_policy.require_superadmin(session, superadmin_telegram_id)
             request = await self._require_pending_request(request_repository, request_id)
-            candidate = await self._require_link_candidate(user_repository, user_id)
-            request.candidate_user_id = candidate.id
-            await session.commit()
-            await session.refresh(request)
-            return await self._registration_review_view(user_repository, request)
+            return await self._registration_review_view(
+                user_repository,
+                request,
+                selected_user_id=user_id,
+            )
 
     async def approve_registration(
         self,
         superadmin_telegram_id: int,
         request_id: int,
+        candidate_user_id: int | None = None,
     ) -> RegistrationReviewResultView:
         async with self.session_factory() as session:
             user_repository = UserRepository(session)
@@ -134,11 +136,10 @@ class RegistrationReviewService:
                     raise RegistrationNotAllowedError from exc
                 await session.refresh(user)
             else:
-                if request.candidate_user_id is None:
-                    raise RegistrationCandidateNotFoundError
-                user = await self._require_link_candidate(
+                user = await self._resolve_link_candidate_for_approval(
                     user_repository,
-                    request.candidate_user_id,
+                    request,
+                    candidate_user_id,
                 )
                 user.telegram_id = request.telegram_id
                 request.status = RegistrationRequestStatus.APPROVED
@@ -182,25 +183,69 @@ class RegistrationReviewService:
     async def _registration_review_view(
         user_repository: UserRepository,
         request: RegistrationRequest,
+        selected_user_id: int | None = None,
     ) -> RegistrationReviewView:
+        candidates = await RegistrationReviewService._registration_candidates(
+            user_repository,
+            request,
+        )
+        selected_candidate = RegistrationReviewService._selected_candidate(
+            candidates,
+            selected_user_id if selected_user_id is not None else request.candidate_user_id,
+        )
+        if selected_user_id is not None and selected_candidate is None:
+            raise RegistrationCandidateNotFoundError
         return RegistrationReviewView(
             request=required_registration_request_view(request),
-            candidates=await RegistrationReviewService._registration_candidates(
-                user_repository,
-                request,
-            ),
+            candidates=candidates,
+            selected_candidate=selected_candidate,
         )
 
     @staticmethod
     async def _registration_candidates(
         user_repository: UserRepository,
         request: RegistrationRequest,
-    ):
+    ) -> list[RegistrationCandidateView]:
         if request.request_type != RegistrationRequestType.LINK_EXISTING_PLAYER:
             return []
         return await find_link_candidates(
             user_repository=user_repository,
             requested_link_name=request.requested_link_name or "",
+        )
+
+    @staticmethod
+    def _selected_candidate(
+        candidates: list[RegistrationCandidateView],
+        selected_user_id: int | None,
+    ) -> RegistrationCandidateView | None:
+        if selected_user_id is None:
+            return None
+        return next(
+            (candidate for candidate in candidates if candidate.user.id == selected_user_id),
+            None,
+        )
+
+    @staticmethod
+    async def _resolve_link_candidate_for_approval(
+        user_repository: UserRepository,
+        request: RegistrationRequest,
+        candidate_user_id: int | None,
+    ) -> User:
+        candidates = await RegistrationReviewService._registration_candidates(
+            user_repository,
+            request,
+        )
+        selected_user_id = candidate_user_id or request.candidate_user_id
+        if selected_user_id is None:
+            if len(candidates) != 1:
+                raise RegistrationCandidateNotFoundError
+            selected_user_id = candidates[0].user.id
+        elif selected_user_id not in {candidate.user.id for candidate in candidates}:
+            raise RegistrationCandidateNotFoundError
+
+        return await RegistrationReviewService._require_link_candidate(
+            user_repository,
+            selected_user_id,
         )
 
     @staticmethod

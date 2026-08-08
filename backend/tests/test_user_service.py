@@ -367,13 +367,97 @@ async def test_link_registration_approves_selected_user_id(tmp_path: Path) -> No
             telegram_id=1001,
             requested_link_name="Журавлев Антон",
         )
-        await service.select_registration_candidate(1, request.id, selected_id)
-        approved = await service.approve_registration(1, request.id)
+        review = await service.select_registration_candidate(1, request.id, selected_id)
+        approved = await service.approve_registration(1, request.id, candidate_user_id=selected_id)
 
+        assert review.selected_candidate is not None
+        assert review.selected_candidate.user.id == selected_id
         assert approved.user is not None
         assert approved.user.id == selected_id
         assert approved.user.display_name == "Журавлёв Антон"
         assert approved.user.telegram_id == 1001
+    finally:
+        await engine.dispose()
+
+
+@pytest.mark.asyncio
+async def test_link_registration_candidate_selection_does_not_mutate_request(
+    tmp_path: Path,
+) -> None:
+    service, engine = await create_user_service(tmp_path / "users.db")
+    try:
+        async with async_sessionmaker(engine, expire_on_commit=False)() as session:
+            session.add(
+                create_user(
+                    display_name="Супер Админ",
+                    telegram_id=1,
+                    role=UserRole.SUPERADMIN,
+                )
+            )
+            candidate = create_user(display_name="Исторический Игрок")
+            session.add(candidate)
+            await session.commit()
+            candidate_id = candidate.id
+
+        request = await service.submit_link_existing_registration(1001, "Исторический")
+        review = await service.select_registration_candidate(1, request.id, candidate_id)
+
+        async with async_sessionmaker(engine, expire_on_commit=False)() as session:
+            stored_request = await session.get(RegistrationRequest, request.id)
+            stored_candidate = await session.get(User, candidate_id)
+
+        assert review.selected_candidate is not None
+        assert review.selected_candidate.user.id == candidate_id
+        assert stored_request is not None
+        assert stored_request.candidate_user_id is None
+        assert stored_candidate is not None
+        assert stored_candidate.telegram_id is None
+    finally:
+        await engine.dispose()
+
+
+@pytest.mark.asyncio
+async def test_link_registration_confirmation_rejects_stale_candidate(
+    tmp_path: Path,
+) -> None:
+    service, engine = await create_user_service(tmp_path / "users.db")
+    try:
+        async with async_sessionmaker(engine, expire_on_commit=False)() as session:
+            session.add(
+                create_user(
+                    display_name="Супер Админ",
+                    telegram_id=1,
+                    role=UserRole.SUPERADMIN,
+                )
+            )
+            candidate = create_user(display_name="Исторический Игрок")
+            session.add(candidate)
+            await session.commit()
+            candidate_id = candidate.id
+
+        request = await service.submit_link_existing_registration(1001, "Исторический")
+        await service.select_registration_candidate(1, request.id, candidate_id)
+        async with async_sessionmaker(engine, expire_on_commit=False)() as session:
+            stored_candidate = await session.get(User, candidate_id)
+            assert stored_candidate is not None
+            stored_candidate.telegram_id = 2002
+            await session.commit()
+
+        with pytest.raises(RegistrationCandidateNotFoundError):
+            await service.approve_registration(
+                1,
+                request.id,
+                candidate_user_id=candidate_id,
+            )
+
+        async with async_sessionmaker(engine, expire_on_commit=False)() as session:
+            stored_request = await session.get(RegistrationRequest, request.id)
+            stored_candidate = await session.get(User, candidate_id)
+
+        assert stored_request is not None
+        assert stored_request.status == RegistrationRequestStatus.PENDING
+        assert stored_candidate is not None
+        assert stored_candidate.telegram_id == 2002
     finally:
         await engine.dispose()
 

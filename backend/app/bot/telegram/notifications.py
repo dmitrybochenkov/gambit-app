@@ -18,10 +18,7 @@ async def notify_admins_about_registration(bot: Bot, request_id: int) -> None:
         candidates=notification.candidates,
     )
     text = format_registration_review(review)
-    keyboard = superadmin_registrations_kb.registration_review_keyboard(
-        notification.request.id,
-        can_select_candidate=notification.request.request_type == "link_existing_player",
-    )
+    keyboard = superadmin_registrations_kb.registration_review_keyboard_for_review(review)
 
     for admin in notification.admins:
         if admin.telegram_id is None:

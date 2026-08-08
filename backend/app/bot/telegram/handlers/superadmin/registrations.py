@@ -80,9 +80,8 @@ async def review_registration_list(
             if callback.message is not None:
                 await callback.message.edit_text(
                     format_registration_review(review),
-                    reply_markup=superadmin_registrations_kb.registration_review_keyboard(
-                        review.request.id,
-                        can_select_candidate=review.request.request_type == "link_existing_player",
+                    reply_markup=superadmin_registrations_kb.registration_review_keyboard_for_review(
+                        review
                     ),
                 )
             return
@@ -180,6 +179,13 @@ async def review_registration(
             show_alert=True,
         )
         return
+    except (
+        IdentityAlreadyExistsError,
+        RegistrationCandidateNotFoundError,
+        RegistrationNotAllowedError,
+    ):
+        await callback.answer(text.REGISTRATION_NOT_ALLOWED, show_alert=True)
+        return
 
     await _send_registration_review_result(
         callback=callback,
@@ -220,12 +226,83 @@ async def select_registration_candidate(
     await callback.answer("Игрок выбран.")
     if callback.message is not None:
         await callback.message.edit_text(
-            format_registration_review(review),
-            reply_markup=superadmin_registrations_kb.registration_review_keyboard(
-                review.request.id,
-                can_select_candidate=True,
+            text.registration_candidate_confirmation(
+                review.selected_candidate.user.display_name
+                if review.selected_candidate is not None
+                else ""
+            ),
+            reply_markup=superadmin_registrations_kb.registration_candidate_confirmation_keyboard(
+                callback_data.request_id,
+                callback_data.user_id,
             ),
         )
+
+
+@router.callback_query(superadmin_registrations_kb.RegistrationCandidateConfirmCallback.filter())
+async def confirm_registration_candidate(
+    callback: CallbackQuery,
+    callback_data: superadmin_registrations_kb.RegistrationCandidateConfirmCallback,
+) -> None:
+    try:
+        if (
+            callback_data.action
+            == superadmin_registrations_kb.RegistrationCandidateConfirmAction.CANCEL
+        ):
+            await callback.answer(text.REGISTRATION_CANCELLED)
+            if callback.message is not None:
+                try:
+                    await callback.message.delete()
+                except TelegramBadRequest:
+                    pass
+            return
+
+        if (
+            callback_data.action
+            == superadmin_registrations_kb.RegistrationCandidateConfirmAction.BACK
+        ):
+            review = await registration_review_service.get_registration_review_for_admin(
+                admin_telegram_id=callback.from_user.id,
+                request_id=callback_data.request_id,
+            )
+            await callback.answer()
+            if callback.message is not None:
+                await callback.message.edit_text(
+                    format_registration_review(review),
+                    reply_markup=superadmin_registrations_kb.registration_candidate_selection_keyboard(
+                        callback_data.request_id,
+                        review.candidates,
+                    ),
+                )
+            return
+
+        review_result = await registration_review_service.approve_registration(
+            superadmin_telegram_id=callback.from_user.id,
+            request_id=callback_data.request_id,
+            candidate_user_id=callback_data.user_id,
+        )
+    except AdminAccessDeniedError:
+        await callback.answer(panel_text.INSUFFICIENT_RIGHTS, show_alert=True)
+        return
+    except UserNotFoundError:
+        await callback.answer(text.PLAYER_NOT_FOUND, show_alert=True)
+        return
+    except RegistrationAlreadyReviewedError:
+        await callback.answer(
+            text.REGISTRATION_ALREADY_REVIEWED,
+            show_alert=True,
+        )
+        return
+    except (RegistrationCandidateNotFoundError, RegistrationNotAllowedError):
+        await callback.answer(text.REGISTRATION_NOT_ALLOWED, show_alert=True)
+        return
+
+    await _send_registration_review_result(
+        callback=callback,
+        review_result=review_result,
+        result_text=text.REGISTRATION_APPROVED,
+        player_text="Ваша заявка одобрена.",
+        player_keyboard=user_menu_kb.main_keyboard_after_registration(),
+    )
 
 
 async def _send_registration_review_result(

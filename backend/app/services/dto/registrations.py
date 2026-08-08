@@ -26,6 +26,7 @@ class RegistrationRequestView:
 class RegistrationReviewView:
     request: RegistrationRequestView
     candidates: list[RegistrationCandidateView]
+    selected_candidate: RegistrationCandidateView | None = None
 
 
 @dataclass(frozen=True)
