@@ -15,6 +15,7 @@ from app.bot.telegram.keyboards import labels
 from app.bot.telegram.keyboards.admin import results as admin_results_kb
 from app.bot.telegram.keyboards.superadmin import panel as superadmin_panel_kb
 from app.bot.telegram.keyboards.superadmin import tournament_close as superadmin_tournament_close_kb
+from app.bot.telegram.message_edit import edit_message_if_changed
 from app.bot.telegram.states import AdminResultStates
 from app.bot.telegram.texts.superadmin import panel as panel_text
 from app.bot.telegram.texts.superadmin import tournament_close as text
@@ -105,8 +106,9 @@ async def select_close_tournament_action(
             )
             await callback.answer()
             if callback.message is not None:
-                await callback.message.edit_text(
-                    result_fmt.close_tournament_list(page),
+                await edit_message_if_changed(
+                    callback.message,
+                    text=result_fmt.close_tournament_list(page),
                     reply_markup=superadmin_tournament_close_kb.admin_close_tournament_list_keyboard(
                         page
                     ),
@@ -127,8 +129,9 @@ async def select_close_tournament_action(
                     page=callback_data.page,
                     page_size=admin_results_kb.ADMIN_RESULT_PAGE_SIZE,
                 )
-                await callback.message.edit_text(
-                    result_fmt.close_tournament_list(page),
+                await edit_message_if_changed(
+                    callback.message,
+                    text=result_fmt.close_tournament_list(page),
                     reply_markup=superadmin_tournament_close_kb.admin_close_tournament_list_keyboard(
                         page
                     ),
@@ -252,8 +255,9 @@ async def _edit_close_tournament_card(
     )
     if errors:
         await state.clear()
-        await callback.message.edit_text(
-            result_fmt.close_tournament_blocked(errors),
+        await edit_message_if_changed(
+            callback.message,
+            text=result_fmt.close_tournament_blocked(errors),
             reply_markup=superadmin_tournament_close_kb.admin_close_tournament_card_keyboard(
                 tournament_id=tournament_id,
                 page=page,
@@ -262,8 +266,9 @@ async def _edit_close_tournament_card(
         return
     await state.set_state(AdminResultStates.entering_tournament_fund)
     await state.update_data(close_tournament_id=tournament_id, close_tournament_page=page)
-    await callback.message.edit_text(
-        result_fmt.close_tournament_card(results),
+    await edit_message_if_changed(
+        callback.message,
+        text=result_fmt.close_tournament_card(results),
         reply_markup=superadmin_tournament_close_kb.admin_close_tournament_card_keyboard(
             tournament_id=tournament_id,
             page=page,

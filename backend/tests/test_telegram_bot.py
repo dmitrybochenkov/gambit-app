@@ -7,6 +7,8 @@ from zoneinfo import ZoneInfo
 
 import pytest
 from aiogram import Bot
+from aiogram.exceptions import TelegramBadRequest
+from aiogram.methods import SendMessage
 from aiogram.types import (
     Chat,
     Message,
@@ -3923,6 +3925,43 @@ async def test_admin_registration_list_open_edits_message_to_review(
         for button in row
     ]
     assert buttons == ["✅ Одобрить", "🚫 Отклонить", "↩️ Назад", "❌ Отмена"]
+
+
+async def test_admin_registration_list_open_suppresses_not_modified_edit(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    review = registration_review(10)
+    service = SimpleNamespace(get_registration_review_for_admin=AsyncMock(return_value=review))
+    monkeypatch.setattr(superadmin_registration_handlers, "registration_review_service", service)
+    message = SimpleNamespace(
+        text="Заявки на регистрацию",
+        reply_markup=None,
+        edit_text=AsyncMock(
+            side_effect=TelegramBadRequest(
+                method=SendMessage(chat_id=1, text="test"),
+                message="Bad Request: message is not modified",
+            )
+        ),
+    )
+    callback = SimpleNamespace(
+        from_user=SimpleNamespace(id=100),
+        message=message,
+        answer=AsyncMock(),
+    )
+    callback_data = SimpleNamespace(
+        action=superadmin_registrations_kb.RegistrationListAction.OPEN,
+        page=0,
+        request_id=10,
+    )
+
+    await superadmin_registration_handlers.review_registration_list(callback, callback_data)
+
+    service.get_registration_review_for_admin.assert_awaited_once_with(
+        admin_telegram_id=100,
+        request_id=10,
+    )
+    callback.answer.assert_awaited_once_with()
+    message.edit_text.assert_awaited_once()
 
 
 async def test_registration_review_back_returns_to_source_page(

@@ -20,6 +20,7 @@ from app.bot.telegram.handlers.admin.shared import (
 from app.bot.telegram.keyboards import labels
 from app.bot.telegram.keyboards.admin import panel as admin_panel_kb
 from app.bot.telegram.keyboards.admin import results as admin_results_kb
+from app.bot.telegram.message_edit import edit_message_if_changed
 from app.bot.telegram.states import AdminResultStates
 from app.bot.telegram.texts.admin import panel as panel_text
 from app.bot.telegram.texts.admin import results as result_text
@@ -140,8 +141,9 @@ async def select_result_player(
         if callback_data.action == admin_results_kb.AdminResultPlayerAction.PAGE:
             await callback.answer()
             if callback.message is not None:
-                await callback.message.edit_text(
-                    result_fmt.players_table(results, page),
+                await edit_message_if_changed(
+                    callback.message,
+                    text=result_fmt.players_table(results, page),
                     reply_markup=admin_results_kb.admin_result_players_keyboard(results, page),
                     parse_mode=RESULT_SUMMARY_PARSE_MODE,
                 )
@@ -173,8 +175,9 @@ async def select_result_player(
     if callback.message is not None:
         editable_fields = ResultService.editable_result_fields(results)
         if editable_fields == [ResultField.PLACE]:
-            await callback.message.edit_text(
-                result_fmt.field_prompt(
+            await edit_message_if_changed(
+                callback.message,
+                text=result_fmt.field_prompt(
                     player,
                     result_field_name(admin_results_kb.AdminResultField.PLACE),
                 ),
@@ -226,8 +229,9 @@ async def select_result_field(
         await state.clear()
         await callback.answer()
         if callback.message is not None:
-            await callback.message.edit_text(
-                result_fmt.field_prompt(
+            await edit_message_if_changed(
+                callback.message,
+                text=result_fmt.field_prompt(
                     player,
                     result_field_name(callback_data.field),
                 ),
@@ -284,8 +288,9 @@ async def select_result_value(
                     page=callback_data.page,
                     page_size=admin_results_kb.ADMIN_RESULT_PAGE_SIZE,
                 )
-                await callback.message.edit_text(
-                    result_fmt.players_table(results, page),
+                await edit_message_if_changed(
+                    callback.message,
+                    text=result_fmt.players_table(results, page),
                     reply_markup=admin_results_kb.admin_result_players_keyboard(results, page),
                     parse_mode=RESULT_SUMMARY_PARSE_MODE,
                 )
@@ -311,14 +316,16 @@ async def select_result_value(
                         page=callback_data.page,
                         page_size=admin_results_kb.ADMIN_RESULT_PAGE_SIZE,
                     )
-                    await callback.message.edit_text(
-                        result_fmt.players_table(results, page),
+                    await edit_message_if_changed(
+                        callback.message,
+                        text=result_fmt.players_table(results, page),
                         reply_markup=admin_results_kb.admin_result_players_keyboard(results, page),
                         parse_mode=RESULT_SUMMARY_PARSE_MODE,
                     )
                 else:
-                    await callback.message.edit_text(
-                        result_fmt.player_detail(results, player),
+                    await edit_message_if_changed(
+                        callback.message,
+                        text=result_fmt.player_detail(results, player),
                         reply_markup=admin_results_kb.admin_result_player_fields_keyboard(
                             results,
                             player,
@@ -348,8 +355,9 @@ async def select_result_value(
             )
             await callback.answer()
             if callback.message is not None:
-                await callback.message.edit_text(
-                    result_text.ADMIN_RESULTS_MANUAL_VALUE_PROMPTS[callback_data.field.value],
+                await edit_message_if_changed(
+                    callback.message,
+                    text=result_text.ADMIN_RESULTS_MANUAL_VALUE_PROMPTS[callback_data.field.value],
                     reply_markup=admin_results_kb.admin_result_manual_value_keyboard(
                         tournament_id=callback_data.tournament_id,
                         page=callback_data.page,

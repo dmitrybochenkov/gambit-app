@@ -5,6 +5,7 @@ from aiogram.fsm.context import FSMContext
 from aiogram.types import CallbackQuery, Message
 
 from app.bot.telegram.keyboards.user import registration as user_registration_kb
+from app.bot.telegram.message_edit import edit_message_if_changed
 from app.bot.telegram.texts.user import registration as registration_text
 
 
@@ -40,14 +41,12 @@ async def edit_history_message(
     await callback.answer()
     if callback.message is None:
         return
-    try:
-        await callback.message.edit_text(
-            text,
-            reply_markup=reply_markup,
-            parse_mode=parse_mode,
-        )
-    except TelegramBadRequest:
-        pass
+    await edit_message_if_changed(
+        callback.message,
+        text=text,
+        reply_markup=reply_markup,
+        parse_mode=parse_mode,
+    )
 
 
 async def delete_prompt_and_input(message: Message, state: FSMContext) -> None:

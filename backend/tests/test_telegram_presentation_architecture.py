@@ -123,3 +123,40 @@ def test_formatter_text_and_keyboard_modules_keep_presentation_boundaries() -> N
             offenders.append(path.relative_to(PROJECT_ROOT).as_posix())
 
     assert offenders == []
+
+
+def test_message_edit_helper_keeps_presentation_boundary() -> None:
+    source = (TELEGRAM_ROOT / "message_edit.py").read_text()
+
+    assert "app.services" not in source
+    assert "app.db.repositories" not in source
+    assert "app.db.models" not in source
+    assert "app.domain" not in source
+
+
+def test_inline_navigation_uses_idempotent_edit_helpers() -> None:
+    offenders = []
+    for path in (TELEGRAM_ROOT / "handlers").rglob("*.py"):
+        source = path.read_text()
+        if ".edit_text(" in source or ".edit_reply_markup(" in source:
+            offenders.append(path.relative_to(PROJECT_ROOT).as_posix())
+
+    assert offenders == []
+
+    expected_users = {
+        "handlers/admin/check_in.py": "edit_message_if_changed",
+        "handlers/admin/results.py": "edit_message_if_changed",
+        "handlers/superadmin/registrations.py": "edit_message_if_changed",
+        "handlers/superadmin/seasons.py": "edit_message_if_changed",
+        "handlers/superadmin/tournament_close.py": "edit_message_if_changed",
+        "handlers/user/rating.py": "edit_message_if_changed",
+        "handlers/user/shared.py": "edit_message_if_changed",
+        "handlers/user/tournaments.py": "edit_reply_markup_if_changed",
+    }
+    missing = []
+    for relative_path, helper_name in expected_users.items():
+        source = (TELEGRAM_ROOT / relative_path).read_text()
+        if helper_name not in source:
+            missing.append(relative_path)
+
+    assert missing == []

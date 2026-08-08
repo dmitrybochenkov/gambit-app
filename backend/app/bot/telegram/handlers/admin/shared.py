@@ -5,6 +5,7 @@ from aiogram.exceptions import TelegramBadRequest
 from aiogram.types import CallbackQuery, Message
 
 from app.bot.telegram.keyboards.admin.results import AdminResultField
+from app.bot.telegram.message_edit import edit_reply_markup_if_changed
 from app.services.result_service import ResultField
 
 RESULT_SUMMARY_PARSE_MODE = "Markdown"
@@ -17,7 +18,7 @@ async def delete_callback_message(callback: CallbackQuery) -> None:
         await callback.message.delete()
     except TelegramBadRequest:
         try:
-            await callback.message.edit_reply_markup(reply_markup=None)
+            await edit_reply_markup_if_changed(callback.message, reply_markup=None)
         except TelegramBadRequest:
             pass
 

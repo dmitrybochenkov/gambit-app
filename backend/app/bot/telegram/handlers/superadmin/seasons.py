@@ -12,6 +12,7 @@ from app.bot.telegram.handlers.admin.shared import (
     parse_admin_date,
 )
 from app.bot.telegram.keyboards.superadmin import seasons as superadmin_seasons_kb
+from app.bot.telegram.message_edit import edit_message_if_changed
 from app.bot.telegram.states import CalendarSeasonProposalEditStates
 from app.bot.telegram.texts.superadmin import panel as panel_text
 from app.bot.telegram.texts.superadmin import seasons as text
@@ -74,8 +75,9 @@ async def manage_seasons(
             )
             await callback.answer()
             if callback.message is not None:
-                await callback.message.edit_text(
-                    season_fmt.list_page(page),
+                await edit_message_if_changed(
+                    callback.message,
+                    text=season_fmt.list_page(page),
                     reply_markup=superadmin_seasons_kb.season_list_keyboard(page),
                 )
             return
@@ -85,8 +87,9 @@ async def manage_seasons(
                 timeline = await season_service.get_season_timeline(callback.from_user.id)
                 await callback.answer()
                 if callback.message is not None:
-                    await callback.message.edit_text(
-                        season_fmt.management(timeline),
+                    await edit_message_if_changed(
+                        callback.message,
+                        text=season_fmt.management(timeline),
                         reply_markup=_season_management_keyboard(timeline),
                     )
                 return
@@ -97,8 +100,9 @@ async def manage_seasons(
             )
             await callback.answer()
             if callback.message is not None:
-                await callback.message.edit_text(
-                    season_fmt.list_page(page),
+                await edit_message_if_changed(
+                    callback.message,
+                    text=season_fmt.list_page(page),
                     reply_markup=superadmin_seasons_kb.season_list_keyboard(page),
                 )
             return
@@ -117,8 +121,9 @@ async def manage_seasons(
                 raise SeasonNotFoundError
             await callback.answer()
             if callback.message is not None:
-                await callback.message.edit_text(
-                    season_fmt.future_delete_confirmation(season),
+                await edit_message_if_changed(
+                    callback.message,
+                    text=season_fmt.future_delete_confirmation(season),
                     reply_markup=(
                         superadmin_seasons_kb.season_delete_future_confirmation_keyboard(season.id)
                     ),
@@ -132,8 +137,9 @@ async def manage_seasons(
             await state.set_state(CalendarSeasonProposalEditStates.entering_initial_starts_at)
             await callback.answer()
             if callback.message is not None:
-                await callback.message.edit_text(
-                    text.ADMIN_CALENDAR_ENTER_SEASON_NEW_START,
+                await edit_message_if_changed(
+                    callback.message,
+                    text=text.ADMIN_CALENDAR_ENTER_SEASON_NEW_START,
                     reply_markup=superadmin_seasons_kb.season_input_navigation_keyboard(),
                 )
             return
@@ -142,8 +148,9 @@ async def manage_seasons(
         await state.clear()
         await callback.answer()
         if callback.message is not None:
-            await callback.message.edit_text(
-                season_fmt.proposal(proposal),
+            await edit_message_if_changed(
+                callback.message,
+                text=season_fmt.proposal(proposal),
                 reply_markup=superadmin_seasons_kb.season_open_confirmation_keyboard(proposal.id),
             )
     except AdminAccessDeniedError:
@@ -180,8 +187,9 @@ async def select_future_season_delete_action(
         await state.clear()
         await callback.answer()
         if callback.message is not None:
-            await callback.message.edit_text(
-                season_fmt.management(timeline),
+            await edit_message_if_changed(
+                callback.message,
+                text=season_fmt.management(timeline),
                 reply_markup=_season_management_keyboard(timeline),
             )
         return
@@ -205,8 +213,9 @@ async def select_future_season_delete_action(
     await state.clear()
     await callback.answer()
     if callback.message is not None:
-        await callback.message.edit_text(
-            season_fmt.management(timeline),
+        await edit_message_if_changed(
+            callback.message,
+            text=season_fmt.management(timeline),
             reply_markup=_season_management_keyboard(timeline),
         )
 

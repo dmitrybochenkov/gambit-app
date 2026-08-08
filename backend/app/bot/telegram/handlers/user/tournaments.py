@@ -8,6 +8,7 @@ from app.bot.telegram.handlers.user.shared import (
 )
 from app.bot.telegram.keyboards import labels
 from app.bot.telegram.keyboards.user import tournaments as user_tournaments_kb
+from app.bot.telegram.message_edit import edit_reply_markup_if_changed
 from app.bot.telegram.texts.user import tournaments as text
 from app.services.pagination import pagination_service
 from app.services.tournament_service import (
@@ -112,11 +113,12 @@ async def register_for_tournament(
     )
 
     if callback.message is not None:
-        await callback.message.edit_reply_markup(
+        await edit_reply_markup_if_changed(
+            callback.message,
             reply_markup=user_tournaments_kb.tournament_registration_keyboard(
                 page,
                 selected_tournament_ids,
-            )
+            ),
         )
     if answer is None:
         await callback.answer()
@@ -241,11 +243,12 @@ async def select_tournament_for_cancellation(
         page_size=user_tournaments_kb.TOURNAMENT_LIST_PAGE_SIZE,
     )
     if callback.message is not None:
-        await callback.message.edit_reply_markup(
+        await edit_reply_markup_if_changed(
+            callback.message,
             reply_markup=user_tournaments_kb.tournament_cancellation_keyboard(
                 page,
                 selected_tournament_ids,
-            )
+            ),
         )
     if answer is None:
         await callback.answer()

@@ -1,5 +1,4 @@
 from aiogram import F, Router
-from aiogram.exceptions import TelegramBadRequest
 from aiogram.types import CallbackQuery, Message
 
 from app.bot.telegram.formatters.statistics import rating as rating_fmt
@@ -8,6 +7,7 @@ from app.bot.telegram.handlers.user.shared import (
 )
 from app.bot.telegram.keyboards import labels
 from app.bot.telegram.keyboards.user import rating as user_rating_kb
+from app.bot.telegram.message_edit import edit_message_if_changed
 from app.bot.telegram.texts.user import rating as text
 from app.services.access_policy import ActiveUserRequiredError
 from app.services.pagination import pagination_service
@@ -63,14 +63,12 @@ async def show_rating(
     )
     await callback.answer()
     if callback.message is not None:
-        try:
-            await callback.message.edit_text(
-                rating_fmt.message(rating.title, page, rating.current_player_id),
-                reply_markup=user_rating_kb.rating_page_keyboard(callback_data.kind, page),
-                parse_mode="Markdown",
-            )
-        except TelegramBadRequest:
-            pass
+        await edit_message_if_changed(
+            callback.message,
+            text=rating_fmt.message(rating.title, page, rating.current_player_id),
+            reply_markup=user_rating_kb.rating_page_keyboard(callback_data.kind, page),
+            parse_mode="Markdown",
+        )
 
 
 def rating_page_for_player(

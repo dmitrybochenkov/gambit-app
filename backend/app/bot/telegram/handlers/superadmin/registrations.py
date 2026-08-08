@@ -8,6 +8,7 @@ from app.bot.telegram.keyboards import labels
 from app.bot.telegram.keyboards.superadmin import panel as superadmin_panel_kb
 from app.bot.telegram.keyboards.superadmin import registrations as superadmin_registrations_kb
 from app.bot.telegram.keyboards.user import menu as user_menu_kb
+from app.bot.telegram.message_edit import edit_message_if_changed
 from app.bot.telegram.notifications import format_registration_review
 from app.bot.telegram.texts.superadmin import panel as panel_text
 from app.bot.telegram.texts.superadmin import registrations as text
@@ -87,8 +88,9 @@ async def review_registration(
             review = await _get_review(callback.from_user.id, callback_data.request_id)
             await callback.answer()
             if callback.message is not None:
-                await callback.message.edit_text(
-                    format_registration_review(review),
+                await edit_message_if_changed(
+                    callback.message,
+                    text=format_registration_review(review),
                     reply_markup=superadmin_registrations_kb.registration_candidate_selection_keyboard(
                         callback_data.request_id,
                         review.candidates,
@@ -185,8 +187,9 @@ async def select_registration_candidate(
 
     await callback.answer("Игрок выбран.")
     if callback.message is not None:
-        await callback.message.edit_text(
-            text.registration_candidate_confirmation(
+        await edit_message_if_changed(
+            callback.message,
+            text=text.registration_candidate_confirmation(
                 review.selected_candidate.user.display_name
                 if review.selected_candidate is not None
                 else ""
@@ -220,8 +223,9 @@ async def confirm_registration_candidate(
             review = await _get_review(callback.from_user.id, callback_data.request_id)
             await callback.answer()
             if callback.message is not None:
-                await callback.message.edit_text(
-                    format_registration_review(review),
+                await edit_message_if_changed(
+                    callback.message,
+                    text=format_registration_review(review),
                     reply_markup=superadmin_registrations_kb.registration_candidate_selection_keyboard(
                         callback_data.request_id,
                         review.candidates,
@@ -338,15 +342,20 @@ async def _edit_pending_reviews(callback: CallbackQuery, page: Page) -> None:
     if callback.message is None:
         return
     if not page.items:
-        await callback.message.edit_text(text.NO_PENDING_REGISTRATIONS, reply_markup=None)
+        await edit_message_if_changed(
+            callback.message,
+            text=text.NO_PENDING_REGISTRATIONS,
+            reply_markup=None,
+        )
         await callback.message.answer(
             panel_text.SUPERADMIN_PANEL_WELCOME,
             reply_markup=superadmin_panel_kb.superadmin_panel_keyboard(),
         )
         return
 
-    await callback.message.edit_text(
-        text.registration_list(page),
+    await edit_message_if_changed(
+        callback.message,
+        text=text.registration_list(page),
         reply_markup=superadmin_registrations_kb.registration_list_keyboard(page),
     )
 
@@ -358,8 +367,9 @@ async def _edit_registration_review(
 ) -> None:
     if callback.message is None:
         return
-    await callback.message.edit_text(
-        format_registration_review(review),
+    await edit_message_if_changed(
+        callback.message,
+        text=format_registration_review(review),
         reply_markup=superadmin_registrations_kb.registration_review_keyboard_for_review(
             review,
             page,

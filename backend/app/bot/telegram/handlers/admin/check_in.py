@@ -13,6 +13,7 @@ from app.bot.telegram.keyboards import labels
 from app.bot.telegram.keyboards.admin import check_in as admin_check_in_kb
 from app.bot.telegram.keyboards.admin import panel as admin_panel_kb
 from app.bot.telegram.keyboards.admin import results as admin_results_kb
+from app.bot.telegram.message_edit import edit_message_if_changed
 from app.bot.telegram.states import AdminResultStates
 from app.bot.telegram.texts.admin import panel as panel_text
 from app.bot.telegram.texts.admin import results as result_text
@@ -169,8 +170,9 @@ async def select_check_in_action(
             )
             await callback.answer()
             if callback.message is not None:
-                await callback.message.edit_text(
-                    check_in_fmt.registered_confirmation(
+                await edit_message_if_changed(
+                    callback.message,
+                    text=check_in_fmt.registered_confirmation(
                         confirmation.tournament,
                         confirmation.user,
                     ),
@@ -190,8 +192,9 @@ async def select_check_in_action(
             )
             await callback.answer()
             if callback.message is not None:
-                await callback.message.edit_text(
-                    check_in_fmt.existing_confirmation(
+                await edit_message_if_changed(
+                    callback.message,
+                    text=check_in_fmt.existing_confirmation(
                         confirmation.tournament,
                         confirmation.user,
                     ),
@@ -221,8 +224,9 @@ async def select_check_in_action(
             )
             await callback.answer()
             if callback.message is not None:
-                await callback.message.edit_text(
-                    check_in_fmt.new_confirmation(tournament, display_name),
+                await edit_message_if_changed(
+                    callback.message,
+                    text=check_in_fmt.new_confirmation(tournament, display_name),
                     reply_markup=admin_check_in_kb.admin_check_in_confirmation_keyboard(
                         tournament_id=callback_data.tournament_id,
                         confirm_action=admin_check_in_kb.AdminCheckInAction.CREATE_NEW,
@@ -285,8 +289,9 @@ async def select_check_in_action(
     )
     await _send_check_in_notification(callback, result)
     if callback.message is not None:
-        await callback.message.edit_text(
-            check_in_fmt.summary(view),
+        await edit_message_if_changed(
+            callback.message,
+            text=check_in_fmt.summary(view),
             reply_markup=admin_check_in_kb.admin_check_in_keyboard(view),
         )
 
@@ -324,8 +329,9 @@ async def _restore_check_in_previous_screen(
             tournament_id=tournament_id,
             query=query,
         )
-        await callback.message.edit_text(
-            "Нашел среди зарегистрированных:" if players else "Игроки не найдены.",
+        await edit_message_if_changed(
+            callback.message,
+            text="Нашел среди зарегистрированных:" if players else "Игроки не найдены.",
             reply_markup=admin_check_in_kb.admin_check_in_search_results_keyboard(
                 tournament_id=tournament_id,
                 players=players,
@@ -341,8 +347,9 @@ async def _restore_check_in_previous_screen(
             tournament_id=tournament_id,
             query=query,
         )
-        await callback.message.edit_text(
-            "Нашел игроков в базе:" if players else "Игроки не найдены.",
+        await edit_message_if_changed(
+            callback.message,
+            text="Нашел игроков в базе:" if players else "Игроки не найдены.",
             reply_markup=admin_check_in_kb.admin_check_in_search_results_keyboard(
                 tournament_id=tournament_id,
                 players=players,
@@ -360,16 +367,18 @@ async def _restore_check_in_previous_screen(
             display_name=display_name,
         )
         if exact_exists and candidates:
-            await callback.message.edit_text(
-                "Игрок с таким именем уже существует.",
+            await edit_message_if_changed(
+                callback.message,
+                text="Игрок с таким именем уже существует.",
                 reply_markup=admin_check_in_kb.admin_check_in_exact_match_keyboard(
                     tournament_id=tournament_id,
                     user_id=candidates[0].id,
                 ),
             )
             return True
-        await callback.message.edit_text(
-            "В базе найдены похожие игроки:",
+        await edit_message_if_changed(
+            callback.message,
+            text="В базе найдены похожие игроки:",
             reply_markup=admin_check_in_kb.admin_check_in_similar_players_keyboard(
                 tournament_id=tournament_id,
                 players=candidates,
@@ -378,8 +387,9 @@ async def _restore_check_in_previous_screen(
         return True
     if back_screen == "new_player_prompt":
         await state.set_state(AdminResultStates.entering_new_check_in_player)
-        await callback.message.edit_text(
-            "Введи имя нового игрока.",
+        await edit_message_if_changed(
+            callback.message,
+            text="Введи имя нового игрока.",
             reply_markup=admin_check_in_kb.admin_check_in_cancel_keyboard(tournament_id),
         )
         return True
