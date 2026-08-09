@@ -226,6 +226,36 @@ Rules:
   codec in `backend/app/domain/prize_multiplier_places.py`.
 - `NULL` means prize-place multiplier is disabled.
 - Non-empty values are sorted unique integer places from `1` to `5`.
+- `mystery_bounty` uses `knockout_mode = none` and
+  `supports_bonus_points = true`.
+- Mystery Bounty result entry does not use KO or Boss KO fields. The
+  `bonus_points` field is shown to administrators as "Доп. очки".
+- Mystery Bounty scoring still uses saved result fields only:
+  `total_points = tournament_points + knockout_points + bonus_points`; because
+  `knockout_mode = none`, `knockout_points` remains `0`.
+
+## SeasonHallOfFame
+
+Manual authoritative Hall of Fame entry for one completed season.
+
+Fields:
+
+- `id`
+- `season_id`
+- `champion_player_id`
+- `knockout_player_id`
+- `updated_by_user_id`
+- `created_at`
+- `updated_at`
+
+Rules:
+
+- One row per season.
+- `champion_player_id` and `knockout_player_id` are nullable.
+- The same player may be both season champion and knockout leader.
+- All foreign keys use `ON DELETE RESTRICT`.
+- User Hall of Fame and rating honours read this table; they do not derive
+  winners mathematically from rating rows.
 
 ## Import Semantics
 

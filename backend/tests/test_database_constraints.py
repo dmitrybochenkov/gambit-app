@@ -9,7 +9,15 @@ from sqlalchemy.orm import Session
 
 from app.db.base import Base
 from app.db.factories import create_user
-from app.db.models import AdminPrompt, ScoringConfig, Season, Tournament, TournamentResult, User
+from app.db.models import (
+    AdminPrompt,
+    ScoringConfig,
+    Season,
+    SeasonHallOfFame,
+    Tournament,
+    TournamentResult,
+    User,
+)
 from app.db.models.enums import (
     AdminPromptKind,
     AdminPromptStatus,
@@ -965,6 +973,65 @@ def test_cancelled_tournament_keeps_date_unique(session: Session) -> None:
                 tournament_type_id=tournament_type_id("classic"),
                 date=date(2026, 8, 1),
                 status=TournamentStatus.ACTIVE,
+            ),
+        ]
+    )
+
+    with pytest.raises(IntegrityError):
+        session.commit()
+
+
+def test_season_hall_of_fame_allows_partial_and_same_winner(session: Session) -> None:
+    scoring_config = ScoringConfig()
+    user = create_user(telegram_id=1, display_name="Winner")
+    session.add_all([scoring_config, user])
+    session.flush()
+    season = Season(
+        name="Hall season",
+        scoring_config_id=scoring_config.id,
+        starts_at=date(2026, 1, 1),
+        ends_at=date(2026, 3, 31),
+    )
+    session.add(season)
+    session.flush()
+    session.add(
+        SeasonHallOfFame(
+            season_id=season.id,
+            champion_player_id=user.id,
+            knockout_player_id=user.id,
+            updated_by_user_id=user.id,
+        )
+    )
+
+    session.commit()
+
+
+def test_season_hall_of_fame_requires_unique_season(session: Session) -> None:
+    scoring_config = ScoringConfig()
+    user = create_user(telegram_id=1, display_name="Winner")
+    session.add_all([scoring_config, user])
+    session.flush()
+    season = Season(
+        name="Hall season unique",
+        scoring_config_id=scoring_config.id,
+        starts_at=date(2026, 1, 1),
+        ends_at=date(2026, 3, 31),
+    )
+    session.add(season)
+    session.flush()
+    session.add_all(
+        [
+            SeasonHallOfFame(
+                season_id=season.id,
+                champion_player_id=None,
+                knockout_player_id=None,
+                updated_by_user_id=user.id,
+            ),
+            SeasonHallOfFame(
+                season_id=season.id,
+                champion_player_id=user.id,
+                knockout_player_id=None,
+                updated_by_user_id=user.id,
             ),
         ]
     )

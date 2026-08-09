@@ -335,7 +335,7 @@ class ResultService:
         if not results.players:
             errors.append("Нет участников турнира.")
         places = [player.place for player in results.players if player.place is not None]
-        required_places = set(range(1, min(5, len(results.players)) + 1))
+        required_places = set(results.required_places)
         missing_places = sorted(required_places - set(places))
         if missing_places:
             errors.append("Введи места: " + ", ".join(str(place) for place in missing_places) + ".")

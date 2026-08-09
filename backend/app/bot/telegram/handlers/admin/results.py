@@ -167,7 +167,7 @@ async def select_result_player(
                 callback.message,
                 text=result_fmt.field_prompt(
                     player,
-                    result_field_name(admin_results_kb.AdminResultField.PLACE),
+                    result_field_name(admin_results_kb.AdminResultField.PLACE, results),
                 ),
                 reply_markup=admin_results_kb.admin_result_value_keyboard(
                     tournament_id=callback_data.tournament_id,
@@ -221,7 +221,7 @@ async def select_result_field(
                 callback.message,
                 text=result_fmt.field_prompt(
                     player,
-                    result_field_name(callback_data.field),
+                    result_field_name(callback_data.field, results),
                 ),
                 reply_markup=admin_results_kb.admin_result_value_keyboard(
                     tournament_id=callback_data.tournament_id,
@@ -337,6 +337,7 @@ async def select_result_value(
                 result_player_id=callback_data.player_id,
                 result_page=callback_data.page,
                 result_field=callback_data.field.value,
+                result_bonus_label=results.bonus_points_label,
                 result_prompt_message_id=callback.message.message_id
                 if callback.message is not None
                 else 0,
@@ -345,7 +346,10 @@ async def select_result_value(
             if callback.message is not None:
                 await edit_message_if_changed(
                     callback.message,
-                    text=result_text.ADMIN_RESULTS_MANUAL_VALUE_PROMPTS[callback_data.field.value],
+                    text=result_text.admin_results_manual_value_prompt(
+                        callback_data.field.value,
+                        bonus_label=results.bonus_points_label,
+                    ),
                     reply_markup=admin_results_kb.admin_result_manual_value_keyboard(
                         tournament_id=callback_data.tournament_id,
                         page=callback_data.page,
@@ -362,7 +366,7 @@ async def select_result_value(
         await callback.answer(result_text.ADMIN_RESULTS_EDITING_UNAVAILABLE, show_alert=True)
     except (ResultInvalidPlayerDataError, ResultUserNotFoundError, ValueError):
         await callback.answer(
-            result_text.ADMIN_RESULTS_INVALID_MANUAL_VALUE[callback_data.field.value],
+            result_text.admin_results_invalid_manual_value(callback_data.field.value),
             show_alert=True,
         )
 
@@ -377,6 +381,7 @@ async def enter_result_manual_value(message: Message, state: FSMContext) -> None
     player_id = int(data["result_player_id"])
     page_number = int(data.get("result_page", 0))
     field = admin_results_kb.AdminResultField(str(data["result_field"]))
+    bonus_label = str(data.get("result_bonus_label") or "Бонус")
     try:
         value = parse_result_manual_value(
             message.text or "",
@@ -402,7 +407,12 @@ async def enter_result_manual_value(message: Message, state: FSMContext) -> None
         await message.answer(result_text.ADMIN_RESULTS_EDITING_UNAVAILABLE)
         return
     except (ResultInvalidPlayerDataError, ResultUserNotFoundError, ValueError):
-        await message.answer(result_text.ADMIN_RESULTS_INVALID_MANUAL_VALUE[field.value])
+        await message.answer(
+            result_text.admin_results_invalid_manual_value(
+                field.value,
+                bonus_label=bonus_label,
+            )
+        )
         return
 
     await state.clear()

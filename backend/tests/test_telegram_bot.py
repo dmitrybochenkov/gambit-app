@@ -33,6 +33,7 @@ from app.bot.telegram.handlers.admin import panel as admin_panel_handlers
 from app.bot.telegram.handlers.admin import results as admin_result_handlers
 from app.bot.telegram.handlers.admin import schedule as admin_schedule_handlers
 from app.bot.telegram.handlers.superadmin import administrators as superadmin_administrator_handlers
+from app.bot.telegram.handlers.superadmin import hall_of_fame as superadmin_hall_of_fame_handlers
 from app.bot.telegram.handlers.superadmin import panel as superadmin_panel_handlers
 from app.bot.telegram.handlers.superadmin import registrations as superadmin_registration_handlers
 from app.bot.telegram.handlers.superadmin import seasons as superadmin_season_handlers
@@ -50,12 +51,13 @@ from app.bot.telegram.keyboards.admin import check_in as admin_check_in_kb
 from app.bot.telegram.keyboards.admin import results as admin_results_kb
 from app.bot.telegram.keyboards.admin import schedule as admin_schedule_kb
 from app.bot.telegram.keyboards.superadmin import administrators as superadmin_administrators_kb
+from app.bot.telegram.keyboards.superadmin import hall_of_fame as superadmin_hall_of_fame_kb
 from app.bot.telegram.keyboards.superadmin import registrations as superadmin_registrations_kb
 from app.bot.telegram.keyboards.superadmin import seasons as superadmin_seasons_kb
 from app.bot.telegram.keyboards.superadmin import tournament_close as superadmin_tournament_close_kb
 from app.bot.telegram.keyboards.user import rating as user_rating_kb
 from app.bot.telegram.keyboards.user import tournaments as user_tournaments_kb
-from app.bot.telegram.states import AdminResultStates
+from app.bot.telegram.states import AdminResultStates, HallOfFameStates
 from app.bot.telegram.texts.admin import results as admin_result_text
 from app.bot.telegram.texts.user import registration as registration_text
 from app.bot.telegram.texts.user import tournaments as tournament_text
@@ -79,6 +81,11 @@ from app.db.models.enums import (
     UserStatus,
 )
 from app.services.access_policy import AdminAccessDeniedError
+from app.services.dto.hall_of_fame import (
+    HallOfFameCandidateView,
+    HallOfFameEntryView,
+    HallOfFameSeasonListItemView,
+)
 from app.services.dto.registrations import (
     AdminPanelView,
     RegistrationCandidateView,
@@ -484,6 +491,63 @@ def test_admin_result_players_show_place_only_table_for_classic() -> None:
     assert "Илларионов Александр" not in text
 
 
+def test_admin_result_players_show_required_place_slots() -> None:
+    tournament = tournament_view(125, date(2026, 7, 19), 2, "Классика")
+    results = TournamentResultsView(
+        tournament=tournament,
+        tournament_fund=2200,
+        players=[
+            TournamentResultPlayerView(
+                player_id=1,
+                display_name="Первый",
+                place=1,
+                knockouts_count=0,
+                big_knockouts_count=0,
+            ),
+            TournamentResultPlayerView(
+                player_id=2,
+                display_name="Четвертый",
+                place=4,
+                knockouts_count=0,
+                big_knockouts_count=0,
+            ),
+            TournamentResultPlayerView(
+                player_id=3,
+                display_name="Без результата",
+                place=None,
+                knockouts_count=0,
+                big_knockouts_count=0,
+            ),
+            TournamentResultPlayerView(
+                player_id=4,
+                display_name="КО без места",
+                place=None,
+                knockouts_count=3,
+                big_knockouts_count=0,
+            ),
+            TournamentResultPlayerView(
+                player_id=5,
+                display_name="Пятый",
+                place=5,
+                knockouts_count=0,
+                big_knockouts_count=0,
+            ),
+        ],
+        knockout_mode="small",
+    )
+    page = Page(items=results.players, page=0, page_size=6, total_items=5)
+
+    text = result_fmt.players_table(results, page)
+
+    assert "1      Первый" in text
+    assert "2      НЕ ВВЕДЕНО" in text
+    assert "3      НЕ ВВЕДЕНО" in text
+    assert "4      Четвертый" in text
+    assert "5      Пятый" in text
+    assert "—      КО без места" in text
+    assert "Без результата" not in text
+
+
 def test_admin_result_players_add_knockout_columns_for_bounty() -> None:
     tournament = tournament_view(125, date(2026, 7, 19), 6, "Boss Bounty")
     results = TournamentResultsView(
@@ -557,9 +621,66 @@ def test_admin_result_players_add_bonus_only_when_supported() -> None:
 
     text = result_fmt.players_table(results, page)
     assert "Место  Игрок" in text
-    assert "КО  Бонус" in text
+    assert "КО" in text
+    assert "Бонус" in text
     assert "БКО" not in text
     assert "Илларионов Александр" not in text
+
+
+def test_mystery_bounty_result_ui_uses_bonus_without_knockouts() -> None:
+    tournament = tournament_view(
+        125,
+        date(2026, 7, 19),
+        5,
+        "Mystery Bounty",
+        "mystery_bounty",
+    )
+    results = TournamentResultsView(
+        tournament=tournament,
+        tournament_fund=2200,
+        players=[
+            TournamentResultPlayerView(
+                player_id=108,
+                display_name="Илларионов Александр",
+                place=1,
+                knockouts_count=3,
+                big_knockouts_count=2,
+                bonus_points=7,
+                tournament_points=Decimal("100"),
+            ),
+            TournamentResultPlayerView(
+                player_id=109,
+                display_name="Пустой",
+                place=None,
+                knockouts_count=0,
+                big_knockouts_count=0,
+            ),
+        ],
+        knockout_mode="none",
+        supports_bonus_points=True,
+    )
+    page = Page(items=results.players, page=0, page_size=6, total_items=2)
+
+    text = result_fmt.players_table(results, page)
+    field_buttons = inline_keyboard_texts(
+        admin_results_kb.admin_result_player_fields_keyboard(
+            results,
+            results.players[0],
+            page=0,
+        )
+    )
+    close_preview = result_fmt.closed_tournament(results)
+
+    assert "КО" not in text
+    assert "БКО" not in text
+    assert "Доп. очки" in text
+    assert "1      Илларионов" in text
+    assert "2      НЕ ВВЕДЕНО" in text
+    assert field_buttons == ["➕ Доп. очки", "🏁 Место", "❌ Отмена"]
+    assert "КО" not in close_preview
+    assert "БКО" not in close_preview
+    assert "Доп. очки" in close_preview
+    assert "Очки" in close_preview
 
 
 def test_admin_close_tournament_formatters_show_fund_and_game_tables() -> None:
@@ -599,12 +720,15 @@ def test_admin_close_tournament_formatters_show_fund_and_game_tables() -> None:
         "Фонд турнира должен быть положительным целым числом, кратным 10.\n\nВведите фонд турнира."
     )
     assert "Введите фонд турнира?" in card
-    assert "Место  Игрок               КО  БКО  Бонус" in card
+    assert "Место  Игрок               КО  БКО" in card
+    assert "Бонус" in card
     assert "🥊" not in card.split("```")[1].splitlines()[0]
     assert "Фонд турнира: 1800" in confirmation
     assert "После подтверждения будут рассчитаны рейтинговые очки" in confirmation
     assert "✅ Турнир закрыт" in closed
-    assert "Место  Игрок               КО  БКО  Бонус   Очки" in closed
+    assert "Место  Игрок               КО  БКО" in closed
+    assert "Бонус" in closed
+    assert "Очки" in closed
     assert "1110" in closed
     assert "Тест Игрок" not in card
     assert "Тест Игрок" not in confirmation
@@ -998,12 +1122,14 @@ def tournament_view(
     tournament_date: date,
     tournament_type_id: int,
     tournament_type_name: str | None = None,
+    tournament_type_code: str | None = None,
 ) -> TournamentView:
     return TournamentView(
         id=tournament_id,
         date=tournament_date,
         tournament_type_id=tournament_type_id,
         tournament_type_name=tournament_type_name,
+        tournament_type_code=tournament_type_code,
     )
 
 
@@ -2605,6 +2731,121 @@ async def test_hall_of_fame_button_shows_message(
     assert answer.kwargs["parse_mode"] == "Markdown"
 
 
+async def test_superadmin_hall_of_fame_lists_completed_seasons(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    message = SimpleNamespace(
+        from_user=SimpleNamespace(id=123),
+        answer=AsyncMock(),
+    )
+    service = SimpleNamespace(
+        list_completed_seasons=AsyncMock(
+            return_value=[
+                HallOfFameSeasonListItemView(
+                    season_id=1,
+                    season_name="Лето 2026",
+                    starts_at=date(2026, 6, 1),
+                    ends_at=date(2026, 8, 31),
+                )
+            ]
+        )
+    )
+    monkeypatch.setattr(
+        superadmin_hall_of_fame_handlers,
+        "hall_of_fame_management_service",
+        service,
+    )
+    state = MutableState()
+
+    await superadmin_hall_of_fame_handlers.show_hall_of_fame_management(message, state)
+
+    service.list_completed_seasons.assert_awaited_once_with(123)
+    answer = message.answer.await_args
+    assert answer.args[0] == "🔧 Наполнить зал славы\n\nВыбери завершённый сезон:"
+    assert inline_keyboard_texts(answer.kwargs["reply_markup"]) == ["Лето 2026", "❌ Отмена"]
+
+
+async def test_superadmin_hall_of_fame_opens_card_and_searches_candidate(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    champion = UserView(
+        id=10,
+        telegram_id=None,
+        display_name="Иван",
+        status=UserStatus.ACTIVE,
+        role=UserRole.ADMIN,
+    )
+    entry = HallOfFameEntryView(
+        season_id=1,
+        season_name="Лето 2026",
+        starts_at=date(2026, 6, 1),
+        ends_at=date(2026, 8, 31),
+        champion=None,
+        knockout_leader=None,
+    )
+    service = SimpleNamespace(
+        get_season_hall_of_fame=AsyncMock(return_value=entry),
+        search_players=AsyncMock(
+            return_value=[HallOfFameCandidateView(user=champion, score=300, reason="")]
+        ),
+    )
+    monkeypatch.setattr(
+        superadmin_hall_of_fame_handlers,
+        "hall_of_fame_management_service",
+        service,
+    )
+    message = SimpleNamespace(edit_text=AsyncMock())
+    callback = SimpleNamespace(
+        from_user=SimpleNamespace(id=123),
+        message=message,
+        answer=AsyncMock(),
+    )
+    state = MutableState()
+
+    await superadmin_hall_of_fame_handlers.select_hall_of_fame_season(
+        callback,
+        superadmin_hall_of_fame_kb.HallOfFameSeasonCallback(
+            action=superadmin_hall_of_fame_kb.HallOfFameSeasonAction.OPEN,
+            page=0,
+            season_id=1,
+        ),
+        state,
+    )
+
+    assert "🏆 Зал славы" in message.edit_text.await_args.args[0]
+    assert "Не выбран" in message.edit_text.await_args.args[0]
+    assert inline_keyboard_texts(message.edit_text.await_args.kwargs["reply_markup"]) == [
+        "💍 Выбрать чемпиона",
+        "🥊 Выбрать нокаутера",
+        "⬅️ Назад",
+        "❌ Отмена",
+    ]
+
+    search_message = SimpleNamespace(
+        from_user=SimpleNamespace(id=123),
+        text="Иван",
+        answer=AsyncMock(),
+        bot=SimpleNamespace(edit_message_reply_markup=AsyncMock()),
+        chat=SimpleNamespace(id=123),
+    )
+    await state.set_state(HallOfFameStates.entering_player_name)
+    await state.update_data(
+        hall_season_id=1,
+        hall_field=superadmin_hall_of_fame_kb.HallOfFameField.CHAMPION.value,
+    )
+
+    await superadmin_hall_of_fame_handlers.search_hall_of_fame_player(search_message, state)
+
+    service.search_players.assert_awaited_once_with(123, "Иван")
+    search_answer = search_message.answer.await_args
+    assert search_answer.args[0] == "Выбери игрока:"
+    assert inline_keyboard_texts(search_answer.kwargs["reply_markup"]) == [
+        "Иван",
+        "⬅️ Назад",
+        "❌ Отмена",
+    ]
+
+
 async def test_hall_of_fame_requires_active_user(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -3279,6 +3520,7 @@ async def test_superadmin_panel_button_opens_superadmin_keyboard(
         "🗓 Календарь",
         "➕ Добавить администратора",
         "🔒 Закрыть турнир",
+        "🔧 Наполнить зал славы",
         "⬅️ Назад",
     ]
 

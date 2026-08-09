@@ -83,7 +83,8 @@ After close:
 - History includes the tournament and saved result points.
 - Rating changes.
 - Profile changes.
-- Hall of Fame changes only for completed seasons.
+- Hall of Fame does not change automatically. SUPERADMIN fills completed
+  seasons manually through `🔧 Наполнить зал славы`.
 
 ## Season Boundary
 
@@ -91,6 +92,9 @@ Create a future season and confirm:
 
 - The current season with future `ends_at` is not in Hall of Fame.
 - Completed seasons are those with `ends_at` before the business date.
+- Completed seasons appear in SUPERADMIN Hall of Fame management.
+- Selecting champion and knockout leader updates user Hall of Fame and rating
+  honour markers.
 
 ## Database Checks
 

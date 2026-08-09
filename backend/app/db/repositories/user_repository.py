@@ -75,6 +75,10 @@ class UserRepository:
         )
         return list(result.scalars())
 
+    async def list_hall_of_fame_candidates(self) -> list[User]:
+        result = await self.session.execute(select(User).order_by(User.display_name, User.id))
+        return list(result.scalars())
+
     async def list_link_candidates(self) -> list[User]:
         result = await self.session.execute(
             select(User)

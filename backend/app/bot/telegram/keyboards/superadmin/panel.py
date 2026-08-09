@@ -10,6 +10,7 @@ def superadmin_panel_keyboard() -> ReplyKeyboardMarkup:
             [KeyboardButton(text=labels.ADMIN_PANEL_CALENDAR)],
             [KeyboardButton(text=labels.ADMIN_PANEL_ADD_ADMIN)],
             [KeyboardButton(text=labels.ADMIN_PANEL_CLOSE_TOURNAMENT)],
+            [KeyboardButton(text=labels.ADMIN_PANEL_HALL_OF_FAME)],
             [KeyboardButton(text=labels.ADMIN_PANEL_BACK)],
         ],
         resize_keyboard=True,

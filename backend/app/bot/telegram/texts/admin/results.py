@@ -25,3 +25,15 @@ PLAYER_NOT_FOUND = "Игрок не найден."
 
 def admin_result_check_failed(errors: list[str]) -> str:
     return ADMIN_RESULTS_CHECK_FAILED.format(errors="\n".join(f"• {error}" for error in errors))
+
+
+def admin_results_manual_value_prompt(field: str, *, bonus_label: str = "Бонус") -> str:
+    if field == "bonus" and bonus_label == "Доп. очки":
+        return "Введи дополнительные очки числом."
+    return ADMIN_RESULTS_MANUAL_VALUE_PROMPTS[field]
+
+
+def admin_results_invalid_manual_value(field: str, *, bonus_label: str = "Бонус") -> str:
+    if field == "bonus" and bonus_label == "Доп. очки":
+        return "Доп. очки должны быть неотрицательным числом."
+    return ADMIN_RESULTS_INVALID_MANUAL_VALUE[field]

@@ -21,7 +21,7 @@ def players_table(
         "",
         f"Игроки: {len(results.players)}",
         "",
-        *_game_table_lines(results),
+        *_game_table_lines(results, include_required_place_slots=True),
     ]
     return "\n".join(lines)
 
@@ -45,7 +45,7 @@ def close_tournament_card(results: object) -> str:
             "",
             f"Игроков: {len(results.players)}",
             "",
-            *_game_table_lines(results),
+            *_game_table_lines(results, include_points=_show_close_points(results)),
             "",
             "Введите фонд турнира?",
         ]
@@ -91,7 +91,7 @@ def close_tournament_confirmation(
             "После подтверждения будут рассчитаны рейтинговые очки,",
             "а турнир станет недоступен для редактирования.",
             "",
-            *_game_table_lines(results),
+            *_game_table_lines(results, include_points=_show_close_points(results)),
         ]
     )
 
@@ -134,7 +134,7 @@ def player_detail(
     if results.knockout_mode == "small_big":
         lines.append(f"👑🥊: {player.big_knockouts_count}")
     if results.supports_bonus_points:
-        lines.append(f"Бонус: {player.bonus_points}")
+        lines.append(f"{results.bonus_points_label}: {player.bonus_points}")
     if player.place is not None:
         lines.append(f"Место: {_place_label(player.place)}")
     return "\n".join(lines)
@@ -175,6 +175,7 @@ def player_parts(
     bonus_points: int,
     place: int | None,
     supports_bonus_points: bool,
+    bonus_points_label: str = "Бонус",
 ) -> list[str]:
     parts = []
     if place is not None:
@@ -185,16 +186,16 @@ def player_parts(
         if knockouts_count > 0:
             parts.append(f"🥊 х{knockouts_count}")
         if supports_bonus_points and bonus_points > 0:
-            parts.append(f"Бонус {bonus_points}")
+            parts.append(f"{bonus_points_label} {bonus_points}")
         return parts
     if knockout_mode == "small":
         if knockouts_count > 0:
             parts.append(f"🥊 х{knockouts_count}")
         if supports_bonus_points and bonus_points > 0:
-            parts.append(f"Бонус {bonus_points}")
+            parts.append(f"{bonus_points_label} {bonus_points}")
         return parts
     if supports_bonus_points and bonus_points > 0:
-        parts.append(f"Бонус {bonus_points}")
+        parts.append(f"{bonus_points_label} {bonus_points}")
     return parts
 
 
@@ -207,10 +208,11 @@ def _game_table_lines(
     *,
     include_points: bool = False,
     force_all_columns: bool = False,
+    include_required_place_slots: bool = False,
 ) -> list[str]:
     rows = []
     sorted_players = sorted(
-        results.entered_players,
+        _table_players(results, include_required_place_slots=include_required_place_slots),
         key=lambda player: (
             player.place if player.place is not None else 99,
             -player.big_knockouts_count,
@@ -227,7 +229,7 @@ def _game_table_lines(
     if show_big_knockouts:
         header += f" {'БКО':>4}"
     if show_bonus:
-        header += f" {'Бонус':>6}"
+        header += f" {results.bonus_points_label:>9}"
     if include_points:
         header += f" {'Очки':>6}"
     rows.append(header)
@@ -235,15 +237,49 @@ def _game_table_lines(
         place = str(player.place) if player.place is not None else "—"
         base = f"{place:<5}  {fmt_common.code_cell(player.display_name, 18):<18}"
         if show_knockouts:
-            base += f" {player.knockouts_count:>3}"
+            base += _table_number_cell(player, player.knockouts_count, width=3)
         if show_big_knockouts:
-            base += f" {player.big_knockouts_count:>4}"
+            base += _table_number_cell(player, player.big_knockouts_count, width=4)
         if show_bonus:
-            base += f" {player.bonus_points:>6}"
+            base += _table_number_cell(player, player.bonus_points, width=9)
         if include_points:
-            base += f" {fmt_common.decimal(player.total_points):>6}"
+            value = "" if _is_missing_place_row(player) else fmt_common.decimal(player.total_points)
+            base += f" {value:>6}"
         rows.append(base)
     return ["```", *rows, "```"]
+
+
+def _show_close_points(results: object) -> bool:
+    return getattr(results.tournament, "tournament_type_code", None) == "mystery_bounty"
+
+
+def _table_number_cell(player: object, value: int, *, width: int) -> str:
+    if _is_missing_place_row(player):
+        return f" {'':>{width}}"
+    return f" {value:>{width}}"
+
+
+def _is_missing_place_row(player: object) -> bool:
+    return bool(getattr(player, "is_missing_place", False))
+
+
+def _table_players(
+    results: object,
+    *,
+    include_required_place_slots: bool,
+) -> list[object]:
+    if not include_required_place_slots:
+        return results.entered_players
+
+    players_by_place = {
+        player.place: player for player in results.entered_players if player.place is not None
+    }
+    rows: list[object] = []
+    for place in results.required_places:
+        player = players_by_place.get(place)
+        rows.append(player if player is not None else _MissingPlaceRow(place=place))
+    rows.extend(player for player in results.entered_players if player.place is None)
+    return rows
 
 
 def _places_table_lines(results: object) -> list[str]:
@@ -284,6 +320,7 @@ def _knockout_lines(results: object) -> list[str]:
             bonus_points=player.bonus_points,
             place=None,
             supports_bonus_points=results.supports_bonus_points,
+            bonus_points_label=results.bonus_points_label,
         )
         lines.append(
             f"{fmt_common.markdown_escape(player.display_name)}: {', '.join(result_parts)}"
@@ -301,7 +338,7 @@ def _bonus_lines(results: object) -> list[str]:
     if not players:
         return []
     return [
-        "Бонус:",
+        f"{results.bonus_points_label}:",
         *[
             f"{fmt_common.markdown_escape(player.display_name)}: {player.bonus_points}"
             for player in players
@@ -322,3 +359,15 @@ def _player_sort_key(
 
 def _place_label(place: int) -> str:
     return PLACE_EMOJIS.get(place, str(place))
+
+
+class _MissingPlaceRow:
+    is_missing_place = True
+    display_name = "НЕ ВВЕДЕНО"
+    knockouts_count = 0
+    big_knockouts_count = 0
+    bonus_points = 0
+    total_points = 0
+
+    def __init__(self, place: int) -> None:
+        self.place = place

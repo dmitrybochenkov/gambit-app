@@ -10,6 +10,7 @@ from app.db.base import Base
 from app.db.models import (
     ScoringConfig,
     Season,
+    SeasonHallOfFame,
     Tournament,
     TournamentResult,
 )
@@ -163,6 +164,12 @@ async def test_rating_filters_current_season_and_all_time(tmp_path: Path) -> Non
                     tournament_points=Decimal("999"),
                     knockout_points=Decimal("999"),
                     bonus_points=999,
+                ),
+                SeasonHallOfFame(
+                    season_id=previous_season.id,
+                    champion_player_id=first_player.id,
+                    knockout_player_id=first_player.id,
+                    updated_by_user_id=first_player.id,
                 ),
             ]
         )
@@ -537,6 +544,12 @@ async def test_knockout_games_count_and_completed_season_title_tiebreakers(
                     tournament_points=Decimal("500"),
                     knockout_points=Decimal("0"),
                     bonus_points=0,
+                ),
+                SeasonHallOfFame(
+                    season_id=completed.id,
+                    champion_player_id=low_id_player.id,
+                    knockout_player_id=low_id_player.id,
+                    updated_by_user_id=low_id_player.id,
                 ),
             ]
         )

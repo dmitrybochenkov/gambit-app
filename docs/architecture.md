@@ -131,6 +131,15 @@ the next template after its type is selected, otherwise the first configured
 Sunday template is used. Adding another Sunday template in the database changes
 the rotation without Python code changes.
 
+## Hall of Fame
+
+Hall of Fame winners are manually curated in `season_hall_of_fame`.
+`UserStatisticsService` and rating honours read this table through
+`HallOfFameRepository`; they do not calculate winners from rating totals or
+knockout totals. Superadmin management goes through
+`HallOfFameManagementService`, which performs service-level authorization and
+persists the selected champion and knockout leader.
+
 ## Telegram Presentation
 
 Presentation modules are organized by role and scenario:

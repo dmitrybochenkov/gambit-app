@@ -40,3 +40,13 @@ class TournamentResultsView:
         if self.knockout_mode == "small_big" and player.big_knockouts_count > 0:
             return True
         return self.supports_bonus_points and player.bonus_points > 0
+
+    @property
+    def required_places(self) -> tuple[int, ...]:
+        return tuple(range(1, min(5, len(self.players)) + 1))
+
+    @property
+    def bonus_points_label(self) -> str:
+        if self.tournament.tournament_type_code == "mystery_bounty":
+            return "Доп. очки"
+        return "Бонус"

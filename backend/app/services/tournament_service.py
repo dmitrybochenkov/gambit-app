@@ -205,4 +205,5 @@ def tournament_view(tournament: Tournament) -> TournamentView:
         date=tournament.date,
         tournament_type_id=tournament.tournament_type_id,
         tournament_type_name=tournament.tournament_type.name,
+        tournament_type_code=tournament.tournament_type.code,
     )

@@ -27,6 +27,7 @@ def test_role_keyboard_inits_export_modules_only() -> None:
     ]
     assert superadmin_keyboards.__all__ == [
         "administrators",
+        "hall_of_fame",
         "panel",
         "registrations",
         "seasons",

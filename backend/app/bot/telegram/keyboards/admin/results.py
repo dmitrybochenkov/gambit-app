@@ -156,7 +156,7 @@ def _admin_result_player_button_text(
     if results.knockout_mode in {"small", "small_big"} and player.knockouts_count > 0:
         result_parts.append(f"🥊 х{player.knockouts_count}")
     if results.supports_bonus_points and player.bonus_points > 0:
-        result_parts.append(f"Бонус {player.bonus_points}")
+        result_parts.append(f"{results.bonus_points_label} {player.bonus_points}")
     if not result_parts:
         return player.display_name
     return f"{player.display_name}: {' | '.join(result_parts)}"
@@ -181,7 +181,7 @@ def admin_result_player_fields_keyboard(
     for field, text in [
         (AdminResultField.KNOCKOUTS, "🥊 КО"),
         (AdminResultField.BIG_KNOCKOUTS, "👑🥊 Босс КО"),
-        (AdminResultField.BONUS, "🎁 Бонус"),
+        (AdminResultField.BONUS, f"➕ {results.bonus_points_label}"),
         (AdminResultField.PLACE, "🏁 Место"),
     ]:
         if not is_result_field_allowed(

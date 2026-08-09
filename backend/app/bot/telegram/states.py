@@ -11,6 +11,10 @@ class AdminAddStates(StatesGroup):
     entering_candidate_name = State()
 
 
+class HallOfFameStates(StatesGroup):
+    entering_player_name = State()
+
+
 class CalendarSeasonProposalEditStates(StatesGroup):
     entering_name = State()
     entering_starts_at = State()

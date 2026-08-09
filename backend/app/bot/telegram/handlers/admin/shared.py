@@ -50,11 +50,12 @@ def parse_result_manual_value(value: str, *, field: AdminResultField) -> int:
     return result
 
 
-def result_field_name(field: AdminResultField) -> str:
+def result_field_name(field: AdminResultField, results: object | None = None) -> str:
+    bonus_label = getattr(results, "bonus_points_label", "бонус")
     return {
         AdminResultField.KNOCKOUTS: "🥊",
         AdminResultField.BIG_KNOCKOUTS: "Босс КО",
-        AdminResultField.BONUS: "бонус",
+        AdminResultField.BONUS: str(bonus_label).lower(),
         AdminResultField.PLACE: "место",
     }[field]
 
