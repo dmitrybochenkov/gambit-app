@@ -99,6 +99,24 @@ def admin_close_tournament_card_keyboard(*, tournament_id: int, page: int) -> In
     return builder.as_markup()
 
 
+def admin_close_tournament_fund_prompt_keyboard(
+    *,
+    tournament_id: int,
+    page: int,
+) -> InlineKeyboardMarkup:
+    builder = InlineKeyboardBuilder()
+    builder.button(
+        text=labels.ADMIN_CANCEL,
+        callback_data=AdminCloseTournamentCallback(
+            action=AdminCloseTournamentAction.CANCEL,
+            page=page,
+            tournament_id=tournament_id,
+        ),
+    )
+    builder.adjust(1)
+    return builder.as_markup()
+
+
 def admin_close_tournament_fund_error_keyboard(
     *,
     tournament_id: int,

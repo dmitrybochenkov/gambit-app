@@ -52,6 +52,10 @@ def close_tournament_card(results: object) -> str:
     )
 
 
+def tournament_fund_prompt() -> str:
+    return "Введите фонд турнира."
+
+
 def close_tournament_blocked(errors: list[str]) -> str:
     return "\n".join(
         [
@@ -64,6 +68,10 @@ def close_tournament_blocked(errors: list[str]) -> str:
 
 def tournament_fund_error() -> str:
     return "Фонд турнира должен быть положительным целым числом, кратным 10."
+
+
+def tournament_fund_error_prompt() -> str:
+    return f"{tournament_fund_error()}\n\n{tournament_fund_prompt()}"
 
 
 def close_tournament_confirmation(

@@ -589,6 +589,10 @@ def test_admin_close_tournament_formatters_show_fund_and_game_tables() -> None:
     confirmation = result_fmt.close_tournament_confirmation(results, 1800)
     closed = result_fmt.closed_tournament(results)
 
+    assert result_fmt.tournament_fund_prompt() == "Введите фонд турнира."
+    assert result_fmt.tournament_fund_error_prompt() == (
+        "Фонд турнира должен быть положительным целым числом, кратным 10.\n\nВведите фонд турнира."
+    )
     assert "Введите Фонд турнира." in card
     assert "Место  Игрок               КО  БКО  Бонус" in card
     assert "🥊" not in card.split("```")[1].splitlines()[0]
@@ -597,6 +601,30 @@ def test_admin_close_tournament_formatters_show_fund_and_game_tables() -> None:
     assert "✅ Турнир закрыт" in closed
     assert "Место  Игрок               КО  БКО  Бонус   Очки" in closed
     assert "1110" in closed
+
+
+def test_admin_close_tournament_root_fund_keyboard_has_only_cancel() -> None:
+    keyboard = superadmin_tournament_close_kb.admin_close_tournament_fund_prompt_keyboard(
+        tournament_id=125,
+        page=0,
+    )
+
+    assert inline_keyboard_texts(keyboard) == ["❌ Отмена"]
+
+
+def test_admin_close_tournament_nested_keyboards_keep_back() -> None:
+    assert "↩️ Назад" in inline_keyboard_texts(
+        superadmin_tournament_close_kb.admin_close_tournament_fund_error_keyboard(
+            tournament_id=125,
+            page=0,
+        )
+    )
+    assert "↩️ Назад" in inline_keyboard_texts(
+        superadmin_tournament_close_kb.admin_close_tournament_confirmation_keyboard(
+            tournament_id=125,
+            page=0,
+        )
+    )
 
 
 def test_admin_result_player_field_and_value_keyboards() -> None:
@@ -1633,11 +1661,167 @@ async def test_admin_result_dispatcher_flow_opens_today_tournament_and_saves_pla
         await engine.dispose()
 
 
+async def test_superadmin_close_tournament_dispatcher_replaces_fund_preview(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    engine = create_async_engine(f"sqlite+aiosqlite:///{tmp_path / 'telegram_close.db'}")
+    async with engine.begin() as connection:
+        await connection.run_sync(Base.metadata.create_all)
+
+    session_factory = async_sessionmaker(engine, expire_on_commit=False)
+    async with session_factory() as session:
+        config = ScoringConfig()
+        session.add(config)
+        await session.flush()
+        await seed_tournament_types_async(session)
+        season = Season(
+            name="Test season",
+            scoring_config_id=config.id,
+            starts_at=date(2026, 7, 1),
+            ends_at=None,
+        )
+        superadmin = build_player(
+            telegram_id=300,
+            display_name="Суперадмин Закрытия",
+            status=UserStatus.ACTIVE,
+            role=UserRole.SUPERADMIN,
+        )
+        players = [
+            build_player(
+                telegram_id=301 + index,
+                display_name=f"Игрок Закрытия {index + 1}",
+                status=UserStatus.ACTIVE,
+            )
+            for index in range(5)
+        ]
+        session.add_all([season, superadmin, *players])
+        await session.flush()
+        tournament = Tournament(
+            season_id=season.id,
+            tournament_type_id=tournament_type_id("classic"),
+            date=date(2026, 7, 9),
+            status=TournamentStatus.ACTIVE,
+        )
+        session.add(tournament)
+        await session.flush()
+        session.add_all(
+            [
+                TournamentResult(
+                    tournament_id=tournament.id,
+                    player_id=player.id,
+                    source=TournamentResultSource.REGISTERED,
+                    checked_in_by_user_id=superadmin.id,
+                    place=index + 1,
+                )
+                for index, player in enumerate(players)
+            ]
+        )
+        await session.commit()
+        tournament_id = tournament.id
+
+    service = ResultService(
+        session_factory,
+        clock=FixedClock(datetime(2026, 7, 9, 12, tzinfo=ZoneInfo("Europe/Moscow"))),
+    )
+    monkeypatch.setattr(superadmin_close_handlers, "result_service", service)
+    bot = RecordingBot()
+
+    def message_update(update_id: int, text: str) -> dict[str, object]:
+        return {
+            "update_id": update_id,
+            "message": {
+                "message_id": update_id + 100,
+                "date": 1783598400,
+                "chat": {"id": 300, "type": "private"},
+                "from": {"id": 300, "is_bot": False, "first_name": "Суперадмин"},
+                "text": text,
+            },
+        }
+
+    def callback_update(update_id: int, data: str, message_id: int = 500) -> dict[str, object]:
+        return {
+            "update_id": update_id,
+            "callback_query": {
+                "id": f"close-callback-{update_id}",
+                "from": {"id": 300, "is_bot": False, "first_name": "Суперадмин"},
+                "message": {
+                    "message_id": message_id,
+                    "date": 1783598400,
+                    "chat": {"id": 300, "type": "private"},
+                    "text": "Подтвердите закрытие турнира.",
+                },
+                "chat_instance": "chat-instance",
+                "data": data,
+            },
+        }
+
+    try:
+        await runtime.telegram_dispatcher.feed_raw_update(
+            bot,
+            message_update(1, labels.ADMIN_PANEL_CLOSE_TOURNAMENT),
+        )
+        await runtime.telegram_dispatcher.feed_raw_update(bot, message_update(2, "10000"))
+        async with session_factory() as session:
+            tournament_before_change = await session.get(Tournament, tournament_id)
+            assert tournament_before_change is not None
+            assert tournament_before_change.status == TournamentStatus.ACTIVE
+            assert tournament_before_change.tournament_fund is None
+
+        await runtime.telegram_dispatcher.feed_raw_update(
+            bot,
+            callback_update(
+                3,
+                superadmin_tournament_close_kb.AdminCloseTournamentCallback(
+                    action=superadmin_tournament_close_kb.AdminCloseTournamentAction.CHANGE_FUND,
+                    tournament_id=tournament_id,
+                    page=0,
+                ).pack(),
+            ),
+        )
+        async with session_factory() as session:
+            tournament_after_change = await session.get(Tournament, tournament_id)
+            assert tournament_after_change is not None
+            assert tournament_after_change.status == TournamentStatus.ACTIVE
+            assert tournament_after_change.tournament_fund is None
+
+        await runtime.telegram_dispatcher.feed_raw_update(bot, message_update(4, "15000"))
+        await runtime.telegram_dispatcher.feed_raw_update(
+            bot,
+            callback_update(
+                5,
+                superadmin_tournament_close_kb.AdminCloseTournamentCallback(
+                    action=superadmin_tournament_close_kb.AdminCloseTournamentAction.CONFIRM,
+                    tournament_id=tournament_id,
+                    page=0,
+                ).pack(),
+            ),
+        )
+
+        method_names = [call.__class__.__name__ for call in bot.calls]
+        assert method_names.count("DeleteMessage") >= 2
+        sent_texts = [call.text for call in bot.calls if call.__class__.__name__ == "SendMessage"]
+        assert sent_texts[0] == "Введите фонд турнира."
+        assert "Закрытие турнира" not in sent_texts[0]
+        assert any("Фонд турнира: 10000" in text for text in sent_texts)
+        assert any("Фонд турнира: 15000" in text for text in sent_texts)
+        assert any("✅ Турнир закрыт" in text for text in sent_texts)
+
+        async with session_factory() as session:
+            closed_tournament = await session.get(Tournament, tournament_id)
+            assert closed_tournament is not None
+            assert closed_tournament.status == TournamentStatus.CLOSED
+            assert closed_tournament.tournament_fund == 15000
+    finally:
+        await bot.session.close()
+        await engine.dispose()
+
+
 async def test_future_tournament_close_callback_shows_domain_error(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     service = SimpleNamespace(
-        get_closeable_tournament_results=AsyncMock(side_effect=FutureTournamentCannotBeClosedError)
+        validate_closeable_results=AsyncMock(side_effect=FutureTournamentCannotBeClosedError)
     )
     monkeypatch.setattr(superadmin_close_handlers, "result_service", service)
     callback = SimpleNamespace(
@@ -1660,6 +1844,95 @@ async def test_future_tournament_close_callback_shows_domain_error(
     assert callback.answer.await_args_list[-1].args == ("Будущий турнир нельзя закрыть.",)
     assert callback.answer.await_args_list[-1].kwargs == {"show_alert": True}
     callback.message.edit_text.assert_not_awaited()
+
+
+async def test_close_tournament_single_tournament_root_shows_fund_prompt(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    tournament = tournament_view(125, date(2026, 8, 9), 1, "Баунти турнир")
+    service = SimpleNamespace(
+        list_unclosed_tournaments_for_superadmin=AsyncMock(return_value=[tournament]),
+        validate_closeable_results=AsyncMock(return_value=[]),
+    )
+    monkeypatch.setattr(superadmin_close_handlers, "result_service", service)
+    state = MutableState()
+    message = SimpleNamespace(
+        from_user=SimpleNamespace(id=100),
+        answer=AsyncMock(),
+    )
+
+    await superadmin_close_handlers.show_close_tournament_flow(message, state)
+
+    service.list_unclosed_tournaments_for_superadmin.assert_awaited_once_with(100)
+    service.validate_closeable_results.assert_awaited_once_with(
+        superadmin_telegram_id=100,
+        tournament_id=125,
+    )
+    assert state.state == AdminResultStates.entering_tournament_fund
+    assert state.data == {"close_tournament_id": 125, "close_tournament_page": 0}
+    message.answer.assert_awaited_once()
+    assert message.answer.await_args.args[0] == "Введите фонд турнира."
+    assert "Закрытие турнира" not in message.answer.await_args.args[0]
+    assert inline_keyboard_texts(message.answer.await_args.kwargs["reply_markup"]) == ["❌ Отмена"]
+
+
+async def test_close_tournament_change_fund_deletes_preview_and_waits_for_new_value(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    service = SimpleNamespace(validate_closeable_results=AsyncMock(return_value=[]))
+    monkeypatch.setattr(superadmin_close_handlers, "result_service", service)
+    state = MutableState()
+    await state.update_data(
+        close_tournament_id=125,
+        close_tournament_page=0,
+        tournament_fund=10000,
+    )
+    message = SimpleNamespace(delete=AsyncMock())
+    callback = SimpleNamespace(
+        from_user=SimpleNamespace(id=100),
+        message=message,
+        answer=AsyncMock(),
+    )
+
+    await superadmin_close_handlers.select_close_tournament_action(
+        callback,
+        superadmin_tournament_close_kb.AdminCloseTournamentCallback(
+            action=superadmin_tournament_close_kb.AdminCloseTournamentAction.CHANGE_FUND,
+            tournament_id=125,
+            page=0,
+        ),
+        state,
+    )
+
+    service.validate_closeable_results.assert_awaited_once_with(
+        superadmin_telegram_id=100,
+        tournament_id=125,
+    )
+    callback.answer.assert_awaited_once_with()
+    message.delete.assert_awaited_once_with()
+    assert state.state == AdminResultStates.entering_tournament_fund
+    assert state.data == {"close_tournament_id": 125, "close_tournament_page": 0}
+
+
+async def test_close_tournament_invalid_fund_stays_in_input_flow() -> None:
+    state = MutableState()
+    await state.set_state(AdminResultStates.entering_tournament_fund)
+    await state.update_data(close_tournament_id=125, close_tournament_page=0)
+    message = SimpleNamespace(
+        from_user=SimpleNamespace(id=100),
+        text="101",
+        answer=AsyncMock(),
+    )
+
+    await superadmin_close_handlers.enter_tournament_fund(message, state)
+
+    assert state.state == AdminResultStates.entering_tournament_fund
+    assert state.data == {"close_tournament_id": 125, "close_tournament_page": 0}
+    message.answer.assert_awaited_once()
+    assert message.answer.await_args.args[0] == (
+        "Фонд турнира должен быть положительным целым числом, кратным 10.\n\nВведите фонд турнира."
+    )
+    assert "Закрытие турнира" not in message.answer.await_args.args[0]
 
 
 async def test_telegram_error_boundary_handles_unexpected_handler_error(
