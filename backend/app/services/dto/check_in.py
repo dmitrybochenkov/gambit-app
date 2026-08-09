@@ -17,6 +17,6 @@ class CheckInCandidateView:
 class TournamentCheckInView:
     tournament: TournamentView
     registered_count: int
+    registered_checked_in_count: int
     checked_in_count: int
-    unchecked_registered_count: int
     walk_in_count: int

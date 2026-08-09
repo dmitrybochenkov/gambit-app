@@ -338,17 +338,23 @@ class TournamentCheckInService:
             tournament_id,
             order_by_user_id=False,
         )
-        checked_by_user_id = {row.user.id: row.result for row in checked_results}
+        registered_checked_in_count = sum(
+            1 for row in checked_results if row.result.source == TournamentResultSource.REGISTERED
+        )
         walk_in_count = sum(
-            1 for row in checked_results if row.result.source != TournamentResultSource.REGISTERED
+            1
+            for row in checked_results
+            if row.result.source
+            in {
+                TournamentResultSource.WALK_IN_EXISTING,
+                TournamentResultSource.WALK_IN_NEW,
+            }
         )
         return TournamentCheckInView(
             tournament=tournament_view(tournament),
             registered_count=len(registered_users),
+            registered_checked_in_count=registered_checked_in_count,
             checked_in_count=len(checked_results),
-            unchecked_registered_count=sum(
-                1 for user in registered_users if user.id not in checked_by_user_id
-            ),
             walk_in_count=walk_in_count,
         )
 

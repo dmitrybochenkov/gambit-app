@@ -77,6 +77,7 @@ def admin_check_in_search_results_keyboard(
     tournament_id: int,
     players: list[CheckInCandidateView] | list[UserView],
     action: AdminCheckInAction,
+    back_action: AdminCheckInAction,
 ) -> InlineKeyboardMarkup:
     builder = InlineKeyboardBuilder()
     for player in players:
@@ -95,7 +96,7 @@ def admin_check_in_search_results_keyboard(
     builder.button(
         text="↩️ Назад",
         callback_data=AdminCheckInCallback(
-            action=AdminCheckInAction.BACK_TO_TOURNAMENT,
+            action=back_action,
             tournament_id=tournament_id,
         ),
     )
@@ -219,6 +220,13 @@ def admin_check_in_confirmation_keyboard(
 def admin_check_in_cancel_keyboard(tournament_id: int) -> InlineKeyboardMarkup:
     builder = InlineKeyboardBuilder()
     builder.button(
+        text="⬅️ Назад",
+        callback_data=AdminCheckInCallback(
+            action=AdminCheckInAction.BACK_TO_TOURNAMENT,
+            tournament_id=tournament_id,
+        ),
+    )
+    builder.button(
         text=labels.ADMIN_CANCEL,
         callback_data=AdminCheckInCallback(
             action=AdminCheckInAction.CANCEL,
@@ -245,7 +253,7 @@ def admin_check_in_empty_search_keyboard(
     builder.button(
         text="↩️ Назад",
         callback_data=AdminCheckInCallback(
-            action=AdminCheckInAction.BACK_TO_TOURNAMENT,
+            action=search_action,
             tournament_id=tournament_id,
         ),
     )

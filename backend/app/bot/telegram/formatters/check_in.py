@@ -13,16 +13,17 @@ def tournament_list(page: object) -> str:
 
 def summary(view: object) -> str:
     lines = [
-        "👥 Участники турнира",
+        "✅ Чек-ин на турнир",
         "",
         tournament_fmt.label(view.tournament),
         "",
-        f"Зарегистрированы заранее: {view.registered_count}",
-        f"Пришли: {view.checked_in_count}",
-        f"Ещё не отмечены: {view.unchecked_registered_count}",
-        f"Без предварительной регистрации: {view.walk_in_count}",
+        f"Зарегистрировано: {view.registered_count}",
+        f"Из них пришло: {view.registered_checked_in_count}",
+        f"Пришло без регистрации: {view.walk_in_count}",
         "",
-        "Выберите тип игрока:",
+        f"Всего в турнире: {view.checked_in_count}",
+        "",
+        "Выбери тип игрока:",
     ]
     return "\n".join(lines)
 

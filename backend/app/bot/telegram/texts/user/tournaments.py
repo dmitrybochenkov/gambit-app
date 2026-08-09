@@ -13,7 +13,7 @@ TOURNAMENT_REGISTRATION_CANCELLED = "Отмена"
 TOURNAMENT_REGISTRATION_SINGLE_HEADING = "Ты записан на турнир:"
 TOURNAMENT_REGISTRATION_MULTIPLE_HEADING = "Ты записан на турниры:"
 TOURNAMENT_REGISTRATION_GRATITUDE = (
-    "Будем благодарны, если при изменении планов, вы отмените запись заранее."
+    "Будем благодарны, если при изменении планов, ты отменишь запись заранее."
 )
 
 TOURNAMENT_CANCELLATION_UNAVAILABLE = (
@@ -61,7 +61,7 @@ def _tournament_list_message(
     tournament_labels: list[str],
     footer: str | None = None,
 ) -> str:
-    tournament_lines = "\n".join(f"• {label}" for label in tournament_labels)
+    tournament_lines = "\n".join(tournament_labels)
     lines = [heading, "", tournament_lines]
     if footer:
         lines.extend(["", footer])

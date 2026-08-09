@@ -336,6 +336,7 @@ async def _restore_check_in_previous_screen(
                 tournament_id=tournament_id,
                 players=players,
                 action=admin_check_in_kb.AdminCheckInAction.CONFIRM_REGISTERED,
+                back_action=admin_check_in_kb.AdminCheckInAction.REGISTERED_SEARCH,
             )
             if players
             else None,
@@ -354,6 +355,7 @@ async def _restore_check_in_previous_screen(
                 tournament_id=tournament_id,
                 players=players,
                 action=admin_check_in_kb.AdminCheckInAction.CONFIRM_EXISTING,
+                back_action=admin_check_in_kb.AdminCheckInAction.DATABASE_SEARCH,
             )
             if players
             else None,
@@ -443,6 +445,7 @@ async def enter_registered_check_in_search(message: Message, state: FSMContext) 
             tournament_id=tournament_id,
             players=players,
             action=admin_check_in_kb.AdminCheckInAction.CONFIRM_REGISTERED,
+            back_action=admin_check_in_kb.AdminCheckInAction.REGISTERED_SEARCH,
         ),
     )
 
@@ -494,6 +497,7 @@ async def enter_database_check_in_search(message: Message, state: FSMContext) ->
             tournament_id=tournament_id,
             players=players,
             action=admin_check_in_kb.AdminCheckInAction.CONFIRM_EXISTING,
+            back_action=admin_check_in_kb.AdminCheckInAction.DATABASE_SEARCH,
         ),
     )
 

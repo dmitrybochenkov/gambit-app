@@ -14,7 +14,7 @@ def schedule(tournaments: list) -> str:
 
     lines = [tournament_texts.TOURNAMENT_SCHEDULE_TITLE, ""]
     for tournament in tournaments:
-        lines.append(f"• {label(tournament)}")
+        lines.append(f"{label(tournament)}")
     return "\n".join(lines)
 
 

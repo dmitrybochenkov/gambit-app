@@ -97,9 +97,9 @@ async def test_upcoming_schedule_uses_active_tournaments(tmp_path: Path) -> None
     ]
     assert tournament_fmt.schedule(tournaments) == (
         "Расписание турниров\n\n"
-        "• Среда, 8 июля — Баунти турнир\n"
-        "• Четверг, 9 июля — Классика\n"
-        "• Пятница, 10 июля — Фризаут"
+        "Среда, 8 июля — Баунти турнир\n"
+        "Четверг, 9 июля — Классика\n"
+        "Пятница, 10 июля — Фризаут"
     )
     await engine.dispose()
 
@@ -895,5 +895,103 @@ async def test_check_in_existing_user_search_includes_admin_roles(
             "Админ Игрок",
             "Супер Игрок",
         ]
+    finally:
+        await engine.dispose()
+
+
+async def test_check_in_summary_counters_use_sources_and_include_admin_players(
+    tmp_path: Path,
+) -> None:
+    engine = create_async_engine(f"sqlite+aiosqlite:///{tmp_path / 'check_in_counters.db'}")
+    async with engine.begin() as connection:
+        await connection.run_sync(Base.metadata.create_all)
+
+    session_factory = async_sessionmaker(engine, expire_on_commit=False)
+    async with session_factory() as session:
+        config = ScoringConfig()
+        session.add(config)
+        await session.flush()
+        await seed_tournament_types_async(session)
+        season = Season(
+            name="Test season",
+            scoring_config_id=config.id,
+            starts_at=date(2026, 7, 1),
+            ends_at=None,
+        )
+        operator = build_player(
+            telegram_id=100,
+            display_name="Оператор",
+            status=UserStatus.ACTIVE,
+            role=UserRole.ADMIN,
+        )
+        admin_registered = build_player(
+            telegram_id=101,
+            display_name="Админ Игрок",
+            status=UserStatus.ACTIVE,
+            role=UserRole.ADMIN,
+        )
+        superadmin_registered = build_player(
+            telegram_id=102,
+            display_name="Супер Игрок",
+            status=UserStatus.ACTIVE,
+            role=UserRole.SUPERADMIN,
+        )
+        walk_in_existing = build_player(
+            telegram_id=103,
+            display_name="Гость Из Базы",
+            status=UserStatus.ACTIVE,
+        )
+        session.add_all(
+            [season, operator, admin_registered, superadmin_registered, walk_in_existing]
+        )
+        await session.flush()
+        tournament = Tournament(
+            season_id=season.id,
+            tournament_type_id=tournament_type_id("classic"),
+            date=date(2026, 7, 9),
+            status=TournamentStatus.ACTIVE,
+        )
+        session.add(tournament)
+        await session.flush()
+        session.add_all(
+            [
+                TournamentRegistration(
+                    tournament_id=tournament.id,
+                    player_id=admin_registered.id,
+                ),
+                TournamentRegistration(
+                    tournament_id=tournament.id,
+                    player_id=superadmin_registered.id,
+                ),
+                TournamentResult(
+                    tournament_id=tournament.id,
+                    player_id=admin_registered.id,
+                    source=TournamentResultSource.REGISTERED,
+                ),
+                TournamentResult(
+                    tournament_id=tournament.id,
+                    player_id=walk_in_existing.id,
+                    source=TournamentResultSource.WALK_IN_EXISTING,
+                ),
+            ]
+        )
+        await session.commit()
+        tournament_id = tournament.id
+
+    check_in_service = TournamentCheckInService(
+        session_factory,
+        clock=FixedClock(datetime(2026, 7, 9, 12, tzinfo=ZoneInfo("Europe/Moscow"))),
+    )
+    try:
+        view = await check_in_service.get_check_in(
+            admin_telegram_id=100,
+            tournament_id=tournament_id,
+        )
+
+        assert view.registered_count == 2
+        assert view.registered_checked_in_count == 1
+        assert view.walk_in_count == 1
+        assert view.checked_in_count == 2
+        assert view.checked_in_count == view.registered_checked_in_count + view.walk_in_count
     finally:
         await engine.dispose()

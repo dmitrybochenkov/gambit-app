@@ -20,6 +20,7 @@ from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
 from app.api import telegram_webhook as webhook_module
 from app.bot.telegram import notifications, runtime
+from app.bot.telegram.formatters import check_in as check_in_fmt
 from app.bot.telegram.formatters import results as result_fmt
 from app.bot.telegram.formatters import seasons as season_fmt
 from app.bot.telegram.formatters import tournaments as tournament_fmt
@@ -54,6 +55,7 @@ from app.bot.telegram.keyboards.superadmin import seasons as superadmin_seasons_
 from app.bot.telegram.keyboards.superadmin import tournament_close as superadmin_tournament_close_kb
 from app.bot.telegram.keyboards.user import rating as user_rating_kb
 from app.bot.telegram.keyboards.user import tournaments as user_tournaments_kb
+from app.bot.telegram.states import AdminResultStates
 from app.bot.telegram.texts.user import registration as registration_text
 from app.bot.telegram.texts.user import tournaments as tournament_text
 from app.common.clock import FixedClock
@@ -667,6 +669,96 @@ def test_tournament_label_fallback_is_unknown_tournament() -> None:
     assert tournament_fmt.label(unknown) == "Понедельник, 20 июля — Неопределённый турнир"
 
 
+def test_check_in_summary_empty_tournament() -> None:
+    view = SimpleNamespace(
+        tournament=tournament_view(125, date(2026, 8, 9), 1, "Баунти турнир"),
+        registered_count=0,
+        registered_checked_in_count=0,
+        walk_in_count=0,
+        checked_in_count=0,
+    )
+
+    assert check_in_fmt.summary(view) == (
+        "✅ Чек-ин на турнир\n\n"
+        "Воскресенье, 9 августа — Баунти турнир\n\n"
+        "Зарегистрировано: 0\n"
+        "Из них пришло: 0\n"
+        "Пришло без регистрации: 0\n\n"
+        "Всего в турнире: 0\n\n"
+        "Выбери тип игрока:"
+    )
+
+
+def test_check_in_summary_mixed_sources() -> None:
+    view = SimpleNamespace(
+        tournament=tournament_view(125, date(2026, 8, 9), 1, "Баунти турнир"),
+        registered_count=3,
+        registered_checked_in_count=2,
+        walk_in_count=1,
+        checked_in_count=3,
+    )
+
+    rendered = check_in_fmt.summary(view)
+
+    assert "Зарегистрировано: 3" in rendered
+    assert "Из них пришло: 2" in rendered
+    assert "Пришло без регистрации: 1" in rendered
+    assert "Всего в турнире: 3" in rendered
+    assert "Ещё не отмечены" not in rendered
+
+
+def test_check_in_input_prompt_keyboard_has_back_to_main() -> None:
+    keyboard = admin_check_in_kb.admin_check_in_cancel_keyboard(tournament_id=125)
+
+    assert inline_keyboard_texts(keyboard) == ["⬅️ Назад", "❌ Отмена"]
+    back_callback = admin_check_in_kb.AdminCheckInCallback.unpack(
+        keyboard.inline_keyboard[0][0].callback_data or ""
+    )
+    assert back_callback.action == admin_check_in_kb.AdminCheckInAction.BACK_TO_TOURNAMENT
+
+
+def test_check_in_registered_search_results_back_returns_to_input() -> None:
+    keyboard = admin_check_in_kb.admin_check_in_search_results_keyboard(
+        tournament_id=125,
+        players=[],
+        action=admin_check_in_kb.AdminCheckInAction.CONFIRM_REGISTERED,
+        back_action=admin_check_in_kb.AdminCheckInAction.REGISTERED_SEARCH,
+    )
+
+    assert inline_keyboard_texts(keyboard) == ["↩️ Назад", "❌ Отмена"]
+    back_callback = admin_check_in_kb.AdminCheckInCallback.unpack(
+        keyboard.inline_keyboard[0][0].callback_data or ""
+    )
+    assert back_callback.action == admin_check_in_kb.AdminCheckInAction.REGISTERED_SEARCH
+
+
+def test_check_in_existing_search_results_back_returns_to_input() -> None:
+    keyboard = admin_check_in_kb.admin_check_in_search_results_keyboard(
+        tournament_id=125,
+        players=[],
+        action=admin_check_in_kb.AdminCheckInAction.CONFIRM_EXISTING,
+        back_action=admin_check_in_kb.AdminCheckInAction.DATABASE_SEARCH,
+    )
+
+    back_callback = admin_check_in_kb.AdminCheckInCallback.unpack(
+        keyboard.inline_keyboard[0][0].callback_data or ""
+    )
+    assert back_callback.action == admin_check_in_kb.AdminCheckInAction.DATABASE_SEARCH
+
+
+def test_check_in_empty_search_back_returns_to_input() -> None:
+    keyboard = admin_check_in_kb.admin_check_in_empty_search_keyboard(
+        tournament_id=125,
+        search_action=admin_check_in_kb.AdminCheckInAction.REGISTERED_SEARCH,
+    )
+
+    assert inline_keyboard_texts(keyboard) == ["🔍 Искать снова", "↩️ Назад", "❌ Отмена"]
+    back_callback = admin_check_in_kb.AdminCheckInCallback.unpack(
+        keyboard.inline_keyboard[1][0].callback_data or ""
+    )
+    assert back_callback.action == admin_check_in_kb.AdminCheckInAction.REGISTERED_SEARCH
+
+
 async def test_place_only_result_player_opens_place_keyboard(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -882,8 +974,10 @@ async def test_admin_check_in_registered_user_flow_creates_result(
         await admin_check_in_handlers.show_admin_check_in(open_message)
 
         opened_text = open_message.answer.await_args.args[0]
-        assert "Зарегистрированы заранее: 1" in opened_text
-        assert "Ещё не отмечены: 1" in opened_text
+        assert "Зарегистрировано: 1" in opened_text
+        assert "Из них пришло: 0" in opened_text
+        assert "Пришло без регистрации: 0" in opened_text
+        assert "Всего в турнире: 0" in opened_text
 
         state = MutableState()
         search_prompt_message = SimpleNamespace(delete=AsyncMock(), answer=AsyncMock())
@@ -956,7 +1050,8 @@ async def test_admin_check_in_registered_user_flow_creates_result(
 
         final_callback.answer.assert_awaited_once_with("Результат сохранен.")
         final_message.edit_text.assert_awaited_once()
-        assert "Пришли: 1" in final_message.edit_text.await_args.args[0]
+        assert "Из них пришло: 1" in final_message.edit_text.await_args.args[0]
+        assert "Всего в турнире: 1" in final_message.edit_text.await_args.args[0]
         async with session_factory() as session:
             results = list((await session.execute(select(TournamentResult))).scalars())
         assert len(results) == 1
@@ -965,6 +1060,73 @@ async def test_admin_check_in_registered_user_flow_creates_result(
         assert results[0].source == TournamentResultSource.REGISTERED
     finally:
         await engine.dispose()
+
+
+async def test_check_in_input_back_returns_to_main_screen(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    view = SimpleNamespace(
+        tournament=tournament_view(125, date(2026, 8, 9), 1, "Баунти турнир"),
+        registered_count=1,
+        registered_checked_in_count=0,
+        walk_in_count=0,
+        checked_in_count=0,
+    )
+    service = SimpleNamespace(get_check_in=AsyncMock(return_value=view))
+    monkeypatch.setattr(admin_check_in_handlers, "tournament_check_in_service", service)
+    state = SimpleNamespace(clear=AsyncMock())
+    message = SimpleNamespace(delete=AsyncMock(), answer=AsyncMock())
+    callback = SimpleNamespace(
+        from_user=SimpleNamespace(id=100),
+        message=message,
+        answer=AsyncMock(),
+    )
+
+    await admin_check_in_handlers.select_check_in_action(
+        callback,
+        admin_check_in_kb.AdminCheckInCallback(
+            action=admin_check_in_kb.AdminCheckInAction.BACK_TO_TOURNAMENT,
+            tournament_id=125,
+        ),
+        state,
+    )
+
+    state.clear.assert_awaited_once()
+    service.get_check_in.assert_awaited_once_with(admin_telegram_id=100, tournament_id=125)
+    message.delete.assert_awaited_once()
+    assert message.answer.await_args.args[0].startswith("✅ Чек-ин на турнир")
+
+
+async def test_check_in_search_results_back_returns_to_registered_input(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    service = SimpleNamespace()
+    monkeypatch.setattr(admin_check_in_handlers, "tournament_check_in_service", service)
+    state = MutableState()
+    message = SimpleNamespace(delete=AsyncMock(), answer=AsyncMock())
+    callback = SimpleNamespace(
+        from_user=SimpleNamespace(id=100),
+        message=message,
+        answer=AsyncMock(),
+    )
+
+    await admin_check_in_handlers.select_check_in_action(
+        callback,
+        admin_check_in_kb.AdminCheckInCallback(
+            action=admin_check_in_kb.AdminCheckInAction.REGISTERED_SEARCH,
+            tournament_id=125,
+        ),
+        state,
+    )
+
+    state.set_state.assert_awaited_once_with(AdminResultStates.entering_registered_check_in_search)
+    message.delete.assert_awaited_once()
+    message.answer.assert_awaited_once()
+    assert message.answer.await_args.args[0] == "Введи имя зарегистрированного игрока."
+    assert inline_keyboard_texts(message.answer.await_args.kwargs["reply_markup"]) == [
+        "⬅️ Назад",
+        "❌ Отмена",
+    ]
 
 
 async def test_admin_check_in_registered_user_dispatcher_flow_creates_result(
@@ -1092,7 +1254,8 @@ async def test_admin_check_in_registered_user_dispatcher_flow_creates_result(
             call.text for call in bot.calls if call.__class__.__name__ == "EditMessageText"
         ]
         assert any("Добавить Игрок Первый в сегодняшний турнир?" in text for text in edited_texts)
-        assert any("Пришли: 1" in text for text in edited_texts)
+        assert any("Из них пришло: 1" in text for text in edited_texts)
+        assert any("Всего в турнире: 1" in text for text in edited_texts)
         async with session_factory() as session:
             results = list((await session.execute(select(TournamentResult))).scalars())
         assert len(results) == 1
@@ -1452,7 +1615,7 @@ async def test_historical_admin_can_open_schedule_after_start(
     tournament_service.get_schedule_for_player.assert_awaited_once_with(123)
     assert start_message.answer.await_args.args[0] == "Админ 1, добро пожаловать!"
     assert schedule_message.answer.await_args.args[0] == (
-        "Расписание турниров\n\n• Среда, 8 июля — Баунти турнир"
+        "Расписание турниров\n\nСреда, 8 июля — Баунти турнир"
     )
 
 
@@ -2073,7 +2236,9 @@ async def test_multiple_tournament_registration_sends_confirmation(
     assert "Ты записан на турниры:" in confirmation
     assert "Среда, 8 июля — Баунти турнир" in confirmation
     assert "Четверг, 9 июля — Классика" in confirmation
-    assert "вы отмените запись заранее" in confirmation
+    assert "• Среда, 8 июля — Баунти турнир" not in confirmation
+    assert "• Четверг, 9 июля — Классика" not in confirmation
+    assert "ты отменишь запись заранее" in confirmation
 
 
 async def test_tournament_registration_selection_can_be_cancelled() -> None:
@@ -2145,6 +2310,8 @@ async def test_multiple_tournament_cancellation_sends_confirmation(
     assert "Ты отменил запись на турниры:" in confirmation
     assert "Среда, 8 июля — Баунти турнир" in confirmation
     assert "Четверг, 9 июля — Классика" in confirmation
+    assert "• Среда, 8 июля — Баунти турнир" not in confirmation
+    assert "• Четверг, 9 июля — Классика" not in confirmation
 
 
 async def test_tournament_cancellation_after_check_in_shows_alert(
