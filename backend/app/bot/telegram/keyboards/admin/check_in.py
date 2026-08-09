@@ -27,7 +27,6 @@ class AdminCheckInAction(StrEnum):
     CHOOSE_OTHER_NEW = "choose_other_new"
     BACK = "back"
     BACK_TO_TOURNAMENT = "back_to_tournament"
-    BACK_TO_MENU = "back_to_menu"
     CANCEL = "cancel"
 
 
@@ -67,13 +66,6 @@ def admin_check_in_keyboard(
         text=f"👥 Уже отметились ({view.checked_in_count})",
         callback_data=AdminCheckInCallback(
             action=AdminCheckInAction.SHOW_CHECKED_IN,
-            tournament_id=view.tournament.id,
-        ),
-    )
-    builder.button(
-        text="⬅️ Назад",
-        callback_data=AdminCheckInCallback(
-            action=AdminCheckInAction.BACK_TO_MENU,
             tournament_id=view.tournament.id,
         ),
     )

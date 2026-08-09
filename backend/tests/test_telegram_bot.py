@@ -56,6 +56,7 @@ from app.bot.telegram.keyboards.superadmin import tournament_close as superadmin
 from app.bot.telegram.keyboards.user import rating as user_rating_kb
 from app.bot.telegram.keyboards.user import tournaments as user_tournaments_kb
 from app.bot.telegram.states import AdminResultStates
+from app.bot.telegram.texts.admin import results as admin_result_text
 from app.bot.telegram.texts.user import registration as registration_text
 from app.bot.telegram.texts.user import tournaments as tournament_text
 from app.common.clock import FixedClock
@@ -355,7 +356,6 @@ def test_admin_result_players_hide_ids_and_empty_places() -> None:
     assert buttons == [
         "Тест Игрок",
         "Илларионов Александр: 2️⃣",
-        "⬅️ Назад",
         "❌ Отмена",
     ]
 
@@ -421,7 +421,6 @@ def test_admin_result_player_buttons_show_entered_knockouts_and_place() -> None:
     assert buttons == [
         "Илларионов Александр: 2️⃣ | 👑🥊 х1 | 🥊 х3",
         "Тест Игрок",
-        "⬅️ Назад",
         "❌ Отмена",
     ]
 
@@ -627,10 +626,21 @@ def test_admin_result_player_field_and_value_keyboards() -> None:
     ]
     assert field_buttons == [
         "🥊 КО",
-        "👑🥊 Большие КО",
+        "👑🥊 Босс КО",
         "🏁 Место",
         "❌ Отмена",
     ]
+    assert (
+        admin_result_handlers.result_field_name(admin_results_kb.AdminResultField.BIG_KNOCKOUTS)
+        == "Босс КО"
+    )
+    assert result_fmt.field_prompt(player, "Босс КО") == "Илларионов Александр\n\nВыбери Босс КО:"
+    assert admin_result_text.ADMIN_RESULTS_MANUAL_VALUE_PROMPTS["big"] == (
+        "Введи количество Босс КО числом."
+    )
+    assert admin_result_text.ADMIN_RESULTS_INVALID_MANUAL_VALUE["big"] == (
+        "Босс КО должно быть неотрицательным числом."
+    )
 
     value_rows = admin_results_kb.admin_result_value_keyboard(
         tournament_id=125,
@@ -744,7 +754,6 @@ def test_check_in_main_keyboard_labels_and_checked_in_count() -> None:
         "👤 Играл ранее",
         "🆕 Новый игрок",
         "👥 Уже отметились (16)",
-        "⬅️ Назад",
         "❌ Отмена",
     ]
     checked_in_callback = admin_check_in_kb.AdminCheckInCallback.unpack(

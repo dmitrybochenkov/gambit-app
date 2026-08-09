@@ -86,12 +86,6 @@ async def select_check_in_action(
             await _return_to_admin_menu(callback, result_text.ADMIN_RESULTS_CANCELLED)
             return
 
-        if callback_data.action == admin_check_in_kb.AdminCheckInAction.BACK_TO_MENU:
-            await state.clear()
-            await callback.answer()
-            await _return_to_admin_menu(callback, panel_text.ADMIN_PANEL_WELCOME)
-            return
-
         if callback_data.action == admin_check_in_kb.AdminCheckInAction.BACK:
             await callback.answer()
             if callback.message is not None and await _restore_check_in_previous_screen(

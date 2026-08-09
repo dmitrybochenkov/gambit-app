@@ -126,18 +126,6 @@ async def select_result_player(
             page=callback_data.page,
             page_size=admin_results_kb.ADMIN_RESULT_PAGE_SIZE,
         )
-        if callback_data.action == admin_results_kb.AdminResultPlayerAction.BACK:
-            await state.clear()
-            await callback.answer()
-            if callback.message is not None:
-                await _delete_callback_message(callback)
-                await callback.message.answer(
-                    result_fmt.players_table(results, page),
-                    reply_markup=admin_results_kb.admin_result_players_keyboard(results, page),
-                    parse_mode=RESULT_SUMMARY_PARSE_MODE,
-                )
-            return
-
         if callback_data.action == admin_results_kb.AdminResultPlayerAction.PAGE:
             await callback.answer()
             if callback.message is not None:

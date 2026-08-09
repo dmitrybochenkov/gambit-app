@@ -38,7 +38,6 @@ class AdminResultBackToMenuCallback(CallbackData, prefix="res_back"):
 class AdminResultPlayerAction(StrEnum):
     OPEN = "open"
     PAGE = "page"
-    BACK = "back"
     CANCEL = "cancel"
 
 
@@ -131,15 +130,6 @@ def admin_result_players_keyboard(
         )
     _add_result_player_page_buttons(builder, page, results.tournament.id)
     builder.button(
-        text="⬅️ Назад",
-        callback_data=AdminResultPlayerCallback(
-            action=AdminResultPlayerAction.BACK,
-            tournament_id=results.tournament.id,
-            page=page.page,
-            player_id=0,
-        ),
-    )
-    builder.button(
         text=labels.ADMIN_CANCEL,
         callback_data=AdminResultPlayerCallback(
             action=AdminResultPlayerAction.CANCEL,
@@ -149,7 +139,7 @@ def admin_result_players_keyboard(
         ),
     )
     item_rows = [1] * len(page.items)
-    footer_rows = [1, 1, 1]
+    footer_rows = [1]
     _adjust_paged_keyboard(builder, page, item_rows=item_rows, footer_rows=footer_rows)
     return builder.as_markup()
 
@@ -190,7 +180,7 @@ def admin_result_player_fields_keyboard(
     builder = InlineKeyboardBuilder()
     for field, text in [
         (AdminResultField.KNOCKOUTS, "🥊 КО"),
-        (AdminResultField.BIG_KNOCKOUTS, "👑🥊 Большие КО"),
+        (AdminResultField.BIG_KNOCKOUTS, "👑🥊 Босс КО"),
         (AdminResultField.BONUS, "🎁 Бонус"),
         (AdminResultField.PLACE, "🏁 Место"),
     ]:

@@ -58,7 +58,7 @@ Expected result:
 1. Today's ACTIVE tournament is editable.
 2. Yesterday or future stale callbacks do not mutate the database.
 3. Places are unique; assigning an occupied place moves it to the latest player.
-4. KO and big KO values are saved.
+4. KO and Boss KO values are saved.
 5. Bonus points accept integers only.
 
 ## Closing

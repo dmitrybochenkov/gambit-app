@@ -53,7 +53,7 @@ def parse_result_manual_value(value: str, *, field: AdminResultField) -> int:
 def result_field_name(field: AdminResultField) -> str:
     return {
         AdminResultField.KNOCKOUTS: "🥊",
-        AdminResultField.BIG_KNOCKOUTS: "👑🥊",
+        AdminResultField.BIG_KNOCKOUTS: "Босс КО",
         AdminResultField.BONUS: "бонус",
         AdminResultField.PLACE: "место",
     }[field]
