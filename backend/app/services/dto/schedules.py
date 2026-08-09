@@ -2,8 +2,6 @@ from dataclasses import dataclass
 from datetime import date
 from decimal import Decimal
 
-from app.db.models.enums import AdminPromptKind, AdminPromptStatus
-
 
 @dataclass(frozen=True)
 class TournamentTypeOptionView:
@@ -37,16 +35,14 @@ class TournamentPromptItemView:
 
 
 @dataclass(frozen=True)
-class TournamentPromptView:
-    id: int
-    kind: AdminPromptKind
-    status: AdminPromptStatus
+class WeeklyTournamentPlanView:
+    week_start: date
+    week_end: date
     tournaments: list[TournamentPromptItemView]
 
 
 @dataclass(frozen=True)
 class TournamentPromptDayEditView:
-    prompt_id: int
     tournament_date: date
     tournament_types: list[TournamentTypeOptionView]
 

@@ -1,4 +1,5 @@
 import logging
+from datetime import date
 
 from aiogram import Router
 from aiogram.fsm.context import FSMContext
@@ -8,12 +9,10 @@ from app.bot.telegram.formatters import seasons as season_fmt
 from app.bot.telegram.handlers.admin.shared import (
     delete_callback_message as _delete_callback_message,
 )
-from app.bot.telegram.handlers.admin.shared import (
-    parse_admin_date,
-)
+from app.bot.telegram.handlers.admin.shared import parse_admin_date
 from app.bot.telegram.keyboards.superadmin import seasons as superadmin_seasons_kb
 from app.bot.telegram.message_edit import edit_message_if_changed
-from app.bot.telegram.states import CalendarSeasonProposalEditStates
+from app.bot.telegram.states import CalendarSeasonCreationStates
 from app.bot.telegram.texts.superadmin import panel as panel_text
 from app.bot.telegram.texts.superadmin import seasons as text
 from app.services.access_policy import AdminAccessDeniedError
@@ -25,9 +24,6 @@ from app.services.season_service import (
     SeasonNameAlreadyExistsError,
     SeasonNameInvalidError,
     SeasonNotFoundError,
-    SeasonProposalAlreadyResolvedError,
-    SeasonProposalInvalidPayloadError,
-    SeasonProposalNotFoundError,
     SeasonScheduledConflictError,
     SeasonScoringConfigAmbiguousError,
     SeasonScoringConfigNotFoundError,
@@ -131,27 +127,16 @@ async def manage_seasons(
             return
 
         timeline = await season_service.get_season_timeline(callback.from_user.id)
-        if timeline.pending_proposal is not None:
-            proposal = timeline.pending_proposal
-        elif timeline.suggested_start is None:
-            await state.set_state(CalendarSeasonProposalEditStates.entering_initial_starts_at)
-            await callback.answer()
-            if callback.message is not None:
-                await edit_message_if_changed(
-                    callback.message,
-                    text=text.ADMIN_CALENDAR_ENTER_SEASON_NEW_START,
-                    reply_markup=superadmin_seasons_kb.season_input_navigation_keyboard(),
-                )
-            return
-        else:
-            proposal = await season_service.create_season_proposal(callback.from_user.id)
+        if timeline.has_future_season:
+            raise SeasonScheduledConflictError
         await state.clear()
+        await state.set_state(CalendarSeasonCreationStates.entering_name)
         await callback.answer()
         if callback.message is not None:
             await edit_message_if_changed(
                 callback.message,
-                text=season_fmt.proposal(proposal),
-                reply_markup=superadmin_seasons_kb.season_open_confirmation_keyboard(proposal.id),
+                text=text.ADMIN_CALENDAR_ENTER_SEASON_NEW_NAME,
+                reply_markup=superadmin_seasons_kb.season_input_navigation_keyboard(),
             )
     except AdminAccessDeniedError:
         await state.clear()
@@ -220,108 +205,63 @@ async def select_future_season_delete_action(
         )
 
 
-@router.message(CalendarSeasonProposalEditStates.entering_name)
-async def enter_season_proposal_name(message: Message, state: FSMContext) -> None:
+@router.message(CalendarSeasonCreationStates.entering_name)
+async def enter_season_name(message: Message, state: FSMContext) -> None:
     if message.from_user is None:
-        return
-
-    data = await state.get_data()
-    prompt_id = data.get("season_proposal_id")
-    if not isinstance(prompt_id, int):
-        await state.clear()
-        await message.answer(text.ADMIN_CALENDAR_SEASON_ALREADY_HANDLED)
         return
 
     try:
         await user_access_service.require_superadmin(message.from_user.id)
-        proposal = await season_service.update_season_proposal_name(
-            admin_telegram_id=message.from_user.id,
-            prompt_id=prompt_id,
-            name=message.text or "",
+        preview_name = message.text or ""
+        await season_service.get_creation_preview(
+            message.from_user.id,
+            name=preview_name,
+            starts_at=_temporary_future_date(),
+        )
+    except SeasonNameInvalidError:
+        await message.answer(text.ADMIN_CALENDAR_ENTER_SEASON_NEW_NAME)
+        return
+    except (SeasonStartDateError, SeasonCurrentNotFoundError, SeasonScheduledConflictError):
+        pass
+    except AdminAccessDeniedError:
+        await state.clear()
+        await message.answer(panel_text.INSUFFICIENT_RIGHTS)
+        return
+
+    await state.update_data(season_name=message.text or "")
+    await state.set_state(CalendarSeasonCreationStates.entering_starts_at)
+    await message.answer(
+        text.ADMIN_CALENDAR_ENTER_SEASON_NEW_START,
+        reply_markup=superadmin_seasons_kb.season_input_navigation_keyboard(),
+    )
+
+
+@router.message(CalendarSeasonCreationStates.entering_starts_at)
+async def enter_season_starts_at(message: Message, state: FSMContext) -> None:
+    if message.from_user is None:
+        return
+
+    try:
+        starts_at = parse_admin_date(message.text or "")
+    except ValueError:
+        await message.answer(text.ADMIN_CALENDAR_INVALID_DATE)
+        return
+
+    data = await state.get_data()
+    name = str(data.get("season_name") or "")
+    try:
+        preview = await season_service.get_creation_preview(
+            message.from_user.id,
+            name=name,
+            starts_at=starts_at,
         )
     except AdminAccessDeniedError:
         await state.clear()
         await message.answer(panel_text.INSUFFICIENT_RIGHTS)
         return
     except SeasonNameInvalidError:
+        await state.set_state(CalendarSeasonCreationStates.entering_name)
         await message.answer(text.ADMIN_CALENDAR_ENTER_SEASON_NEW_NAME)
-        return
-    except (SeasonProposalNotFoundError, SeasonProposalAlreadyResolvedError):
-        await state.clear()
-        await message.answer(text.ADMIN_CALENDAR_SEASON_ALREADY_HANDLED)
-        return
-
-    await state.clear()
-    await message.answer(
-        season_fmt.proposal(proposal),
-        reply_markup=superadmin_seasons_kb.season_open_confirmation_keyboard(proposal.id),
-    )
-
-
-@router.message(CalendarSeasonProposalEditStates.entering_starts_at)
-async def enter_season_proposal_starts_at(message: Message, state: FSMContext) -> None:
-    if message.from_user is None:
-        return
-
-    data = await state.get_data()
-    prompt_id = data.get("season_proposal_id")
-    if not isinstance(prompt_id, int):
-        await state.clear()
-        await message.answer(text.ADMIN_CALENDAR_SEASON_ALREADY_HANDLED)
-        return
-
-    try:
-        await user_access_service.require_superadmin(message.from_user.id)
-        starts_at = parse_admin_date(message.text or "")
-        proposal = await season_service.update_season_proposal_start_date(
-            admin_telegram_id=message.from_user.id,
-            prompt_id=prompt_id,
-            starts_at=starts_at,
-        )
-    except AdminAccessDeniedError:
-        await state.clear()
-        await message.answer(panel_text.INSUFFICIENT_RIGHTS)
-        return
-    except SeasonStartDateError:
-        await message.answer(text.ADMIN_CALENDAR_SEASON_START_INVALID)
-        return
-    except (SeasonProposalNotFoundError, SeasonProposalAlreadyResolvedError):
-        await state.clear()
-        await message.answer(text.ADMIN_CALENDAR_SEASON_ALREADY_HANDLED)
-        return
-    except ValueError:
-        await message.answer(text.ADMIN_CALENDAR_INVALID_DATE)
-        return
-
-    await state.clear()
-    await message.answer(
-        season_fmt.proposal(proposal),
-        reply_markup=superadmin_seasons_kb.season_open_confirmation_keyboard(proposal.id),
-    )
-
-
-@router.message(CalendarSeasonProposalEditStates.entering_initial_starts_at)
-async def enter_initial_season_proposal_starts_at(
-    message: Message,
-    state: FSMContext,
-) -> None:
-    if message.from_user is None:
-        return
-
-    try:
-        starts_at = parse_admin_date(message.text or "")
-    except ValueError:
-        await message.answer(text.ADMIN_CALENDAR_INVALID_DATE)
-        return
-
-    try:
-        proposal = await season_service.create_season_proposal(
-            admin_telegram_id=message.from_user.id,
-            starts_at=starts_at,
-        )
-    except AdminAccessDeniedError:
-        await state.clear()
-        await message.answer(panel_text.INSUFFICIENT_RIGHTS)
         return
     except (SeasonDateOverlapError, SeasonScheduledConflictError, SeasonStartDateError):
         await message.answer(text.ADMIN_CALENDAR_SEASON_START_INVALID)
@@ -331,10 +271,11 @@ async def enter_initial_season_proposal_starts_at(
         await message.answer(text.ADMIN_CALENDAR_SCORING_CONFIG_NOT_FOUND)
         return
 
-    await state.clear()
+    await state.update_data(season_starts_at=starts_at.isoformat())
+    await state.set_state(None)
     await message.answer(
-        season_fmt.proposal(proposal),
-        reply_markup=superadmin_seasons_kb.season_open_confirmation_keyboard(proposal.id),
+        season_fmt.proposal(preview),
+        reply_markup=superadmin_seasons_kb.season_open_confirmation_keyboard(),
     )
 
 
@@ -345,22 +286,6 @@ async def select_season_open_action(
     state: FSMContext,
 ) -> None:
     if callback_data.action == superadmin_seasons_kb.SeasonOpenAction.CANCEL:
-        try:
-            await season_service.cancel_season_proposal(
-                admin_telegram_id=callback.from_user.id,
-                prompt_id=callback_data.prompt_id,
-            )
-        except AdminAccessDeniedError:
-            await state.clear()
-            await callback.answer(panel_text.INSUFFICIENT_RIGHTS, show_alert=True)
-            return
-        except (SeasonProposalNotFoundError, SeasonProposalAlreadyResolvedError):
-            await callback.answer(
-                text.ADMIN_CALENDAR_SEASON_ALREADY_HANDLED,
-                show_alert=True,
-            )
-            return
-
         await state.clear()
         await callback.answer(text.ADMIN_CALENDAR_CANCELLED)
         if callback.message is not None:
@@ -368,73 +293,30 @@ async def select_season_open_action(
             await callback.message.answer(text.ADMIN_CALENDAR_CANCELLED)
         return
 
-    if callback_data.action == superadmin_seasons_kb.SeasonOpenAction.CHANGE:
-        await state.clear()
-        await callback.answer()
-        if callback.message is not None:
-            await _delete_callback_message(callback)
-            await callback.message.answer(
-                text.ADMIN_CALENDAR_EDIT_MENU,
-                reply_markup=superadmin_seasons_kb.season_proposal_change_keyboard(
-                    callback_data.prompt_id
-                ),
-            )
-        return
-
-    if callback_data.action == superadmin_seasons_kb.SeasonOpenAction.NAME:
-        await state.set_state(CalendarSeasonProposalEditStates.entering_name)
-        await state.update_data(season_proposal_id=callback_data.prompt_id)
-        await callback.answer()
-        if callback.message is not None:
-            await _delete_callback_message(callback)
-            await callback.message.answer(
-                text.ADMIN_CALENDAR_ENTER_SEASON_NEW_NAME,
-                reply_markup=superadmin_seasons_kb.season_input_navigation_keyboard(
-                    callback_data.prompt_id
-                ),
-            )
-        return
-
-    if callback_data.action == superadmin_seasons_kb.SeasonOpenAction.STARTS_AT:
-        await state.set_state(CalendarSeasonProposalEditStates.entering_starts_at)
-        await state.update_data(season_proposal_id=callback_data.prompt_id)
+    if callback_data.action == superadmin_seasons_kb.SeasonOpenAction.BACK:
+        await state.set_state(CalendarSeasonCreationStates.entering_starts_at)
         await callback.answer()
         if callback.message is not None:
             await _delete_callback_message(callback)
             await callback.message.answer(
                 text.ADMIN_CALENDAR_ENTER_SEASON_NEW_START,
-                reply_markup=superadmin_seasons_kb.season_input_navigation_keyboard(
-                    callback_data.prompt_id
-                ),
+                reply_markup=superadmin_seasons_kb.season_input_navigation_keyboard(),
             )
         return
 
-    if callback_data.action == superadmin_seasons_kb.SeasonOpenAction.BACK:
-        try:
-            proposal = await season_service.get_season_proposal(
-                admin_telegram_id=callback.from_user.id,
-                prompt_id=callback_data.prompt_id,
-            )
-        except (SeasonProposalNotFoundError, SeasonProposalAlreadyResolvedError):
-            await callback.answer(
-                text.ADMIN_CALENDAR_SEASON_ALREADY_HANDLED,
-                show_alert=True,
-            )
-            return
+    data = await state.get_data()
+    name = str(data.get("season_name") or "")
+    starts_at_raw = data.get("season_starts_at")
+    if not isinstance(starts_at_raw, str):
         await state.clear()
-        await callback.answer()
-        if callback.message is not None:
-            await _delete_callback_message(callback)
-            await callback.message.answer(
-                season_fmt.proposal(proposal),
-                reply_markup=superadmin_seasons_kb.season_open_confirmation_keyboard(proposal.id),
-            )
+        await callback.answer(text.ADMIN_CALENDAR_SEASON_ALREADY_HANDLED, show_alert=True)
         return
 
     try:
-        season = await season_service.confirm_season_proposal(
+        season = await season_service.create_next_season(
             admin_telegram_id=callback.from_user.id,
-            prompt_id=callback_data.prompt_id,
+            name=name,
+            starts_at=date.fromisoformat(starts_at_raw),
         )
     except SeasonNameAlreadyExistsError:
         await callback.answer(text.ADMIN_CALENDAR_SEASON_NAME_EXISTS, show_alert=True)
@@ -443,22 +325,13 @@ async def select_season_open_action(
         await callback.answer(text.ADMIN_CALENDAR_ENTER_SEASON_NEW_NAME, show_alert=True)
         return
     except SeasonScoringConfigNotFoundError:
-        await callback.answer(
-            text.ADMIN_CALENDAR_SCORING_CONFIG_NOT_FOUND,
-            show_alert=True,
-        )
+        await callback.answer(text.ADMIN_CALENDAR_SCORING_CONFIG_NOT_FOUND, show_alert=True)
         return
     except (SeasonDateOverlapError, SeasonScheduledConflictError, SeasonStartDateError):
         await callback.answer(text.ADMIN_CALENDAR_SEASON_START_INVALID, show_alert=True)
         return
     except SeasonConflictError:
         await callback.answer(text.ADMIN_CALENDAR_SEASON_CONFLICT, show_alert=True)
-        return
-    except SeasonProposalInvalidPayloadError:
-        await callback.answer(text.ADMIN_CALENDAR_SEASON_ALREADY_HANDLED, show_alert=True)
-        return
-    except (SeasonProposalNotFoundError, SeasonProposalAlreadyResolvedError):
-        await callback.answer(text.ADMIN_CALENDAR_SEASON_ALREADY_HANDLED, show_alert=True)
         return
     except AdminAccessDeniedError:
         await state.clear()
@@ -470,3 +343,7 @@ async def select_season_open_action(
     if callback.message is not None:
         await _delete_callback_message(callback)
         await callback.message.answer(season_fmt.created(season))
+
+
+def _temporary_future_date() -> date:
+    return date.max

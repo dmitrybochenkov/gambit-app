@@ -110,6 +110,24 @@ class TournamentRepository:
         )
         return result.scalar_one_or_none()
 
+    async def get_latest_tournament(self) -> Tournament | None:
+        result = await self.session.execute(
+            select(Tournament)
+            .options(selectinload(Tournament.tournament_type))
+            .order_by(Tournament.date.desc(), Tournament.id.desc())
+            .limit(1)
+        )
+        return result.scalar_one_or_none()
+
+    async def list_by_dates(self, dates: tuple[date, ...]) -> list[Tournament]:
+        result = await self.session.execute(
+            select(Tournament)
+            .options(selectinload(Tournament.tournament_type))
+            .where(Tournament.date.in_(dates))
+            .order_by(Tournament.date, Tournament.id)
+        )
+        return list(result.scalars())
+
     async def exists_for_date_and_type_id(
         self,
         tournament_date: date,

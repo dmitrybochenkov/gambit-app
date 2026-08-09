@@ -21,8 +21,7 @@ class SeasonView:
 
 
 @dataclass(frozen=True)
-class SeasonProposalView:
-    id: int
+class SeasonCreationPreviewView:
     name: str
     starts_at: date
     scoring_config_id: int
@@ -34,7 +33,6 @@ class SeasonTimelineView:
     completed_seasons: list[SeasonView]
     current_season: SeasonView | None
     future_seasons: list[SeasonView]
-    pending_proposal: SeasonProposalView | None
     suggested_start: date | None
 
     @property

@@ -14,17 +14,6 @@ class UserRole(StrEnum):
     SUPERADMIN = "superadmin"
 
 
-class AdminPromptStatus(StrEnum):
-    PENDING = "pending"
-    CONFIRMED = "confirmed"
-    CANCELLED = "cancelled"
-
-
-class AdminPromptKind(StrEnum):
-    TOURNAMENTS_PROPOSAL = "tournaments_proposal"
-    SEASON_PROPOSAL = "season_proposal"
-
-
 class TournamentStatus(StrEnum):
     ACTIVE = "active"
     CLOSED = "closed"

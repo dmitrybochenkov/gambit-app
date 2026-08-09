@@ -39,34 +39,6 @@ Rules:
 - Public self-registration blocks accidental duplicate names as a business
   rule.
 
-## AdminPrompt
-
-Durable workflow record for administrative proposals.
-
-Fields:
-
-- `id`
-- `key`
-- `scope_key`
-- `kind`: `tournaments_proposal`, `season_proposal`
-- `payload`
-- `status`: `pending`, `confirmed`, `cancelled`
-- `resolved_at`
-- `resolved_by_user_id`
-- `created_at`
-- `updated_at`
-
-Rules:
-
-- `key` has one authoritative named unique constraint:
-  `uq_admin_prompts_key`.
-- `kind` and `status` are restricted by schema checks.
-- `resolved_by_user_id` references internal `users.id`.
-- `pending` prompts have empty `resolved_at` and `resolved_by_user_id`.
-- `confirmed` and `cancelled` prompts have both `resolved_at` and
-  `resolved_by_user_id`.
-- There is no `needs_changes` state.
-
 ## Season
 
 Rating period selected by tournament date.
@@ -84,6 +56,7 @@ Rules:
 - Season lifecycle is date-driven; there is no persisted `Season.status`.
 - `ends_at IS NULL` means the open-ended current/future season range.
 - Tournament creation assigns the season found for that tournament date.
+- Season creation drafts live only in Telegram FSM until confirmation.
 - Technical `created_at` and `updated_at` timestamps are not part of the
   current season domain contract.
 
@@ -160,6 +133,8 @@ Rules:
 - `tournament_fund` is `NULL` before close, positive, integer, and divisible by
   `10` when closed.
 - One tournament date is allowed in the database.
+- Weekly tournament planning drafts live only in Telegram FSM until
+  confirmation. The database stores only created tournaments.
 
 ## TournamentRegistration
 

@@ -7,16 +7,15 @@ from aiogram.utils.keyboard import InlineKeyboardBuilder
 from app.bot.telegram.keyboards import labels
 
 
-class CalendarPromptAction(StrEnum):
+class CalendarPlanAction(StrEnum):
     CONFIRM = "confirm"
     CANCEL = "cancel"
     EDIT = "edit"
     BACK = "back"
 
 
-class CalendarPromptCallback(CallbackData, prefix="calendar_prompt"):
-    action: CalendarPromptAction
-    prompt_id: int
+class CalendarPlanCallback(CallbackData, prefix="calendar_plan"):
+    action: CalendarPlanAction
 
 
 class AdminCalendarAction(StrEnum):
@@ -29,21 +28,15 @@ class AdminCalendarCallback(CallbackData, prefix="admin_calendar"):
     action: AdminCalendarAction
 
 
-def calendar_prompt_keyboard(prompt_id: int) -> InlineKeyboardMarkup:
+def calendar_plan_keyboard() -> InlineKeyboardMarkup:
     builder = InlineKeyboardBuilder()
     builder.button(
         text=labels.CONFIRM,
-        callback_data=CalendarPromptCallback(
-            action=CalendarPromptAction.CONFIRM,
-            prompt_id=prompt_id,
-        ),
+        callback_data=CalendarPlanCallback(action=CalendarPlanAction.CONFIRM),
     )
     builder.button(
         text=labels.CANCEL,
-        callback_data=CalendarPromptCallback(
-            action=CalendarPromptAction.CANCEL,
-            prompt_id=prompt_id,
-        ),
+        callback_data=CalendarPlanCallback(action=CalendarPlanAction.CANCEL),
     )
     builder.adjust(2)
     return builder.as_markup()

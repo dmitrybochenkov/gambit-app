@@ -23,12 +23,11 @@ from app.services.season_service import (
     SeasonScoringConfigNotFoundError,
     season_service,
 )
-from app.services.tournament_proposal_service import (
+from app.services.tournament_planning_service import (
     CalendarDefaultTournamentTypeNotFoundError,
-    CalendarTournamentDateAlreadyExistsError,
-    CalendarWeeklyPendingConflictError,
-    CalendarWeeklyPromptIntegrityError,
-    tournament_proposal_service,
+    CalendarWeeklyPlanIntegrityError,
+    WeeklyPlanningStatus,
+    tournament_planning_service,
 )
 from app.services.user_access_service import user_access_service
 
@@ -122,18 +121,10 @@ async def select_admin_calendar_section(
         return
 
     try:
-        prompt = await tournament_proposal_service.create_weekly_tournament_prompt(
-            callback.from_user.id
-        )
-    except CalendarTournamentDateAlreadyExistsError:
-        await callback.answer(calendar_text.ADMIN_CALENDAR_TOURNAMENT_DATE_EXISTS)
-        if callback.message is not None:
-            await callback.message.answer(calendar_text.ADMIN_CALENDAR_TOURNAMENT_DATE_EXISTS)
-        return
+        planning = await tournament_planning_service.inspect_next_week(callback.from_user.id)
     except (
         CalendarDefaultTournamentTypeNotFoundError,
-        CalendarWeeklyPendingConflictError,
-        CalendarWeeklyPromptIntegrityError,
+        CalendarWeeklyPlanIntegrityError,
     ):
         await callback.answer(calendar_text.CALENDAR_PROMPT_NOT_FOUND, show_alert=True)
         return
@@ -141,7 +132,12 @@ async def select_admin_calendar_section(
     await state.clear()
     await callback.answer()
     if callback.message is not None:
-        await callback.message.answer(
-            schedule_fmt.prompt(prompt),
-            reply_markup=admin_schedule_kb.manual_tournaments_prompt_keyboard(prompt),
-        )
+        if planning.status == WeeklyPlanningStatus.EMPTY and planning.plan is not None:
+            await callback.message.answer(calendar_text.ADMIN_CALENDAR_TOURNAMENT_WEEK_EMPTY)
+            await callback.message.answer(
+                schedule_fmt.prompt(planning.plan),
+                reply_markup=admin_schedule_kb.manual_tournaments_prompt_keyboard(planning.plan),
+            )
+            return
+        if planning.status == WeeklyPlanningStatus.PARTIAL:
+            await callback.message.answer(calendar_text.ADMIN_CALENDAR_TOURNAMENT_WEEK_PARTIAL)

@@ -59,8 +59,6 @@ def management(timeline: object) -> str:
             ]
         )
 
-    if timeline.pending_proposal is not None:
-        lines.extend(["", "Есть черновик нового сезона."])
     return "\n".join(lines)
 
 

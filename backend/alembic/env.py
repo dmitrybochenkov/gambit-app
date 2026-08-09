@@ -6,7 +6,6 @@ from alembic import context
 from app.config import settings
 from app.db.base import Base
 from app.db.models import (
-    AdminPrompt,
     RegistrationRequest,
     ScoringConfig,
     Season,
@@ -22,7 +21,6 @@ from app.db.models import (
 )
 
 del (
-    AdminPrompt,
     RegistrationRequest,
     ScoringConfig,
     Season,

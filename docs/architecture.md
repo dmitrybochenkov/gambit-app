@@ -77,7 +77,6 @@ Current service classes include:
 - `RegistrationReviewService`
 - `AdminManagementService`
 - `TournamentService`
-- `TournamentProposalService`
 - `TournamentScheduleService`
 - `TournamentPlanningService`
 - `TournamentCheckInService`
@@ -86,7 +85,6 @@ Current service classes include:
 - `ProfileService`
 - `UserStatisticsService`
 - `SeasonService`
-- `AdminPromptService`
 
 This list documents the current tree, not a future split plan.
 
@@ -110,19 +108,12 @@ Repositories:
 Repository projection objects are persistence-layer records. Services map them
 explicitly into service DTOs before returning data to Telegram handlers.
 
-## Proposals
+## Calendar Drafts
 
-`AdminPrompt.payload` remains JSON in the database, but services work with typed
-payload value objects at the boundary:
-
-- `SeasonProposalPayload`
-- `WeeklyTournamentPromptPayload`
-
-Raw JSON decode/encode errors are converted to domain prompt errors.
-
-Only one pending season proposal is allowed at a time. The stable scope key is
-`season`; repeated entry returns the existing pending proposal. After it is
-confirmed or cancelled, a later entry creates the next attempt key.
+Calendar and season planning use Telegram FSM for unfinished drafts. The
+database stores only confirmed business state: seasons, tournaments, templates,
+and results. If the bot restarts, unfinished drafts disappear and the
+administrator starts the flow again.
 
 Weekly tournament Sunday rotation is configured by active
 `WeeklyTournamentTemplate` rows with `rotation_order`. The planning flow sorts

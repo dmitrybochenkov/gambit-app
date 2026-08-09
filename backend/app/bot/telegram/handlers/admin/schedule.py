@@ -14,130 +14,111 @@ from app.bot.telegram.keyboards.admin import schedule as admin_schedule_kb
 from app.bot.telegram.texts.admin import calendar as calendar_text
 from app.bot.telegram.texts.admin import schedule as schedule_text
 from app.bot.telegram.texts.superadmin import panel as superadmin_panel_text
-from app.db.models.enums import AdminPromptKind
 from app.services.access_policy import AdminAccessDeniedError
-from app.services.tournament_proposal_service import (
+from app.services.dto.schedules import WeeklyTournamentPlanView
+from app.services.tournament_planning_service import (
     CalendarDefaultTournamentTypeNotFoundError,
-    CalendarPromptAction,
-    CalendarPromptAlreadyResolvedError,
-    CalendarPromptInvalidPayloadError,
-    CalendarPromptNotFoundError,
+    CalendarPlanStaleError,
     CalendarTournamentDateAlreadyExistsError,
-    CalendarTournamentDateNotInPromptError,
-    CalendarWeeklyPendingConflictError,
-    CalendarWeeklyPromptEmptyError,
-    CalendarWeeklyPromptIntegrityError,
-    tournament_proposal_service,
+    CalendarTournamentDateNotInPlanError,
+    CalendarTournamentTypeNotFoundError,
+    CalendarWeeklyPlanEmptyError,
+    CalendarWeeklyPlanIntegrityError,
+    WeeklyTournamentPlan,
+    tournament_planning_service,
 )
 from app.services.tournament_schedule_service import tournament_schedule_service
-from app.services.user_access_service import user_access_service
 
 logger = logging.getLogger(__name__)
 
 
 router = Router(name="admin.schedule")
 
+FSM_PLAN_KEY = "weekly_tournament_plan"
 
-@router.callback_query(admin_calendar_kb.CalendarPromptCallback.filter())
-async def review_calendar_prompt(
+
+@router.callback_query(admin_calendar_kb.CalendarPlanCallback.filter())
+async def review_calendar_plan(
     callback: CallbackQuery,
-    callback_data: admin_calendar_kb.CalendarPromptCallback,
+    callback_data: admin_calendar_kb.CalendarPlanCallback,
     state: FSMContext,
 ) -> None:
     try:
-        await user_access_service.require_superadmin(callback.from_user.id)
-        if callback_data.action == admin_calendar_kb.CalendarPromptAction.EDIT:
-            await state.clear()
-            prompt = await tournament_proposal_service.get_tournament_prompt(
+        if callback_data.action == admin_calendar_kb.CalendarPlanAction.EDIT:
+            plan_view = await _plan_view_from_state_or_service(
                 callback.from_user.id,
-                callback_data.prompt_id,
+                state,
+                store_if_missing=True,
             )
             if callback.message is not None:
                 await _delete_callback_message(callback)
                 await callback.message.answer(
                     calendar_text.ADMIN_CALENDAR_EDIT_MENU,
-                    reply_markup=admin_schedule_kb.tournament_prompt_day_edit_keyboard(prompt),
+                    reply_markup=admin_schedule_kb.tournament_prompt_day_edit_keyboard(plan_view),
                 )
             await callback.answer()
             return
 
-        if callback_data.action == admin_calendar_kb.CalendarPromptAction.BACK:
-            await state.clear()
-            prompt = await tournament_proposal_service.get_tournament_prompt(
-                callback.from_user.id,
-                callback_data.prompt_id,
-            )
+        if callback_data.action == admin_calendar_kb.CalendarPlanAction.BACK:
+            plan_view = await _plan_view_from_state(callback.from_user.id, state)
             if callback.message is not None:
                 await _delete_callback_message(callback)
                 await callback.message.answer(
-                    schedule_fmt.prompt(prompt),
-                    reply_markup=admin_schedule_kb.manual_tournaments_prompt_keyboard(prompt),
+                    schedule_fmt.prompt(plan_view),
+                    reply_markup=admin_schedule_kb.manual_tournaments_prompt_keyboard(plan_view),
                 )
             await callback.answer()
             return
 
-        await state.clear()
-        action = CalendarPromptAction(callback_data.action.value)
-        resolved_prompt = await tournament_proposal_service.resolve_prompt(
+        if callback_data.action == admin_calendar_kb.CalendarPlanAction.CANCEL:
+            await state.clear()
+            await callback.answer(calendar_text.CALENDAR_PROMPT_CANCELLED)
+            if callback.message is not None:
+                await _delete_callback_message(callback)
+                await callback.message.answer(calendar_text.CALENDAR_PROMPT_CANCELLED)
+            return
+
+        plan = await _plan_from_state_or_service(callback.from_user.id, state)
+        created_plan = await tournament_planning_service.create_weekly_schedule(
             actor_telegram_id=callback.from_user.id,
-            prompt_id=callback_data.prompt_id,
-            action=action,
+            plan=plan,
+        )
+        schedule = await tournament_schedule_service.get_created_weekly_schedule(
+            callback.from_user.id,
+            plan,
         )
     except AdminAccessDeniedError:
         await callback.answer(superadmin_panel_text.INSUFFICIENT_RIGHTS, show_alert=True)
         return
-    except CalendarPromptNotFoundError:
+    except CalendarPlanStaleError:
+        await state.clear()
         await callback.answer(calendar_text.CALENDAR_PROMPT_STALE, show_alert=True)
-        return
-    except CalendarPromptAlreadyResolvedError:
-        await callback.answer(
-            calendar_text.CALENDAR_PROMPT_ALREADY_RESOLVED,
-            show_alert=True,
-        )
         return
     except CalendarTournamentDateAlreadyExistsError:
         await callback.answer(calendar_text.ADMIN_CALENDAR_TOURNAMENT_DATE_EXISTS)
         if callback.message is not None:
             await callback.message.answer(calendar_text.ADMIN_CALENDAR_TOURNAMENT_DATE_EXISTS)
         return
-    except CalendarWeeklyPromptEmptyError:
+    except CalendarWeeklyPlanEmptyError:
         await callback.answer(calendar_text.CALENDAR_WEEKLY_PROMPT_EMPTY)
         if callback.message is not None:
             await callback.message.answer(calendar_text.CALENDAR_WEEKLY_PROMPT_EMPTY)
         return
     except (
         CalendarDefaultTournamentTypeNotFoundError,
-        CalendarWeeklyPendingConflictError,
-        CalendarWeeklyPromptIntegrityError,
+        CalendarTournamentTypeNotFoundError,
+        CalendarWeeklyPlanIntegrityError,
     ):
         await callback.answer(calendar_text.CALENDAR_PROMPT_NOT_FOUND, show_alert=True)
         return
 
-    if callback_data.action == admin_calendar_kb.CalendarPromptAction.CONFIRM:
-        result_text = (
-            calendar_text.ADMIN_CALENDAR_TOURNAMENTS_CREATED
-            if resolved_prompt.kind == AdminPromptKind.TOURNAMENTS_PROPOSAL
-            else calendar_text.CALENDAR_PROMPT_CONFIRMED
-        )
-        await callback.answer(result_text)
-        if callback.message is not None:
-            await _delete_callback_message(callback)
-            await callback.message.answer(schedule_fmt.created_prompt(resolved_prompt))
-            if resolved_prompt.kind == AdminPromptKind.TOURNAMENTS_PROPOSAL:
-                schedule = await tournament_schedule_service.get_created_weekly_schedule(
-                    callback.from_user.id, callback_data.prompt_id
-                )
-                for schedule_message in schedule_fmt.public_weekly(schedule):
-                    await callback.message.answer(schedule_message)
-        return
-    elif callback_data.action == admin_calendar_kb.CalendarPromptAction.CANCEL:
-        result_text = calendar_text.CALENDAR_PROMPT_CANCELLED
-        await state.clear()
-        await callback.answer(result_text)
-        if callback.message is not None:
-            await _delete_callback_message(callback)
-            await callback.message.answer(result_text)
-        return
+    await state.clear()
+    await callback.answer(calendar_text.ADMIN_CALENDAR_TOURNAMENTS_CREATED)
+    if callback.message is not None:
+        await _delete_callback_message(callback)
+        await callback.message.answer(schedule_fmt.created_prompt(created_plan))
+        for schedule_message in schedule_fmt.public_weekly(schedule):
+            await callback.message.answer(schedule_message)
 
 
 @router.callback_query(admin_schedule_kb.TournamentPromptDayEditCallback.filter())
@@ -147,10 +128,10 @@ async def select_tournament_prompt_day(
     state: FSMContext,
 ) -> None:
     try:
-        await user_access_service.require_superadmin(callback.from_user.id)
-        edit_view = await tournament_proposal_service.get_weekly_prompt_day_edit_options(
+        plan = _plan_from_state(await state.get_data())
+        edit_view = await tournament_planning_service.get_day_edit_options(
             actor_telegram_id=callback.from_user.id,
-            prompt_id=callback_data.prompt_id,
+            plan=plan,
             tournament_date=date.fromisoformat(callback_data.tournament_date),
         )
     except AdminAccessDeniedError:
@@ -159,15 +140,13 @@ async def select_tournament_prompt_day(
         return
     except (
         ValueError,
-        CalendarPromptInvalidPayloadError,
-        CalendarPromptNotFoundError,
-        CalendarPromptAlreadyResolvedError,
-        CalendarTournamentDateNotInPromptError,
+        CalendarPlanStaleError,
+        CalendarTournamentDateNotInPlanError,
+        CalendarWeeklyPlanIntegrityError,
     ):
         await callback.answer(calendar_text.CALENDAR_PROMPT_STALE, show_alert=True)
         return
 
-    await state.clear()
     await callback.answer()
     if callback.message is not None:
         await _delete_callback_message(callback)
@@ -184,35 +163,96 @@ async def select_tournament_type(
     state: FSMContext,
 ) -> None:
     try:
-        await user_access_service.require_superadmin(callback.from_user.id)
-        prompt = await tournament_proposal_service.update_weekly_prompt_day_type(
+        plan = _plan_from_state(await state.get_data())
+        plan_view = await tournament_planning_service.update_plan_day_type(
             actor_telegram_id=callback.from_user.id,
-            prompt_id=callback_data.prompt_id,
+            plan=plan,
             tournament_date=date.fromisoformat(callback_data.tournament_date),
             tournament_type_id=callback_data.tournament_type_id,
         )
+        updated_plan = plan.with_tournament_type(
+            date.fromisoformat(callback_data.tournament_date),
+            callback_data.tournament_type_id,
+        )
+        await state.update_data(**{FSM_PLAN_KEY: updated_plan.to_fsm()})
     except AdminAccessDeniedError:
         await callback.answer(superadmin_panel_text.INSUFFICIENT_RIGHTS, show_alert=True)
         return
-    except (CalendarPromptNotFoundError, CalendarPromptAlreadyResolvedError):
-        await callback.answer(
-            calendar_text.CALENDAR_PROMPT_ALREADY_RESOLVED,
-            show_alert=True,
-        )
-        return
     except (
         ValueError,
-        CalendarPromptInvalidPayloadError,
-        CalendarTournamentDateNotInPromptError,
+        CalendarPlanStaleError,
+        CalendarTournamentDateNotInPlanError,
+        CalendarTournamentTypeNotFoundError,
+        CalendarWeeklyPlanIntegrityError,
     ):
         await callback.answer(calendar_text.CALENDAR_PROMPT_STALE, show_alert=True)
         return
 
-    await state.clear()
     await callback.answer(calendar_text.CALENDAR_PROMPT_CONFIRMED)
     if callback.message is not None:
         await _delete_callback_message(callback)
         await callback.message.answer(
-            schedule_fmt.prompt(prompt),
-            reply_markup=admin_schedule_kb.manual_tournaments_prompt_keyboard(prompt),
+            schedule_fmt.prompt(plan_view),
+            reply_markup=admin_schedule_kb.manual_tournaments_prompt_keyboard(plan_view),
         )
+
+
+async def store_plan_in_state(state: FSMContext, plan_view: WeeklyTournamentPlanView) -> None:
+    await state.update_data(
+        **{
+            FSM_PLAN_KEY: [
+                {
+                    "date": item.date.isoformat(),
+                    "tournament_type_id": item.tournament_type.id,
+                }
+                for item in plan_view.tournaments
+            ]
+        }
+    )
+
+
+def _plan_from_state(data: dict[str, object]) -> WeeklyTournamentPlan:
+    return WeeklyTournamentPlan.from_fsm(data.get(FSM_PLAN_KEY))
+
+
+async def _plan_from_state_or_service(
+    actor_telegram_id: int,
+    state: FSMContext,
+) -> WeeklyTournamentPlan:
+    data = await state.get_data()
+    if FSM_PLAN_KEY in data:
+        return _plan_from_state(data)
+    plan_view = await tournament_planning_service.build_next_week_plan(actor_telegram_id)
+    return _plan_from_view(plan_view)
+
+
+async def _plan_view_from_state_or_service(
+    actor_telegram_id: int,
+    state: FSMContext,
+    *,
+    store_if_missing: bool,
+) -> WeeklyTournamentPlanView:
+    data = await state.get_data()
+    if FSM_PLAN_KEY in data:
+        return await _plan_view_from_state(actor_telegram_id, state)
+    plan_view = await tournament_planning_service.build_next_week_plan(actor_telegram_id)
+    if store_if_missing:
+        await store_plan_in_state(state, plan_view)
+    return plan_view
+
+
+async def _plan_view_from_state(
+    actor_telegram_id: int,
+    state: FSMContext,
+) -> WeeklyTournamentPlanView:
+    return await tournament_planning_service.get_plan_view(
+        actor_telegram_id,
+        _plan_from_state(await state.get_data()),
+    )
+
+
+def _plan_from_view(plan_view: WeeklyTournamentPlanView) -> WeeklyTournamentPlan:
+    return WeeklyTournamentPlan.create(
+        target_dates=tuple(item.date for item in plan_view.tournaments),
+        tournament_type_ids=tuple(item.tournament_type.id for item in plan_view.tournaments),
+    )

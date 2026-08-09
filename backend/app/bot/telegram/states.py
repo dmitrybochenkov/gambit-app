@@ -15,10 +15,9 @@ class HallOfFameStates(StatesGroup):
     entering_player_name = State()
 
 
-class CalendarSeasonProposalEditStates(StatesGroup):
+class CalendarSeasonCreationStates(StatesGroup):
     entering_name = State()
     entering_starts_at = State()
-    entering_initial_starts_at = State()
 
 
 class AdminResultStates(StatesGroup):

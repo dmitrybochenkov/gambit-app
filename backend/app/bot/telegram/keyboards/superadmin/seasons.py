@@ -9,16 +9,12 @@ from app.bot.telegram.keyboards import labels
 
 class SeasonOpenAction(StrEnum):
     CONFIRM = "confirm"
-    CHANGE = "change"
-    NAME = "name"
-    STARTS_AT = "starts_at"
     BACK = "back"
     CANCEL = "cancel"
 
 
 class SeasonOpenCallback(CallbackData, prefix="season_open"):
     action: SeasonOpenAction
-    prompt_id: int
 
 
 class SeasonManageAction(StrEnum):
@@ -120,26 +116,16 @@ def season_list_keyboard(page: object) -> InlineKeyboardMarkup:
     return builder.as_markup()
 
 
-def season_input_navigation_keyboard(prompt_id: int | None = None) -> InlineKeyboardMarkup:
+def season_input_navigation_keyboard() -> InlineKeyboardMarkup:
     builder = InlineKeyboardBuilder()
-    if prompt_id is None:
-        builder.button(
-            text=labels.ADMIN_CALENDAR_BACK,
-            callback_data=SeasonManageCallback(action=SeasonManageAction.LIST_PAGE, page=-1),
-        )
-        builder.button(
-            text=labels.ADMIN_CALENDAR_CANCEL,
-            callback_data=SeasonManageCallback(action=SeasonManageAction.CANCEL),
-        )
-    else:
-        builder.button(
-            text=labels.ADMIN_CALENDAR_BACK,
-            callback_data=SeasonOpenCallback(action=SeasonOpenAction.BACK, prompt_id=prompt_id),
-        )
-        builder.button(
-            text=labels.ADMIN_CALENDAR_CANCEL,
-            callback_data=SeasonOpenCallback(action=SeasonOpenAction.CANCEL, prompt_id=prompt_id),
-        )
+    builder.button(
+        text=labels.ADMIN_CALENDAR_BACK,
+        callback_data=SeasonManageCallback(action=SeasonManageAction.LIST_PAGE, page=-1),
+    )
+    builder.button(
+        text=labels.ADMIN_CALENDAR_CANCEL,
+        callback_data=SeasonManageCallback(action=SeasonManageAction.CANCEL),
+    )
     builder.adjust(1)
     return builder.as_markup()
 
@@ -171,54 +157,24 @@ def season_delete_future_confirmation_keyboard(season_id: int) -> InlineKeyboard
     return builder.as_markup()
 
 
-def season_open_confirmation_keyboard(prompt_id: int) -> InlineKeyboardMarkup:
+def season_open_confirmation_keyboard() -> InlineKeyboardMarkup:
     builder = InlineKeyboardBuilder()
     builder.button(
         text=labels.ADMIN_CALENDAR_OPEN,
         callback_data=SeasonOpenCallback(
             action=SeasonOpenAction.CONFIRM,
-            prompt_id=prompt_id,
-        ),
-    )
-    builder.button(
-        text=labels.ADMIN_CALENDAR_EDIT,
-        callback_data=SeasonOpenCallback(
-            action=SeasonOpenAction.CHANGE,
-            prompt_id=prompt_id,
         ),
     )
     builder.button(
         text=labels.ADMIN_CALENDAR_CANCEL,
         callback_data=SeasonOpenCallback(
             action=SeasonOpenAction.CANCEL,
-            prompt_id=prompt_id,
-        ),
-    )
-    builder.adjust(1)
-    return builder.as_markup()
-
-
-def season_proposal_change_keyboard(prompt_id: int) -> InlineKeyboardMarkup:
-    builder = InlineKeyboardBuilder()
-    builder.button(
-        text=labels.ADMIN_SEASON_EDIT_NAME,
-        callback_data=SeasonOpenCallback(
-            action=SeasonOpenAction.NAME,
-            prompt_id=prompt_id,
-        ),
-    )
-    builder.button(
-        text=labels.ADMIN_SEASON_EDIT_START,
-        callback_data=SeasonOpenCallback(
-            action=SeasonOpenAction.STARTS_AT,
-            prompt_id=prompt_id,
         ),
     )
     builder.button(
         text=labels.ADMIN_CALENDAR_BACK,
         callback_data=SeasonOpenCallback(
             action=SeasonOpenAction.BACK,
-            prompt_id=prompt_id,
         ),
     )
     builder.adjust(1)

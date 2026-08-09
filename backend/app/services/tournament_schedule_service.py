@@ -2,9 +2,7 @@ from decimal import Decimal
 
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
-from app.db.models import AdminPrompt
-from app.db.models.enums import AdminPromptKind, AdminPromptStatus, KnockoutMode
-from app.db.repositories.admin_prompt_repository import AdminPromptRepository
+from app.db.models.enums import KnockoutMode
 from app.db.repositories.tournament_repository import TournamentRepository
 from app.db.repositories.tournament_type_repository import TournamentTypeRepository
 from app.db.session import SessionFactory
@@ -14,12 +12,9 @@ from app.services.dto.schedules import (
     WeeklyScheduleTournamentView,
     WeeklyScheduleView,
 )
-from app.services.tournament_proposal_service import (
-    CalendarPromptAlreadyResolvedError,
-    CalendarPromptNotFoundError,
-    CalendarPromptUnsupportedError,
-    CalendarWeeklyPromptIntegrityError,
-    WeeklyTournamentPromptPayload,
+from app.services.tournament_planning_service import (
+    CalendarWeeklyPlanIntegrityError,
+    WeeklyTournamentPlan,
 )
 
 
@@ -30,33 +25,25 @@ class TournamentScheduleService:
     async def get_created_weekly_schedule(
         self,
         actor_telegram_id: int,
-        prompt_id: int,
+        plan: WeeklyTournamentPlan,
     ) -> WeeklyScheduleView:
         async with self.session_factory() as session:
             await access_policy.require_superadmin(session, actor_telegram_id)
-            prompt = await AdminPromptRepository(session).get_by_id(prompt_id)
-            if prompt is None:
-                raise CalendarPromptNotFoundError
-            if prompt.kind != AdminPromptKind.TOURNAMENTS_PROPOSAL:
-                raise CalendarPromptUnsupportedError(prompt.kind)
-            if prompt.status != AdminPromptStatus.CONFIRMED:
-                raise CalendarPromptAlreadyResolvedError
-            return await self._created_weekly_schedule_view(session, prompt)
+            return await self._created_weekly_schedule_view(session, plan)
 
     async def _created_weekly_schedule_view(
         self,
         session: AsyncSession,
-        prompt: AdminPrompt,
+        plan: WeeklyTournamentPlan,
     ) -> WeeklyScheduleView:
-        prompt_items = WeeklyTournamentPromptPayload.from_json(prompt.payload).tournaments
-        expected_keys = [(item.date, item.tournament_type_id) for item in prompt_items]
+        expected_keys = [(item.date, item.tournament_type_id) for item in plan.tournaments]
         tournament_rows = await TournamentRepository(session).list_weekly_schedule_records(
             dates=tuple(key[0] for key in expected_keys),
             tournament_type_ids=tuple(key[1] for key in expected_keys),
         )
         tournaments_by_key = {(row.date, row.tournament_type_id): row for row in tournament_rows}
         if set(tournaments_by_key) != set(expected_keys):
-            raise CalendarWeeklyPromptIntegrityError
+            raise CalendarWeeklyPlanIntegrityError
 
         rebuys_by_type_id = await self._rebuys_by_type_id(
             session,
