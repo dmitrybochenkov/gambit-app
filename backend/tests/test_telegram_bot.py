@@ -347,7 +347,7 @@ def test_admin_result_players_hide_ids_and_empty_places() -> None:
     assert "БКО" not in text
     assert "Бонус" not in text
     assert "2      Илларионов" in text
-    assert "—      Тест Игрок" in text
+    assert "Тест Игрок" not in text
     buttons = [
         button.text
         for row in admin_results_kb.admin_result_players_keyboard(results, page).inline_keyboard
@@ -383,7 +383,7 @@ def test_admin_result_players_show_empty_state_without_entered_results() -> None
     assert "Игроки: 1" in text
     assert "В " + "работе" not in text
     assert "Место  Игрок" in text
-    assert "—      Тест Игрок" in text
+    assert "Тест Игрок" not in text
 
 
 def test_admin_result_player_buttons_show_entered_knockouts_and_place() -> None:
@@ -481,6 +481,7 @@ def test_admin_result_players_show_place_only_table_for_classic() -> None:
     assert "2      Тест Игрок 4" in text
     assert "4      Дима Боченков" in text
     assert "5      Тест Игрок 7" in text
+    assert "Илларионов Александр" not in text
 
 
 def test_admin_result_players_add_knockout_columns_for_bounty() -> None:
@@ -531,6 +532,8 @@ def test_admin_result_players_add_knockout_columns_for_bounty() -> None:
     assert "Бонус" not in text
     assert "3      Игрок Место" in text
     assert "—      Игрок БКО" in text
+    assert "Игрок КО" in text
+    assert "Игрок Много КО" in text
 
 
 def test_admin_result_players_add_bonus_only_when_supported() -> None:
@@ -556,6 +559,7 @@ def test_admin_result_players_add_bonus_only_when_supported() -> None:
     assert "Место  Игрок" in text
     assert "КО  Бонус" in text
     assert "БКО" not in text
+    assert "Илларионов Александр" not in text
 
 
 def test_admin_close_tournament_formatters_show_fund_and_game_tables() -> None:
@@ -602,15 +606,18 @@ def test_admin_close_tournament_formatters_show_fund_and_game_tables() -> None:
     assert "✅ Турнир закрыт" in closed
     assert "Место  Игрок               КО  БКО  Бонус   Очки" in closed
     assert "1110" in closed
+    assert "Тест Игрок" not in card
+    assert "Тест Игрок" not in confirmation
+    assert "Тест Игрок" not in closed
 
 
-def test_admin_close_tournament_root_card_keyboard_has_input_and_cancel() -> None:
+def test_admin_close_tournament_root_card_keyboard_has_only_cancel() -> None:
     keyboard = superadmin_tournament_close_kb.admin_close_tournament_card_keyboard(
         tournament_id=125,
         page=0,
     )
 
-    assert inline_keyboard_texts(keyboard) == ["💰 Ввести фонд", "❌ Отмена"]
+    assert inline_keyboard_texts(keyboard) == ["❌ Отмена"]
 
 
 def test_admin_close_tournament_flow_keyboards_do_not_show_back() -> None:
@@ -1902,19 +1909,7 @@ async def test_superadmin_close_tournament_dispatcher_replaces_fund_preview(
             bot,
             message_update(1, labels.ADMIN_PANEL_CLOSE_TOURNAMENT),
         )
-        await runtime.telegram_dispatcher.feed_raw_update(
-            bot,
-            callback_update(
-                2,
-                superadmin_tournament_close_kb.AdminCloseTournamentCallback(
-                    action=superadmin_tournament_close_kb.AdminCloseTournamentAction.ENTER_FUND,
-                    tournament_id=tournament_id,
-                    page=0,
-                ).pack(),
-                message_id=101,
-            ),
-        )
-        await runtime.telegram_dispatcher.feed_raw_update(bot, message_update(3, "10000"))
+        await runtime.telegram_dispatcher.feed_raw_update(bot, message_update(2, "10000"))
         async with session_factory() as session:
             tournament_before_change = await session.get(Tournament, tournament_id)
             assert tournament_before_change is not None
@@ -1924,7 +1919,7 @@ async def test_superadmin_close_tournament_dispatcher_replaces_fund_preview(
         await runtime.telegram_dispatcher.feed_raw_update(
             bot,
             callback_update(
-                4,
+                3,
                 superadmin_tournament_close_kb.AdminCloseTournamentCallback(
                     action=superadmin_tournament_close_kb.AdminCloseTournamentAction.CHANGE_FUND,
                     tournament_id=tournament_id,
@@ -1938,11 +1933,11 @@ async def test_superadmin_close_tournament_dispatcher_replaces_fund_preview(
             assert tournament_after_change.status == TournamentStatus.ACTIVE
             assert tournament_after_change.tournament_fund is None
 
-        await runtime.telegram_dispatcher.feed_raw_update(bot, message_update(5, "15000"))
+        await runtime.telegram_dispatcher.feed_raw_update(bot, message_update(4, "15000"))
         await runtime.telegram_dispatcher.feed_raw_update(
             bot,
             callback_update(
-                6,
+                5,
                 superadmin_tournament_close_kb.AdminCloseTournamentCallback(
                     action=superadmin_tournament_close_kb.AdminCloseTournamentAction.CONFIRM,
                     tournament_id=tournament_id,
@@ -2032,6 +2027,8 @@ async def test_close_tournament_single_tournament_root_shows_preview(
         from_user=SimpleNamespace(id=100),
         answer=AsyncMock(),
     )
+    sent_message = SimpleNamespace(chat=SimpleNamespace(id=100), message_id=700)
+    message.answer.return_value = sent_message
 
     await superadmin_close_handlers.show_close_tournament_flow(message, state)
 
@@ -2044,15 +2041,19 @@ async def test_close_tournament_single_tournament_root_shows_preview(
         superadmin_telegram_id=100,
         tournament_id=125,
     )
-    assert state.state is None
-    assert state.data == {}
+    assert state.state == AdminResultStates.entering_tournament_fund
+    assert state.data == {
+        "close_tournament_id": 125,
+        "close_tournament_page": 0,
+        "close_tournament_prompt_chat_id": 100,
+        "close_tournament_prompt_message_id": 700,
+    }
     message.answer.assert_awaited_once()
     assert "🔒 Закрытие турнира" in message.answer.await_args.args[0]
     assert "9 августа 2026" in message.answer.await_args.args[0]
     assert "Баунти турнир" in message.answer.await_args.args[0]
     assert "Введите фонд турнира?" in message.answer.await_args.args[0]
     assert inline_keyboard_texts(message.answer.await_args.kwargs["reply_markup"]) == [
-        "💰 Ввести фонд",
         "❌ Отмена",
     ]
 
@@ -2114,6 +2115,60 @@ async def test_close_tournament_invalid_fund_stays_in_input_flow() -> None:
         "Фонд турнира должен быть положительным целым числом, кратным 10.\n\nВведите фонд турнира."
     )
     assert "Закрытие турнира" not in message.answer.await_args.args[0]
+
+
+async def test_close_tournament_valid_fund_replaces_root_preview_with_prompt(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    tournament = tournament_view(125, date(2026, 8, 9), 1, "Баунти турнир")
+    results = TournamentResultsView(
+        tournament=tournament,
+        tournament_fund=None,
+        players=[
+            TournamentResultPlayerView(
+                player_id=108,
+                display_name="Илларионов Александр",
+                place=1,
+                knockouts_count=0,
+                big_knockouts_count=0,
+            )
+        ],
+        knockout_mode="none",
+    )
+    service = SimpleNamespace(get_closeable_tournament_results=AsyncMock(return_value=results))
+    monkeypatch.setattr(superadmin_close_handlers, "result_service", service)
+    state = MutableState()
+    await state.set_state(AdminResultStates.entering_tournament_fund)
+    await state.update_data(
+        close_tournament_id=125,
+        close_tournament_page=0,
+        close_tournament_prompt_chat_id=100,
+        close_tournament_prompt_message_id=700,
+    )
+    bot = SimpleNamespace(edit_message_text=AsyncMock())
+    message = SimpleNamespace(
+        from_user=SimpleNamespace(id=100),
+        text="15000",
+        bot=bot,
+        answer=AsyncMock(),
+    )
+
+    await superadmin_close_handlers.enter_tournament_fund(message, state)
+
+    service.get_closeable_tournament_results.assert_awaited_once_with(
+        superadmin_telegram_id=100,
+        tournament_id=125,
+    )
+    bot.edit_message_text.assert_awaited_once_with(
+        chat_id=100,
+        message_id=700,
+        text="Введите фонд турнира.",
+        reply_markup=None,
+    )
+    message.answer.assert_awaited_once()
+    assert "Фонд турнира: 15000" in message.answer.await_args.args[0]
+    assert state.state is None
+    assert state.data["tournament_fund"] == 15000
 
 
 async def test_telegram_error_boundary_handles_unexpected_handler_error(

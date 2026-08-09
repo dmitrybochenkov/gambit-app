@@ -210,7 +210,7 @@ def _game_table_lines(
 ) -> list[str]:
     rows = []
     sorted_players = sorted(
-        results.players,
+        results.entered_players,
         key=lambda player: (
             player.place if player.place is not None else 99,
             -player.big_knockouts_count,

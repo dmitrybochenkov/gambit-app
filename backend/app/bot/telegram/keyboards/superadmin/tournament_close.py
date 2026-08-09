@@ -13,7 +13,6 @@ from app.services.pagination import Page
 class AdminCloseTournamentAction(StrEnum):
     OPEN = "open"
     PAGE = "page"
-    ENTER_FUND = "enter_fund"
     CONFIRM = "confirm"
     CHANGE_FUND = "change_fund"
     CANCEL = "cancel"
@@ -79,14 +78,6 @@ def admin_close_tournament_list_keyboard(page: Page[TournamentView]) -> InlineKe
 def admin_close_tournament_card_keyboard(*, tournament_id: int, page: int) -> InlineKeyboardMarkup:
     builder = InlineKeyboardBuilder()
     builder.button(
-        text="💰 Ввести фонд",
-        callback_data=AdminCloseTournamentCallback(
-            action=AdminCloseTournamentAction.ENTER_FUND,
-            page=page,
-            tournament_id=tournament_id,
-        ),
-    )
-    builder.button(
         text=labels.ADMIN_CANCEL,
         callback_data=AdminCloseTournamentCallback(
             action=AdminCloseTournamentAction.CANCEL,
@@ -121,25 +112,7 @@ def admin_close_tournament_fund_error_keyboard(
     tournament_id: int,
     page: int,
 ) -> InlineKeyboardMarkup:
-    builder = InlineKeyboardBuilder()
-    builder.button(
-        text="🔄 Ввести снова",
-        callback_data=AdminCloseTournamentCallback(
-            action=AdminCloseTournamentAction.ENTER_FUND,
-            page=page,
-            tournament_id=tournament_id,
-        ),
-    )
-    builder.button(
-        text=labels.ADMIN_CANCEL,
-        callback_data=AdminCloseTournamentCallback(
-            action=AdminCloseTournamentAction.CANCEL,
-            page=page,
-            tournament_id=tournament_id,
-        ),
-    )
-    builder.adjust(1)
-    return builder.as_markup()
+    return admin_close_tournament_cancel_keyboard(tournament_id=tournament_id, page=page)
 
 
 def admin_close_tournament_confirmation_keyboard(

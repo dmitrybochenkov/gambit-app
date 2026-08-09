@@ -27,3 +27,16 @@ class TournamentResultsView:
     players: list[TournamentResultPlayerView]
     knockout_mode: str = "none"
     supports_bonus_points: bool = False
+
+    @property
+    def entered_players(self) -> list[TournamentResultPlayerView]:
+        return [player for player in self.players if self.has_entered_result(player)]
+
+    def has_entered_result(self, player: TournamentResultPlayerView) -> bool:
+        if player.place is not None:
+            return True
+        if self.knockout_mode in {"small", "small_big"} and player.knockouts_count > 0:
+            return True
+        if self.knockout_mode == "small_big" and player.big_knockouts_count > 0:
+            return True
+        return self.supports_bonus_points and player.bonus_points > 0

@@ -15,7 +15,10 @@ from app.bot.telegram.keyboards import labels
 from app.bot.telegram.keyboards.admin import results as admin_results_kb
 from app.bot.telegram.keyboards.superadmin import panel as superadmin_panel_kb
 from app.bot.telegram.keyboards.superadmin import tournament_close as superadmin_tournament_close_kb
-from app.bot.telegram.message_edit import edit_message_if_changed
+from app.bot.telegram.message_edit import (
+    edit_message_if_changed,
+    edit_message_text_by_id_if_changed,
+)
 from app.bot.telegram.states import AdminResultStates
 from app.bot.telegram.texts.superadmin import panel as panel_text
 from app.bot.telegram.texts.superadmin import tournament_close as text
@@ -130,25 +133,6 @@ async def select_close_tournament_action(
 
         if (
             callback_data.action
-            == superadmin_tournament_close_kb.AdminCloseTournamentAction.ENTER_FUND
-        ):
-            await _prepare_fund_input_state(
-                state=state,
-                superadmin_telegram_id=callback.from_user.id,
-                tournament_id=callback_data.tournament_id,
-                page=callback_data.page,
-            )
-            await callback.answer()
-            if callback.message is not None:
-                await edit_message_if_changed(
-                    callback.message,
-                    text=result_fmt.tournament_fund_prompt(),
-                    reply_markup=None,
-                )
-            return
-
-        if (
-            callback_data.action
             == superadmin_tournament_close_kb.AdminCloseTournamentAction.CHANGE_FUND
         ):
             await _prepare_fund_input_state(
@@ -229,13 +213,19 @@ async def _send_close_tournament_card(
             ),
         )
         return
-    await message.answer(
+    sent_message = await message.answer(
         result_fmt.close_tournament_card(results),
         reply_markup=superadmin_tournament_close_kb.admin_close_tournament_card_keyboard(
             tournament_id=tournament_id,
             page=page,
         ),
         parse_mode=RESULT_SUMMARY_PARSE_MODE,
+    )
+    await _set_fund_input_state(
+        state,
+        tournament_id=tournament_id,
+        page=page,
+        prompt_message=sent_message,
     )
 
 
@@ -274,6 +264,12 @@ async def _edit_close_tournament_card(
         ),
         parse_mode=RESULT_SUMMARY_PARSE_MODE,
     )
+    await _set_fund_input_state(
+        state,
+        tournament_id=tournament_id,
+        page=page,
+        prompt_message=callback.message,
+    )
 
 
 async def _prepare_fund_input_state(
@@ -297,10 +293,20 @@ async def _set_fund_input_state(
     *,
     tournament_id: int,
     page: int,
+    prompt_message: Message | None = None,
 ) -> None:
     await state.clear()
     await state.set_state(AdminResultStates.entering_tournament_fund)
-    await state.update_data(close_tournament_id=tournament_id, close_tournament_page=page)
+    data: dict[str, int] = {
+        "close_tournament_id": tournament_id,
+        "close_tournament_page": page,
+    }
+    identity = _message_identity(prompt_message)
+    if identity is not None:
+        chat_id, message_id = identity
+        data["close_tournament_prompt_chat_id"] = chat_id
+        data["close_tournament_prompt_message_id"] = message_id
+    await state.update_data(**data)
 
 
 @router.message(AdminResultStates.entering_tournament_fund)
@@ -341,6 +347,7 @@ async def enter_tournament_fund(message: Message, state: FSMContext) -> None:
 
     await state.update_data(tournament_fund=int(tournament_fund))
     await state.set_state(None)
+    await _replace_close_preview_with_fund_prompt(message, data)
     await message.answer(
         result_fmt.close_tournament_confirmation(results, tournament_fund),
         reply_markup=superadmin_tournament_close_kb.admin_close_tournament_confirmation_keyboard(
@@ -348,4 +355,31 @@ async def enter_tournament_fund(message: Message, state: FSMContext) -> None:
             page=page_number,
         ),
         parse_mode=RESULT_SUMMARY_PARSE_MODE,
+    )
+
+
+def _message_identity(message: Message | None) -> tuple[int, int] | None:
+    if message is None:
+        return None
+    chat_id = getattr(getattr(message, "chat", None), "id", None)
+    message_id = getattr(message, "message_id", None)
+    if isinstance(chat_id, int) and isinstance(message_id, int):
+        return chat_id, message_id
+    return None
+
+
+async def _replace_close_preview_with_fund_prompt(
+    message: Message,
+    data: dict[str, object],
+) -> None:
+    chat_id = data.get("close_tournament_prompt_chat_id")
+    message_id = data.get("close_tournament_prompt_message_id")
+    if not isinstance(chat_id, int) or not isinstance(message_id, int):
+        return
+    await edit_message_text_by_id_if_changed(
+        message.bot,
+        chat_id=chat_id,
+        message_id=message_id,
+        text=result_fmt.tournament_fund_prompt(),
+        reply_markup=None,
     )
