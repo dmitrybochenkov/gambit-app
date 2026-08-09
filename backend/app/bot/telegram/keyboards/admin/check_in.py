@@ -14,6 +14,7 @@ ADMIN_CHECK_IN_PAGE_SIZE = 6
 
 
 class AdminCheckInAction(StrEnum):
+    SHOW_CHECKED_IN = "show_checked_in"
     CONFIRM_REGISTERED = "confirm_registered"
     ADD_REGISTERED = "add_registered"
     REGISTERED_SEARCH = "registered_search"
@@ -26,6 +27,7 @@ class AdminCheckInAction(StrEnum):
     CHOOSE_OTHER_NEW = "choose_other_new"
     BACK = "back"
     BACK_TO_TOURNAMENT = "back_to_tournament"
+    BACK_TO_MENU = "back_to_menu"
     CANCEL = "cancel"
 
 
@@ -48,16 +50,30 @@ def admin_check_in_keyboard(
         ),
     )
     builder.button(
-        text="👤 Незарегистрированный, но играл ранее",
+        text="👤 Играл ранее",
         callback_data=AdminCheckInCallback(
             action=AdminCheckInAction.DATABASE_SEARCH,
             tournament_id=view.tournament.id,
         ),
     )
     builder.button(
-        text="🆕 Незарегистрированный, новый",
+        text="🆕 Новый игрок",
         callback_data=AdminCheckInCallback(
             action=AdminCheckInAction.NEW_PLAYER,
+            tournament_id=view.tournament.id,
+        ),
+    )
+    builder.button(
+        text=f"👥 Уже отметились ({view.checked_in_count})",
+        callback_data=AdminCheckInCallback(
+            action=AdminCheckInAction.SHOW_CHECKED_IN,
+            tournament_id=view.tournament.id,
+        ),
+    )
+    builder.button(
+        text="⬅️ Назад",
+        callback_data=AdminCheckInCallback(
+            action=AdminCheckInAction.BACK_TO_MENU,
             tournament_id=view.tournament.id,
         ),
     )
@@ -66,6 +82,26 @@ def admin_check_in_keyboard(
         callback_data=AdminCheckInCallback(
             action=AdminCheckInAction.CANCEL,
             tournament_id=view.tournament.id,
+        ),
+    )
+    builder.adjust(1)
+    return builder.as_markup()
+
+
+def admin_checked_in_players_keyboard(tournament_id: int) -> InlineKeyboardMarkup:
+    builder = InlineKeyboardBuilder()
+    builder.button(
+        text="⬅️ Назад",
+        callback_data=AdminCheckInCallback(
+            action=AdminCheckInAction.BACK_TO_TOURNAMENT,
+            tournament_id=tournament_id,
+        ),
+    )
+    builder.button(
+        text=labels.ADMIN_CANCEL,
+        callback_data=AdminCheckInCallback(
+            action=AdminCheckInAction.CANCEL,
+            tournament_id=tournament_id,
         ),
     )
     builder.adjust(1)

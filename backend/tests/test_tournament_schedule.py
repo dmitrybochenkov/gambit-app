@@ -941,8 +941,20 @@ async def test_check_in_summary_counters_use_sources_and_include_admin_players(
             display_name="Гость Из Базы",
             status=UserStatus.ACTIVE,
         )
+        walk_in_new = build_player(
+            telegram_id=None,
+            display_name="Офлайн Новичок",
+            status=UserStatus.ACTIVE,
+        )
         session.add_all(
-            [season, operator, admin_registered, superadmin_registered, walk_in_existing]
+            [
+                season,
+                operator,
+                admin_registered,
+                superadmin_registered,
+                walk_in_existing,
+                walk_in_new,
+            ]
         )
         await session.flush()
         tournament = Tournament(
@@ -967,11 +979,19 @@ async def test_check_in_summary_counters_use_sources_and_include_admin_players(
                     tournament_id=tournament.id,
                     player_id=admin_registered.id,
                     source=TournamentResultSource.REGISTERED,
+                    checked_in_at=datetime(2026, 7, 9, 12, 3, tzinfo=ZoneInfo("Europe/Moscow")),
                 ),
                 TournamentResult(
                     tournament_id=tournament.id,
                     player_id=walk_in_existing.id,
                     source=TournamentResultSource.WALK_IN_EXISTING,
+                    checked_in_at=datetime(2026, 7, 9, 12, 1, tzinfo=ZoneInfo("Europe/Moscow")),
+                ),
+                TournamentResult(
+                    tournament_id=tournament.id,
+                    player_id=walk_in_new.id,
+                    source=TournamentResultSource.WALK_IN_NEW,
+                    checked_in_at=datetime(2026, 7, 9, 12, 2, tzinfo=ZoneInfo("Europe/Moscow")),
                 ),
             ]
         )
@@ -987,11 +1007,21 @@ async def test_check_in_summary_counters_use_sources_and_include_admin_players(
             admin_telegram_id=100,
             tournament_id=tournament_id,
         )
+        checked_in_players = await check_in_service.get_checked_in_players(
+            admin_telegram_id=100,
+            tournament_id=tournament_id,
+        )
 
         assert view.registered_count == 2
         assert view.registered_checked_in_count == 1
-        assert view.walk_in_count == 1
-        assert view.checked_in_count == 2
+        assert view.walk_in_count == 2
+        assert view.checked_in_count == 3
         assert view.checked_in_count == view.registered_checked_in_count + view.walk_in_count
+        assert view.checked_in_count == checked_in_players.total_count
+        assert [player.display_name for player in checked_in_players.players] == [
+            "Гость Из Базы",
+            "Офлайн Новичок",
+            "Админ Игрок",
+        ]
     finally:
         await engine.dispose()

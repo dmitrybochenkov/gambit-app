@@ -14,17 +14,29 @@ def tournament_list(page: object) -> str:
 def summary(view: object) -> str:
     lines = [
         "✅ Чек-ин на турнир",
-        "",
         tournament_fmt.label(view.tournament),
         "",
         f"Зарегистрировано: {view.registered_count}",
         f"Из них пришло: {view.registered_checked_in_count}",
+        "",
         f"Пришло без регистрации: {view.walk_in_count}",
         "",
         f"Всего в турнире: {view.checked_in_count}",
         "",
         "Выбери тип игрока:",
     ]
+    return "\n".join(lines)
+
+
+def checked_in_players(view: object) -> str:
+    lines = ["✅ Уже отметились", ""]
+    if not view.players:
+        lines.append("Пока никто не прошёл check-in.")
+    else:
+        lines.extend(
+            f"{index}. {player.display_name}" for index, player in enumerate(view.players, start=1)
+        )
+    lines.extend(["", f"Всего: {view.total_count}"])
     return "\n".join(lines)
 
 

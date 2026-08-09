@@ -1,4 +1,5 @@
 from dataclasses import dataclass
+from datetime import datetime
 
 from app.services.dto.tournaments import TournamentView
 
@@ -20,3 +21,19 @@ class TournamentCheckInView:
     registered_checked_in_count: int
     checked_in_count: int
     walk_in_count: int
+
+
+@dataclass(frozen=True)
+class CheckedInPlayerView:
+    display_name: str
+    checked_in_at: datetime
+
+
+@dataclass(frozen=True)
+class CheckedInPlayersView:
+    tournament: TournamentView
+    players: list[CheckedInPlayerView]
+
+    @property
+    def total_count(self) -> int:
+        return len(self.players)

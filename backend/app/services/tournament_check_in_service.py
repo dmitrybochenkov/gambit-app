@@ -18,7 +18,12 @@ from app.db.repositories.tournament_result_repository import TournamentResultRep
 from app.db.repositories.user_repository import UserRepository
 from app.db.session import SessionFactory
 from app.services.access_policy import access_policy
-from app.services.dto.check_in import CheckInCandidateView, TournamentCheckInView
+from app.services.dto.check_in import (
+    CheckedInPlayersView,
+    CheckedInPlayerView,
+    CheckInCandidateView,
+    TournamentCheckInView,
+)
 from app.services.dto.tournaments import TournamentView
 from app.services.dto.users import UserView
 from app.services.player_search import (
@@ -85,6 +90,28 @@ class TournamentCheckInService:
             await access_policy.require_admin(session, admin_telegram_id)
             tournament = await self._require_today_tournament(session, tournament_id)
             return await self._check_in_view(session, tournament.id)
+
+    async def get_checked_in_players(
+        self,
+        admin_telegram_id: int,
+        tournament_id: int,
+    ) -> CheckedInPlayersView:
+        async with self.session_factory() as session:
+            await access_policy.require_admin(session, admin_telegram_id)
+            tournament = await self._require_today_tournament(session, tournament_id)
+            rows = await TournamentResultRepository(session).list_checked_in_with_users(
+                tournament.id
+            )
+            return CheckedInPlayersView(
+                tournament=tournament_view(tournament),
+                players=[
+                    CheckedInPlayerView(
+                        display_name=row.user.display_name,
+                        checked_in_at=row.result.checked_in_at,
+                    )
+                    for row in rows
+                ],
+            )
 
     async def search_registered(
         self,

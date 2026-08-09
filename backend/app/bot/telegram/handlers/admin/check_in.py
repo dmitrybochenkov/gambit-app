@@ -81,15 +81,15 @@ async def select_check_in_action(
 ) -> None:
     try:
         if callback_data.action == admin_check_in_kb.AdminCheckInAction.CANCEL:
-            admin_panel = await user_access_service.get_admin_panel_for_admin(callback.from_user.id)
             await state.clear()
             await callback.answer(result_text.ADMIN_RESULTS_CANCELLED)
-            if callback.message is not None:
-                await _delete_callback_message(callback)
-                await callback.message.answer(
-                    result_text.ADMIN_RESULTS_CANCELLED,
-                    reply_markup=admin_panel_kb.admin_panel_keyboard(admin_panel.admin),
-                )
+            await _return_to_admin_menu(callback, result_text.ADMIN_RESULTS_CANCELLED)
+            return
+
+        if callback_data.action == admin_check_in_kb.AdminCheckInAction.BACK_TO_MENU:
+            await state.clear()
+            await callback.answer()
+            await _return_to_admin_menu(callback, panel_text.ADMIN_PANEL_WELCOME)
             return
 
         if callback_data.action == admin_check_in_kb.AdminCheckInAction.BACK:
@@ -113,10 +113,26 @@ async def select_check_in_action(
                 tournament_id=callback_data.tournament_id,
             )
             if callback.message is not None:
-                await _delete_callback_message(callback)
-                await callback.message.answer(
-                    check_in_fmt.summary(view),
+                await edit_message_if_changed(
+                    callback.message,
+                    text=check_in_fmt.summary(view),
                     reply_markup=admin_check_in_kb.admin_check_in_keyboard(view),
+                )
+            return
+
+        if callback_data.action == admin_check_in_kb.AdminCheckInAction.SHOW_CHECKED_IN:
+            view = await tournament_check_in_service.get_checked_in_players(
+                admin_telegram_id=callback.from_user.id,
+                tournament_id=callback_data.tournament_id,
+            )
+            await callback.answer()
+            if callback.message is not None:
+                await edit_message_if_changed(
+                    callback.message,
+                    text=check_in_fmt.checked_in_players(view),
+                    reply_markup=admin_check_in_kb.admin_checked_in_players_keyboard(
+                        callback_data.tournament_id
+                    ),
                 )
             return
 
@@ -312,6 +328,17 @@ async def _send_check_in_notification(
         )
     except (TelegramBadRequest, TelegramForbiddenError):
         logger.info("Failed to send check-in notification", exc_info=True)
+
+
+async def _return_to_admin_menu(callback: CallbackQuery, message_text: str) -> None:
+    if callback.message is None:
+        return
+    admin_panel = await user_access_service.get_admin_panel_for_admin(callback.from_user.id)
+    await _delete_callback_message(callback)
+    await callback.message.answer(
+        message_text,
+        reply_markup=admin_panel_kb.admin_panel_keyboard(admin_panel.admin),
+    )
 
 
 async def _restore_check_in_previous_screen(

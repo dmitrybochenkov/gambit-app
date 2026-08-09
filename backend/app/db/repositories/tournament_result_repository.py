@@ -68,6 +68,18 @@ class TournamentResultRepository:
         result = await self.session.execute(statement)
         return [TournamentResultUserRecord(result=item, user=user) for item, user in result.all()]
 
+    async def list_checked_in_with_users(
+        self,
+        tournament_id: int,
+    ) -> list[TournamentResultUserRecord]:
+        result = await self.session.execute(
+            select(TournamentResult, User)
+            .join(User, User.id == TournamentResult.player_id)
+            .where(TournamentResult.tournament_id == tournament_id)
+            .order_by(TournamentResult.checked_in_at, TournamentResult.id)
+        )
+        return [TournamentResultUserRecord(result=item, user=user) for item, user in result.all()]
+
     async def list_by_tournament_and_place(
         self,
         tournament_id: int,

@@ -679,10 +679,10 @@ def test_check_in_summary_empty_tournament() -> None:
     )
 
     assert check_in_fmt.summary(view) == (
-        "✅ Чек-ин на турнир\n\n"
+        "✅ Чек-ин на турнир\n"
         "Воскресенье, 9 августа — Баунти турнир\n\n"
         "Зарегистрировано: 0\n"
-        "Из них пришло: 0\n"
+        "Из них пришло: 0\n\n"
         "Пришло без регистрации: 0\n\n"
         "Всего в турнире: 0\n\n"
         "Выбери тип игрока:"
@@ -705,6 +705,63 @@ def test_check_in_summary_mixed_sources() -> None:
     assert "Пришло без регистрации: 1" in rendered
     assert "Всего в турнире: 3" in rendered
     assert "Ещё не отмечены" not in rendered
+
+
+def test_checked_in_players_empty_state() -> None:
+    view = SimpleNamespace(players=[], total_count=0)
+
+    assert check_in_fmt.checked_in_players(view) == (
+        "✅ Уже отметились\n\nПока никто не прошёл check-in.\n\nВсего: 0"
+    )
+
+
+def test_checked_in_players_list_hides_internal_ids() -> None:
+    view = SimpleNamespace(
+        players=[
+            SimpleNamespace(player_id=101, telegram_id=1001, display_name="Иван"),
+            SimpleNamespace(player_id=102, telegram_id=None, display_name="Пётр"),
+        ],
+        total_count=2,
+    )
+
+    rendered = check_in_fmt.checked_in_players(view)
+
+    assert rendered == "✅ Уже отметились\n\n1. Иван\n2. Пётр\n\nВсего: 2"
+    assert "101" not in rendered
+    assert "1001" not in rendered
+
+
+def test_check_in_main_keyboard_labels_and_checked_in_count() -> None:
+    view = SimpleNamespace(
+        tournament=tournament_view(125, date(2026, 8, 9), 1, "Баунти турнир"),
+        checked_in_count=16,
+    )
+
+    keyboard = admin_check_in_kb.admin_check_in_keyboard(view)
+
+    assert inline_keyboard_texts(keyboard) == [
+        "✅ Зарегистрированный",
+        "👤 Играл ранее",
+        "🆕 Новый игрок",
+        "👥 Уже отметились (16)",
+        "⬅️ Назад",
+        "❌ Отмена",
+    ]
+    checked_in_callback = admin_check_in_kb.AdminCheckInCallback.unpack(
+        keyboard.inline_keyboard[3][0].callback_data or ""
+    )
+    assert checked_in_callback.action == admin_check_in_kb.AdminCheckInAction.SHOW_CHECKED_IN
+
+
+def test_check_in_main_keyboard_shows_zero_checked_in_count() -> None:
+    view = SimpleNamespace(
+        tournament=tournament_view(125, date(2026, 8, 9), 1, "Баунти турнир"),
+        checked_in_count=0,
+    )
+
+    keyboard = admin_check_in_kb.admin_check_in_keyboard(view)
+
+    assert "👥 Уже отметились (0)" in inline_keyboard_texts(keyboard)
 
 
 def test_check_in_input_prompt_keyboard_has_back_to_main() -> None:
@@ -1075,7 +1132,7 @@ async def test_check_in_input_back_returns_to_main_screen(
     service = SimpleNamespace(get_check_in=AsyncMock(return_value=view))
     monkeypatch.setattr(admin_check_in_handlers, "tournament_check_in_service", service)
     state = SimpleNamespace(clear=AsyncMock())
-    message = SimpleNamespace(delete=AsyncMock(), answer=AsyncMock())
+    message = SimpleNamespace(edit_text=AsyncMock())
     callback = SimpleNamespace(
         from_user=SimpleNamespace(id=100),
         message=message,
@@ -1093,8 +1150,8 @@ async def test_check_in_input_back_returns_to_main_screen(
 
     state.clear.assert_awaited_once()
     service.get_check_in.assert_awaited_once_with(admin_telegram_id=100, tournament_id=125)
-    message.delete.assert_awaited_once()
-    assert message.answer.await_args.args[0].startswith("✅ Чек-ин на турнир")
+    message.edit_text.assert_awaited_once()
+    assert message.edit_text.await_args.args[0].startswith("✅ Чек-ин на турнир")
 
 
 async def test_check_in_search_results_back_returns_to_registered_input(
@@ -1127,6 +1184,159 @@ async def test_check_in_search_results_back_returns_to_registered_input(
         "⬅️ Назад",
         "❌ Отмена",
     ]
+
+
+async def test_checked_in_players_screen_opens_from_check_in(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    checked_in_view = SimpleNamespace(
+        players=[
+            SimpleNamespace(display_name="Иван"),
+            SimpleNamespace(display_name="Пётр"),
+        ],
+        total_count=2,
+    )
+    service = SimpleNamespace(get_checked_in_players=AsyncMock(return_value=checked_in_view))
+    monkeypatch.setattr(admin_check_in_handlers, "tournament_check_in_service", service)
+    state = SimpleNamespace()
+    message = SimpleNamespace(edit_text=AsyncMock())
+    callback = SimpleNamespace(
+        from_user=SimpleNamespace(id=100),
+        message=message,
+        answer=AsyncMock(),
+    )
+
+    await admin_check_in_handlers.select_check_in_action(
+        callback,
+        admin_check_in_kb.AdminCheckInCallback(
+            action=admin_check_in_kb.AdminCheckInAction.SHOW_CHECKED_IN,
+            tournament_id=125,
+        ),
+        state,
+    )
+
+    service.get_checked_in_players.assert_awaited_once_with(
+        admin_telegram_id=100,
+        tournament_id=125,
+    )
+    callback.answer.assert_awaited_once_with()
+    message.edit_text.assert_awaited_once()
+    assert (
+        message.edit_text.await_args.args[0] == "✅ Уже отметились\n\n1. Иван\n2. Пётр\n\nВсего: 2"
+    )
+    assert inline_keyboard_texts(message.edit_text.await_args.kwargs["reply_markup"]) == [
+        "⬅️ Назад",
+        "❌ Отмена",
+    ]
+
+
+async def test_checked_in_players_back_refreshes_main_screen(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    view = SimpleNamespace(
+        tournament=tournament_view(125, date(2026, 8, 9), 1, "Баунти турнир"),
+        registered_count=3,
+        registered_checked_in_count=2,
+        walk_in_count=1,
+        checked_in_count=3,
+    )
+    service = SimpleNamespace(get_check_in=AsyncMock(return_value=view))
+    monkeypatch.setattr(admin_check_in_handlers, "tournament_check_in_service", service)
+    state = SimpleNamespace(clear=AsyncMock())
+    message = SimpleNamespace(edit_text=AsyncMock())
+    callback = SimpleNamespace(
+        from_user=SimpleNamespace(id=100),
+        message=message,
+        answer=AsyncMock(),
+    )
+
+    await admin_check_in_handlers.select_check_in_action(
+        callback,
+        admin_check_in_kb.AdminCheckInCallback(
+            action=admin_check_in_kb.AdminCheckInAction.BACK_TO_TOURNAMENT,
+            tournament_id=125,
+        ),
+        state,
+    )
+
+    service.get_check_in.assert_awaited_once_with(admin_telegram_id=100, tournament_id=125)
+    message.edit_text.assert_awaited_once()
+    assert "👥 Уже отметились (3)" in inline_keyboard_texts(
+        message.edit_text.await_args.kwargs["reply_markup"]
+    )
+
+
+async def test_checked_in_players_dispatcher_open_and_back(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    checked_in_view = SimpleNamespace(
+        players=[SimpleNamespace(display_name="Иван")],
+        total_count=1,
+    )
+    main_view = SimpleNamespace(
+        tournament=tournament_view(125, date(2026, 8, 9), 1, "Баунти турнир"),
+        registered_count=1,
+        registered_checked_in_count=1,
+        walk_in_count=0,
+        checked_in_count=1,
+    )
+    service = SimpleNamespace(
+        get_checked_in_players=AsyncMock(return_value=checked_in_view),
+        get_check_in=AsyncMock(return_value=main_view),
+    )
+    monkeypatch.setattr(admin_check_in_handlers, "tournament_check_in_service", service)
+    bot = RecordingBot()
+
+    def callback_update(update_id: int, data: str, text: str) -> dict[str, object]:
+        return {
+            "update_id": update_id,
+            "callback_query": {
+                "id": f"check-in-callback-{update_id}",
+                "from": {"id": 100, "is_bot": False, "first_name": "Админ"},
+                "message": {
+                    "message_id": 10,
+                    "date": 1783598400,
+                    "chat": {"id": 100, "type": "private"},
+                    "text": text,
+                },
+                "chat_instance": "chat-instance",
+                "data": data,
+            },
+        }
+
+    try:
+        await runtime.telegram_dispatcher.feed_raw_update(
+            bot,
+            callback_update(
+                1,
+                admin_check_in_kb.AdminCheckInCallback(
+                    action=admin_check_in_kb.AdminCheckInAction.SHOW_CHECKED_IN,
+                    tournament_id=125,
+                ).pack(),
+                "✅ Чек-ин на турнир",
+            ),
+        )
+        await runtime.telegram_dispatcher.feed_raw_update(
+            bot,
+            callback_update(
+                2,
+                admin_check_in_kb.AdminCheckInCallback(
+                    action=admin_check_in_kb.AdminCheckInAction.BACK_TO_TOURNAMENT,
+                    tournament_id=125,
+                ).pack(),
+                "✅ Уже отметились",
+            ),
+        )
+
+        edited_texts = [
+            call.text for call in bot.calls if call.__class__.__name__ == "EditMessageText"
+        ]
+        assert edited_texts == [
+            "✅ Уже отметились\n\n1. Иван\n\nВсего: 1",
+            check_in_fmt.summary(main_view),
+        ]
+    finally:
+        await bot.session.close()
 
 
 async def test_admin_check_in_registered_user_dispatcher_flow_creates_result(
