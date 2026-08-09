@@ -13,6 +13,7 @@ from app.bot.telegram.keyboards import labels
 from app.bot.telegram.keyboards.superadmin import administrators as superadmin_administrators_kb
 from app.bot.telegram.keyboards.superadmin import panel as superadmin_panel_kb
 from app.bot.telegram.keyboards.user import menu as user_menu_kb
+from app.bot.telegram.message_edit import edit_message_reply_markup_by_id_if_changed
 from app.bot.telegram.states import AdminAddStates
 from app.bot.telegram.texts.admin import calendar as calendar_text
 from app.bot.telegram.texts.superadmin import administrators as administrator_text
@@ -42,7 +43,11 @@ async def prompt_admin_candidate_search(message: Message, state: FSMContext) -> 
         return
 
     await state.set_state(AdminAddStates.entering_candidate_name)
-    await message.answer(administrator_text.ADMIN_ADD_SEARCH_PROMPT)
+    prompt = await message.answer(
+        administrator_text.ADMIN_ADD_SEARCH_PROMPT,
+        reply_markup=superadmin_administrators_kb.admin_candidate_search_prompt_keyboard(),
+    )
+    await state.update_data(admin_candidate_prompt_message_id=prompt.message_id)
 
 
 @router.message(AdminAddStates.entering_candidate_name)
@@ -51,6 +56,8 @@ async def search_admin_candidate(message: Message, state: FSMContext) -> None:
         return
 
     query = _clean_text(message.text or "")
+    data = await state.get_data()
+    await _clear_admin_candidate_prompt_markup(message, data)
     try:
         candidates = await admin_management_service.search_admin_candidates_for_superadmin(
             message.from_user.id,
@@ -105,7 +112,11 @@ async def select_admin_candidate(
             await callback.answer()
             if callback.message is not None:
                 await _delete_callback_message(callback)
-                await callback.message.answer(administrator_text.ADMIN_ADD_SEARCH_PROMPT)
+                prompt = await callback.message.answer(
+                    administrator_text.ADMIN_ADD_SEARCH_PROMPT,
+                    reply_markup=superadmin_administrators_kb.admin_candidate_search_prompt_keyboard(),
+                )
+                await state.update_data(admin_candidate_prompt_message_id=prompt.message_id)
             await state.set_state(AdminAddStates.entering_candidate_name)
             return
 
@@ -212,3 +223,21 @@ async def confirm_add_admin(
         )
     except (TelegramBadRequest, TelegramForbiddenError):
         pass
+
+
+async def _clear_admin_candidate_prompt_markup(
+    message: Message,
+    data: dict[str, object],
+) -> None:
+    prompt_message_id = int(data.get("admin_candidate_prompt_message_id") or 0)
+    if prompt_message_id <= 0:
+        return
+    try:
+        await edit_message_reply_markup_by_id_if_changed(
+            message.bot,
+            chat_id=message.chat.id,
+            message_id=prompt_message_id,
+            reply_markup=None,
+        )
+    except TelegramBadRequest:
+        logger.info("Failed to clear admin candidate prompt markup", exc_info=True)

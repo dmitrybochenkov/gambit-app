@@ -115,46 +115,35 @@ async def select_close_tournament_action(
                 )
             return
 
-        if callback_data.action == superadmin_tournament_close_kb.AdminCloseTournamentAction.BACK:
-            await state.clear()
-            tournaments = await result_service.list_unclosed_tournaments_for_superadmin(
-                callback.from_user.id
-            )
-            await callback.answer()
-            if callback.message is None:
-                return
-            if len(tournaments) > 1:
-                page = pagination_service.paginate(
-                    tournaments,
-                    page=callback_data.page,
-                    page_size=admin_results_kb.ADMIN_RESULT_PAGE_SIZE,
-                )
-                await edit_message_if_changed(
-                    callback.message,
-                    text=result_fmt.close_tournament_list(page),
-                    reply_markup=superadmin_tournament_close_kb.admin_close_tournament_list_keyboard(
-                        page
-                    ),
-                )
-                return
-            await _delete_callback_message(callback)
-            await callback.message.answer(
-                "Добро пожаловать в админ-панель.",
-                reply_markup=superadmin_panel_kb.superadmin_panel_keyboard(),
-            )
-            return
-
         if callback_data.action in {
             superadmin_tournament_close_kb.AdminCloseTournamentAction.OPEN,
-            superadmin_tournament_close_kb.AdminCloseTournamentAction.ENTER_FUND,
         }:
             await callback.answer()
             if callback.message is not None:
-                await _edit_close_tournament_fund_prompt(
+                await _edit_close_tournament_card(
                     callback=callback,
                     state=state,
                     tournament_id=callback_data.tournament_id,
                     page=callback_data.page,
+                )
+            return
+
+        if (
+            callback_data.action
+            == superadmin_tournament_close_kb.AdminCloseTournamentAction.ENTER_FUND
+        ):
+            await _prepare_fund_input_state(
+                state=state,
+                superadmin_telegram_id=callback.from_user.id,
+                tournament_id=callback_data.tournament_id,
+                page=callback_data.page,
+            )
+            await callback.answer()
+            if callback.message is not None:
+                await edit_message_if_changed(
+                    callback.message,
+                    text=result_fmt.tournament_fund_prompt(),
+                    reply_markup=None,
                 )
             return
 
@@ -222,6 +211,10 @@ async def _send_close_tournament_card(
     tournament_id: int,
     page: int,
 ) -> None:
+    results = await result_service.get_closeable_tournament_results(
+        superadmin_telegram_id=superadmin_telegram_id,
+        tournament_id=tournament_id,
+    )
     errors = await result_service.validate_closeable_results(
         superadmin_telegram_id=superadmin_telegram_id,
         tournament_id=tournament_id,
@@ -230,29 +223,33 @@ async def _send_close_tournament_card(
         await state.clear()
         await message.answer(
             result_fmt.close_tournament_blocked(errors),
-            reply_markup=superadmin_tournament_close_kb.admin_close_tournament_card_keyboard(
+            reply_markup=superadmin_tournament_close_kb.admin_close_tournament_cancel_keyboard(
                 tournament_id=tournament_id,
                 page=page,
             ),
         )
         return
-    await _set_fund_input_state(state, tournament_id=tournament_id, page=page)
     await message.answer(
-        result_fmt.tournament_fund_prompt(),
-        reply_markup=superadmin_tournament_close_kb.admin_close_tournament_fund_prompt_keyboard(
+        result_fmt.close_tournament_card(results),
+        reply_markup=superadmin_tournament_close_kb.admin_close_tournament_card_keyboard(
             tournament_id=tournament_id,
             page=page,
         ),
+        parse_mode=RESULT_SUMMARY_PARSE_MODE,
     )
 
 
-async def _edit_close_tournament_fund_prompt(
+async def _edit_close_tournament_card(
     *,
     callback: CallbackQuery,
     state: FSMContext,
     tournament_id: int,
     page: int,
 ) -> None:
+    results = await result_service.get_closeable_tournament_results(
+        superadmin_telegram_id=callback.from_user.id,
+        tournament_id=tournament_id,
+    )
     errors = await result_service.validate_closeable_results(
         superadmin_telegram_id=callback.from_user.id,
         tournament_id=tournament_id,
@@ -262,20 +259,20 @@ async def _edit_close_tournament_fund_prompt(
         await edit_message_if_changed(
             callback.message,
             text=result_fmt.close_tournament_blocked(errors),
-            reply_markup=superadmin_tournament_close_kb.admin_close_tournament_card_keyboard(
+            reply_markup=superadmin_tournament_close_kb.admin_close_tournament_cancel_keyboard(
                 tournament_id=tournament_id,
                 page=page,
             ),
         )
         return
-    await _set_fund_input_state(state, tournament_id=tournament_id, page=page)
     await edit_message_if_changed(
         callback.message,
-        text=result_fmt.tournament_fund_prompt(),
-        reply_markup=superadmin_tournament_close_kb.admin_close_tournament_fund_prompt_keyboard(
+        text=result_fmt.close_tournament_card(results),
+        reply_markup=superadmin_tournament_close_kb.admin_close_tournament_card_keyboard(
             tournament_id=tournament_id,
             page=page,
         ),
+        parse_mode=RESULT_SUMMARY_PARSE_MODE,
     )
 
 

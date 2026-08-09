@@ -16,7 +16,6 @@ class AdminCloseTournamentAction(StrEnum):
     ENTER_FUND = "enter_fund"
     CONFIRM = "confirm"
     CHANGE_FUND = "change_fund"
-    BACK = "back"
     CANCEL = "cancel"
 
 
@@ -80,9 +79,9 @@ def admin_close_tournament_list_keyboard(page: Page[TournamentView]) -> InlineKe
 def admin_close_tournament_card_keyboard(*, tournament_id: int, page: int) -> InlineKeyboardMarkup:
     builder = InlineKeyboardBuilder()
     builder.button(
-        text="↩️ Назад",
+        text="💰 Ввести фонд",
         callback_data=AdminCloseTournamentCallback(
-            action=AdminCloseTournamentAction.BACK,
+            action=AdminCloseTournamentAction.ENTER_FUND,
             page=page,
             tournament_id=tournament_id,
         ),
@@ -99,7 +98,7 @@ def admin_close_tournament_card_keyboard(*, tournament_id: int, page: int) -> In
     return builder.as_markup()
 
 
-def admin_close_tournament_fund_prompt_keyboard(
+def admin_close_tournament_cancel_keyboard(
     *,
     tournament_id: int,
     page: int,
@@ -127,14 +126,6 @@ def admin_close_tournament_fund_error_keyboard(
         text="🔄 Ввести снова",
         callback_data=AdminCloseTournamentCallback(
             action=AdminCloseTournamentAction.ENTER_FUND,
-            page=page,
-            tournament_id=tournament_id,
-        ),
-    )
-    builder.button(
-        text="↩️ Назад",
-        callback_data=AdminCloseTournamentCallback(
-            action=AdminCloseTournamentAction.BACK,
             page=page,
             tournament_id=tournament_id,
         ),
@@ -169,14 +160,6 @@ def admin_close_tournament_confirmation_keyboard(
         text="✏️ Изменить фонд",
         callback_data=AdminCloseTournamentCallback(
             action=AdminCloseTournamentAction.CHANGE_FUND,
-            page=page,
-            tournament_id=tournament_id,
-        ),
-    )
-    builder.button(
-        text="↩️ Назад",
-        callback_data=AdminCloseTournamentCallback(
-            action=AdminCloseTournamentAction.BACK,
             page=page,
             tournament_id=tournament_id,
         ),

@@ -78,6 +78,19 @@ def admin_candidate_not_found_keyboard() -> InlineKeyboardMarkup:
     return builder.as_markup()
 
 
+def admin_candidate_search_prompt_keyboard() -> InlineKeyboardMarkup:
+    builder = InlineKeyboardBuilder()
+    builder.button(
+        text=labels.ADMIN_CANCEL,
+        callback_data=AdminCandidateCallback(
+            action=AdminCandidateAction.CANCEL,
+            player_id=0,
+        ),
+    )
+    builder.adjust(1)
+    return builder.as_markup()
+
+
 def admin_add_confirmation_keyboard(player_id: int) -> InlineKeyboardMarkup:
     builder = InlineKeyboardBuilder()
     builder.button(

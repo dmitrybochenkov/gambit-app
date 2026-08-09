@@ -13,7 +13,10 @@ from app.bot.telegram.keyboards import labels
 from app.bot.telegram.keyboards.admin import check_in as admin_check_in_kb
 from app.bot.telegram.keyboards.admin import panel as admin_panel_kb
 from app.bot.telegram.keyboards.admin import results as admin_results_kb
-from app.bot.telegram.message_edit import edit_message_if_changed
+from app.bot.telegram.message_edit import (
+    edit_message_if_changed,
+    edit_message_reply_markup_by_id_if_changed,
+)
 from app.bot.telegram.states import AdminResultStates
 from app.bot.telegram.texts.admin import panel as panel_text
 from app.bot.telegram.texts.admin import results as result_text
@@ -136,12 +139,13 @@ async def select_check_in_action(
             await callback.answer()
             if callback.message is not None:
                 await _delete_callback_message(callback)
-                await callback.message.answer(
+                prompt = await callback.message.answer(
                     "Введи имя зарегистрированного игрока.",
                     reply_markup=admin_check_in_kb.admin_check_in_cancel_keyboard(
                         callback_data.tournament_id
                     ),
                 )
+                await state.update_data(check_in_prompt_message_id=prompt.message_id)
             return
 
         if callback_data.action == admin_check_in_kb.AdminCheckInAction.DATABASE_SEARCH:
@@ -150,12 +154,13 @@ async def select_check_in_action(
             await callback.answer()
             if callback.message is not None:
                 await _delete_callback_message(callback)
-                await callback.message.answer(
+                prompt = await callback.message.answer(
                     "Введи имя игрока из базы.",
                     reply_markup=admin_check_in_kb.admin_check_in_cancel_keyboard(
                         callback_data.tournament_id
                     ),
                 )
+                await state.update_data(check_in_prompt_message_id=prompt.message_id)
             return
 
         if callback_data.action == admin_check_in_kb.AdminCheckInAction.NEW_PLAYER:
@@ -164,12 +169,13 @@ async def select_check_in_action(
             await callback.answer()
             if callback.message is not None:
                 await _delete_callback_message(callback)
-                await callback.message.answer(
+                prompt = await callback.message.answer(
                     "Введи имя нового игрока.",
                     reply_markup=admin_check_in_kb.admin_check_in_cancel_keyboard(
                         callback_data.tournament_id
                     ),
                 )
+                await state.update_data(check_in_prompt_message_id=prompt.message_id)
             return
 
         if callback_data.action == admin_check_in_kb.AdminCheckInAction.CONFIRM_REGISTERED:
@@ -301,7 +307,10 @@ async def select_check_in_action(
     if callback.message is not None:
         await edit_message_if_changed(
             callback.message,
-            text=check_in_fmt.summary(view),
+            text=check_in_fmt.admin_success(result.tournament, result.user),
+        )
+        await callback.message.answer(
+            check_in_fmt.summary(view),
             reply_markup=admin_check_in_kb.admin_check_in_keyboard(view),
         )
 
@@ -415,6 +424,7 @@ async def _restore_check_in_previous_screen(
             text="Введи имя нового игрока.",
             reply_markup=admin_check_in_kb.admin_check_in_cancel_keyboard(tournament_id),
         )
+        await state.update_data(check_in_prompt_message_id=callback.message.message_id)
         return True
     return False
 
@@ -426,6 +436,7 @@ async def enter_registered_check_in_search(message: Message, state: FSMContext) 
     data = await state.get_data()
     tournament_id = int(data["check_in_tournament_id"])
     query = message.text or ""
+    await _clear_check_in_prompt_markup(message, data)
     try:
         players = await tournament_check_in_service.search_registered(
             admin_telegram_id=message.from_user.id,
@@ -478,6 +489,7 @@ async def enter_database_check_in_search(message: Message, state: FSMContext) ->
     data = await state.get_data()
     tournament_id = int(data["check_in_tournament_id"])
     query = message.text or ""
+    await _clear_check_in_prompt_markup(message, data)
     try:
         players = await tournament_check_in_service.search_users(
             admin_telegram_id=message.from_user.id,
@@ -530,6 +542,7 @@ async def enter_new_check_in_player(message: Message, state: FSMContext) -> None
     data = await state.get_data()
     tournament_id = int(data["check_in_tournament_id"])
     display_name = message.text or ""
+    await _clear_check_in_prompt_markup(message, data)
     try:
         (
             normalized,
@@ -596,3 +609,18 @@ async def enter_new_check_in_player(message: Message, state: FSMContext) -> None
             confirm_text="✅ Создать",
         ),
     )
+
+
+async def _clear_check_in_prompt_markup(message: Message, data: dict[str, object]) -> None:
+    prompt_message_id = int(data.get("check_in_prompt_message_id") or 0)
+    if prompt_message_id <= 0:
+        return
+    try:
+        await edit_message_reply_markup_by_id_if_changed(
+            message.bot,
+            chat_id=message.chat.id,
+            message_id=prompt_message_id,
+            reply_markup=None,
+        )
+    except TelegramBadRequest:
+        logger.info("Failed to clear check-in prompt markup", exc_info=True)

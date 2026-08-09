@@ -80,3 +80,14 @@ def player_notification(tournament: object) -> str:
             fmt_common.date_long(tournament.date),
         ]
     )
+
+
+def admin_success(tournament: object, user: object) -> str:
+    return "\n".join(
+        [
+            "✅ Игрок добавлен в турнир",
+            "",
+            user.display_name,
+            tournament_fmt.label(tournament),
+        ]
+    )

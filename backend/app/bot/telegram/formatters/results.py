@@ -45,9 +45,9 @@ def close_tournament_card(results: object) -> str:
             "",
             f"Игроков: {len(results.players)}",
             "",
-            *_game_table_lines(results, force_all_columns=True),
+            *_game_table_lines(results),
             "",
-            "Введите Фонд турнира.",
+            "Введите фонд турнира?",
         ]
     )
 
@@ -91,7 +91,7 @@ def close_tournament_confirmation(
             "После подтверждения будут рассчитаны рейтинговые очки,",
             "а турнир станет недоступен для редактирования.",
             "",
-            *_game_table_lines(results, force_all_columns=True),
+            *_game_table_lines(results),
         ]
     )
 
@@ -115,7 +115,6 @@ def closed_tournament(results: object) -> str:
             *_game_table_lines(
                 results,
                 include_points=True,
-                force_all_columns=True,
             ),
         ]
     )

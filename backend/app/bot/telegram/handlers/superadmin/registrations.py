@@ -4,6 +4,9 @@ from aiogram import F, Router
 from aiogram.exceptions import TelegramBadRequest, TelegramForbiddenError
 from aiogram.types import CallbackQuery, Message, ReplyKeyboardRemove
 
+from app.bot.telegram.handlers.admin.shared import (
+    delete_callback_message as _delete_callback_message,
+)
 from app.bot.telegram.keyboards import labels
 from app.bot.telegram.keyboards.superadmin import panel as superadmin_panel_kb
 from app.bot.telegram.keyboards.superadmin import registrations as superadmin_registrations_kb
@@ -379,10 +382,7 @@ async def _edit_registration_review(
 
 async def _return_to_superadmin_menu(callback: CallbackQuery) -> None:
     if callback.message is not None:
-        try:
-            await callback.message.delete()
-        except TelegramBadRequest:
-            pass
+        await _delete_callback_message(callback)
         await callback.message.answer(
             panel_text.SUPERADMIN_PANEL_WELCOME,
             reply_markup=superadmin_panel_kb.superadmin_panel_keyboard(),
