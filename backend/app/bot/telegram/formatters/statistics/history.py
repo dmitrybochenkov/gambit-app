@@ -58,7 +58,7 @@ def tournament_result(
 def _table_lines(
     rows: list,
 ) -> list[str]:
-    lines = [f"{'Место':<5}  {'Игрок':<20} {'🥊':>3} {'👑🥊':>4} {'Очки':>6}"]
+    lines = [f"{'Место':<5}  {'Игрок':<20} {'КО':>3} {'БКО':>4} {'Очки':>6}"]
     for row in rows:
         place = str(row.place) if row.place is not None else "—"
         lines.append(

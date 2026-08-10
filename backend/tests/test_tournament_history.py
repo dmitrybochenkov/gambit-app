@@ -225,7 +225,7 @@ async def test_history_result_sorting_and_formatter(tmp_path: Path) -> None:
         ]
         page = pagination_service.paginate(result.rows, page=0, page_size=20)
         text = history_fmt.tournament_result(result, page)
-        assert "Место  Игрок                  🥊   👑🥊   Очки" in text
+        assert "Место  Игрок                  КО   БКО   Очки" in text
         assert "Борис" in text
         assert "Александр Очень Дли…" in text
         assert "—      Виктор                 9    0      0" in text
