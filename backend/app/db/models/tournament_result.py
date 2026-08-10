@@ -5,7 +5,6 @@ from sqlalchemy import (
     CheckConstraint,
     DateTime,
     ForeignKey,
-    Index,
     Integer,
     Numeric,
     String,
@@ -84,13 +83,6 @@ class TournamentResult(TimestampMixin, Base):
         CheckConstraint(
             "bonus_points >= 0 AND bonus_points = CAST(bonus_points AS INTEGER)",
             name="bonus_points_nonnegative",
-        ),
-        Index(
-            "uq_tournament_results_tournament_place",
-            "tournament_id",
-            "place",
-            unique=True,
-            sqlite_where=place.is_not(None),
         ),
     )
 

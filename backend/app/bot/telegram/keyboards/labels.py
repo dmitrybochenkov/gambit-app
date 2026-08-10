@@ -43,12 +43,15 @@ ADMIN_SEASON_EDIT_NAME = "✏️ Название"
 ADMIN_SEASON_EDIT_START = "📅 Дата начала"
 
 RATING_CURRENT_SEASON = "🏅 Текущий сезон"
+RATING_SELECTED_SEASON = "🏅❓ За выбранный сезон"
 RATING_ALL_TIME = "🏅⏳ За все время"
-RATING_KNOCKOUTS_CURRENT_SEASON = "🥊 Нокауты"
+RATING_KNOCKOUTS_CURRENT_SEASON = "🥊 Текущий сезон"
+RATING_KNOCKOUTS_SELECTED_SEASON = "🥊❓ За выбранный сезон"
 RATING_KNOCKOUTS_ALL_TIME = "🥊⏳ Нокауты за все время"
 RATING_CLOSE = "❌ Закрыть рейтинг"
 
-PROFILE_CURRENT_SEASON = "🏆 За текущий сезон"
+PROFILE_CURRENT_SEASON = "🏆 Текущий сезон"
+PROFILE_SELECTED_SEASON = "🏆❓ За выбранный сезон"
 PROFILE_ALL_TIME = "⏳ За все время"
 
 SELECTED_PREFIX = "✔️ "

@@ -2,6 +2,7 @@ from datetime import date
 from decimal import Decimal
 from pathlib import Path
 
+import pytest
 from conftest import build_player, seed_tournament_types_async, tournament_type_id
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
@@ -17,7 +18,11 @@ from app.db.models import (
 from app.db.models.enums import TournamentStatus, UserRole, UserStatus
 from app.services.dto.statistics.rating import KnockoutsRatingView, PointsRatingView
 from app.services.pagination import pagination_service
-from app.services.rating_service import RatingKind, RatingService
+from app.services.rating_service import (
+    RatingFutureSeasonError,
+    RatingKind,
+    RatingService,
+)
 
 
 async def test_rating_filters_current_season_and_all_time(tmp_path: Path) -> None:
@@ -224,7 +229,8 @@ async def test_rating_filters_current_season_and_all_time(tmp_path: Path) -> Non
             current_page,
             current_player_id=second_player.id,
         ).startswith(
-            "Рейтинг — текущий сезон\n🎲 - количество турниров\n\n👉 1. *King* — 120 | 🎲 1"
+            "Рейтинг — текущий сезон\n💍 - победитель сезона\n"
+            "🎲 - количество турниров\n\n👉 1. *King* — 120 | 🎲 1"
         )
         knockout_message = rating_fmt.message(
             knockout_title,
@@ -232,11 +238,82 @@ async def test_rating_filters_current_season_and_all_time(tmp_path: Path) -> Non
             current_player_id=first_player.id,
         )
         assert (
-            "Рейтинг по нокаутам — за всё время\n🎲 - количество турниров с нокаутами\n\n"
+            "Рейтинг по нокаутам — за всё время\n"
+            "🥊 - лучший нокаутер сезона\n"
+            "🎲 - количество турниров с нокаутами\n\n"
         ) in knockout_message
-        assert "👉 1. *Игрок Первый* 💍🥊 — 6 | 🎲 2" in knockout_message
+        assert "👉 1. *Игрок Первый* 🥊 — 6 | 🎲 2" in knockout_message
         assert "⭐" not in knockout_message
         assert "✅" not in knockout_message
+    finally:
+        await engine.dispose()
+
+
+async def test_rating_counts_historical_tied_places_with_authoritative_points(
+    tmp_path: Path,
+) -> None:
+    engine = create_async_engine(f"sqlite+aiosqlite:///{tmp_path / 'tied_places_rating.db'}")
+    async with engine.begin() as connection:
+        await connection.run_sync(Base.metadata.create_all)
+
+    session_factory = async_sessionmaker(engine, expire_on_commit=False)
+    async with session_factory() as session:
+        config = ScoringConfig()
+        session.add(config)
+        await session.flush()
+        await seed_tournament_types_async(session)
+        season = Season(
+            name="Historical season",
+            scoring_config_id=config.id,
+            starts_at=date(2026, 1, 1),
+            ends_at=date(2026, 3, 31),
+        )
+        first = build_player(telegram_id=101, display_name="First", status=UserStatus.ACTIVE)
+        second = build_player(telegram_id=102, display_name="Second", status=UserStatus.ACTIVE)
+        session.add_all([season, first, second])
+        await session.flush()
+        tournament = Tournament(
+            season_id=season.id,
+            tournament_type_id=tournament_type_id("classic"),
+            date=date(2026, 3, 12),
+            status=TournamentStatus.CLOSED,
+            tournament_fund=None,
+        )
+        session.add(tournament)
+        await session.flush()
+        session.add_all(
+            [
+                TournamentResult(
+                    tournament_id=tournament.id,
+                    player_id=first.id,
+                    place=5,
+                    tournament_points=Decimal("182.50"),
+                    knockout_points=Decimal("0"),
+                    bonus_points=0,
+                ),
+                TournamentResult(
+                    tournament_id=tournament.id,
+                    player_id=second.id,
+                    place=5,
+                    tournament_points=Decimal("182.50"),
+                    knockout_points=Decimal("0"),
+                    bonus_points=200,
+                ),
+            ]
+        )
+        await session.commit()
+
+    service = RatingService(session_factory)
+    try:
+        rating = await service.get_rating_for_player(
+            telegram_id=first.telegram_id,
+            kind=RatingKind.ALL_TIME,
+        )
+
+        assert [(row.display_name, row.total_points) for row in rating.rows] == [
+            ("Second", Decimal("382.50")),
+            ("First", Decimal("182.50")),
+        ]
     finally:
         await engine.dispose()
 
@@ -267,6 +344,7 @@ def test_points_rating_format_uses_half_up_rounding_and_current_marker() -> None
     assert "⭐" not in message
     assert (
         "Рейтинг — за всё время\n"
+        "💍 - победитель сезона\n"
         "🎲 - количество турниров\n\n"
         "👉 1. *King* 💍 — 121 | 🎲 3\n"
         "🥈 Player — 90 | 🎲 2"
@@ -297,8 +375,9 @@ def test_knockout_rating_format_hides_points_and_repeats_titles() -> None:
     assert "🥊 6" not in message
     assert (
         "Рейтинг по нокаутам — за всё время\n"
+        "🥊 - лучший нокаутер сезона\n"
         "🎲 - количество турниров с нокаутами\n\n"
-        "🥇 King 💍🥊🥊 — 6 | 🎲 2"
+        "🥇 King 🥊×2 — 6 | 🎲 2"
     ) == message
 
 
@@ -360,7 +439,7 @@ def test_knockout_rating_format_marks_current_player_with_ring_and_knockout_titl
 
     message = rating_fmt.message("Рейтинг по нокаутам — за всё время", page, current_player_id=5)
 
-    assert "👉 5. *Дима* 💍🥊 — 12 | 🎲 18" in message
+    assert "👉 5. *Дима* 🥊 — 12 | 🎲 18" in message
     assert "✅" not in message
 
 
@@ -693,5 +772,97 @@ async def test_rating_current_season_returns_empty_when_no_season_covers_today(
 
         assert rating.title == "Рейтинг — текущий сезон"
         assert rating.rows == []
+    finally:
+        await engine.dispose()
+
+
+async def test_rating_selected_season_and_season_picker_exclude_future(
+    tmp_path: Path,
+) -> None:
+    engine = create_async_engine(f"sqlite+aiosqlite:///{tmp_path / 'rating_selected.db'}")
+    async with engine.begin() as connection:
+        await connection.run_sync(Base.metadata.create_all)
+
+    session_factory = async_sessionmaker(engine, expire_on_commit=False)
+    async with session_factory() as session:
+        config = ScoringConfig()
+        session.add(config)
+        await session.flush()
+        await seed_tournament_types_async(session)
+        completed = Season(
+            name="Весна 2026",
+            scoring_config_id=config.id,
+            starts_at=date(2026, 4, 1),
+            ends_at=date(2026, 6, 30),
+        )
+        current = Season(
+            name="Лето 2026",
+            scoring_config_id=config.id,
+            starts_at=date(2026, 7, 1),
+            ends_at=date(2026, 8, 31),
+        )
+        future = Season(
+            name="Осень 2026",
+            scoring_config_id=config.id,
+            starts_at=date(2026, 9, 1),
+            ends_at=None,
+        )
+        player = build_player(telegram_id=100, display_name="Игрок")
+        session.add_all([completed, current, future, player])
+        await session.flush()
+        completed_tournament = Tournament(
+            season_id=completed.id,
+            tournament_type_id=tournament_type_id("classic"),
+            date=date(2026, 4, 10),
+            status=TournamentStatus.CLOSED,
+            tournament_fund=1000,
+        )
+        current_tournament = Tournament(
+            season_id=current.id,
+            tournament_type_id=tournament_type_id("bounty"),
+            date=date(2026, 7, 10),
+            status=TournamentStatus.CLOSED,
+            tournament_fund=1000,
+        )
+        session.add_all([completed_tournament, current_tournament])
+        await session.flush()
+        session.add_all(
+            [
+                TournamentResult(
+                    tournament_id=completed_tournament.id,
+                    player_id=player.id,
+                    tournament_points=Decimal("100"),
+                ),
+                TournamentResult(
+                    tournament_id=current_tournament.id,
+                    player_id=player.id,
+                    tournament_points=Decimal("200"),
+                ),
+            ]
+        )
+        await session.commit()
+        completed_id = completed.id
+        future_id = future.id
+
+    service = RatingService(session_factory)
+    try:
+        seasons = await service.list_rating_seasons(100, today=date(2026, 8, 10))
+        rating = await service.get_rating_for_player(
+            100,
+            RatingKind.SELECTED_SEASON,
+            season_id=completed_id,
+            today=date(2026, 8, 10),
+        )
+
+        assert [season.name for season in seasons] == ["Лето 2026", "Весна 2026"]
+        assert rating.title == "Рейтинг — Весна 2026"
+        assert [row.total_points for row in rating.rows] == [Decimal("100")]
+        with pytest.raises(RatingFutureSeasonError):
+            await service.get_rating_for_player(
+                100,
+                RatingKind.SELECTED_SEASON,
+                season_id=future_id,
+                today=date(2026, 8, 10),
+            )
     finally:
         await engine.dispose()

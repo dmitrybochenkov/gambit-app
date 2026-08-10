@@ -6,7 +6,6 @@ from decimal import Decimal
 class PlayerProfileView:
     display_name: str
     total_points: Decimal
-    knockout_points: Decimal
     knockouts_count: int
     big_knockouts_count: int
     tournaments_count: int

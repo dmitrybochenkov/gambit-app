@@ -4,6 +4,7 @@ from enum import StrEnum
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from app.common.clock import Clock, club_clock
+from app.db.models import Season
 from app.db.repositories.rating_repository import (
     KnockoutsRatingRow,
     PointsRatingRow,
@@ -13,11 +14,13 @@ from app.db.repositories.rating_repository import (
 from app.db.repositories.season_repository import SeasonRepository
 from app.db.session import SessionFactory
 from app.services.access_policy import ActiveUserRequiredError, access_policy
+from app.services.dto.seasons import SeasonOptionView
 from app.services.dto.statistics.rating import (
     KnockoutsRatingView,
     PointsRatingView,
     RatingResultView,
 )
+from app.services.season_options import list_started_season_options
 
 
 class RatingKind(StrEnum):
@@ -25,9 +28,19 @@ class RatingKind(StrEnum):
     ALL_TIME = "all_time"
     KNOCKOUTS_CURRENT_SEASON = "knockouts_current_season"
     KNOCKOUTS_ALL_TIME = "knockouts_all_time"
+    SELECTED_SEASON = "selected_season"
+    KNOCKOUTS_SELECTED_SEASON = "knockouts_selected_season"
 
 
 class RatingNotAllowedError(ValueError):
+    pass
+
+
+class RatingSeasonNotFoundError(ValueError):
+    pass
+
+
+class RatingFutureSeasonError(ValueError):
     pass
 
 
@@ -44,6 +57,7 @@ class RatingService:
         self,
         telegram_id: int,
         kind: RatingKind,
+        season_id: int | None = None,
         today: date | None = None,
     ) -> RatingResultView:
         business_date = today or self.clock.today()
@@ -56,6 +70,7 @@ class RatingService:
                 rating_repository=RatingRepository(session),
                 season_repository=SeasonRepository(session),
                 kind=kind,
+                season_id=season_id,
                 today=business_date,
             )
             return RatingResultView(
@@ -64,11 +79,25 @@ class RatingService:
                 current_player_id=player.id,
             )
 
+    async def list_rating_seasons(
+        self,
+        telegram_id: int,
+        today: date | None = None,
+    ) -> list[SeasonOptionView]:
+        business_date = today or self.clock.today()
+        async with self.session_factory() as session:
+            try:
+                await access_policy.require_active_user(session, telegram_id)
+            except ActiveUserRequiredError as exc:
+                raise RatingNotAllowedError from exc
+            return await list_started_season_options(SeasonRepository(session), business_date)
+
     @staticmethod
     async def _get_rating(
         rating_repository: RatingRepository,
         season_repository: SeasonRepository,
         kind: RatingKind,
+        season_id: int | None,
         today: date,
     ) -> tuple[str, list[PointsRatingView] | list[KnockoutsRatingView]]:
         honours = await rating_repository.get_rating_honours(today)
@@ -106,6 +135,26 @@ class RatingService:
                     )
                 ],
             )
+        if kind == RatingKind.SELECTED_SEASON:
+            season = await _require_started_season(season_repository, season_id, today)
+            return (
+                f"Рейтинг — {season.name}",
+                [
+                    points_rating_view(row, honours)
+                    for row in await rating_repository.get_points_rating(season_id=season.id)
+                ],
+            )
+        if kind == RatingKind.KNOCKOUTS_SELECTED_SEASON:
+            season = await _require_started_season(season_repository, season_id, today)
+            return (
+                f"Рейтинг по нокаутам — {season.name}",
+                [
+                    knockouts_rating_view(row, honours)
+                    for row in await rating_repository.get_knockouts_rating(
+                        season_id=season.id,
+                    )
+                ],
+            )
         return (
             "Рейтинг по нокаутам — за всё время",
             [
@@ -113,6 +162,21 @@ class RatingService:
                 for row in await rating_repository.get_knockouts_rating()
             ],
         )
+
+
+async def _require_started_season(
+    season_repository: SeasonRepository,
+    season_id: int | None,
+    today: date,
+) -> Season:
+    if season_id is None:
+        raise RatingSeasonNotFoundError
+    season = await season_repository.get_by_id(season_id)
+    if season is None:
+        raise RatingSeasonNotFoundError
+    if season.starts_at > today:
+        raise RatingFutureSeasonError
+    return season
 
 
 def points_rating_view(row: PointsRatingRow, honours: RatingHonours) -> PointsRatingView:

@@ -19,7 +19,7 @@ class HistoryMonthView:
 class HistoricalTournamentView:
     id: int
     date: date
-    tournament_name: str
+    display_name: str
 
 
 @dataclass(frozen=True)

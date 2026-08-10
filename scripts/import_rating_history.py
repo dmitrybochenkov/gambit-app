@@ -10,7 +10,7 @@ import sys
 import unicodedata
 import zipfile
 from collections import Counter, defaultdict
-from dataclasses import asdict, dataclass, field, replace
+from dataclasses import asdict, dataclass, field
 from datetime import date, datetime, timedelta
 from decimal import Decimal, InvalidOperation
 from pathlib import Path
@@ -317,7 +317,6 @@ def build_import_plan(
             aliases,
             user_items=user_items,
         )
-        resolved_rows = clear_duplicate_prize_places(resolved_rows)
         tournament_items, season_distribution, season_errors = build_tournament_plan(
             connection,
             source,
@@ -794,22 +793,6 @@ def resolved_result(
     )
 
 
-def clear_duplicate_prize_places(rows: list[ResolvedResultRow]) -> list[ResolvedResultRow]:
-    seen_places: set[tuple[date, int]] = set()
-    result: list[ResolvedResultRow] = []
-    for row in rows:
-        if row.place is None:
-            result.append(row)
-            continue
-        key = (row.tournament_date, row.place)
-        if key in seen_places:
-            result.append(replace(row, place=None))
-            continue
-        seen_places.add(key)
-        result.append(row)
-    return result
-
-
 def load_users_by_normalized(
     connection: sqlite3.Connection,
 ) -> dict[str, list[UserCandidate]]:
@@ -1053,7 +1036,6 @@ def result_diff(existing: sqlite3.Row, row: ResolvedResultRow) -> dict[str, tupl
 
 def validate_result_rows(rows: list[ResolvedResultRow]) -> list[str]:
     seen: dict[tuple[date, int], int] = {}
-    places_by_tournament: dict[tuple[date, int], int] = {}
     errors: list[str] = []
     for row in rows:
         if row.place is not None and row.place not in {1, 2, 3, 4, 5}:
@@ -1071,17 +1053,6 @@ def validate_result_rows(rows: list[ResolvedResultRow]) -> list[str]:
             )
         else:
             seen[key] = row.source_row
-        if row.place is not None:
-            place_key = (row.tournament_date, row.place)
-            previous_place_row = places_by_tournament.get(place_key)
-            if previous_place_row is not None:
-                errors.append(
-                    "Duplicate prize place in import source: "
-                    f"{row.tournament_date.isoformat()} place={row.place} "
-                    f"rows {previous_place_row} and {row.source_row}."
-                )
-            else:
-                places_by_tournament[place_key] = row.source_row
     return errors
 
 

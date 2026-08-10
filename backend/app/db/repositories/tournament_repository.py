@@ -24,6 +24,8 @@ class HistoricalTournamentRow:
     id: int
     date: date
     tournament_name: str
+    tournament_type_code: str
+    has_knockouts: bool
 
 
 @dataclass(frozen=True)
@@ -31,6 +33,8 @@ class HistoricalTournamentResultRow:
     tournament_id: int
     tournament_date: date
     tournament_name: str
+    tournament_type_code: str
+    tournament_has_knockouts: bool
     player_id: int
     display_name: str
     place: int | None
@@ -266,7 +270,7 @@ class TournamentRepository:
             .join(TournamentResult, TournamentResult.tournament_id == Tournament.id)
             .where(closed_tournament_filter())
             .group_by("year")
-            .order_by(func.strftime("%Y", Tournament.date).desc())
+            .order_by(func.strftime("%Y", Tournament.date))
         )
         return [int(year) for year in result.scalars()]
 
@@ -279,7 +283,7 @@ class TournamentRepository:
                 func.strftime("%Y", Tournament.date) == str(year),
             )
             .group_by("month")
-            .order_by(func.strftime("%m", Tournament.date).desc())
+            .order_by(func.strftime("%m", Tournament.date))
         )
         return [int(month) for month in result.scalars()]
 
@@ -288,11 +292,17 @@ class TournamentRepository:
         year: int,
         month: int,
     ) -> list[HistoricalTournamentRow]:
+        tournament_knockouts = func.coalesce(
+            func.sum(TournamentResult.knockouts_count + TournamentResult.big_knockouts_count),
+            0,
+        )
         result = await self.session.execute(
             select(
                 Tournament.id,
                 Tournament.date,
                 TournamentType.name.label("tournament_name"),
+                TournamentType.code.label("tournament_type_code"),
+                tournament_knockouts.label("tournament_knockouts"),
             )
             .join(TournamentType, TournamentType.id == Tournament.tournament_type_id)
             .join(TournamentResult, TournamentResult.tournament_id == Tournament.id)
@@ -301,14 +311,16 @@ class TournamentRepository:
                 func.strftime("%Y", Tournament.date) == str(year),
                 func.strftime("%m", Tournament.date) == f"{month:02d}",
             )
-            .group_by(Tournament.id, Tournament.date, TournamentType.name)
-            .order_by(Tournament.date.desc(), Tournament.id.desc())
+            .group_by(Tournament.id, Tournament.date, TournamentType.name, TournamentType.code)
+            .order_by(Tournament.date, Tournament.id)
         )
         return [
             HistoricalTournamentRow(
                 id=row.id,
                 date=row.date,
                 tournament_name=row.tournament_name,
+                tournament_type_code=row.tournament_type_code,
+                has_knockouts=int(row.tournament_knockouts) > 0,
             )
             for row in result
         ]
@@ -328,6 +340,12 @@ class TournamentRepository:
                 Tournament.id.label("tournament_id"),
                 Tournament.date.label("tournament_date"),
                 TournamentType.name.label("tournament_name"),
+                TournamentType.code.label("tournament_type_code"),
+                func.sum(total_knockouts)
+                .over(partition_by=Tournament.id)
+                .label(
+                    "tournament_knockouts",
+                ),
                 User.id.label("player_id"),
                 User.display_name,
                 TournamentResult.place,
@@ -355,6 +373,8 @@ class TournamentRepository:
                 tournament_id=row.tournament_id,
                 tournament_date=row.tournament_date,
                 tournament_name=row.tournament_name,
+                tournament_type_code=row.tournament_type_code,
+                tournament_has_knockouts=int(row.tournament_knockouts) > 0,
                 player_id=row.player_id,
                 display_name=row.display_name,
                 place=row.place,

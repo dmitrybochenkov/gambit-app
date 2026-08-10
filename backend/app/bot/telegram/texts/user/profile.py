@@ -16,12 +16,10 @@ def message(title: str, stats: object | None) -> str:
         title,
         "⭐ - количество очков",
         "🥊 - количество нокаутов",
-        "⭐🥊 - количество очков за нокауты",
         "🎲 - количество турниров",
         "",
         stats.display_name,
-        f"⭐ {points} | 🥊 {stats.total_knockouts_count} | "
-        f"⭐🥊 {_format_decimal(stats.knockout_points)} | 🎲 {stats.tournaments_count}",
+        f"⭐ {points} | 🥊 {stats.total_knockouts_count} | 🎲 {stats.tournaments_count}",
     ]
     prize_place_lines = _prize_place_lines(stats)
     if prize_place_lines:

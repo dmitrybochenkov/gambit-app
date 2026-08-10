@@ -19,10 +19,11 @@ def message(
     has_points_rows = hasattr(page.items[0], "total_points")
     lines = [title]
     if has_points_rows:
-        lines.extend(["🎲 - количество турниров"])
+        lines.extend(["💍 - победитель сезона", "🎲 - количество турниров"])
     else:
         lines.extend(
             [
+                "🥊 - лучший нокаутер сезона",
                 "🎲 - количество турниров с нокаутами",
             ]
         )
@@ -71,12 +72,19 @@ def _display_name_with_honours(row: object) -> str:
 
 def _honours(row: object) -> str:
     honours = []
-    if row.season_champion_titles_count > 0:
-        honours.extend("💍" for _ in range(row.season_champion_titles_count))
-    knockout_titles = getattr(row, "season_knockout_leader_titles_count", 0)
-    if knockout_titles > 0:
-        honours.extend("🥊" for _ in range(knockout_titles))
-    return "".join(honours)
+    if hasattr(row, "total_points"):
+        honours.append(_honour("💍", row.season_champion_titles_count))
+    else:
+        honours.append(_honour("🥊", getattr(row, "season_knockout_leader_titles_count", 0)))
+    return " ".join(honour for honour in honours if honour)
+
+
+def _honour(label: str, count: int) -> str:
+    if count <= 0:
+        return ""
+    if count == 1:
+        return label
+    return f"{label}×{count}"
 
 
 def _format_points(value: Decimal) -> str:

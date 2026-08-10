@@ -328,5 +328,5 @@ def _navigation_width(page: Page) -> int:
 
 
 def _tournament_button_text(tournament: HistoricalTournamentView) -> str:
-    label = f"{tournament.date.day:02d} {tournament.tournament_name}"
+    label = f"{tournament.date.day:02d} {tournament.display_name}"
     return label if len(label) <= 32 else f"{label[:31]}…"

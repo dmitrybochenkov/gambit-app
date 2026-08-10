@@ -935,7 +935,7 @@ def test_resolved_csv_duplicate_historical_place_preserves_points(
         ).fetchall()
         assert rows == [
             ("Player A", 5, 182.5, 0),
-            ("Player B", None, 182.5, 200),
+            ("Player B", 5, 182.5, 200),
         ]
     finally:
         connection.close()

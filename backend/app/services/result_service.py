@@ -168,9 +168,8 @@ class ResultService:
                     value,
                     exclude_result_id=result.id,
                 )
-                for other_result in occupied:
-                    other_result.place = None
-                await session.flush()
+                if occupied:
+                    raise ResultInvalidPlayerDataError
                 result.place = value
             elif field == ResultField.KNOCKOUTS:
                 result.knockouts_count = value

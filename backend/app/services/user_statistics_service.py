@@ -96,7 +96,11 @@ class UserStatisticsService:
                 HistoricalTournamentView(
                     id=row.id,
                     date=row.date,
-                    tournament_name=row.tournament_name,
+                    display_name=historical_tournament_display_name(
+                        tournament_name=row.tournament_name,
+                        tournament_type_code=row.tournament_type_code,
+                        has_knockouts=row.has_knockouts,
+                    ),
                 )
                 for row in rows
             ]
@@ -154,7 +158,11 @@ def historical_tournament_result_view(
         tournament=HistoricalTournamentView(
             id=first_row.tournament_id,
             date=first_row.tournament_date,
-            tournament_name=first_row.tournament_name,
+            display_name=historical_tournament_display_name(
+                tournament_name=first_row.tournament_name,
+                tournament_type_code=first_row.tournament_type_code,
+                has_knockouts=first_row.tournament_has_knockouts,
+            ),
         ),
         rows=[
             HistoricalTournamentResultRowView(
@@ -172,6 +180,17 @@ def historical_tournament_result_view(
 
 def _month_label(month: int) -> str:
     return MONTH_LABELS[month]
+
+
+def historical_tournament_display_name(
+    *,
+    tournament_name: str,
+    tournament_type_code: str,
+    has_knockouts: bool,
+) -> str:
+    if tournament_type_code != "legacy_unknown":
+        return tournament_name
+    return "Bounty" if has_knockouts else "Турнир"
 
 
 user_statistics_service = UserStatisticsService(SessionFactory)

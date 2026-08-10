@@ -62,3 +62,11 @@ class ScoringConfigView:
     place_5_coefficient: Decimal
     knockout_small_points: int
     knockout_big_points: int
+
+
+@dataclass(frozen=True)
+class SeasonOptionView:
+    id: int
+    name: str
+    starts_at: date
+    ends_at: date | None

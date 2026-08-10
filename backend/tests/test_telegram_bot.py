@@ -57,6 +57,7 @@ from app.bot.telegram.keyboards.superadmin import registrations as superadmin_re
 from app.bot.telegram.keyboards.superadmin import seasons as superadmin_seasons_kb
 from app.bot.telegram.keyboards.superadmin import tournament_close as superadmin_tournament_close_kb
 from app.bot.telegram.keyboards.superadmin import users as superadmin_users_kb
+from app.bot.telegram.keyboards.user import profile as user_profile_kb
 from app.bot.telegram.keyboards.user import rating as user_rating_kb
 from app.bot.telegram.keyboards.user import tournaments as user_tournaments_kb
 from app.bot.telegram.states import AdminResultStates, HallOfFameStates, UserRenameStates
@@ -106,6 +107,7 @@ from app.services.dto.seasons import (
     ScoringConfigView,
     SeasonCreationPreviewView,
     SeasonLifecycleStateView,
+    SeasonOptionView,
     SeasonTimelineView,
     SeasonView,
 )
@@ -2580,8 +2582,10 @@ async def test_rating_button_shows_four_filters(
     ]
     assert buttons == [
         "🏅 Текущий сезон",
+        "🏅❓ За выбранный сезон",
         "🏅⏳ За все время",
-        "🥊 Нокауты",
+        "🥊 Текущий сезон",
+        "🥊❓ За выбранный сезон",
         "🥊⏳ Нокауты за все время",
         "❌ Отмена",
     ]
@@ -2681,7 +2685,7 @@ async def test_history_tournament_result_callback_formats_table(
         tournament=HistoricalTournamentView(
             id=7,
             date=date(2026, 7, 17),
-            tournament_name="Классика",
+            display_name="Классика",
         ),
         rows=[
             HistoricalTournamentResultRowView(
@@ -2947,10 +2951,14 @@ async def test_rating_callback_edits_selected_rating(
     rating_service.get_rating_for_player.assert_awaited_once_with(
         telegram_id=123,
         kind=RatingKind.CURRENT_SEASON,
+        season_id=None,
     )
     message.edit_text.assert_awaited_once()
     assert message.edit_text.await_args.args[0] == (
-        "Рейтинг — текущий сезон\n🎲 - количество турниров\n\n👉 1. *Игрок Первый* — 120 | 🎲 3"
+        "Рейтинг — текущий сезон\n"
+        "💍 - победитель сезона\n"
+        "🎲 - количество турниров\n\n"
+        "👉 1. *Игрок Первый* — 120 | 🎲 3"
     )
     assert message.edit_text.await_args.kwargs["parse_mode"] == "Markdown"
     buttons = [
@@ -2958,7 +2966,7 @@ async def test_rating_callback_edits_selected_rating(
         for row in message.edit_text.await_args.kwargs["reply_markup"].inline_keyboard
         for button in row
     ]
-    assert buttons == ["1-1 из 1", "❌ Закрыть рейтинг"]
+    assert buttons == ["1-1 из 1", "⬅️ Назад", "❌ Закрыть рейтинг"]
 
 
 async def test_rating_callback_opens_current_player_page(
@@ -3000,7 +3008,75 @@ async def test_rating_callback_opens_current_player_page(
         for row in message.edit_text.await_args.kwargs["reply_markup"].inline_keyboard
         for button in row
     ]
-    assert buttons == ["⬅️", "11-12 из 12", "❌ Закрыть рейтинг"]
+    assert buttons == ["⬅️", "11-12 из 12", "⬅️ Назад", "❌ Закрыть рейтинг"]
+
+
+async def test_rating_selected_season_picker_and_result(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    seasons = [
+        SeasonOptionView(id=2, name="Лето 2026", starts_at=date(2026, 6, 1), ends_at=None),
+        SeasonOptionView(
+            id=1,
+            name="Весна 2026",
+            starts_at=date(2026, 3, 1),
+            ends_at=date(2026, 5, 31),
+        ),
+    ]
+    rating_service = SimpleNamespace(
+        list_rating_seasons=AsyncMock(return_value=seasons),
+        get_rating_for_player=AsyncMock(
+            return_value=RatingResultView(
+                title="Рейтинг — Весна 2026",
+                rows=[
+                    PointsRatingView(
+                        player_id=1,
+                        display_name="Игрок Первый",
+                        total_points=Decimal("120"),
+                        tournaments_count=3,
+                    )
+                ],
+                current_player_id=1,
+            )
+        ),
+    )
+    monkeypatch.setattr(user_rating_handlers, "rating_service", rating_service)
+    message = SimpleNamespace(edit_text=AsyncMock())
+    callback = SimpleNamespace(
+        from_user=SimpleNamespace(id=123),
+        message=message,
+        answer=AsyncMock(),
+    )
+
+    await user_rating_handlers.show_rating_season_picker(
+        callback,
+        user_rating_kb.RatingSeasonPageCallback(kind=RatingKind.SELECTED_SEASON, page=0),
+    )
+
+    rating_service.list_rating_seasons.assert_awaited_once_with(123)
+    assert message.edit_text.await_args.args[0] == "Выбери сезон."
+    assert inline_keyboard_texts(message.edit_text.await_args.kwargs["reply_markup"]) == [
+        "Лето 2026",
+        "Весна 2026",
+        "⬅️ Назад",
+        "❌ Отмена",
+    ]
+
+    await user_rating_handlers.show_rating_for_selected_season(
+        callback,
+        user_rating_kb.RatingSeasonCallback(
+            kind=RatingKind.SELECTED_SEASON,
+            season_id=1,
+            season_page=0,
+        ),
+    )
+
+    rating_service.get_rating_for_player.assert_awaited_once_with(
+        telegram_id=123,
+        kind=RatingKind.SELECTED_SEASON,
+        season_id=1,
+    )
+    assert "Рейтинг — Весна 2026" in message.edit_text.await_args.args[0]
 
 
 async def test_rating_menu_cancel_deletes_message() -> None:
@@ -3027,6 +3103,17 @@ async def test_rating_close_deletes_message() -> None:
     message.answer.assert_awaited_once_with("Рейтинг закрыт")
 
 
+async def test_rating_back_returns_root_menu() -> None:
+    message = SimpleNamespace(edit_text=AsyncMock())
+    callback = SimpleNamespace(message=message, answer=AsyncMock())
+    callback_data = SimpleNamespace(action=user_rating_kb.RatingCancelAction.BACK)
+
+    await user_rating_handlers.cancel_rating(callback, callback_data)
+
+    callback.answer.assert_awaited_once_with()
+    assert message.edit_text.await_args.args[0] == "Какой рейтинг ты хочешь посмотреть?"
+
+
 async def test_profile_button_shows_two_filters(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -3044,7 +3131,12 @@ async def test_profile_button_shows_two_filters(
     buttons = [
         button.text for row in answer.kwargs["reply_markup"].inline_keyboard for button in row
     ]
-    assert buttons == ["🏆 За текущий сезон", "⏳ За все время", "❌ Отмена"]
+    assert buttons == [
+        "🏆 Текущий сезон",
+        "🏆❓ За выбранный сезон",
+        "⏳ За все время",
+        "❌ Отмена",
+    ]
 
 
 async def test_profile_callback_sends_selected_profile(
@@ -3054,7 +3146,7 @@ async def test_profile_callback_sends_selected_profile(
         get_profile_for_player=AsyncMock(return_value=("Твой профиль — текущий сезон", None))
     )
     monkeypatch.setattr(user_profile_handlers, "profile_service", profile_service)
-    message = SimpleNamespace(delete=AsyncMock(), answer=AsyncMock())
+    message = SimpleNamespace(edit_text=AsyncMock())
     callback = SimpleNamespace(
         from_user=SimpleNamespace(id=123),
         message=message,
@@ -3067,10 +3159,68 @@ async def test_profile_callback_sends_selected_profile(
     profile_service.get_profile_for_player.assert_awaited_once_with(
         telegram_id=123,
         kind=ProfileKind.CURRENT_SEASON,
+        season_id=None,
     )
-    message.delete.assert_awaited_once()
-    message.answer.assert_awaited_once_with(
+    message.edit_text.assert_awaited_once()
+    assert message.edit_text.await_args.args[0] == (
         "Твой профиль — текущий сезон\n\nПрофиль не найден. Нажми /start."
+    )
+    assert inline_keyboard_texts(message.edit_text.await_args.kwargs["reply_markup"]) == [
+        "⬅️ Назад",
+        "❌ Закрыть",
+    ]
+
+
+async def test_profile_selected_season_picker_and_result(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    seasons = [
+        SeasonOptionView(id=2, name="Лето 2026", starts_at=date(2026, 6, 1), ends_at=None),
+        SeasonOptionView(
+            id=1,
+            name="Весна 2026",
+            starts_at=date(2026, 3, 1),
+            ends_at=date(2026, 5, 31),
+        ),
+    ]
+    profile_service = SimpleNamespace(
+        list_profile_seasons=AsyncMock(return_value=seasons),
+        get_profile_for_player=AsyncMock(return_value=("Твой профиль — Весна 2026", None)),
+    )
+    monkeypatch.setattr(user_profile_handlers, "profile_service", profile_service)
+    message = SimpleNamespace(edit_text=AsyncMock())
+    callback = SimpleNamespace(
+        from_user=SimpleNamespace(id=123),
+        message=message,
+        answer=AsyncMock(),
+    )
+
+    await user_profile_handlers.show_profile_season_picker(
+        callback,
+        user_profile_kb.ProfileSeasonPageCallback(page=0),
+    )
+
+    profile_service.list_profile_seasons.assert_awaited_once_with(123)
+    assert message.edit_text.await_args.args[0] == "Выбери сезон."
+    assert inline_keyboard_texts(message.edit_text.await_args.kwargs["reply_markup"]) == [
+        "Лето 2026",
+        "Весна 2026",
+        "⬅️ Назад",
+        "❌ Отмена",
+    ]
+
+    await user_profile_handlers.show_profile_for_selected_season(
+        callback,
+        user_profile_kb.ProfileSeasonCallback(season_id=1, season_page=0),
+    )
+
+    profile_service.get_profile_for_player.assert_awaited_once_with(
+        telegram_id=123,
+        kind=ProfileKind.SELECTED_SEASON,
+        season_id=1,
+    )
+    assert message.edit_text.await_args.args[0] == (
+        "Твой профиль — Весна 2026\n\nПрофиль не найден. Нажми /start."
     )
 
 

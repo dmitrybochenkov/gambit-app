@@ -86,6 +86,14 @@ class SeasonRepository:
         result = await self.session.execute(select(Season).order_by(Season.starts_at.desc()))
         return list(result.scalars())
 
+    async def list_started(self, target_date: date) -> list[Season]:
+        result = await self.session.execute(
+            select(Season)
+            .where(Season.starts_at <= target_date)
+            .order_by(Season.starts_at.desc(), Season.id.desc())
+        )
+        return list(result.scalars())
+
     async def list_all_ordered(self) -> list[Season]:
         result = await self.session.execute(select(Season).order_by(Season.starts_at, Season.id))
         return list(result.scalars())

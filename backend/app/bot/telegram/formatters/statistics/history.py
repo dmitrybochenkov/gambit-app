@@ -44,7 +44,7 @@ def tournament_result(
         "⏳ История",
         "",
         fmt_common.date_long(tournament.date),
-        fmt_common.markdown_escape(tournament.tournament_name),
+        fmt_common.markdown_escape(tournament.display_name),
         "",
         "```",
         *_table_lines(page.items),

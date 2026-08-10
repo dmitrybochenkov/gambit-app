@@ -631,12 +631,24 @@ def test_tournament_result_place_rejects_invalid_range(session: Session, place: 
         session.commit()
 
 
-def test_tournament_result_place_is_unique_inside_tournament(session: Session) -> None:
+def test_tournament_result_place_allows_ties_inside_tournament(session: Session) -> None:
     tournament, player, other = _seed_result_context(session)
     session.add_all(
         [
             _result(tournament.id, player.id, place=1),
             _result(tournament.id, other.id, place=1),
+        ]
+    )
+
+    session.commit()
+
+
+def test_tournament_result_player_is_unique_inside_tournament(session: Session) -> None:
+    tournament, player, _other = _seed_result_context(session)
+    session.add_all(
+        [
+            _result(tournament.id, player.id, place=1),
+            _result(tournament.id, player.id, place=2),
         ]
     )
 

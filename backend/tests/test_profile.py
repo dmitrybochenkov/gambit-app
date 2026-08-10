@@ -2,6 +2,7 @@ from datetime import date
 from decimal import Decimal
 from pathlib import Path
 
+import pytest
 from conftest import build_player, seed_tournament_types_async, tournament_type_id
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
@@ -15,7 +16,7 @@ from app.db.models import (
 )
 from app.db.models.enums import TournamentStatus, UserRole, UserStatus
 from app.services.dto.statistics.profile import PlayerProfileView
-from app.services.profile_service import ProfileKind, ProfileService
+from app.services.profile_service import ProfileFutureSeasonError, ProfileKind, ProfileService
 
 
 def test_profile_formats_only_non_zero_prize_places() -> None:
@@ -24,7 +25,6 @@ def test_profile_formats_only_non_zero_prize_places() -> None:
         PlayerProfileView(
             display_name="Дима Боченков",
             total_points=Decimal("0"),
-            knockout_points=Decimal("0"),
             knockouts_count=0,
             big_knockouts_count=0,
             tournaments_count=0,
@@ -40,10 +40,9 @@ def test_profile_formats_only_non_zero_prize_places() -> None:
         "Твой профиль — за всё время\n"
         "⭐ - количество очков\n"
         "🥊 - количество нокаутов\n"
-        "⭐🥊 - количество очков за нокауты\n"
         "🎲 - количество турниров\n\n"
         "Дима Боченков\n"
-        "⭐ 0 | 🥊 0 | ⭐🥊 0 | 🎲 0\n\n"
+        "⭐ 0 | 🥊 0 | 🎲 0\n\n"
         "Количество призовых мест:\n"
         "🥇 x3\n"
         "🥉 x5\n"
@@ -176,7 +175,6 @@ async def test_profile_filters_current_season_and_all_time(tmp_path: Path) -> No
         assert current_stats is not None
         assert current_stats.display_name == "Игрок Первый"
         assert current_stats.total_points == Decimal("100")
-        assert current_stats.knockout_points == Decimal("20")
         assert current_stats.total_knockouts_count == 3
         assert current_stats.tournaments_count == 1
         assert current_stats.first_places_count == 0
@@ -185,7 +183,6 @@ async def test_profile_filters_current_season_and_all_time(tmp_path: Path) -> No
         assert all_time_title == "Твой профиль — за всё время"
         assert all_time_stats is not None
         assert all_time_stats.total_points == Decimal("150")
-        assert all_time_stats.knockout_points == Decimal("20")
         assert all_time_stats.total_knockouts_count == 6
         assert all_time_stats.tournaments_count == 2
         assert all_time_stats.first_places_count == 1
@@ -194,7 +191,6 @@ async def test_profile_filters_current_season_and_all_time(tmp_path: Path) -> No
         assert empty_stats is not None
         assert empty_stats.display_name == "King"
         assert empty_stats.total_points == Decimal("0")
-        assert empty_stats.knockout_points == Decimal("0")
         assert empty_stats.tournaments_count == 0
         all_time_message = profile_fmt.message(
             all_time_title,
@@ -368,5 +364,96 @@ async def test_profile_current_season_returns_empty_profile_without_current_seas
         assert stats.display_name == "Игрок Первый"
         assert stats.total_points == Decimal("0")
         assert stats.tournaments_count == 0
+    finally:
+        await engine.dispose()
+
+
+async def test_profile_selected_season_and_picker_exclude_future(tmp_path: Path) -> None:
+    engine = create_async_engine(f"sqlite+aiosqlite:///{tmp_path / 'profile_selected.db'}")
+    async with engine.begin() as connection:
+        await connection.run_sync(Base.metadata.create_all)
+
+    session_factory = async_sessionmaker(engine, expire_on_commit=False)
+    async with session_factory() as session:
+        config = ScoringConfig()
+        session.add(config)
+        await session.flush()
+        await seed_tournament_types_async(session)
+        completed = Season(
+            name="Весна 2026",
+            scoring_config_id=config.id,
+            starts_at=date(2026, 4, 1),
+            ends_at=date(2026, 6, 30),
+        )
+        current = Season(
+            name="Лето 2026",
+            scoring_config_id=config.id,
+            starts_at=date(2026, 7, 1),
+            ends_at=date(2026, 8, 31),
+        )
+        future = Season(
+            name="Осень 2026",
+            scoring_config_id=config.id,
+            starts_at=date(2026, 9, 1),
+            ends_at=None,
+        )
+        player = build_player(telegram_id=100, display_name="Игрок")
+        session.add_all([completed, current, future, player])
+        await session.flush()
+        completed_tournament = Tournament(
+            season_id=completed.id,
+            tournament_type_id=tournament_type_id("classic"),
+            date=date(2026, 4, 10),
+            status=TournamentStatus.CLOSED,
+            tournament_fund=1000,
+        )
+        current_tournament = Tournament(
+            season_id=current.id,
+            tournament_type_id=tournament_type_id("bounty"),
+            date=date(2026, 7, 10),
+            status=TournamentStatus.CLOSED,
+            tournament_fund=1000,
+        )
+        session.add_all([completed_tournament, current_tournament])
+        await session.flush()
+        session.add_all(
+            [
+                TournamentResult(
+                    tournament_id=completed_tournament.id,
+                    player_id=player.id,
+                    tournament_points=Decimal("100"),
+                ),
+                TournamentResult(
+                    tournament_id=current_tournament.id,
+                    player_id=player.id,
+                    tournament_points=Decimal("200"),
+                ),
+            ]
+        )
+        await session.commit()
+        completed_id = completed.id
+        future_id = future.id
+
+    service = ProfileService(session_factory)
+    try:
+        seasons = await service.list_profile_seasons(100, today=date(2026, 8, 10))
+        title, stats = await service.get_profile_for_player(
+            100,
+            ProfileKind.SELECTED_SEASON,
+            season_id=completed_id,
+            today=date(2026, 8, 10),
+        )
+
+        assert [season.name for season in seasons] == ["Лето 2026", "Весна 2026"]
+        assert title == "Твой профиль — Весна 2026"
+        assert stats is not None
+        assert stats.total_points == Decimal("100")
+        with pytest.raises(ProfileFutureSeasonError):
+            await service.get_profile_for_player(
+                100,
+                ProfileKind.SELECTED_SEASON,
+                season_id=future_id,
+                today=date(2026, 8, 10),
+            )
     finally:
         await engine.dispose()
