@@ -10,7 +10,7 @@ import sys
 import unicodedata
 import zipfile
 from collections import Counter, defaultdict
-from dataclasses import asdict, dataclass, field
+from dataclasses import asdict, dataclass, field, replace
 from datetime import date, datetime, timedelta
 from decimal import Decimal, InvalidOperation
 from pathlib import Path
@@ -29,6 +29,8 @@ DEFAULT_ALIASES_PATH = PROJECT_ROOT / "data" / "historical_result_aliases.csv"
 DEFAULT_RESULTS_SHEET = "Данные за все время"
 DEFAULT_MAPPING_SHEET = "Лист12"
 LEGACY_TOURNAMENT_TYPE_CODE = "legacy_unknown"
+SUPERADMIN_DISPLAY_NAME = "Дима Боченков"
+SUPERADMIN_TELEGRAM_ID = 754076859
 EXPECTED_SOURCE_COLUMNS = (
     "Дата",
     "Игрок",
@@ -129,8 +131,21 @@ class TournamentPlanItem:
     season_id: int
     season_name: str
     tournament_type_id: int
-    tournament_fund: int
+    tournament_fund: int | None
     action: str
+    existing_id: int | None = None
+    conflict: str | None = None
+
+
+@dataclass(frozen=True)
+class UserPlanItem:
+    display_name: str
+    display_name_normalized: str
+    telegram_id: int | None
+    role: str
+    status: str
+    action: str
+    id: int | None = None
     existing_id: int | None = None
     conflict: str | None = None
 
@@ -150,6 +165,7 @@ class ResultPlanItem:
 @dataclass(frozen=True)
 class ImportSource:
     path: Path
+    source_format: str
     results_sheet: str
     mapping_sheet: str
     dated_rows_count: int
@@ -163,6 +179,7 @@ class ImportPlan:
     source: ImportSource
     db_path: Path
     aliases_path: Path | None
+    user_items: list[UserPlanItem]
     resolved_rows: list[ResolvedResultRow]
     unresolved_users: list[UnresolvedUser]
     ambiguous_users: list[AmbiguousUser]
@@ -178,6 +195,7 @@ class ImportPlan:
             not self.errors
             and not self.unresolved_users
             and not self.ambiguous_users
+            and not any(item.action == "conflict" for item in self.user_items)
             and not any(item.action == "conflict" for item in self.tournament_items)
             and not any(item.action == "conflict" for item in self.result_items)
         )
@@ -185,6 +203,9 @@ class ImportPlan:
 
 @dataclass(frozen=True)
 class ApplyStats:
+    users_created: int
+    users_updated: int
+    users_unchanged: int
     tournaments_created: int
     tournaments_unchanged: int
     results_created: int
@@ -196,7 +217,9 @@ def main() -> None:
     parser = argparse.ArgumentParser(
         description="Safely import Gambit historical tournaments and results."
     )
-    parser.add_argument("source", type=Path, help="Source .xlsx file")
+    parser.add_argument("source", nargs="?", type=Path, help="Source .xlsx/.csv file")
+    parser.add_argument("--file", dest="source_file", type=Path, help="Source .xlsx/.csv file")
+    parser.add_argument("--input", dest="input_path", type=Path, help="Source .xlsx/.csv file")
     parser.add_argument("--db", type=Path, default=default_db_path(), help="Existing SQLite DB")
     parser.add_argument("--sheet", default=DEFAULT_RESULTS_SHEET, help="Results sheet name")
     parser.add_argument(
@@ -222,10 +245,13 @@ def main() -> None:
         help="Allow updating differing existing TournamentResult rows",
     )
     args = parser.parse_args()
+    source_path = args.source_file or args.input_path or args.source
+    if source_path is None:
+        parser.error("source file is required; pass positional source, --file, or --input")
 
     try:
         plan = build_import_plan(
-            source_path=args.source,
+            source_path=source_path,
             db_path=args.db,
             results_sheet=args.sheet,
             mapping_sheet=args.mapping_sheet,
@@ -262,25 +288,42 @@ def build_import_plan(
     aliases_path: Path | None = None,
     update_existing: bool = False,
     strict_expectations: bool = True,
+    create_missing_users: bool | None = None,
 ) -> ImportPlan:
     source = load_import_source(source_path, results_sheet, mapping_sheet)
-    aliases = load_aliases(aliases_path) if aliases_path is not None else {}
+    if create_missing_users is None:
+        create_missing_users = source.source_format == "csv"
+    aliases = (
+        {}
+        if source.source_format == "csv"
+        else load_aliases(aliases_path)
+        if aliases_path is not None
+        else {}
+    )
     connection = connect_existing_database(db_path)
     try:
         validate_required_database_state(connection)
         legacy_type_id = get_required_tournament_type_id(connection, LEGACY_TOURNAMENT_TYPE_CODE)
+        effective_strict_expectations = strict_expectations and source.source_format != "csv"
+        user_items = build_user_plan(
+            connection,
+            source.result_rows,
+            create_missing_users=create_missing_users,
+        )
         resolved_rows, unresolved_users, ambiguous_users = resolve_users(
             connection,
             source.result_rows,
             source.mappings,
             aliases,
+            user_items=user_items,
         )
+        resolved_rows = clear_duplicate_prize_places(resolved_rows)
         tournament_items, season_distribution, season_errors = build_tournament_plan(
             connection,
             source,
             resolved_rows,
             legacy_type_id,
-            strict_expectations=strict_expectations,
+            strict_expectations=effective_strict_expectations,
         )
         result_items = build_result_plan(
             connection,
@@ -294,6 +337,7 @@ def build_import_plan(
             source=source,
             db_path=db_path,
             aliases_path=aliases_path,
+            user_items=user_items,
             resolved_rows=resolved_rows,
             unresolved_users=unresolved_users,
             ambiguous_users=ambiguous_users,
@@ -314,8 +358,10 @@ def load_import_source(
 ) -> ImportSource:
     if not source_path.exists():
         raise ImportValidationError(f"Source file not found: {source_path}")
+    if source_path.suffix.lower() == ".csv":
+        return load_csv_import_source(source_path)
     if source_path.suffix.lower() not in {".xlsx", ".xlsm"}:
-        raise ImportValidationError("Historical result import expects an .xlsx/.xlsm source.")
+        raise ImportValidationError("Historical result import expects an .xlsx/.xlsm/.csv source.")
 
     workbook = XlsxWorkbook(source_path)
     mappings = load_player_mappings(workbook, mapping_sheet)
@@ -346,12 +392,59 @@ def load_import_source(
 
     return ImportSource(
         path=source_path,
+        source_format="xlsx",
         results_sheet=results_sheet,
         mapping_sheet=mapping_sheet,
         dated_rows_count=dated_rows_count,
         result_rows=tuple(result_rows),
         blank_player_rows=tuple(blank_rows),
         mappings=mappings,
+    )
+
+
+def load_csv_import_source(source_path: Path) -> ImportSource:
+    result_rows: list[SourceRow] = []
+    blank_rows: list[BlankPlayerRow] = []
+    dated_rows_count = 0
+    with source_path.open(newline="", encoding="utf-8-sig") as file:
+        reader = csv.DictReader(file)
+        if reader.fieldnames is None:
+            raise ImportValidationError("CSV source is empty.")
+        header = tuple(clean_text(column) for column in reader.fieldnames)
+        if header != EXPECTED_SOURCE_COLUMNS:
+            raise ImportValidationError(
+                f"CSV must contain columns exactly: {', '.join(EXPECTED_SOURCE_COLUMNS)}"
+            )
+        for source_row, record in enumerate(reader, start=2):
+            raw_date = record["Дата"]
+            if raw_date is None or clean_text(raw_date) == "":
+                continue
+            dated_rows_count += 1
+            tournament_date = parse_excel_date(raw_date)
+            raw_player_name = clean_text(record["Игрок"])
+            values = {
+                "source_row": source_row,
+                "tournament_date": tournament_date,
+                "place": optional_int(record["Место в турнире"]),
+                "knockouts_count": required_int(record["КО"]),
+                "big_knockouts_count": required_int(record["Босс КО"]),
+                "bonus_points": required_int(record["Доп.очки"]),
+                "tournament_points": required_decimal(record["Количество очков за турнир"]),
+                "knockout_points": required_decimal(record["Количество очков за КО"]),
+            }
+            if not raw_player_name:
+                blank_rows.append(BlankPlayerRow(**values))
+                continue
+            result_rows.append(SourceRow(raw_player_name=raw_player_name, **values))
+    return ImportSource(
+        path=source_path,
+        source_format="csv",
+        results_sheet="",
+        mapping_sheet="",
+        dated_rows_count=dated_rows_count,
+        result_rows=tuple(result_rows),
+        blank_player_rows=tuple(blank_rows),
+        mappings={},
     )
 
 
@@ -400,17 +493,226 @@ def load_aliases(path: Path) -> dict[str, int]:
     return aliases
 
 
+def build_user_plan(
+    connection: sqlite3.Connection,
+    rows: tuple[SourceRow, ...],
+    *,
+    create_missing_users: bool,
+) -> list[UserPlanItem]:
+    items: list[UserPlanItem] = []
+    users_by_normalized = load_users_by_normalized(connection)
+    users_by_telegram = load_users_by_telegram(connection)
+    user_rows_by_id = load_user_rows_by_id(connection)
+    next_user_id = max_existing_user_id(connection) + 1
+    planned_normalized: set[str] = set()
+
+    superadmin_item, next_user_id = plan_superadmin_user(
+        users_by_normalized,
+        users_by_telegram,
+        user_rows_by_id,
+        next_user_id,
+    )
+    items.append(superadmin_item)
+    planned_normalized.add(superadmin_item.display_name_normalized)
+
+    if not create_missing_users:
+        return items
+
+    for display_name in unique_player_names(rows):
+        normalized = normalize_display_name(display_name)
+        if normalized is None or normalized in planned_normalized:
+            continue
+        candidates = users_by_normalized.get(normalized, [])
+        if len(candidates) > 1:
+            items.append(
+                UserPlanItem(
+                    display_name=display_name,
+                    display_name_normalized=normalized,
+                    telegram_id=None,
+                    role="player",
+                    status="active",
+                    action="conflict",
+                    conflict="multiple_existing_users_with_same_normalized_name",
+                )
+            )
+            planned_normalized.add(normalized)
+            continue
+        if len(candidates) == 1:
+            planned_normalized.add(normalized)
+            continue
+        items.append(
+            UserPlanItem(
+                id=next_user_id,
+                display_name=display_name,
+                display_name_normalized=normalized,
+                telegram_id=None,
+                role="player",
+                status="active",
+                action="create",
+            )
+        )
+        next_user_id += 1
+        planned_normalized.add(normalized)
+    return items
+
+
+def plan_superadmin_user(
+    users_by_normalized: dict[str, list[UserCandidate]],
+    users_by_telegram: dict[int, sqlite3.Row],
+    user_rows_by_id: dict[int, sqlite3.Row],
+    next_user_id: int,
+) -> tuple[UserPlanItem, int]:
+    normalized = normalize_display_name(SUPERADMIN_DISPLAY_NAME)
+    if normalized is None:
+        raise ImportValidationError("SUPERADMIN display name normalizes to empty value.")
+    telegram_user = users_by_telegram.get(SUPERADMIN_TELEGRAM_ID)
+    if telegram_user is not None:
+        if normalized_user_name(telegram_user) != normalized:
+            return (
+                UserPlanItem(
+                    display_name=SUPERADMIN_DISPLAY_NAME,
+                    display_name_normalized=normalized,
+                    telegram_id=SUPERADMIN_TELEGRAM_ID,
+                    role="superadmin",
+                    status="active",
+                    action="conflict",
+                    existing_id=int(telegram_user["id"]),
+                    conflict="telegram_id_belongs_to_different_user",
+                ),
+                next_user_id,
+            )
+        return (
+            existing_user_item(
+                telegram_user,
+                display_name=SUPERADMIN_DISPLAY_NAME,
+                normalized=normalized,
+                telegram_id=SUPERADMIN_TELEGRAM_ID,
+                role="superadmin",
+                status="active",
+            ),
+            next_user_id,
+        )
+
+    candidates = users_by_normalized.get(normalized, [])
+    if len(candidates) > 1:
+        return (
+            UserPlanItem(
+                display_name=SUPERADMIN_DISPLAY_NAME,
+                display_name_normalized=normalized,
+                telegram_id=SUPERADMIN_TELEGRAM_ID,
+                role="superadmin",
+                status="active",
+                action="conflict",
+                conflict="multiple_existing_superadmin_name_candidates",
+            ),
+            next_user_id,
+        )
+    if len(candidates) == 1:
+        row = user_rows_by_id.get(candidates[0].id)
+        if row is None:
+            raise ImportValidationError("Internal user lookup failed.")
+        if row["telegram_id"] is not None:
+            return (
+                UserPlanItem(
+                    display_name=SUPERADMIN_DISPLAY_NAME,
+                    display_name_normalized=normalized,
+                    telegram_id=SUPERADMIN_TELEGRAM_ID,
+                    role="superadmin",
+                    status="active",
+                    action="conflict",
+                    existing_id=int(row["id"]),
+                    conflict="existing_superadmin_name_candidate_has_different_telegram_id",
+                ),
+                next_user_id,
+            )
+        return (
+            existing_user_item(
+                row,
+                display_name=SUPERADMIN_DISPLAY_NAME,
+                normalized=normalized,
+                telegram_id=SUPERADMIN_TELEGRAM_ID,
+                role="superadmin",
+                status="active",
+            ),
+            next_user_id,
+        )
+
+    return (
+        UserPlanItem(
+            id=next_user_id,
+            display_name=SUPERADMIN_DISPLAY_NAME,
+            display_name_normalized=normalized,
+            telegram_id=SUPERADMIN_TELEGRAM_ID,
+            role="superadmin",
+            status="active",
+            action="create",
+        ),
+        next_user_id + 1,
+    )
+
+
+def existing_user_item(
+    row: sqlite3.Row,
+    *,
+    display_name: str,
+    normalized: str,
+    telegram_id: int | None,
+    role: str,
+    status: str,
+) -> UserPlanItem:
+    expected = {
+        "display_name": display_name,
+        "display_name_normalized": normalized,
+        "telegram_id": telegram_id,
+        "role": role,
+        "status": status,
+    }
+    actual = {
+        "display_name": clean_text(row["display_name"]),
+        "display_name_normalized": normalized_user_name(row),
+        "telegram_id": row["telegram_id"],
+        "role": clean_text(row["role"]),
+        "status": clean_text(row["status"]),
+    }
+    return UserPlanItem(
+        display_name=display_name,
+        display_name_normalized=normalized,
+        telegram_id=telegram_id,
+        role=role,
+        status=status,
+        action="unchanged" if actual == expected else "update",
+        existing_id=int(row["id"]),
+    )
+
+
+def unique_player_names(rows: tuple[SourceRow, ...]) -> list[str]:
+    names: list[str] = []
+    seen: set[str] = set()
+    for row in rows:
+        name = clean_text(row.raw_player_name)
+        normalized = normalize_display_name(name)
+        key = normalized or name
+        if key in seen:
+            continue
+        names.append(name)
+        seen.add(key)
+    return names
+
+
 def resolve_users(
     connection: sqlite3.Connection,
     rows: tuple[SourceRow, ...],
     mappings: dict[str, str],
     aliases: dict[str, int],
+    *,
+    user_items: list[UserPlanItem] | None = None,
 ) -> tuple[list[ResolvedResultRow], list[UnresolvedUser], list[AmbiguousUser]]:
     resolved: list[ResolvedResultRow] = []
     unresolved: list[UnresolvedUser] = []
     ambiguous: list[AmbiguousUser] = []
     users_by_normalized = load_users_by_normalized(connection)
     users_by_id = load_users_by_id(connection)
+    apply_planned_user_candidates(users_by_normalized, users_by_id, user_items or [])
 
     for row in rows:
         mapped_name = mappings.get(row.raw_player_name, row.raw_player_name)
@@ -492,6 +794,22 @@ def resolved_result(
     )
 
 
+def clear_duplicate_prize_places(rows: list[ResolvedResultRow]) -> list[ResolvedResultRow]:
+    seen_places: set[tuple[date, int]] = set()
+    result: list[ResolvedResultRow] = []
+    for row in rows:
+        if row.place is None:
+            result.append(row)
+            continue
+        key = (row.tournament_date, row.place)
+        if key in seen_places:
+            result.append(replace(row, place=None))
+            continue
+        seen_places.add(key)
+        result.append(row)
+    return result
+
+
 def load_users_by_normalized(
     connection: sqlite3.Connection,
 ) -> dict[str, list[UserCandidate]]:
@@ -532,6 +850,57 @@ def load_users_by_id(connection: sqlite3.Connection) -> dict[int, UserCandidate]
     return users
 
 
+def load_user_rows_by_id(connection: sqlite3.Connection) -> dict[int, sqlite3.Row]:
+    return {
+        int(row["id"]): row
+        for row in connection.execute(
+            """
+            SELECT id, display_name, display_name_normalized, telegram_id, role, status
+            FROM users
+            ORDER BY id
+            """
+        )
+    }
+
+
+def load_users_by_telegram(connection: sqlite3.Connection) -> dict[int, sqlite3.Row]:
+    return {
+        int(row["telegram_id"]): row
+        for row in connection.execute(
+            """
+            SELECT id, display_name, display_name_normalized, telegram_id, role, status
+            FROM users
+            WHERE telegram_id IS NOT NULL
+            ORDER BY id
+            """
+        )
+    }
+
+
+def max_existing_user_id(connection: sqlite3.Connection) -> int:
+    return int(connection.execute("SELECT COALESCE(MAX(id), 0) FROM users").fetchone()[0])
+
+
+def apply_planned_user_candidates(
+    users_by_normalized: dict[str, list[UserCandidate]],
+    users_by_id: dict[int, UserCandidate],
+    user_items: list[UserPlanItem],
+) -> None:
+    for item in user_items:
+        user_id = item.id if item.action == "create" else item.existing_id
+        if user_id is None or item.action == "conflict":
+            continue
+        candidate = UserCandidate(
+            id=user_id,
+            display_name=item.display_name,
+            display_name_normalized=item.display_name_normalized,
+        )
+        users_by_id[user_id] = candidate
+        existing_candidates = users_by_normalized.setdefault(item.display_name_normalized, [])
+        if all(existing.id != user_id for existing in existing_candidates):
+            existing_candidates.append(candidate)
+
+
 def build_tournament_plan(
     connection: sqlite3.Connection,
     source: ImportSource,
@@ -543,8 +912,6 @@ def build_tournament_plan(
     rows_by_date: dict[date, list[ResolvedResultRow]] = defaultdict(list)
     for row in resolved_rows:
         rows_by_date[row.tournament_date].append(row)
-    source_funds_by_date = tournament_funds_by_date(source)
-
     season_distribution: dict[str, int] = Counter()
     items: list[TournamentPlanItem] = []
     errors: list[str] = []
@@ -554,8 +921,7 @@ def build_tournament_plan(
             errors.append(f"No existing season covers {tournament_date.isoformat()}.")
             continue
         season_distribution[season["name"]] += 1
-        tournament_fund_decimal = source_funds_by_date[tournament_date]
-        tournament_fund = required_fund(tournament_fund_decimal, tournament_date)
+        tournament_fund = None
         existing = connection.execute(
             """
             SELECT id, season_id, tournament_type_id, date, tournament_fund, status
@@ -572,13 +938,17 @@ def build_tournament_plan(
             expected = {
                 "season_id": int(season["id"]),
                 "tournament_type_id": legacy_type_id,
-                "tournament_fund": str(tournament_fund),
+                "tournament_fund": None,
                 "status": "closed",
             }
             actual = {
                 "season_id": int(existing["season_id"]),
                 "tournament_type_id": int(existing["tournament_type_id"]),
-                "tournament_fund": str(required_int(existing["tournament_fund"])),
+                "tournament_fund": (
+                    None
+                    if existing["tournament_fund"] is None
+                    else required_int(existing["tournament_fund"])
+                ),
                 "status": str(existing["status"]),
             }
             if actual == expected:
@@ -724,6 +1094,7 @@ def apply_import_plan(plan: ImportPlan) -> ApplyStats:
     connection = connect_existing_database(plan.db_path)
     try:
         connection.execute("BEGIN")
+        user_stats = apply_users(connection, plan.user_items)
         tournament_ids = apply_tournaments(connection, plan.tournament_items)
         stats = apply_results(
             connection,
@@ -733,6 +1104,9 @@ def apply_import_plan(plan: ImportPlan) -> ApplyStats:
         )
         connection.commit()
         return ApplyStats(
+            users_created=user_stats["created"],
+            users_updated=user_stats["updated"],
+            users_unchanged=user_stats["unchanged"],
             tournaments_created=sum(1 for item in plan.tournament_items if item.action == "create"),
             tournaments_unchanged=sum(
                 1 for item in plan.tournament_items if item.action == "unchanged"
@@ -782,6 +1156,72 @@ def apply_tournaments(
         )
         tournament_ids[item.tournament_date] = int(cursor.lastrowid)
     return tournament_ids
+
+
+def apply_users(
+    connection: sqlite3.Connection,
+    items: list[UserPlanItem],
+) -> dict[str, int]:
+    stats = {"created": 0, "updated": 0, "unchanged": 0}
+    for item in items:
+        if item.action == "unchanged":
+            stats["unchanged"] += 1
+            continue
+        if item.action == "create":
+            if item.id is None:
+                raise ImportValidationError("Cannot create user without planned id.")
+            connection.execute(
+                """
+                INSERT INTO users (
+                    id,
+                    display_name,
+                    display_name_normalized,
+                    telegram_id,
+                    role,
+                    status,
+                    created_at,
+                    updated_at
+                )
+                VALUES (?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+                """,
+                (
+                    item.id,
+                    item.display_name,
+                    item.display_name_normalized,
+                    item.telegram_id,
+                    item.role,
+                    item.status,
+                ),
+            )
+            stats["created"] += 1
+            continue
+        if item.action == "update":
+            if item.existing_id is None:
+                raise ImportValidationError("Cannot update user without existing id.")
+            connection.execute(
+                """
+                UPDATE users
+                SET display_name = ?,
+                    display_name_normalized = ?,
+                    telegram_id = ?,
+                    role = ?,
+                    status = ?,
+                    updated_at = CURRENT_TIMESTAMP
+                WHERE id = ?
+                """,
+                (
+                    item.display_name,
+                    item.display_name_normalized,
+                    item.telegram_id,
+                    item.role,
+                    item.status,
+                    item.existing_id,
+                ),
+            )
+            stats["updated"] += 1
+            continue
+        raise ImportValidationError(f"Cannot apply user action {item.action}.")
+    return stats
 
 
 def apply_results(
@@ -970,16 +1410,16 @@ def connect_existing_database(db_path: Path) -> sqlite3.Connection:
 
 
 def validate_required_database_state(connection: sqlite3.Connection) -> None:
-    seasons = [
-        (row["name"], parse_date(row["starts_at"]), parse_date_or_none(row["ends_at"]))
-        for row in connection.execute("SELECT name, starts_at, ends_at FROM seasons ORDER BY id")
-    ]
-    for required in REQUIRED_SEASONS:
-        if required not in seasons:
-            raise ImportValidationError(
-                "Required season is missing or has different boundaries: "
-                f"{required[0]} {required[1]} {required[2]}."
-            )
+    required_tables = {"users", "seasons", "tournament_types", "tournaments", "tournament_results"}
+    existing_tables = {
+        str(row["name"])
+        for row in connection.execute(
+            "SELECT name FROM sqlite_master WHERE type = 'table' ORDER BY name"
+        )
+    }
+    missing_tables = sorted(required_tables - existing_tables)
+    if missing_tables:
+        raise ImportValidationError(f"Database is missing tables: {', '.join(missing_tables)}.")
     get_required_tournament_type_id(connection, LEGACY_TOURNAMENT_TYPE_CODE)
 
 
@@ -1011,15 +1451,6 @@ def source_dates(source: ImportSource) -> set[date]:
         *(row.tournament_date for row in source.result_rows),
         *(row.tournament_date for row in source.blank_player_rows),
     }
-
-
-def tournament_funds_by_date(source: ImportSource) -> dict[date, Decimal]:
-    funds: dict[date, Decimal] = defaultdict(lambda: ZERO)
-    for row in source.result_rows:
-        funds[row.tournament_date] += row.tournament_points
-    for row in source.blank_player_rows:
-        funds[row.tournament_date] += row.tournament_points
-    return funds
 
 
 def print_report(plan: ImportPlan) -> None:
@@ -1056,13 +1487,26 @@ def print_report(plan: ImportPlan) -> None:
 
 def report_summary(plan: ImportPlan) -> dict[str, Any]:
     unique_dates = source_dates(plan.source)
+    user_actions = Counter(item.action for item in plan.user_items)
     tournament_actions = Counter(item.action for item in plan.tournament_items)
     result_actions = Counter(item.action for item in plan.result_items)
+    superadmin_item = next(
+        item for item in plan.user_items if item.telegram_id == SUPERADMIN_TELEGRAM_ID
+    )
     return {
         "source": str(plan.source.path),
+        "source_format": plan.source.source_format,
         "results_sheet": plan.source.results_sheet,
         "mapping_sheet": plan.source.mapping_sheet,
         "db_path": str(plan.db_path),
+        "superadmin": {
+            "display_name": superadmin_item.display_name,
+            "telegram_id": superadmin_item.telegram_id,
+            "role": superadmin_item.role,
+            "status": superadmin_item.status,
+            "action": superadmin_item.action,
+            "id": superadmin_item.id or superadmin_item.existing_id,
+        },
         "date_min": min(unique_dates).isoformat() if unique_dates else None,
         "date_max": max(unique_dates).isoformat() if unique_dates else None,
         "unique_tournaments": len(unique_dates),
@@ -1076,6 +1520,7 @@ def report_summary(plan: ImportPlan) -> dict[str, Any]:
         "unique_users": len({row.user_id for row in plan.resolved_rows}),
         "raw_players": len({row.raw_player_name for row in plan.source.result_rows}),
         "mapped_players": len({row.mapped_name for row in plan.resolved_rows}),
+        "users": dict(user_actions),
         "season_distribution": plan.season_distribution,
         "tournaments": dict(tournament_actions),
         "results": dict(result_actions),
@@ -1110,6 +1555,22 @@ def export_report(directory: Path, plan: ImportPlan) -> None:
         encoding="utf-8",
     )
     write_csv_report(
+        directory / "users.csv",
+        [
+            {
+                "id": item.id or item.existing_id or "",
+                "display_name": item.display_name,
+                "display_name_normalized": item.display_name_normalized,
+                "telegram_id": item.telegram_id or "",
+                "role": item.role,
+                "status": item.status,
+                "action": item.action,
+                "conflict": item.conflict or "",
+            }
+            for item in plan.user_items
+        ],
+    )
+    write_csv_report(
         directory / "tournaments.csv",
         [
             {
@@ -1117,7 +1578,9 @@ def export_report(directory: Path, plan: ImportPlan) -> None:
                 "season_id": item.season_id,
                 "season_name": item.season_name,
                 "tournament_type_id": item.tournament_type_id,
-                "tournament_fund": money(item.tournament_fund),
+                "tournament_fund": ""
+                if item.tournament_fund is None
+                else money(item.tournament_fund),
                 "action": item.action,
                 "existing_id": item.existing_id or "",
                 "conflict": item.conflict or "",
@@ -1390,14 +1853,6 @@ def required_int(value: Any) -> int:
     if number != number.to_integral_value():
         raise ImportValidationError(f"Invalid integer value: {value!r}")
     return int(number)
-
-
-def required_fund(value: Decimal, tournament_date: date) -> int:
-    if value != value.to_integral_value() or value <= 0 or value % Decimal("10") != 0:
-        raise ImportValidationError(
-            f"Invalid tournament fund for {tournament_date.isoformat()}: {value!r}"
-        )
-    return int(value)
 
 
 def required_decimal(value: Any) -> Decimal:

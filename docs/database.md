@@ -47,6 +47,7 @@ sqlite3 ../data/gambit.db "PRAGMA foreign_key_check; PRAGMA integrity_check;"
 | `e3f4a5b6c7d8` | Add manual Season Hall of Fame | Yes | No | No | Adds `season_hall_of_fame` and marks Mystery Bounty as bonus-only. |
 | `e4f5a6b7c8d9` | Drop `admin_prompts` | No | Yes | No | Temporary Telegram planning state moved to FSM; DB keeps only confirmed business state. |
 | `e5f6a7b8c9d0` | Restrict tournaments to ACTIVE/CLOSED | Yes | No | No | Fails fast if legacy `cancelled` tournament rows exist. |
+| `e6f7a8b9c0d1` | Allow null fund for closed historical tournaments | Yes | No | No | Live close still requires a valid fund; imported legacy history may keep it `NULL`. |
 
 Pre-production destructive resets were intentional for the current development
 stage. They are not a permanent production rule: future destructive migrations

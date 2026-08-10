@@ -11,6 +11,12 @@ class AdminAddStates(StatesGroup):
     entering_candidate_name = State()
 
 
+class UserRenameStates(StatesGroup):
+    entering_current_name = State()
+    entering_new_display_name = State()
+    confirming_user_rename = State()
+
+
 class HallOfFameStates(StatesGroup):
     entering_player_name = State()
 

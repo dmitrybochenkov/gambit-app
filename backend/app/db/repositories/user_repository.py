@@ -79,6 +79,10 @@ class UserRepository:
         result = await self.session.execute(select(User).order_by(User.display_name, User.id))
         return list(result.scalars())
 
+    async def list_all_for_management(self) -> list[User]:
+        result = await self.session.execute(select(User).order_by(User.display_name, User.id))
+        return list(result.scalars())
+
     async def list_link_candidates(self) -> list[User]:
         result = await self.session.execute(
             select(User)
@@ -92,3 +96,13 @@ class UserRepository:
 
     def add(self, user: User) -> None:
         self.session.add(user)
+
+    def update_display_name(
+        self,
+        user: User,
+        *,
+        display_name: str,
+        display_name_normalized: str,
+    ) -> None:
+        user.display_name = display_name
+        user.display_name_normalized = display_name_normalized

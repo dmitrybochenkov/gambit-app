@@ -16,8 +16,9 @@ def superadmin_panel_keyboard() -> ReplyKeyboardMarkup:
             ],
             [
                 KeyboardButton(text=labels.ADMIN_PANEL_HALL_OF_FAME),
-                KeyboardButton(text=labels.ADMIN_PANEL_ADMIN),
+                KeyboardButton(text=labels.ADMIN_PANEL_RENAME_USER),
             ],
+            [KeyboardButton(text=labels.ADMIN_PANEL_ADMIN)],
         ],
         resize_keyboard=True,
     )

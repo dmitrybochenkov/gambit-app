@@ -5,6 +5,7 @@ from app.bot.telegram.texts.superadmin import (
     registrations,
     seasons,
     tournament_close,
+    users,
 )
 
 __all__ = [
@@ -14,4 +15,5 @@ __all__ = [
     "registrations",
     "seasons",
     "tournament_close",
+    "users",
 ]

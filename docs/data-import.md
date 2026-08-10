@@ -56,31 +56,26 @@ Rules:
 
 ## Historical Tournament Fund
 
-For a historical tournament:
+Historical import does not know the original tournament fund.
 
 ```text
-tournament_fund =
-SUM source field "Количество очков за турнир"
-for all source rows on that date,
-including blank and unresolved players.
+tournament_fund = NULL
 ```
 
-The fund belongs to the tournament as a whole, not only to successfully
-resolved users.
+The source columns `Количество очков за турнир`, `Количество очков за КО`,
+and `Доп.очки` are already authoritative historical rating points. Import must
+preserve those values exactly and must not reconstruct, round, or fake
+`tournament_fund` from them.
 
-Validation:
-
-- fund must be integer;
-- fund must be positive;
-- fund must be divisible by `10`;
-- rounding is forbidden;
-- invalid fund fails fast.
+Live tournament close still requires a positive integer `tournament_fund`
+divisible by `10`; nullable fund is allowed only for legacy/imported closed
+tournaments.
 
 ## Import Validation
 
 Import fails fast on:
 
-- invalid tournament fund;
+- incompatible existing tournament fund;
 - fractional bonus points;
 - invalid place;
 - duplicate place inside a tournament;

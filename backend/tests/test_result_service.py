@@ -28,11 +28,22 @@ from app.db.models.enums import (
 from app.services.result_fields import ResultField
 from app.services.result_service import (
     FutureTournamentCannotBeClosedError,
+    ResultInvalidFundError,
     ResultInvalidPlayerDataError,
     ResultService,
     ResultTodayTournamentNotFoundError,
     TournamentResultsEditingUnavailableError,
 )
+
+
+@pytest.mark.parametrize("fund", [None, 0, -10, 105, Decimal("10.5")])
+def test_live_close_fund_validation_rejects_invalid_values(fund: object) -> None:
+    with pytest.raises(ResultInvalidFundError):
+        ResultService.validate_tournament_fund(fund)  # type: ignore[arg-type]
+
+
+def test_live_close_fund_validation_accepts_valid_value() -> None:
+    assert ResultService.validate_tournament_fund(1000) == 1000
 
 
 async def test_today_result_entry_uses_only_today_active_tournament(

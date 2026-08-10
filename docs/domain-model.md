@@ -130,8 +130,11 @@ Rules:
 - `active` is editable/operational.
 - `closed` is the only published result state.
 - Cancelled tournaments are deleted rather than status-tracked.
-- `tournament_fund` is `NULL` before close, positive, integer, and divisible by
-  `10` when closed.
+- Live close workflow requires a positive integer `tournament_fund` divisible by
+  `10` before moving a tournament to `closed`.
+- Historical/imported closed tournaments may have `tournament_fund = NULL`
+  because old rating sheets contain calculated rating points, not the original
+  tournament fund.
 - One tournament date is allowed in the database.
 - A created gaming week has no required number of tournaments. If a day is
   removed before confirmation, no tournament row is created for that day.
@@ -243,9 +246,8 @@ Historical result import creates closed `legacy_unknown` tournaments and
 
 For historical tournaments:
 
-- `tournament_fund = SUM(source field "Количество очков за турнир")` for every
-  source row on that date, including blank/unresolved players.
-- The fund belongs to the whole tournament, not only to resolved users.
-- Fund must be integer, positive, and divisible by `10`; otherwise import fails
-  fast.
+- `tournament_fund = NULL`; importer must not reconstruct, round, or fake a fund
+  from calculated rating points.
+- `Количество очков за турнир`, `Количество очков за КО`, and `Доп.очки` are
+  imported as authoritative historical result points.
 - Bonus points must be integer; fractional values fail fast.

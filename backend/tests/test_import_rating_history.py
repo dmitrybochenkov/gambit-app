@@ -5,6 +5,7 @@ import sqlite3
 import subprocess
 import sys
 import zipfile
+from collections import Counter
 from datetime import date, timedelta
 from pathlib import Path
 
@@ -95,6 +96,13 @@ def write_aliases(path: Path, rows: list[tuple[str, int]]) -> None:
     with path.open("w", newline="", encoding="utf-8") as file:
         writer = csv.writer(file)
         writer.writerow(["source_name", "user_id"])
+        writer.writerows(rows)
+
+
+def write_resolved_csv(path: Path, rows: list[list[object]]) -> None:
+    with path.open("w", newline="", encoding="utf-8") as file:
+        writer = csv.writer(file)
+        writer.writerow(RESULT_HEADER)
         writer.writerows(rows)
 
 
@@ -461,10 +469,12 @@ def test_single_winner_historical_tournament_imports_fact_points(tmp_path: Path)
 
     connection = sqlite3.connect(db_path)
     try:
-        row = connection.execute(
+        result = connection.execute(
             "SELECT tournament_points, knockout_points, bonus_points FROM tournament_results"
         ).fetchone()
-        assert row == (970, 0, 0)
+        tournament = connection.execute("SELECT tournament_fund FROM tournaments").fetchone()
+        assert result == (970, 0, 0)
+        assert tournament == (None,)
     finally:
         connection.close()
 
@@ -713,3 +723,219 @@ def test_post_import_rating_aggregation(tmp_path: Path) -> None:
 
     assert verification["top20_plan"] == verification["top20_db"]
     assert verification["plan_points"] == verification["db_points"]
+
+
+def test_resolved_csv_import_creates_users_and_bootstraps_superadmin(
+    tmp_path: Path,
+) -> None:
+    db_path = tmp_path / "gambit.db"
+    source_path = tmp_path / "rating_history_resolved.csv"
+    create_database(db_path)
+    write_resolved_csv(
+        source_path,
+        [
+            ["2026-01-28", "Селезнев Александр", 1, 2, 3, 4, 100, 30],
+            ["2026-01-28", "Husband", "", "", "", "", 50, ""],
+        ],
+    )
+
+    plan = import_rating_history.build_import_plan(source_path=source_path, db_path=db_path)
+
+    assert plan.safe_to_apply
+    assert plan.source.source_format == "csv"
+    assert Counter(item.action for item in plan.user_items) == {"create": 3}
+    assert {row.display_name for row in plan.resolved_rows} == {"Селезнев Александр", "Husband"}
+
+    stats = import_rating_history.apply_import_plan(plan)
+    assert stats.users_created == 3
+    assert stats.tournaments_created == 1
+    assert stats.results_created == 2
+
+    connection = sqlite3.connect(db_path)
+    try:
+        superadmin = connection.execute(
+            """
+            SELECT display_name, telegram_id, role, status
+            FROM users
+            WHERE telegram_id = 754076859
+            """
+        ).fetchone()
+        assert superadmin == ("Дима Боченков", 754076859, "superadmin", "active")
+        assert (
+            connection.execute("SELECT COUNT(*) FROM users WHERE telegram_id IS NULL").fetchone()[0]
+            == 2
+        )
+        row = connection.execute(
+            """
+            SELECT tournament_points, knockout_points, bonus_points
+            FROM tournament_results
+            JOIN users ON users.id = tournament_results.player_id
+            WHERE users.display_name = 'Селезнев Александр'
+            """
+        ).fetchone()
+        assert row == (100, 30, 4)
+        tournament = connection.execute("SELECT tournament_fund FROM tournaments").fetchone()
+        assert tournament == (None,)
+    finally:
+        connection.close()
+
+
+def test_resolved_csv_superadmin_bootstrap_updates_existing_name_without_telegram(
+    tmp_path: Path,
+) -> None:
+    db_path = tmp_path / "gambit.db"
+    source_path = tmp_path / "rating_history_resolved.csv"
+    create_database(db_path)
+    insert_user(db_path, 10, "Дима Боченков")
+    write_resolved_csv(source_path, [["2026-01-28", "Player", "", "", "", "", 10, ""]])
+
+    plan = import_rating_history.build_import_plan(source_path=source_path, db_path=db_path)
+
+    superadmin_item = next(
+        item
+        for item in plan.user_items
+        if item.telegram_id == import_rating_history.SUPERADMIN_TELEGRAM_ID
+    )
+    assert superadmin_item.action == "update"
+    import_rating_history.apply_import_plan(plan)
+
+    connection = sqlite3.connect(db_path)
+    try:
+        assert connection.execute("SELECT COUNT(*) FROM users").fetchone()[0] == 2
+        row = connection.execute(
+            "SELECT telegram_id, role, status FROM users WHERE id = 10"
+        ).fetchone()
+        assert row == (754076859, "superadmin", "active")
+    finally:
+        connection.close()
+
+
+def test_resolved_csv_does_not_fuzzy_merge_distinct_names(tmp_path: Path) -> None:
+    db_path = tmp_path / "gambit.db"
+    source_path = tmp_path / "rating_history_resolved.csv"
+    create_database(db_path)
+    write_resolved_csv(
+        source_path,
+        [
+            ["2026-01-28", "Husband", "", "", "", "", 10, ""],
+            ["2026-01-29", "Husbandd", "", "", "", "", 20, ""],
+        ],
+    )
+
+    plan = import_rating_history.build_import_plan(source_path=source_path, db_path=db_path)
+
+    assert plan.safe_to_apply
+    created_players = {
+        item.display_name
+        for item in plan.user_items
+        if item.action == "create" and item.role == "player"
+    }
+    assert created_players == {"Husband", "Husbandd"}
+
+
+def test_resolved_csv_duplicate_player_date_fails_fast(tmp_path: Path) -> None:
+    db_path = tmp_path / "gambit.db"
+    source_path = tmp_path / "rating_history_resolved.csv"
+    create_database(db_path)
+    write_resolved_csv(
+        source_path,
+        [
+            ["2026-01-28", "Player", "", "", "", "", 10, ""],
+            ["2026-01-28", " player ", "", "", "", "", 20, ""],
+        ],
+    )
+
+    plan = import_rating_history.build_import_plan(source_path=source_path, db_path=db_path)
+
+    assert not plan.safe_to_apply
+    assert any("Duplicate result" in error for error in plan.errors)
+
+
+def test_resolved_csv_mystery_like_points_are_preserved(tmp_path: Path) -> None:
+    db_path = tmp_path / "gambit.db"
+    source_path = tmp_path / "rating_history_resolved.csv"
+    create_database(db_path)
+    write_resolved_csv(
+        source_path,
+        [["2026-01-28", "Mystery Player", "", 7, 5, 11, 10, 375]],
+    )
+
+    plan = import_rating_history.build_import_plan(source_path=source_path, db_path=db_path)
+    import_rating_history.apply_import_plan(plan)
+
+    connection = sqlite3.connect(db_path)
+    try:
+        row = connection.execute(
+            """
+            SELECT knockouts_count, big_knockouts_count, tournament_points,
+                   knockout_points, bonus_points
+            FROM tournament_results
+            """
+        ).fetchone()
+        assert row == (7, 5, 10, 375, 11)
+    finally:
+        connection.close()
+
+
+def test_resolved_csv_does_not_reconstruct_fund_from_tournament_points(
+    tmp_path: Path,
+) -> None:
+    db_path = tmp_path / "gambit.db"
+    source_path = tmp_path / "rating_history_resolved.csv"
+    create_database(db_path)
+    write_resolved_csv(source_path, [["2026-01-30", "Player", "", "", "", "", 1463, ""]])
+
+    plan = import_rating_history.build_import_plan(source_path=source_path, db_path=db_path)
+    assert plan.safe_to_apply
+    assert plan.tournament_items[0].tournament_fund is None
+    import_rating_history.apply_import_plan(plan)
+
+    connection = sqlite3.connect(db_path)
+    try:
+        row = connection.execute(
+            """
+            SELECT t.tournament_fund, r.tournament_points
+            FROM tournaments t
+            JOIN tournament_results r ON r.tournament_id = t.id
+            """
+        ).fetchone()
+        assert row == (None, 1463)
+    finally:
+        connection.close()
+
+
+def test_resolved_csv_duplicate_historical_place_preserves_points(
+    tmp_path: Path,
+) -> None:
+    db_path = tmp_path / "gambit.db"
+    source_path = tmp_path / "rating_history_resolved.csv"
+    create_database(db_path)
+    write_resolved_csv(
+        source_path,
+        [
+            ["2026-03-12", "Player A", 5, "", "", "", "182.5", ""],
+            ["2026-03-12", "Player B", 5, "", "", 200, "182.5", ""],
+        ],
+    )
+
+    plan = import_rating_history.build_import_plan(source_path=source_path, db_path=db_path)
+    assert plan.safe_to_apply
+    import_rating_history.apply_import_plan(plan)
+
+    connection = sqlite3.connect(db_path)
+    try:
+        rows = connection.execute(
+            """
+            SELECT u.display_name, r.place, r.tournament_points, r.bonus_points
+            FROM tournament_results r
+            JOIN users u ON u.id = r.player_id
+            WHERE u.display_name IN ('Player A', 'Player B')
+            ORDER BY u.display_name
+            """
+        ).fetchall()
+        assert rows == [
+            ("Player A", 5, 182.5, 0),
+            ("Player B", None, 182.5, 200),
+        ]
+    finally:
+        connection.close()

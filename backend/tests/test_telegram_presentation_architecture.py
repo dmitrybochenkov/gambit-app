@@ -32,6 +32,7 @@ def test_role_keyboard_inits_export_modules_only() -> None:
         "registrations",
         "seasons",
         "tournament_close",
+        "users",
     ]
 
 

@@ -287,7 +287,7 @@ def test_registration_request_rejection_reason_is_absent(session: Session) -> No
     assert "rejection_reason" not in columns
 
 
-def test_closed_tournament_requires_tournament_fund(session: Session) -> None:
+def test_imported_closed_tournament_allows_null_fund(session: Session) -> None:
     scoring_config = ScoringConfig()
     session.add(scoring_config)
     session.flush()
@@ -312,8 +312,7 @@ def test_closed_tournament_requires_tournament_fund(session: Session) -> None:
         )
     )
 
-    with pytest.raises(IntegrityError):
-        session.commit()
+    session.commit()
 
 
 def test_tournament_date_must_be_unique(session: Session) -> None:

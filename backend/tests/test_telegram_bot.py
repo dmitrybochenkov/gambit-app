@@ -38,6 +38,7 @@ from app.bot.telegram.handlers.superadmin import panel as superadmin_panel_handl
 from app.bot.telegram.handlers.superadmin import registrations as superadmin_registration_handlers
 from app.bot.telegram.handlers.superadmin import seasons as superadmin_season_handlers
 from app.bot.telegram.handlers.superadmin import tournament_close as superadmin_close_handlers
+from app.bot.telegram.handlers.superadmin import users as superadmin_user_handlers
 from app.bot.telegram.handlers.user import hall_of_fame as user_hall_of_fame_handlers
 from app.bot.telegram.handlers.user import history as user_history_handlers
 from app.bot.telegram.handlers.user import profile as user_profile_handlers
@@ -55,9 +56,10 @@ from app.bot.telegram.keyboards.superadmin import hall_of_fame as superadmin_hal
 from app.bot.telegram.keyboards.superadmin import registrations as superadmin_registrations_kb
 from app.bot.telegram.keyboards.superadmin import seasons as superadmin_seasons_kb
 from app.bot.telegram.keyboards.superadmin import tournament_close as superadmin_tournament_close_kb
+from app.bot.telegram.keyboards.superadmin import users as superadmin_users_kb
 from app.bot.telegram.keyboards.user import rating as user_rating_kb
 from app.bot.telegram.keyboards.user import tournaments as user_tournaments_kb
-from app.bot.telegram.states import AdminResultStates, HallOfFameStates
+from app.bot.telegram.states import AdminResultStates, HallOfFameStates, UserRenameStates
 from app.bot.telegram.texts.admin import results as admin_result_text
 from app.bot.telegram.texts.user import registration as registration_text
 from app.bot.telegram.texts.user import tournaments as tournament_text
@@ -3547,9 +3549,11 @@ async def test_superadmin_panel_button_opens_superadmin_keyboard(
     assert keyboard_rows(reply_markup) == [
         ["📝 Регистрации", "➕ Добавить администратора"],
         ["🗓 Календарь", "🔒 Закрыть турнир"],
-        ["🔧 Наполнить зал славы", "🛠 Админка"],
+        ["🔧 Наполнить зал славы", "✏️ Переименовать пользователя"],
+        ["⬅️ Админка"],
     ]
     assert "📝 Заявки на регистрацию" not in keyboard_texts(reply_markup)
+    assert "🛠 Админка" not in keyboard_texts(reply_markup)
     assert "⬅️ Выход" not in keyboard_texts(reply_markup)
 
 
@@ -3578,6 +3582,180 @@ async def test_superadmin_panel_back_returns_admin_keyboard(
         "👑 Суперадмин",
         "⬅️ Выход",
     ]
+
+
+async def test_superadmin_rename_button_prompts_for_user_name(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    service = SimpleNamespace(require_rename_access=AsyncMock())
+    monkeypatch.setattr(superadmin_user_handlers, "user_rename_service", service)
+    state = MutableState()
+    prompt = SimpleNamespace(message_id=77)
+    message = SimpleNamespace(
+        from_user=SimpleNamespace(id=100),
+        answer=AsyncMock(return_value=prompt),
+    )
+
+    await superadmin_user_handlers.prompt_user_rename_search(message, state)
+
+    service.require_rename_access.assert_awaited_once_with(100)
+    assert state.state == UserRenameStates.entering_current_name
+    assert state.data == {"user_rename_prompt_message_id": 77}
+    answer = message.answer.await_args
+    assert answer.args[0] == "✏️ Переименовать пользователя\n\nВведи имя пользователя."
+    assert inline_keyboard_texts(answer.kwargs["reply_markup"]) == ["❌ Отмена"]
+
+
+async def test_superadmin_rename_search_shows_multiple_users_without_ids(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    candidates = [
+        UserView(1, None, "Иван Иванов", UserStatus.ACTIVE, UserRole.PLAYER),
+        UserView(2, 200, "Иван Админ", UserStatus.ACTIVE, UserRole.ADMIN),
+    ]
+    service = SimpleNamespace(search_users_for_rename=AsyncMock(return_value=candidates))
+    monkeypatch.setattr(superadmin_user_handlers, "user_rename_service", service)
+    state = MutableState()
+    await state.update_data(user_rename_prompt_message_id=77)
+    message = SimpleNamespace(
+        from_user=SimpleNamespace(id=100),
+        text="Иван",
+        chat=SimpleNamespace(id=100),
+        bot=SimpleNamespace(edit_message_reply_markup=AsyncMock()),
+        answer=AsyncMock(),
+    )
+
+    await superadmin_user_handlers.search_user_to_rename(message, state)
+
+    service.search_users_for_rename.assert_awaited_once_with(100, "Иван")
+    assert message.bot.edit_message_reply_markup.await_count == 1
+    answer = message.answer.await_args
+    assert answer.args[0] == "Выбери пользователя:"
+    assert inline_keyboard_texts(answer.kwargs["reply_markup"]) == [
+        "Иван Иванов",
+        "Иван Админ",
+        "⬅️ Назад",
+        "❌ Отмена",
+    ]
+
+
+async def test_superadmin_rename_new_name_confirmation_does_not_mutate_user(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    service = SimpleNamespace(validate_new_display_name=AsyncMock(return_value="иван петров"))
+    monkeypatch.setattr(superadmin_user_handlers, "user_rename_service", service)
+    state = MutableState()
+    await state.update_data(target_user_id=10, old_display_name="Иван Иванов")
+    message = SimpleNamespace(
+        from_user=SimpleNamespace(id=100),
+        text="  Иван   Петров ",
+        answer=AsyncMock(),
+    )
+
+    await superadmin_user_handlers.enter_new_user_display_name(message, state)
+
+    service.validate_new_display_name.assert_awaited_once_with(100, 10, "Иван Петров")
+    assert state.state == UserRenameStates.confirming_user_rename
+    assert state.data["new_display_name"] == "Иван Петров"
+    answer = message.answer.await_args
+    assert "Иван Иванов" in answer.args[0]
+    assert "Иван Петров?" in answer.args[0]
+    assert inline_keyboard_texts(answer.kwargs["reply_markup"]) == [
+        "✅ Переименовать",
+        "⬅️ Назад",
+        "❌ Отмена",
+    ]
+    assert not hasattr(service, "rename_user")
+
+
+async def test_superadmin_rename_cancel_clears_state_and_returns_menu() -> None:
+    state = MutableState()
+    await state.update_data(target_user_id=10, old_display_name="Иван Иванов")
+    message = SimpleNamespace(delete=AsyncMock(), answer=AsyncMock())
+    callback = SimpleNamespace(
+        answer=AsyncMock(),
+        message=message,
+    )
+
+    await superadmin_user_handlers._cancel_user_rename(callback, state)
+
+    callback.answer.assert_awaited_once_with("Отмена.")
+    message.delete.assert_awaited_once_with()
+    answer = message.answer.await_args
+    assert answer.args[0] == "Отмена."
+    assert "✏️ Переименовать пользователя" in keyboard_texts(answer.kwargs["reply_markup"])
+    assert state.data == {}
+    assert state.state is None
+
+
+async def test_superadmin_rename_stale_confirmation_does_not_mutate(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    service = SimpleNamespace(rename_user=AsyncMock())
+    monkeypatch.setattr(superadmin_user_handlers, "user_rename_service", service)
+    state = MutableState()
+    callback = SimpleNamespace(
+        answer=AsyncMock(),
+        from_user=SimpleNamespace(id=100),
+        message=SimpleNamespace(delete=AsyncMock(), answer=AsyncMock()),
+    )
+
+    await superadmin_user_handlers.confirm_user_rename(
+        callback,
+        superadmin_users_kb.UserRenameConfirmCallback(
+            action=superadmin_users_kb.UserRenameConfirmAction.CONFIRM,
+            user_id=10,
+        ),
+        state,
+    )
+
+    callback.answer.assert_awaited_once_with(
+        "Данные устарели. Открой переименование заново.",
+        show_alert=True,
+    )
+    service.rename_user.assert_not_awaited()
+
+
+async def test_superadmin_rename_confirm_updates_and_does_not_notify_target(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    renamed = UserView(10, 555, "Иван Петров", UserStatus.ACTIVE, UserRole.PLAYER)
+    service = SimpleNamespace(rename_user=AsyncMock(return_value=renamed))
+    monkeypatch.setattr(superadmin_user_handlers, "user_rename_service", service)
+    state = MutableState()
+    await state.update_data(
+        target_user_id=10,
+        old_display_name="Иван Иванов",
+        new_display_name="Иван Петров",
+    )
+    message = SimpleNamespace(delete=AsyncMock(), answer=AsyncMock())
+    bot = SimpleNamespace(send_message=AsyncMock())
+    callback = SimpleNamespace(
+        answer=AsyncMock(),
+        from_user=SimpleNamespace(id=100),
+        message=message,
+        bot=bot,
+    )
+
+    await superadmin_user_handlers.confirm_user_rename(
+        callback,
+        superadmin_users_kb.UserRenameConfirmCallback(
+            action=superadmin_users_kb.UserRenameConfirmAction.CONFIRM,
+            user_id=10,
+        ),
+        state,
+    )
+
+    service.rename_user.assert_awaited_once_with(100, 10, "Иван Петров", "Иван Иванов")
+    bot.send_message.assert_not_called()
+    callback.answer.assert_awaited_once_with(
+        "✅ Пользователь переименован\n\nИван Иванов → Иван Петров"
+    )
+    message.delete.assert_awaited_once_with()
+    answer = message.answer.await_args
+    assert answer.args[0] == "✅ Пользователь переименован\n\nИван Иванов → Иван Петров"
+    assert state.data == {}
+    assert state.state is None
 
 
 async def test_admin_calendar_button_shows_inline_menu(

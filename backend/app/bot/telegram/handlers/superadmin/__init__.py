@@ -7,6 +7,7 @@ from app.bot.telegram.handlers.superadmin import (
     registrations,
     seasons,
     tournament_close,
+    users,
 )
 
 router = Router(name="superadmin")
@@ -16,5 +17,6 @@ router.include_router(administrators.router)
 router.include_router(seasons.router)
 router.include_router(tournament_close.router)
 router.include_router(hall_of_fame.router)
+router.include_router(users.router)
 
 __all__ = ["router"]

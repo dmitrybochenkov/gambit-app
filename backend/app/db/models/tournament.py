@@ -51,11 +51,6 @@ class Tournament(TimestampMixin, Base):
             name="tournament_fund",
         ),
         CheckConstraint(
-            "(status = 'closed' AND tournament_fund IS NOT NULL) "
-            "OR (status != 'closed' AND tournament_fund IS NULL)",
-            name="tournament_fund_status",
-        ),
-        CheckConstraint(
             "status IN ('active', 'closed')",
             name="tournaments_status_values",
         ),
