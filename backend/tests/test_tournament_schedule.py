@@ -77,12 +77,6 @@ async def test_upcoming_schedule_uses_active_tournaments(tmp_path: Path) -> None
                     date=date(2026, 7, 9),
                     status=TournamentStatus.ACTIVE,
                 ),
-                Tournament(
-                    season_id=season.id,
-                    tournament_type_id=tournament_type_id("bounty"),
-                    date=date(2026, 7, 7),
-                    status=TournamentStatus.CANCELLED,
-                ),
             ]
         )
         await session.commit()

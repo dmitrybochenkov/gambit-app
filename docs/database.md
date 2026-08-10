@@ -46,6 +46,7 @@ sqlite3 ../data/gambit.db "PRAGMA foreign_key_check; PRAGMA integrity_check;"
 | `c0d1e2f3a4b5` | Enforce integer bonus points | Yes | No | No | Strengthens `bonus_points` SQLite check. |
 | `e3f4a5b6c7d8` | Add manual Season Hall of Fame | Yes | No | No | Adds `season_hall_of_fame` and marks Mystery Bounty as bonus-only. |
 | `e4f5a6b7c8d9` | Drop `admin_prompts` | No | Yes | No | Temporary Telegram planning state moved to FSM; DB keeps only confirmed business state. |
+| `e5f6a7b8c9d0` | Restrict tournaments to ACTIVE/CLOSED | Yes | No | No | Fails fast if legacy `cancelled` tournament rows exist. |
 
 Pre-production destructive resets were intentional for the current development
 stage. They are not a permanent production rule: future destructive migrations

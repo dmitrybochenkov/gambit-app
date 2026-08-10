@@ -115,12 +115,20 @@ database stores only confirmed business state: seasons, tournaments, templates,
 and results. If the bot restarts, unfinished drafts disappear and the
 administrator starts the flow again.
 
+Tournament rows are either `active` or `closed`. Cancelled tournaments are
+deleted rather than status-tracked. Existing gaming weeks are not checked
+against templates for completeness: a week is in progress iff at least one real
+tournament row in that week is `active`. The next week becomes plannable only
+after the latest created week contains no active tournaments.
+
 Weekly tournament Sunday rotation is configured by active
 `WeeklyTournamentTemplate` rows with `rotation_order`. The planning flow sorts
 Sunday templates by `rotation_order`; if an earlier Sunday tournament exists,
 the next template after its type is selected, otherwise the first configured
 Sunday template is used. Adding another Sunday template in the database changes
-the rotation without Python code changes.
+the default rotation without Python code changes. Templates are defaults for
+new planning only; after tournaments are created, later template changes do not
+change the meaning of existing weeks.
 
 ## Hall of Fame
 

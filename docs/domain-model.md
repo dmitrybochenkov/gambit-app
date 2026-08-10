@@ -121,7 +121,7 @@ Fields:
 - `tournament_type_id`
 - `date`
 - `tournament_fund`
-- `status`: `active`, `closed`, `cancelled`
+- `status`: `active`, `closed`
 - `created_at`
 - `updated_at`
 
@@ -129,10 +129,12 @@ Rules:
 
 - `active` is editable/operational.
 - `closed` is the only published result state.
-- `cancelled` keeps the date occupied but has no fund.
+- Cancelled tournaments are deleted rather than status-tracked.
 - `tournament_fund` is `NULL` before close, positive, integer, and divisible by
   `10` when closed.
 - One tournament date is allowed in the database.
+- A created gaming week has no required number of tournaments. If a day is
+  removed before confirmation, no tournament row is created for that day.
 - Weekly tournament planning drafts live only in Telegram FSM until
   confirmation. The database stores only created tournaments.
 
@@ -192,8 +194,10 @@ Rules:
 ## TournamentType / TournamentTypeRule
 
 Tournament type stores reusable game/economy configuration. Weekly schedule
-management selects only date and tournament type; public schedule formatting
-reads details from the type configuration.
+templates define default planning presets only. Management selects only date
+and tournament type; public schedule formatting reads details from the type
+configuration. A confirmed tournament stores its concrete `tournament_type_id`;
+later template changes do not rewrite or re-evaluate existing weeks.
 
 Rules:
 

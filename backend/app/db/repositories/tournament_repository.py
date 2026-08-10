@@ -185,7 +185,6 @@ class TournamentRepository:
                 TournamentTypeRule.tournament_type_id == TournamentType.id,
             )
             .where(
-                Tournament.status != TournamentStatus.CANCELLED,
                 Tournament.date.in_(dates),
                 Tournament.tournament_type_id.in_(tournament_type_ids),
             )
@@ -222,7 +221,6 @@ class TournamentRepository:
             .options(selectinload(Tournament.tournament_type))
             .where(
                 Tournament.date < target_date,
-                Tournament.status != TournamentStatus.CANCELLED,
                 TournamentType.code.in_(allowed_type_codes),
                 func.strftime("%w", Tournament.date) == "0",
             )

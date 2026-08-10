@@ -17,7 +17,6 @@ class UserRole(StrEnum):
 class TournamentStatus(StrEnum):
     ACTIVE = "active"
     CLOSED = "closed"
-    CANCELLED = "cancelled"
 
 
 class TournamentResultSource(StrEnum):
@@ -48,10 +47,15 @@ class KnockoutMode(StrEnum):
     SMALL_BIG = "small_big"
 
 
-def database_enum[EnumType: StrEnum](enum_class: type[EnumType], name: str) -> SqlEnum:
+def database_enum[EnumType: StrEnum](
+    enum_class: type[EnumType],
+    name: str,
+    length: int | None = None,
+) -> SqlEnum:
     return SqlEnum(
         enum_class,
         name=name,
+        length=length,
         native_enum=False,
         values_callable=lambda items: [item.value for item in items],
         validate_strings=True,

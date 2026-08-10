@@ -142,7 +142,7 @@ async def send_planning_state_messages(
     *,
     include_controls: bool,
 ) -> None:
-    if planning.status == WeeklyPlanningStatus.NEXT_WEEK_EMPTY and planning.plan is not None:
+    if planning.status == WeeklyPlanningStatus.READY and planning.plan is not None:
         await message.answer(calendar_text.ADMIN_CALENDAR_TOURNAMENT_WEEK_EMPTY)
         await message.answer(
             schedule_fmt.plan_preview(planning.plan),
@@ -154,7 +154,7 @@ async def send_planning_state_messages(
         )
         return
     if (
-        planning.status == WeeklyPlanningStatus.LATEST_WEEK_IN_PROGRESS
+        planning.status == WeeklyPlanningStatus.BLOCKED_BY_ACTIVE_WEEK
         and planning.schedule is not None
     ):
         await message.answer(
@@ -167,22 +167,3 @@ async def send_planning_state_messages(
             )
         )
         return
-    if planning.status == WeeklyPlanningStatus.NEXT_WEEK_PARTIAL and planning.schedule is not None:
-        await message.answer(
-            "\n\n".join(
-                [
-                    calendar_text.ADMIN_CALENDAR_TOURNAMENT_WEEK_PARTIAL,
-                    schedule_fmt.existing_week(planning.schedule),
-                ]
-            )
-        )
-        return
-    if planning.status == WeeklyPlanningStatus.NEXT_WEEK_COMPLETE and planning.schedule is not None:
-        await message.answer(
-            "\n\n".join(
-                [
-                    calendar_text.ADMIN_CALENDAR_TOURNAMENT_WEEK_COMPLETE,
-                    schedule_fmt.existing_week(planning.schedule),
-                ]
-            )
-        )

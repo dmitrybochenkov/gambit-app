@@ -15,6 +15,10 @@
 2. In Calendar, create weekly tournament proposals.
 3. Confirm that the weekly preview contains Wednesday, Thursday, Friday, Saturday, and Sunday.
 4. Confirm that Sunday type follows `WeeklyTournamentTemplate.rotation_order`.
+5. Remove one day from the draft and confirm that only the remaining tournament
+   rows are created.
+6. Confirm that a created week blocks the next week while any tournament in it
+   is ACTIVE, even if the week has fewer than five tournaments.
 
 ## Test Users
 

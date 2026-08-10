@@ -62,12 +62,6 @@ async def test_history_lists_only_periods_and_tournaments_with_results(
             tournament_fund=1000,
             status=TournamentStatus.CLOSED,
         )
-        cancelled_tournament = Tournament(
-            season_id=season.id,
-            tournament_type_id=tournament_type_id("freezeout"),
-            date=date(2025, 12, 30),
-            status=TournamentStatus.CANCELLED,
-        )
         empty_tournament = Tournament(
             season_id=season.id,
             tournament_type_id=tournament_type_id("double_double"),
@@ -84,7 +78,6 @@ async def test_history_lists_only_periods_and_tournaments_with_results(
             [
                 july_tournament,
                 august_tournament,
-                cancelled_tournament,
                 empty_tournament,
                 active_with_result_tournament,
             ]
@@ -103,12 +96,6 @@ async def test_history_lists_only_periods_and_tournaments_with_results(
                     player_id=result_user.id,
                     place=2,
                     tournament_points=Decimal("80"),
-                ),
-                TournamentResult(
-                    tournament_id=cancelled_tournament.id,
-                    player_id=result_user.id,
-                    place=1,
-                    tournament_points=Decimal("100"),
                 ),
                 TournamentResult(
                     tournament_id=active_with_result_tournament.id,

@@ -88,18 +88,11 @@ async def test_rating_filters_current_season_and_all_time(tmp_path: Path) -> Non
             date=date(2026, 7, 9),
             status=TournamentStatus.ACTIVE,
         )
-        cancelled_tournament = Tournament(
-            season_id=current_season.id,
-            tournament_type_id=tournament_type_id("bounty"),
-            date=date(2026, 7, 10),
-            status=TournamentStatus.CANCELLED,
-        )
         session.add_all(
             [
                 current_tournament,
                 previous_tournament,
                 active_tournament,
-                cancelled_tournament,
             ]
         )
         await session.flush()
@@ -147,16 +140,6 @@ async def test_rating_filters_current_season_and_all_time(tmp_path: Path) -> Non
                 ),
                 TournamentResult(
                     tournament_id=active_tournament.id,
-                    player_id=second_player.id,
-                    place=1,
-                    knockouts_count=99,
-                    big_knockouts_count=99,
-                    tournament_points=Decimal("999"),
-                    knockout_points=Decimal("999"),
-                    bonus_points=999,
-                ),
-                TournamentResult(
-                    tournament_id=cancelled_tournament.id,
                     player_id=second_player.id,
                     place=1,
                     knockouts_count=99,

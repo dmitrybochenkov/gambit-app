@@ -328,13 +328,7 @@ async def test_closeable_tournaments_use_business_date_and_status(
             status=TournamentStatus.CLOSED,
             tournament_fund=1000,
         )
-        cancelled = Tournament(
-            season_id=season.id,
-            tournament_type_id=tournament_type_id("mystery_bounty"),
-            date=date(2026, 7, 17),
-            status=TournamentStatus.CANCELLED,
-        )
-        session.add_all([old_active, today_active, future_active, closed, cancelled])
+        session.add_all([old_active, today_active, future_active, closed])
         await session.commit()
         old_active_id = old_active.id
         today_active_id = today_active.id

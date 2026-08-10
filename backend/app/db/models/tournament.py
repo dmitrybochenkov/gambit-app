@@ -37,7 +37,7 @@ class Tournament(TimestampMixin, Base):
     date: Mapped[date] = mapped_column(Date, nullable=False, index=True)
     tournament_fund: Mapped[int | None] = mapped_column(Integer, nullable=True)
     status: Mapped[TournamentStatus] = mapped_column(
-        database_enum(TournamentStatus, "tournament_status"),
+        database_enum(TournamentStatus, "tournament_status", length=9),
         default=TournamentStatus.ACTIVE,
         nullable=False,
         index=True,
@@ -56,7 +56,7 @@ class Tournament(TimestampMixin, Base):
             name="tournament_fund_status",
         ),
         CheckConstraint(
-            "status IN ('active', 'closed', 'cancelled')",
+            "status IN ('active', 'closed')",
             name="tournaments_status_values",
         ),
     )

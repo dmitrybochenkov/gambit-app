@@ -60,10 +60,8 @@ class CalendarTournamentTypeNotFoundError(ValueError):
 
 
 class WeeklyPlanningStatus(StrEnum):
-    LATEST_WEEK_IN_PROGRESS = "latest_week_in_progress"
-    NEXT_WEEK_EMPTY = "next_week_empty"
-    NEXT_WEEK_PARTIAL = "next_week_partial"
-    NEXT_WEEK_COMPLETE = "next_week_complete"
+    BLOCKED_BY_ACTIVE_WEEK = "blocked_by_active_week"
+    READY = "ready"
 
 
 class LatestWeekState(StrEnum):
@@ -168,6 +166,16 @@ class WeeklyTournamentPlan:
             )
         )
 
+    def without_date(self, tournament_date: date) -> WeeklyTournamentPlan:
+        self.item_by_date(tournament_date)
+        if len(self.tournaments) == 1:
+            raise CalendarWeeklyPlanEmptyError
+        updated = WeeklyTournamentPlan(
+            tournaments=tuple(item for item in self.tournaments if item.date != tournament_date)
+        )
+        updated.validate()
+        return updated
+
     @property
     def dates(self) -> tuple[date, ...]:
         return tuple(item.date for item in self.tournaments)
@@ -177,17 +185,15 @@ class WeeklyTournamentPlan:
         return tuple(item.tournament_type_id for item in self.tournaments)
 
     def validate(self) -> None:
-        if len(self.tournaments) != len(WEEKLY_PLAYING_WEEKDAYS):
+        if not self.tournaments:
             raise CalendarWeeklyPlanIntegrityError
         dates = [item.date for item in self.tournaments]
         if len(set(dates)) != len(dates):
             raise CalendarWeeklyPlanIntegrityError
         wednesday = wednesday_for_week(dates[0])
-        expected_dates = tuple(
-            wednesday.fromordinal(wednesday.toordinal() + weekday - WEDNESDAY_WEEKDAY)
-            for weekday in WEEKLY_PLAYING_WEEKDAYS
-        )
-        if tuple(dates) != expected_dates:
+        valid_dates = set(week_dates_for(wednesday))
+        has_date_outside_week = any(tournament_date not in valid_dates for tournament_date in dates)
+        if dates != sorted(dates) or has_date_outside_week:
             raise CalendarWeeklyPlanIntegrityError
 
 
@@ -240,7 +246,6 @@ class TournamentPlanningService:
             return await self._inspect_next_week_from_db(
                 session,
                 self.clock.today(),
-                background=True,
             )
 
     async def list_tournament_type_options(
@@ -288,6 +293,17 @@ class TournamentPlanningService:
             updated_plan = plan.with_tournament_type(tournament_date, tournament_type_id)
             return await self.plan_view(session, updated_plan)
 
+    async def remove_plan_day(
+        self,
+        actor_telegram_id: int,
+        plan: WeeklyTournamentPlan,
+        tournament_date: date,
+    ) -> WeeklyTournamentPlanView:
+        async with self.session_factory() as session:
+            await access_policy.require_superadmin(session, actor_telegram_id)
+            updated_plan = plan.without_date(tournament_date)
+            return await self.plan_view(session, updated_plan)
+
     async def create_weekly_schedule(
         self,
         actor_telegram_id: int,
@@ -298,9 +314,11 @@ class TournamentPlanningService:
                 await access_policy.require_superadmin(session, actor_telegram_id)
                 planning = await self._inspect_next_week_from_db(session, self.clock.today())
                 if (
-                    planning.status != WeeklyPlanningStatus.NEXT_WEEK_EMPTY
+                    planning.status != WeeklyPlanningStatus.READY
                     or planning.plan is None
-                    or tuple(item.date for item in planning.plan.tournaments) != plan.dates
+                    or not set(plan.dates).issubset(
+                        {item.date for item in planning.plan.tournaments}
+                    )
                 ):
                     raise CalendarTournamentDateAlreadyExistsError
                 await self._validate_plan_for_apply(session, plan)
@@ -355,8 +373,6 @@ class TournamentPlanningService:
         self,
         session: AsyncSession,
         today: date,
-        *,
-        background: bool = False,
     ) -> WeeklyPlanningCheckView:
         latest_tournament = await TournamentRepository(session).get_latest_tournament()
         if latest_tournament is None:
@@ -368,35 +384,28 @@ class TournamentPlanningService:
         )
         if latest_week_state(latest_week_tournaments) == LatestWeekState.IN_PROGRESS:
             return WeeklyPlanningCheckView(
-                status=WeeklyPlanningStatus.LATEST_WEEK_IN_PROGRESS,
+                status=WeeklyPlanningStatus.BLOCKED_BY_ACTIVE_WEEK,
                 schedule=self._fact_view(latest_week_dates, latest_week_tournaments),
             )
 
         target_dates = next_complete_game_week(latest_week_dates[-1])
-        return await self._inspect_target_dates(session, target_dates, background=background)
+        return await self._inspect_target_dates(session, target_dates)
 
     async def _inspect_target_dates(
         self,
         session: AsyncSession,
         target_dates: tuple[date, ...],
-        *,
-        background: bool = False,
     ) -> WeeklyPlanningCheckView:
         existing_tournaments = await TournamentRepository(session).list_by_dates(target_dates)
-        if not existing_tournaments:
-            plan = await self._build_plan_for_dates(session, target_dates)
+        if existing_tournaments:
             return WeeklyPlanningCheckView(
-                status=WeeklyPlanningStatus.NEXT_WEEK_EMPTY,
-                plan=await self.plan_view(session, plan),
-            )
-        if len({tournament.date for tournament in existing_tournaments}) < len(target_dates):
-            return WeeklyPlanningCheckView(
-                status=WeeklyPlanningStatus.NEXT_WEEK_PARTIAL,
+                status=WeeklyPlanningStatus.BLOCKED_BY_ACTIVE_WEEK,
                 schedule=self._fact_view(target_dates, existing_tournaments),
             )
+        plan = await self._build_plan_for_dates(session, target_dates)
         return WeeklyPlanningCheckView(
-            status=WeeklyPlanningStatus.NEXT_WEEK_COMPLETE,
-            schedule=(None if background else self._fact_view(target_dates, existing_tournaments)),
+            status=WeeklyPlanningStatus.READY,
+            plan=await self.plan_view(session, plan),
         )
 
     async def _build_plan_for_dates(
@@ -524,21 +533,19 @@ class TournamentPlanningService:
         target_dates: tuple[date, ...],
         tournaments: list[Tournament],
     ) -> WeeklyTournamentFactView:
-        tournaments_by_date = {tournament.date: tournament for tournament in tournaments}
         return WeeklyTournamentFactView(
             week_start=target_dates[0],
             week_end=target_dates[-1],
             tournaments=[
                 WeeklyTournamentFactItemView(
-                    date=tournament_date,
+                    date=tournament.date,
                     tournament_type_name=(
-                        tournaments_by_date[tournament_date].tournament_type.name
-                        if tournament_date in tournaments_by_date
-                        and tournaments_by_date[tournament_date].tournament_type is not None
+                        tournament.tournament_type.name
+                        if tournament.tournament_type is not None
                         else None
                     ),
                 )
-                for tournament_date in target_dates
+                for tournament in sorted(tournaments, key=lambda item: item.date)
             ],
         )
 

@@ -727,7 +727,7 @@ def test_tournament_rejects_invalid_fund(session: Session, fund: int) -> None:
         session.commit()
 
 
-def test_cancelled_tournament_keeps_date_unique(session: Session) -> None:
+def test_cancelled_tournament_status_is_rejected(session: Session) -> None:
     scoring_config = ScoringConfig()
     session.add(scoring_config)
     session.flush()
@@ -740,25 +740,23 @@ def test_cancelled_tournament_keeps_date_unique(session: Session) -> None:
     )
     session.add(season)
     session.flush()
-    session.add_all(
-        [
-            Tournament(
-                season_id=season.id,
-                tournament_type_id=tournament_type_id("bounty"),
-                date=date(2026, 8, 1),
-                status=TournamentStatus.CANCELLED,
-            ),
-            Tournament(
-                season_id=season.id,
-                tournament_type_id=tournament_type_id("classic"),
-                date=date(2026, 8, 1),
-                status=TournamentStatus.ACTIVE,
-            ),
-        ]
-    )
-
     with pytest.raises(IntegrityError):
-        session.commit()
+        session.execute(
+            text(
+                """
+                INSERT INTO tournaments (
+                    season_id, tournament_type_id, date, status, tournament_fund,
+                    created_at, updated_at
+                )
+                VALUES (:season_id, :type_id, '2026-08-01', 'cancelled', NULL,
+                        CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+                """
+            ),
+            {
+                "season_id": season.id,
+                "type_id": tournament_type_id("bounty"),
+            },
+        )
 
 
 def test_season_hall_of_fame_allows_partial_and_same_winner(session: Session) -> None:

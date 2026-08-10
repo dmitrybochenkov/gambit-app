@@ -197,6 +197,45 @@ async def select_tournament_type(
         )
 
 
+@router.callback_query(admin_schedule_kb.TournamentPlanDayDeleteCallback.filter())
+async def delete_tournament_plan_day(
+    callback: CallbackQuery,
+    callback_data: admin_schedule_kb.TournamentPlanDayDeleteCallback,
+    state: FSMContext,
+) -> None:
+    try:
+        plan = _plan_from_state(await state.get_data())
+        plan_view = await tournament_planning_service.remove_plan_day(
+            actor_telegram_id=callback.from_user.id,
+            plan=plan,
+            tournament_date=date.fromisoformat(callback_data.tournament_date),
+        )
+        updated_plan = plan.without_date(date.fromisoformat(callback_data.tournament_date))
+        await state.update_data(**{FSM_PLAN_KEY: updated_plan.to_fsm()})
+    except AdminAccessDeniedError:
+        await callback.answer(superadmin_panel_text.INSUFFICIENT_RIGHTS, show_alert=True)
+        return
+    except CalendarWeeklyPlanEmptyError:
+        await callback.answer(calendar_text.CALENDAR_WEEKLY_PROMPT_EMPTY)
+        return
+    except (
+        ValueError,
+        CalendarPlanStaleError,
+        CalendarTournamentDateNotInPlanError,
+        CalendarWeeklyPlanIntegrityError,
+    ):
+        await callback.answer(calendar_text.CALENDAR_PLAN_STALE, show_alert=True)
+        return
+
+    await callback.answer(calendar_text.CALENDAR_PLAN_CONFIRMED)
+    if callback.message is not None:
+        await _delete_callback_message(callback)
+        await callback.message.answer(
+            schedule_fmt.plan_preview(plan_view),
+            reply_markup=admin_schedule_kb.manual_tournaments_plan_keyboard(plan_view),
+        )
+
+
 async def store_plan_in_state(state: FSMContext, plan_view: WeeklyTournamentPlanView) -> None:
     await state.update_data(
         **{

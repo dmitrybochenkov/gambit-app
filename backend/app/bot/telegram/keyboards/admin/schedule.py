@@ -17,6 +17,10 @@ class TournamentTypeEditCallback(CallbackData, prefix="tournament_type_edit"):
     tournament_type_id: int
 
 
+class TournamentPlanDayDeleteCallback(CallbackData, prefix="tour_plan_day_delete"):
+    tournament_date: str
+
+
 def manual_tournaments_plan_keyboard(plan: WeeklyTournamentPlanView) -> InlineKeyboardMarkup:
     builder = InlineKeyboardBuilder()
     builder.button(
@@ -64,6 +68,12 @@ def tournament_type_edit_keyboard(
                 tournament_type_id=tournament_type.id,
             ),
         )
+    builder.button(
+        text="Удалить день",
+        callback_data=TournamentPlanDayDeleteCallback(
+            tournament_date=edit_view.tournament_date.isoformat()
+        ),
+    )
     builder.button(
         text=labels.ADMIN_CALENDAR_BACK,
         callback_data=CalendarPlanCallback(action=CalendarPlanAction.EDIT),
