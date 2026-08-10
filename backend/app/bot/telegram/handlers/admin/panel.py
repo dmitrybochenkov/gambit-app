@@ -34,6 +34,7 @@ async def open_admin_panel(message: Message) -> None:
     )
 
 
+@router.message(F.text == labels.ADMIN_PANEL_ADMIN)
 @router.message(F.text == labels.ADMIN_PANEL_BACK)
 async def back_to_admin_panel(message: Message) -> None:
     if message.from_user is None:

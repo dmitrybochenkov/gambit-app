@@ -1161,6 +1161,10 @@ def keyboard_texts(reply_markup: object) -> list[str]:
     return [button.text for row in reply_markup.keyboard for button in row]
 
 
+def keyboard_rows(reply_markup: object) -> list[list[str]]:
+    return [[button.text for button in row] for row in reply_markup.keyboard]
+
+
 def inline_keyboard_texts(reply_markup: object) -> list[str]:
     return [button.text for row in reply_markup.inline_keyboard for button in row]
 
@@ -3539,14 +3543,14 @@ async def test_superadmin_panel_button_opens_superadmin_keyboard(
 
     service.require_superadmin.assert_awaited_once_with(100)
     assert message.answer.await_args.args[0] == "Суперадмин."
-    assert keyboard_texts(message.answer.await_args.kwargs["reply_markup"]) == [
-        "📝 Заявки на регистрацию",
-        "🗓 Календарь",
-        "➕ Добавить администратора",
-        "🔒 Закрыть турнир",
-        "🔧 Наполнить зал славы",
-        "⬅️ Назад",
+    reply_markup = message.answer.await_args.kwargs["reply_markup"]
+    assert keyboard_rows(reply_markup) == [
+        ["📝 Регистрации", "➕ Добавить администратора"],
+        ["🗓 Календарь", "🔒 Закрыть турнир"],
+        ["🔧 Наполнить зал славы", "🛠 Админка"],
     ]
+    assert "📝 Заявки на регистрацию" not in keyboard_texts(reply_markup)
+    assert "⬅️ Выход" not in keyboard_texts(reply_markup)
 
 
 async def test_superadmin_panel_back_returns_admin_keyboard(
@@ -3565,6 +3569,8 @@ async def test_superadmin_panel_back_returns_admin_keyboard(
     await admin_panel_handlers.back_to_admin_panel(message)
 
     service.get_admin_panel_for_admin.assert_awaited_once_with(100)
+    assert admin.role == UserRole.SUPERADMIN
+    assert admin.status == UserStatus.ACTIVE
     assert message.answer.await_args.args[0] == "Добро пожаловать в админ-панель."
     assert keyboard_texts(message.answer.await_args.kwargs["reply_markup"]) == [
         "✅ Чек-ин",
@@ -4436,7 +4442,7 @@ async def test_admin_panel_registration_requests_button_shows_paginated_list(
     )
     message.answer.assert_awaited_once()
     answer = message.answer.await_args
-    assert answer.args[0] == "Заявки на регистрацию"
+    assert answer.args[0] == "Регистрации"
     buttons = [
         button.text for row in answer.kwargs["reply_markup"].inline_keyboard for button in row
     ]
@@ -4533,7 +4539,7 @@ async def test_admin_registration_list_page_callback_edits_list(
     )
     callback.answer.assert_awaited_once_with()
     message.edit_text.assert_awaited_once()
-    assert message.edit_text.await_args.args[0] == "Заявки на регистрацию"
+    assert message.edit_text.await_args.args[0] == "Регистрации"
     buttons = [
         button.text
         for row in message.edit_text.await_args.kwargs["reply_markup"].inline_keyboard
@@ -4601,7 +4607,7 @@ async def test_admin_registration_list_open_suppresses_not_modified_edit(
     service = SimpleNamespace(get_registration_review_for_admin=AsyncMock(return_value=review))
     monkeypatch.setattr(superadmin_registration_handlers, "registration_review_service", service)
     message = SimpleNamespace(
-        text="Заявки на регистрацию",
+        text="Регистрации",
         reply_markup=None,
         edit_text=AsyncMock(
             side_effect=TelegramBadRequest(
@@ -4658,7 +4664,7 @@ async def test_registration_review_back_returns_to_source_page(
         page=1,
         page_size=5,
     )
-    assert message.edit_text.await_args.args[0] == "Заявки на регистрацию"
+    assert message.edit_text.await_args.args[0] == "Регистрации"
     assert inline_keyboard_texts(message.edit_text.await_args.kwargs["reply_markup"]) == [
         "Игрок 15",
         "⬅️",
@@ -4706,7 +4712,7 @@ async def test_registration_review_dispatcher_card_back_returns_to_list(
                     page=0,
                     request_id=10,
                 ).pack(),
-                "Заявки на регистрацию",
+                "Регистрации",
             ),
         )
         await runtime.telegram_dispatcher.feed_raw_update(
@@ -4727,7 +4733,7 @@ async def test_registration_review_dispatcher_card_back_returns_to_list(
         ]
         assert len(edited_texts) == 2
         assert "Новая заявка на регистрацию" in edited_texts[0]
-        assert edited_texts[1] == "Заявки на регистрацию"
+        assert edited_texts[1] == "Регистрации"
         last_edit = [call for call in bot.calls if call.__class__.__name__ == "EditMessageText"][-1]
         assert inline_keyboard_texts(last_edit.reply_markup) == ["Игрок 10", "❌ Отмена"]
     finally:

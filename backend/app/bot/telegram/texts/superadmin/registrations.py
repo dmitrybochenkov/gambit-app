@@ -1,6 +1,6 @@
 NO_PENDING_REGISTRATIONS = "Заявок на регистрацию нет."
 PENDING_REGISTRATIONS_COUNT = "Заявок на проверке: {count}"
-REGISTRATION_LIST_TITLE = "Заявки на регистрацию"
+REGISTRATION_LIST_TITLE = "Регистрации"
 
 REGISTRATION_REVIEW_TITLE = "Новая заявка на регистрацию"
 DISPLAY_NAME_LABEL = "Имя игрока"
