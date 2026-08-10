@@ -5,6 +5,11 @@ ADMIN_CALENDAR_EMPTY_TOURNAMENTS = "Не удалось создать расп�
 ADMIN_CALENDAR_TOURNAMENT_DATE_EXISTS = "На эту дату турнир уже создан."
 ADMIN_CALENDAR_TOURNAMENT_WEEK_EMPTY = "Суперадмин. На будущую неделю нужно создать турниры!"
 ADMIN_CALENDAR_TOURNAMENT_WEEK_PARTIAL = "⚠️ Расписание заполнено не полностью."
+ADMIN_CALENDAR_TOURNAMENT_WEEK_IN_PROGRESS = "✅ Турниры на эту неделю уже созданы"
+ADMIN_CALENDAR_TOURNAMENT_WEEK_IN_PROGRESS_HINT = (
+    "Следующее расписание можно будет создать после завершения текущей игровой недели."
+)
+ADMIN_CALENDAR_TOURNAMENT_WEEK_COMPLETE = "✅ Турниры уже созданы"
 ADMIN_CALENDAR_SEASON_CREATED = "Сезон создан."
 SEASON_CREATED_TITLE = "Создан новый сезон:"
 SEASON_PROPOSAL_PREVIEW_TITLE = "🏆 Новый сезон"
@@ -33,11 +38,10 @@ ADMIN_CALENDAR_SEASON_START_INVALID = (
 ADMIN_CALENDAR_SEASON_CONFLICT = "Не удалось открыть сезон. Попробуй ещё раз."
 ADMIN_CALENDAR_SEASON_ALREADY_HANDLED = "Сценарий открытия сезона уже завершён."
 
-CALENDAR_PROMPT_NOT_FOUND = "Предложение не найдено."
-CALENDAR_PROMPT_STALE = "Предложение устарело. Открой Турниры заново."
-CALENDAR_PROMPT_ALREADY_RESOLVED = "Предложение уже обработано."
-CALENDAR_PROMPT_CONFIRMED = "Подтверждено"
-CALENDAR_PROMPT_CANCELLED = "Отменено"
+CALENDAR_PLAN_NOT_FOUND = "Не удалось сформировать расписание."
+CALENDAR_PLAN_STALE = "Расписание устарело. Открой Турниры заново."
+CALENDAR_PLAN_CONFIRMED = "Подтверждено"
+CALENDAR_PLAN_CANCELLED = "Отменено"
 CALENDAR_WEEKLY_PROMPT_EMPTY = "В расписании должен остаться хотя бы один турнир."
 
 SEASON_PROPOSAL_TITLE = "Нужно подготовить следующий сезон."

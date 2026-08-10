@@ -29,7 +29,7 @@ class TournamentTypeDetailView:
 
 
 @dataclass(frozen=True)
-class TournamentPromptItemView:
+class TournamentPlanItemView:
     date: date
     tournament_type: TournamentTypeDetailView
 
@@ -38,13 +38,26 @@ class TournamentPromptItemView:
 class WeeklyTournamentPlanView:
     week_start: date
     week_end: date
-    tournaments: list[TournamentPromptItemView]
+    tournaments: list[TournamentPlanItemView]
 
 
 @dataclass(frozen=True)
-class TournamentPromptDayEditView:
+class TournamentPlanDayEditView:
     tournament_date: date
     tournament_types: list[TournamentTypeOptionView]
+
+
+@dataclass(frozen=True)
+class WeeklyTournamentFactItemView:
+    date: date
+    tournament_type_name: str | None
+
+
+@dataclass(frozen=True)
+class WeeklyTournamentFactView:
+    week_start: date
+    week_end: date
+    tournaments: list[WeeklyTournamentFactItemView]
 
 
 @dataclass(frozen=True)

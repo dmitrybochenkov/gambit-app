@@ -16,11 +16,13 @@ from app.db.repositories.tournament_type_repository import TournamentTypeReposit
 from app.db.session import SessionFactory
 from app.services.access_policy import access_policy
 from app.services.dto.schedules import (
-    TournamentPromptDayEditView,
-    TournamentPromptItemView,
+    TournamentPlanDayEditView,
+    TournamentPlanItemView,
     TournamentRebuyView,
     TournamentTypeDetailView,
     TournamentTypeOptionView,
+    WeeklyTournamentFactItemView,
+    WeeklyTournamentFactView,
     WeeklyTournamentPlanView,
 )
 from app.services.sunday_tournament_rotation import (
@@ -58,9 +60,15 @@ class CalendarTournamentTypeNotFoundError(ValueError):
 
 
 class WeeklyPlanningStatus(StrEnum):
-    EMPTY = "empty"
-    PARTIAL = "partial"
-    COMPLETE = "complete"
+    LATEST_WEEK_IN_PROGRESS = "latest_week_in_progress"
+    NEXT_WEEK_EMPTY = "next_week_empty"
+    NEXT_WEEK_PARTIAL = "next_week_partial"
+    NEXT_WEEK_COMPLETE = "next_week_complete"
+
+
+class LatestWeekState(StrEnum):
+    IN_PROGRESS = "in_progress"
+    FINISHED = "finished"
 
 
 WEDNESDAY_WEEKDAY = 2
@@ -187,6 +195,7 @@ class WeeklyTournamentPlan:
 class WeeklyPlanningCheckView:
     status: WeeklyPlanningStatus
     plan: WeeklyTournamentPlanView | None = None
+    schedule: WeeklyTournamentFactView | None = None
 
 
 class TournamentPlanningService:
@@ -219,8 +228,7 @@ class TournamentPlanningService:
         business_date = today or self.clock.today()
         async with self.session_factory() as session:
             await access_policy.require_superadmin(session, actor_telegram_id)
-            target_dates = await self._next_manual_target_dates(session, business_date)
-            return await self._inspect_target_dates(session, target_dates)
+            return await self._inspect_next_week_from_db(session, business_date)
 
     async def inspect_after_tournament_close(
         self,
@@ -229,15 +237,10 @@ class TournamentPlanningService:
     ) -> WeeklyPlanningCheckView:
         async with self.session_factory() as session:
             await access_policy.require_superadmin(session, actor_telegram_id)
-            closed_week_dates = week_dates_for(closed_tournament_date)
-            week_tournaments = await TournamentRepository(session).list_by_dates(closed_week_dates)
-            if not week_tournaments or any(
-                tournament.status == TournamentStatus.ACTIVE for tournament in week_tournaments
-            ):
-                return WeeklyPlanningCheckView(status=WeeklyPlanningStatus.COMPLETE)
-            return await self._inspect_target_dates(
+            return await self._inspect_next_week_from_db(
                 session,
-                next_complete_game_week(closed_week_dates[-1]),
+                self.clock.today(),
+                background=True,
             )
 
     async def list_tournament_type_options(
@@ -253,11 +256,11 @@ class TournamentPlanningService:
         actor_telegram_id: int,
         plan: WeeklyTournamentPlan,
         tournament_date: date,
-    ) -> TournamentPromptDayEditView:
+    ) -> TournamentPlanDayEditView:
         async with self.session_factory() as session:
             await access_policy.require_superadmin(session, actor_telegram_id)
             plan.item_by_date(tournament_date)
-            return TournamentPromptDayEditView(
+            return TournamentPlanDayEditView(
                 tournament_date=tournament_date,
                 tournament_types=await self._list_tournament_type_options(session),
             )
@@ -293,6 +296,13 @@ class TournamentPlanningService:
         async with self.session_factory() as session:
             try:
                 await access_policy.require_superadmin(session, actor_telegram_id)
+                planning = await self._inspect_next_week_from_db(session, self.clock.today())
+                if (
+                    planning.status != WeeklyPlanningStatus.NEXT_WEEK_EMPTY
+                    or planning.plan is None
+                    or tuple(item.date for item in planning.plan.tournaments) != plan.dates
+                ):
+                    raise CalendarTournamentDateAlreadyExistsError
                 await self._validate_plan_for_apply(session, plan)
                 season_repository = SeasonRepository(session)
                 tournament_repository = TournamentRepository(session)
@@ -322,37 +332,72 @@ class TournamentPlanningService:
         session: AsyncSession,
         today: date,
     ) -> WeeklyTournamentPlan:
-        target_dates = await self._next_manual_target_dates(session, today)
+        target_dates = await self._next_available_target_dates(session, today)
         return await self._build_plan_for_dates(session, target_dates)
 
-    async def _next_manual_target_dates(
+    async def _next_available_target_dates(
         self,
         session: AsyncSession,
         today: date,
     ) -> tuple[date, ...]:
-        target_dates = next_complete_game_week(today)
-        if await TournamentRepository(session).list_by_dates(target_dates):
-            return target_dates
         latest_tournament = await TournamentRepository(session).get_latest_tournament()
-        if latest_tournament is None or latest_tournament.date <= target_dates[-1]:
-            return target_dates
-        return next_complete_game_week(latest_tournament.date)
+        if latest_tournament is None:
+            return next_complete_game_week(today)
+        latest_week_dates = week_dates_for(latest_tournament.date)
+        latest_week_tournaments = await TournamentRepository(session).list_by_dates(
+            latest_week_dates
+        )
+        if latest_week_state(latest_week_tournaments) == LatestWeekState.IN_PROGRESS:
+            raise CalendarTournamentDateAlreadyExistsError
+        return next_complete_game_week(latest_week_dates[-1])
+
+    async def _inspect_next_week_from_db(
+        self,
+        session: AsyncSession,
+        today: date,
+        *,
+        background: bool = False,
+    ) -> WeeklyPlanningCheckView:
+        latest_tournament = await TournamentRepository(session).get_latest_tournament()
+        if latest_tournament is None:
+            return await self._inspect_target_dates(session, next_complete_game_week(today))
+
+        latest_week_dates = week_dates_for(latest_tournament.date)
+        latest_week_tournaments = await TournamentRepository(session).list_by_dates(
+            latest_week_dates
+        )
+        if latest_week_state(latest_week_tournaments) == LatestWeekState.IN_PROGRESS:
+            return WeeklyPlanningCheckView(
+                status=WeeklyPlanningStatus.LATEST_WEEK_IN_PROGRESS,
+                schedule=self._fact_view(latest_week_dates, latest_week_tournaments),
+            )
+
+        target_dates = next_complete_game_week(latest_week_dates[-1])
+        return await self._inspect_target_dates(session, target_dates, background=background)
 
     async def _inspect_target_dates(
         self,
         session: AsyncSession,
         target_dates: tuple[date, ...],
+        *,
+        background: bool = False,
     ) -> WeeklyPlanningCheckView:
         existing_tournaments = await TournamentRepository(session).list_by_dates(target_dates)
         if not existing_tournaments:
             plan = await self._build_plan_for_dates(session, target_dates)
             return WeeklyPlanningCheckView(
-                status=WeeklyPlanningStatus.EMPTY,
+                status=WeeklyPlanningStatus.NEXT_WEEK_EMPTY,
                 plan=await self.plan_view(session, plan),
             )
         if len({tournament.date for tournament in existing_tournaments}) < len(target_dates):
-            return WeeklyPlanningCheckView(status=WeeklyPlanningStatus.PARTIAL)
-        return WeeklyPlanningCheckView(status=WeeklyPlanningStatus.COMPLETE)
+            return WeeklyPlanningCheckView(
+                status=WeeklyPlanningStatus.NEXT_WEEK_PARTIAL,
+                schedule=self._fact_view(target_dates, existing_tournaments),
+            )
+        return WeeklyPlanningCheckView(
+            status=WeeklyPlanningStatus.NEXT_WEEK_COMPLETE,
+            schedule=(None if background else self._fact_view(target_dates, existing_tournaments)),
+        )
 
     async def _build_plan_for_dates(
         self,
@@ -454,7 +499,7 @@ class TournamentPlanningService:
         session: AsyncSession,
         plan: WeeklyTournamentPlan,
     ) -> WeeklyTournamentPlanView:
-        items: list[TournamentPromptItemView] = []
+        items: list[TournamentPlanItemView] = []
         for item in plan.tournaments:
             tournament_type = await self._tournament_type_detail(
                 session,
@@ -463,7 +508,7 @@ class TournamentPlanningService:
             if tournament_type is None:
                 raise CalendarTournamentTypeNotFoundError
             items.append(
-                TournamentPromptItemView(
+                TournamentPlanItemView(
                     date=item.date,
                     tournament_type=tournament_type,
                 )
@@ -472,6 +517,29 @@ class TournamentPlanningService:
             week_start=plan.dates[0],
             week_end=plan.dates[-1],
             tournaments=items,
+        )
+
+    def _fact_view(
+        self,
+        target_dates: tuple[date, ...],
+        tournaments: list[Tournament],
+    ) -> WeeklyTournamentFactView:
+        tournaments_by_date = {tournament.date: tournament for tournament in tournaments}
+        return WeeklyTournamentFactView(
+            week_start=target_dates[0],
+            week_end=target_dates[-1],
+            tournaments=[
+                WeeklyTournamentFactItemView(
+                    date=tournament_date,
+                    tournament_type_name=(
+                        tournaments_by_date[tournament_date].tournament_type.name
+                        if tournament_date in tournaments_by_date
+                        and tournaments_by_date[tournament_date].tournament_type is not None
+                        else None
+                    ),
+                )
+                for tournament_date in target_dates
+            ],
         )
 
     async def _list_tournament_type_options(
@@ -534,6 +602,12 @@ def week_dates_for(tournament_date: date) -> tuple[date, ...]:
         wednesday.fromordinal(wednesday.toordinal() + weekday - WEDNESDAY_WEEKDAY)
         for weekday in WEEKLY_PLAYING_WEEKDAYS
     )
+
+
+def latest_week_state(tournaments: list[Tournament]) -> LatestWeekState:
+    if any(tournament.status == TournamentStatus.ACTIVE for tournament in tournaments):
+        return LatestWeekState.IN_PROGRESS
+    return LatestWeekState.FINISHED
 
 
 def sunday_rotation_codes_for_templates(

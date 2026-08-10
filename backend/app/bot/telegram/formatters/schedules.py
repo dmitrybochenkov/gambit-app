@@ -39,17 +39,27 @@ PUBLIC_TOURNAMENT_DESCRIPTIONS = {
 }
 
 
-def prompt(prompt: object) -> str:
+def plan_preview(plan: object) -> str:
     lines = [calendar_texts.TOURNAMENTS_MANUAL_PROPOSAL_TITLE, ""]
-    for item in prompt.tournaments:
-        lines.append(_prompt_item_label(item))
+    for item in plan.tournaments:
+        lines.append(_plan_item_label(item))
     return "\n".join(lines)
 
 
-def created_prompt(prompt: object) -> str:
+def created_plan(plan: object) -> str:
     lines = [calendar_texts.TOURNAMENTS_CREATED_TITLE, ""]
-    for item in prompt.tournaments:
-        lines.append(_prompt_item_label(item))
+    for item in plan.tournaments:
+        lines.append(_plan_item_label(item))
+    return "\n".join(lines)
+
+
+def existing_week(schedule: object) -> str:
+    lines = []
+    for item in schedule.tournaments:
+        weekday = common_texts.WEEKDAYS[item.date.weekday()]
+        month = common_texts.MONTHS[item.date.month]
+        tournament_type_name = item.tournament_type_name or "не создан"
+        lines.append(f"{weekday}, {item.date.day} {month} — {tournament_type_name}")
     return "\n".join(lines)
 
 
@@ -61,7 +71,7 @@ def public_weekly(schedule: object) -> list[str]:
     return _split_messages(blocks)
 
 
-def _prompt_item_label(item: object) -> str:
+def _plan_item_label(item: object) -> str:
     weekday = common_texts.WEEKDAYS[item.date.weekday()]
     month = common_texts.MONTHS[item.date.month]
     return f"{weekday}, {item.date.day} {month} — {item.tournament_type.name}"

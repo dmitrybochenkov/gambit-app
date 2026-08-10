@@ -54,7 +54,7 @@ async def review_calendar_plan(
                 await _delete_callback_message(callback)
                 await callback.message.answer(
                     calendar_text.ADMIN_CALENDAR_EDIT_MENU,
-                    reply_markup=admin_schedule_kb.tournament_prompt_day_edit_keyboard(plan_view),
+                    reply_markup=admin_schedule_kb.tournament_plan_day_edit_keyboard(plan_view),
                 )
             await callback.answer()
             return
@@ -64,18 +64,18 @@ async def review_calendar_plan(
             if callback.message is not None:
                 await _delete_callback_message(callback)
                 await callback.message.answer(
-                    schedule_fmt.prompt(plan_view),
-                    reply_markup=admin_schedule_kb.manual_tournaments_prompt_keyboard(plan_view),
+                    schedule_fmt.plan_preview(plan_view),
+                    reply_markup=admin_schedule_kb.manual_tournaments_plan_keyboard(plan_view),
                 )
             await callback.answer()
             return
 
         if callback_data.action == admin_calendar_kb.CalendarPlanAction.CANCEL:
             await state.clear()
-            await callback.answer(calendar_text.CALENDAR_PROMPT_CANCELLED)
+            await callback.answer(calendar_text.CALENDAR_PLAN_CANCELLED)
             if callback.message is not None:
                 await _delete_callback_message(callback)
-                await callback.message.answer(calendar_text.CALENDAR_PROMPT_CANCELLED)
+                await callback.message.answer(calendar_text.CALENDAR_PLAN_CANCELLED)
             return
 
         plan = await _plan_from_state_or_service(callback.from_user.id, state)
@@ -92,7 +92,7 @@ async def review_calendar_plan(
         return
     except CalendarPlanStaleError:
         await state.clear()
-        await callback.answer(calendar_text.CALENDAR_PROMPT_STALE, show_alert=True)
+        await callback.answer(calendar_text.CALENDAR_PLAN_STALE, show_alert=True)
         return
     except CalendarTournamentDateAlreadyExistsError:
         await callback.answer(calendar_text.ADMIN_CALENDAR_TOURNAMENT_DATE_EXISTS)
@@ -109,22 +109,22 @@ async def review_calendar_plan(
         CalendarTournamentTypeNotFoundError,
         CalendarWeeklyPlanIntegrityError,
     ):
-        await callback.answer(calendar_text.CALENDAR_PROMPT_NOT_FOUND, show_alert=True)
+        await callback.answer(calendar_text.CALENDAR_PLAN_NOT_FOUND, show_alert=True)
         return
 
     await state.clear()
     await callback.answer(calendar_text.ADMIN_CALENDAR_TOURNAMENTS_CREATED)
     if callback.message is not None:
         await _delete_callback_message(callback)
-        await callback.message.answer(schedule_fmt.created_prompt(created_plan))
+        await callback.message.answer(schedule_fmt.created_plan(created_plan))
         for schedule_message in schedule_fmt.public_weekly(schedule):
             await callback.message.answer(schedule_message)
 
 
-@router.callback_query(admin_schedule_kb.TournamentPromptDayEditCallback.filter())
-async def select_tournament_prompt_day(
+@router.callback_query(admin_schedule_kb.TournamentPlanDayEditCallback.filter())
+async def select_tournament_plan_day(
     callback: CallbackQuery,
-    callback_data: admin_schedule_kb.TournamentPromptDayEditCallback,
+    callback_data: admin_schedule_kb.TournamentPlanDayEditCallback,
     state: FSMContext,
 ) -> None:
     try:
@@ -144,7 +144,7 @@ async def select_tournament_prompt_day(
         CalendarTournamentDateNotInPlanError,
         CalendarWeeklyPlanIntegrityError,
     ):
-        await callback.answer(calendar_text.CALENDAR_PROMPT_STALE, show_alert=True)
+        await callback.answer(calendar_text.CALENDAR_PLAN_STALE, show_alert=True)
         return
 
     await callback.answer()
@@ -185,15 +185,15 @@ async def select_tournament_type(
         CalendarTournamentTypeNotFoundError,
         CalendarWeeklyPlanIntegrityError,
     ):
-        await callback.answer(calendar_text.CALENDAR_PROMPT_STALE, show_alert=True)
+        await callback.answer(calendar_text.CALENDAR_PLAN_STALE, show_alert=True)
         return
 
-    await callback.answer(calendar_text.CALENDAR_PROMPT_CONFIRMED)
+    await callback.answer(calendar_text.CALENDAR_PLAN_CONFIRMED)
     if callback.message is not None:
         await _delete_callback_message(callback)
         await callback.message.answer(
-            schedule_fmt.prompt(plan_view),
-            reply_markup=admin_schedule_kb.manual_tournaments_prompt_keyboard(plan_view),
+            schedule_fmt.plan_preview(plan_view),
+            reply_markup=admin_schedule_kb.manual_tournaments_plan_keyboard(plan_view),
         )
 
 

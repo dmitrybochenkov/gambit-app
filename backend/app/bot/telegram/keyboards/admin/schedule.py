@@ -5,10 +5,10 @@ from aiogram.utils.keyboard import InlineKeyboardBuilder
 from app.bot.telegram.keyboards import labels
 from app.bot.telegram.keyboards.admin.calendar import CalendarPlanAction, CalendarPlanCallback
 from app.bot.telegram.texts import common as common_texts
-from app.services.dto.schedules import TournamentPromptDayEditView, WeeklyTournamentPlanView
+from app.services.dto.schedules import TournamentPlanDayEditView, WeeklyTournamentPlanView
 
 
-class TournamentPromptDayEditCallback(CallbackData, prefix="tour_prompt_day"):
+class TournamentPlanDayEditCallback(CallbackData, prefix="tour_plan_day"):
     tournament_date: str
 
 
@@ -17,7 +17,7 @@ class TournamentTypeEditCallback(CallbackData, prefix="tournament_type_edit"):
     tournament_type_id: int
 
 
-def manual_tournaments_prompt_keyboard(plan: WeeklyTournamentPlanView) -> InlineKeyboardMarkup:
+def manual_tournaments_plan_keyboard(plan: WeeklyTournamentPlanView) -> InlineKeyboardMarkup:
     builder = InlineKeyboardBuilder()
     builder.button(
         text="Изменить",
@@ -35,12 +35,12 @@ def manual_tournaments_prompt_keyboard(plan: WeeklyTournamentPlanView) -> Inline
     return builder.as_markup()
 
 
-def tournament_prompt_day_edit_keyboard(plan: WeeklyTournamentPlanView) -> InlineKeyboardMarkup:
+def tournament_plan_day_edit_keyboard(plan: WeeklyTournamentPlanView) -> InlineKeyboardMarkup:
     builder = InlineKeyboardBuilder()
     for item in plan.tournaments:
         builder.button(
             text=common_texts.WEEKDAYS[item.date.weekday()],
-            callback_data=TournamentPromptDayEditCallback(
+            callback_data=TournamentPlanDayEditCallback(
                 tournament_date=item.date.isoformat(),
             ),
         )
@@ -53,7 +53,7 @@ def tournament_prompt_day_edit_keyboard(plan: WeeklyTournamentPlanView) -> Inlin
 
 
 def tournament_type_edit_keyboard(
-    edit_view: TournamentPromptDayEditView,
+    edit_view: TournamentPlanDayEditView,
 ) -> InlineKeyboardMarkup:
     builder = InlineKeyboardBuilder()
     for tournament_type in edit_view.tournament_types:

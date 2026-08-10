@@ -74,6 +74,29 @@ async def seed_calendar_data(session_factory: async_sessionmaker) -> None:
         await session.commit()
 
 
+async def seed_week_tournaments(
+    session_factory: async_sessionmaker,
+    *,
+    dates: list[date],
+    status: TournamentStatus,
+    tournament_type_id: int = 1,
+) -> None:
+    async with session_factory() as session:
+        session.add_all(
+            [
+                Tournament(
+                    season_id=1,
+                    tournament_type_id=tournament_type_id,
+                    date=tournament_date,
+                    tournament_fund=10 if status == TournamentStatus.CLOSED else None,
+                    status=status,
+                )
+                for tournament_date in dates
+            ]
+        )
+        await session.commit()
+
+
 async def test_next_complete_game_week_uses_wednesday_to_sunday() -> None:
     assert next_complete_game_week(date(2026, 8, 9)) == (
         date(2026, 8, 12),
@@ -218,59 +241,91 @@ async def test_manual_planning_check_reports_empty_partial_and_complete(
         await seed_calendar_data(session_factory)
 
         empty = await service.inspect_next_week(100)
-        assert empty.status == WeeklyPlanningStatus.EMPTY
+        assert empty.status == WeeklyPlanningStatus.NEXT_WEEK_EMPTY
         assert empty.plan is not None
         assert len(empty.plan.tournaments) == 5
 
-        async with session_factory() as session:
-            session.add(
-                Tournament(
-                    season_id=1,
-                    tournament_type_id=1,
-                    date=date(2026, 8, 12),
-                    status=TournamentStatus.ACTIVE,
-                )
+        await seed_week_tournaments(
+            session_factory,
+            dates=[date(2026, 8, 12)],
+            status=TournamentStatus.ACTIVE,
+        )
+
+        in_progress = await service.inspect_next_week(100)
+        assert in_progress.status == WeeklyPlanningStatus.LATEST_WEEK_IN_PROGRESS
+        assert in_progress.schedule is not None
+        assert in_progress.schedule.tournaments[0].tournament_type_name == "Баунти турнир"
+        assert in_progress.schedule.tournaments[1].tournament_type_name is None
+    finally:
+        await engine.dispose()
+
+
+async def test_manual_planning_uses_db_progression_not_today(
+    tmp_path: Path,
+) -> None:
+    for today in [date(2026, 8, 10), date(2026, 8, 12), date(2026, 8, 16)]:
+        service, session_factory, engine = await create_planning_service(
+            tmp_path / f"blocked-{today.isoformat()}.db",
+            today=today,
+        )
+        try:
+            await seed_calendar_data(session_factory)
+            await seed_week_tournaments(
+                session_factory,
+                dates=[
+                    date(2026, 8, 12),
+                    date(2026, 8, 13),
+                    date(2026, 8, 14),
+                    date(2026, 8, 15),
+                    date(2026, 8, 16),
+                ],
+                status=TournamentStatus.ACTIVE,
             )
-            await session.commit()
 
-        partial = await service.inspect_next_week(100)
-        assert partial.status == WeeklyPlanningStatus.PARTIAL
-        assert partial.plan is None
+            planning = await service.inspect_next_week(100)
 
-        async with session_factory() as session:
-            session.add_all(
-                [
-                    Tournament(
-                        season_id=1,
-                        tournament_type_id=2,
-                        date=date(2026, 8, 13),
-                        status=TournamentStatus.ACTIVE,
-                    ),
-                    Tournament(
-                        season_id=1,
-                        tournament_type_id=3,
-                        date=date(2026, 8, 14),
-                        status=TournamentStatus.ACTIVE,
-                    ),
-                    Tournament(
-                        season_id=1,
-                        tournament_type_id=4,
-                        date=date(2026, 8, 15),
-                        status=TournamentStatus.ACTIVE,
-                    ),
-                    Tournament(
-                        season_id=1,
-                        tournament_type_id=5,
-                        date=date(2026, 8, 16),
-                        status=TournamentStatus.ACTIVE,
-                    ),
-                ]
-            )
-            await session.commit()
+            assert planning.status == WeeklyPlanningStatus.LATEST_WEEK_IN_PROGRESS
+            assert planning.plan is None
+            assert planning.schedule is not None
+            assert [item.date for item in planning.schedule.tournaments] == [
+                date(2026, 8, 12),
+                date(2026, 8, 13),
+                date(2026, 8, 14),
+                date(2026, 8, 15),
+                date(2026, 8, 16),
+            ]
+        finally:
+            await engine.dispose()
 
-        complete = await service.inspect_next_week(100)
-        assert complete.status == WeeklyPlanningStatus.COMPLETE
-        assert complete.plan is None
+
+async def test_finished_latest_week_with_missing_sunday_allows_next_week(
+    tmp_path: Path,
+) -> None:
+    service, session_factory, engine = await create_planning_service(tmp_path / "missing-sun.db")
+    try:
+        await seed_calendar_data(session_factory)
+        await seed_week_tournaments(
+            session_factory,
+            dates=[
+                date(2026, 8, 12),
+                date(2026, 8, 13),
+                date(2026, 8, 14),
+                date(2026, 8, 15),
+            ],
+            status=TournamentStatus.CLOSED,
+        )
+
+        planning = await service.inspect_next_week(100)
+
+        assert planning.status == WeeklyPlanningStatus.NEXT_WEEK_EMPTY
+        assert planning.plan is not None
+        assert [item.date for item in planning.plan.tournaments] == [
+            date(2026, 8, 19),
+            date(2026, 8, 20),
+            date(2026, 8, 21),
+            date(2026, 8, 22),
+            date(2026, 8, 23),
+        ]
     finally:
         await engine.dispose()
 
@@ -325,7 +380,7 @@ async def test_close_trigger_inspects_next_week_after_week_is_finished(
 
         planning = await service.inspect_after_tournament_close(100, date(2026, 8, 16))
 
-        assert planning.status == WeeklyPlanningStatus.EMPTY
+        assert planning.status == WeeklyPlanningStatus.NEXT_WEEK_EMPTY
         assert planning.plan is not None
         assert [item.date for item in planning.plan.tournaments] == [
             date(2026, 8, 19),
@@ -334,6 +389,31 @@ async def test_close_trigger_inspects_next_week_after_week_is_finished(
             date(2026, 8, 22),
             date(2026, 8, 23),
         ]
+    finally:
+        await engine.dispose()
+
+
+async def test_closing_old_week_does_not_trigger_when_newer_week_is_active(
+    tmp_path: Path,
+) -> None:
+    service, session_factory, engine = await create_planning_service(tmp_path / "old-close.db")
+    try:
+        await seed_calendar_data(session_factory)
+        await seed_week_tournaments(
+            session_factory,
+            dates=[date(2026, 8, 5)],
+            status=TournamentStatus.CLOSED,
+        )
+        await seed_week_tournaments(
+            session_factory,
+            dates=[date(2026, 8, 12)],
+            status=TournamentStatus.ACTIVE,
+        )
+
+        planning = await service.inspect_after_tournament_close(100, date(2026, 8, 5))
+
+        assert planning.status == WeeklyPlanningStatus.LATEST_WEEK_IN_PROGRESS
+        assert planning.plan is None
     finally:
         await engine.dispose()
 

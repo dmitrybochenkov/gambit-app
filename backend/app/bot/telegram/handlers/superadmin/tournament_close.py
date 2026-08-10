@@ -220,15 +220,22 @@ async def _send_calendar_planning_notification_after_close(
         logger.exception("Failed to inspect weekly tournament planning after close")
         return
 
-    if planning.status == WeeklyPlanningStatus.EMPTY and planning.plan is not None:
+    if planning.status == WeeklyPlanningStatus.NEXT_WEEK_EMPTY and planning.plan is not None:
         await callback.message.answer(calendar_text.ADMIN_CALENDAR_TOURNAMENT_WEEK_EMPTY)
         await callback.message.answer(
-            schedule_fmt.prompt(planning.plan),
-            reply_markup=admin_schedule_kb.manual_tournaments_prompt_keyboard(planning.plan),
+            schedule_fmt.plan_preview(planning.plan),
+            reply_markup=admin_schedule_kb.manual_tournaments_plan_keyboard(planning.plan),
         )
         return
-    if planning.status == WeeklyPlanningStatus.PARTIAL:
-        await callback.message.answer(calendar_text.ADMIN_CALENDAR_TOURNAMENT_WEEK_PARTIAL)
+    if planning.status == WeeklyPlanningStatus.NEXT_WEEK_PARTIAL and planning.schedule is not None:
+        await callback.message.answer(
+            "\n\n".join(
+                [
+                    calendar_text.ADMIN_CALENDAR_TOURNAMENT_WEEK_PARTIAL,
+                    schedule_fmt.existing_week(planning.schedule),
+                ]
+            )
+        )
 
 
 async def _send_close_tournament_card(

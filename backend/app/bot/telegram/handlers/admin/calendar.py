@@ -26,6 +26,7 @@ from app.services.season_service import (
 from app.services.tournament_planning_service import (
     CalendarDefaultTournamentTypeNotFoundError,
     CalendarWeeklyPlanIntegrityError,
+    WeeklyPlanningCheckView,
     WeeklyPlanningStatus,
     tournament_planning_service,
 )
@@ -126,18 +127,62 @@ async def select_admin_calendar_section(
         CalendarDefaultTournamentTypeNotFoundError,
         CalendarWeeklyPlanIntegrityError,
     ):
-        await callback.answer(calendar_text.CALENDAR_PROMPT_NOT_FOUND, show_alert=True)
+        await callback.answer(calendar_text.CALENDAR_PLAN_NOT_FOUND, show_alert=True)
         return
 
     await state.clear()
     await callback.answer()
     if callback.message is not None:
-        if planning.status == WeeklyPlanningStatus.EMPTY and planning.plan is not None:
-            await callback.message.answer(calendar_text.ADMIN_CALENDAR_TOURNAMENT_WEEK_EMPTY)
-            await callback.message.answer(
-                schedule_fmt.prompt(planning.plan),
-                reply_markup=admin_schedule_kb.manual_tournaments_prompt_keyboard(planning.plan),
+        await send_planning_state_messages(callback.message, planning, include_controls=True)
+
+
+async def send_planning_state_messages(
+    message: Message,
+    planning: WeeklyPlanningCheckView,
+    *,
+    include_controls: bool,
+) -> None:
+    if planning.status == WeeklyPlanningStatus.NEXT_WEEK_EMPTY and planning.plan is not None:
+        await message.answer(calendar_text.ADMIN_CALENDAR_TOURNAMENT_WEEK_EMPTY)
+        await message.answer(
+            schedule_fmt.plan_preview(planning.plan),
+            reply_markup=(
+                admin_schedule_kb.manual_tournaments_plan_keyboard(planning.plan)
+                if include_controls
+                else None
+            ),
+        )
+        return
+    if (
+        planning.status == WeeklyPlanningStatus.LATEST_WEEK_IN_PROGRESS
+        and planning.schedule is not None
+    ):
+        await message.answer(
+            "\n\n".join(
+                [
+                    calendar_text.ADMIN_CALENDAR_TOURNAMENT_WEEK_IN_PROGRESS,
+                    schedule_fmt.existing_week(planning.schedule),
+                    calendar_text.ADMIN_CALENDAR_TOURNAMENT_WEEK_IN_PROGRESS_HINT,
+                ]
             )
-            return
-        if planning.status == WeeklyPlanningStatus.PARTIAL:
-            await callback.message.answer(calendar_text.ADMIN_CALENDAR_TOURNAMENT_WEEK_PARTIAL)
+        )
+        return
+    if planning.status == WeeklyPlanningStatus.NEXT_WEEK_PARTIAL and planning.schedule is not None:
+        await message.answer(
+            "\n\n".join(
+                [
+                    calendar_text.ADMIN_CALENDAR_TOURNAMENT_WEEK_PARTIAL,
+                    schedule_fmt.existing_week(planning.schedule),
+                ]
+            )
+        )
+        return
+    if planning.status == WeeklyPlanningStatus.NEXT_WEEK_COMPLETE and planning.schedule is not None:
+        await message.answer(
+            "\n\n".join(
+                [
+                    calendar_text.ADMIN_CALENDAR_TOURNAMENT_WEEK_COMPLETE,
+                    schedule_fmt.existing_week(planning.schedule),
+                ]
+            )
+        )
