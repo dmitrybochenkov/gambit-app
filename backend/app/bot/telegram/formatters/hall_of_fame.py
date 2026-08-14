@@ -22,7 +22,7 @@ def season_card(entry: object) -> str:
             "💍 Чемпион:",
             _display_name(entry.champion),
             "",
-            "🥊 Нокаутер:",
+            "💥 Нокаутер:",
             _display_name(entry.knockout_leader),
         ]
     )

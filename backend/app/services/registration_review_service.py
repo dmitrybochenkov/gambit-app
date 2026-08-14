@@ -6,6 +6,7 @@ from app.db.factories import create_user
 from app.db.models import RegistrationRequest, User
 from app.db.models.enums import RegistrationRequestStatus, RegistrationRequestType, UserStatus
 from app.db.repositories.registration_request_repository import RegistrationRequestRepository
+from app.db.repositories.tournament_registration_repository import TournamentRegistrationRepository
 from app.db.repositories.user_repository import UserRepository
 from app.db.session import SessionFactory
 from app.services.access_policy import access_policy
@@ -14,6 +15,8 @@ from app.services.dto.registrations import (
     RegistrationNotificationView,
     RegistrationReviewResultView,
     RegistrationReviewView,
+    RegistrationsOverviewView,
+    TournamentRegistrationCountView,
 )
 from app.services.pagination import Page
 from app.services.registration_service import RegistrationService, find_link_candidates
@@ -96,6 +99,33 @@ class RegistrationReviewService:
                 page=normalized_page,
                 page_size=page_size,
                 total_items=total_items,
+            )
+
+    async def get_registrations_overview_for_superadmin(
+        self,
+        superadmin_telegram_id: int,
+    ) -> RegistrationsOverviewView:
+        async with self.session_factory() as session:
+            await access_policy.require_superadmin(session, superadmin_telegram_id)
+            request_repository = RegistrationRequestRepository(session)
+            tournament_registrations = TournamentRegistrationRepository(session)
+            tournaments = (
+                await tournament_registrations.list_active_tournament_registration_counts()
+            )
+            return RegistrationsOverviewView(
+                pending_user_registration_count=await request_repository.count_pending(),
+                active_tournament_registration_count=sum(
+                    row.registrations_count for row in tournaments
+                ),
+                tournaments=[
+                    TournamentRegistrationCountView(
+                        tournament_id=row.tournament_id,
+                        date=row.tournament_date,
+                        tournament_type_name=row.tournament_type_name,
+                        registrations_count=row.registrations_count,
+                    )
+                    for row in tournaments
+                ],
             )
 
     async def get_registration_review_for_admin(

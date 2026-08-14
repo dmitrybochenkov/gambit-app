@@ -41,6 +41,17 @@ When `PUBLIC_BASE_URL` is set, webhook deployment requires
 `TELEGRAM_WEBHOOK_SECRET`. Startup fails without it, and webhook updates without
 the matching `X-Telegram-Bot-Api-Secret-Token` header are rejected.
 
+Optional Telegram publication destinations can be configured in the environment:
+
+```env
+TELEGRAM_CLUB_CHAT_ID=
+TELEGRAM_CLUB_CHANNEL_ID=
+```
+
+Empty values mean that the destination is not configured. These settings only
+prepare the runtime configuration; schedule/result publication flows are wired
+separately.
+
 ## Fresh DB Bootstrap
 
 After `alembic upgrade head` on a clean database, create the first superadmin

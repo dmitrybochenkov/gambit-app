@@ -14,22 +14,17 @@ def message(seasons: list) -> str:
     lines.extend(
         [
             "💍 — победитель сезона",
-            "🥊 — лучший нокаутер сезона",
+            "💥 — лучший нокаутер сезона",
         ]
     )
     for season in seasons:
-        lines.extend(
-            [
-                "",
-                fmt_common.markdown_escape(season.season_name),
-                _line("💍", season.champion_display_name),
-                _line("🥊", season.knockout_leader_display_name),
-            ]
-        )
+        lines.extend(["", fmt_common.markdown_escape(season.season_name)])
+        lines.extend(_optional_line("💍", season.champion_display_name))
+        lines.extend(_optional_line("💥", season.knockout_leader_display_name))
     return "\n".join(lines)
 
 
-def _line(icon: str, display_name: str | None) -> str:
+def _optional_line(icon: str, display_name: str | None) -> list[str]:
     if display_name is None:
-        return f"{icon} — нет данных"
-    return f"{icon} {fmt_common.markdown_escape(display_name)}"
+        return []
+    return [f"{icon} {fmt_common.markdown_escape(display_name)}"]

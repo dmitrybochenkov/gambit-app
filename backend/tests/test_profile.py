@@ -379,6 +379,13 @@ async def test_profile_selected_season_and_picker_exclude_future(tmp_path: Path)
         session.add(config)
         await session.flush()
         await seed_tournament_types_async(session)
+        hidden = Season(
+            name="Сезон 1",
+            scoring_config_id=config.id,
+            starts_at=date(2026, 1, 1),
+            ends_at=date(2026, 3, 31),
+            is_statistics_visible=False,
+        )
         completed = Season(
             name="Весна 2026",
             scoring_config_id=config.id,
@@ -398,8 +405,15 @@ async def test_profile_selected_season_and_picker_exclude_future(tmp_path: Path)
             ends_at=None,
         )
         player = build_player(telegram_id=100, display_name="Игрок")
-        session.add_all([completed, current, future, player])
+        session.add_all([hidden, completed, current, future, player])
         await session.flush()
+        hidden_tournament = Tournament(
+            season_id=hidden.id,
+            tournament_type_id=tournament_type_id("classic"),
+            date=date(2026, 1, 10),
+            status=TournamentStatus.CLOSED,
+            tournament_fund=1000,
+        )
         completed_tournament = Tournament(
             season_id=completed.id,
             tournament_type_id=tournament_type_id("classic"),
@@ -414,10 +428,15 @@ async def test_profile_selected_season_and_picker_exclude_future(tmp_path: Path)
             status=TournamentStatus.CLOSED,
             tournament_fund=1000,
         )
-        session.add_all([completed_tournament, current_tournament])
+        session.add_all([hidden_tournament, completed_tournament, current_tournament])
         await session.flush()
         session.add_all(
             [
+                TournamentResult(
+                    tournament_id=hidden_tournament.id,
+                    player_id=player.id,
+                    tournament_points=Decimal("50"),
+                ),
                 TournamentResult(
                     tournament_id=completed_tournament.id,
                     player_id=player.id,
@@ -443,11 +462,18 @@ async def test_profile_selected_season_and_picker_exclude_future(tmp_path: Path)
             season_id=completed_id,
             today=date(2026, 8, 10),
         )
+        _all_time_title, all_time_stats = await service.get_profile_for_player(
+            100,
+            ProfileKind.ALL_TIME,
+            today=date(2026, 8, 10),
+        )
 
         assert [season.name for season in seasons] == ["Лето 2026", "Весна 2026"]
         assert title == "Твой профиль — Весна 2026"
         assert stats is not None
         assert stats.total_points == Decimal("100")
+        assert all_time_stats is not None
+        assert all_time_stats.total_points == Decimal("350")
         with pytest.raises(ProfileFutureSeasonError):
             await service.get_profile_for_player(
                 100,

@@ -94,6 +94,17 @@ class SeasonRepository:
         )
         return list(result.scalars())
 
+    async def list_started_visible_for_statistics(self, target_date: date) -> list[Season]:
+        result = await self.session.execute(
+            select(Season)
+            .where(
+                Season.starts_at <= target_date,
+                Season.is_statistics_visible.is_(True),
+            )
+            .order_by(Season.starts_at.desc(), Season.id.desc())
+        )
+        return list(result.scalars())
+
     async def list_all_ordered(self) -> list[Season]:
         result = await self.session.execute(select(Season).order_by(Season.starts_at, Season.id))
         return list(result.scalars())

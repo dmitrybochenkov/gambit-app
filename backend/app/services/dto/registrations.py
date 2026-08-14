@@ -1,4 +1,5 @@
 from dataclasses import dataclass
+from datetime import date
 
 from app.services.dto.users import UserView
 
@@ -47,3 +48,26 @@ class RegistrationReviewResultView:
     user: UserView | None
     request: RegistrationRequestView
     admins: list[UserView]
+
+
+@dataclass(frozen=True)
+class TournamentRegistrationCountView:
+    tournament_id: int
+    date: date
+    tournament_type_name: str
+    registrations_count: int
+
+
+@dataclass(frozen=True)
+class RegistrationsOverviewView:
+    pending_user_registration_count: int
+    active_tournament_registration_count: int
+    tournaments: list[TournamentRegistrationCountView]
+
+    @property
+    def has_user_registrations(self) -> bool:
+        return self.pending_user_registration_count > 0
+
+    @property
+    def has_tournament_registrations(self) -> bool:
+        return self.active_tournament_registration_count > 0

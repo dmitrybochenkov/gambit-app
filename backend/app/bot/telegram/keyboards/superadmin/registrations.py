@@ -11,6 +11,17 @@ from app.services.pagination import Page
 REGISTRATION_LIST_PAGE_SIZE = 5
 
 
+class RegistrationsHubAction(StrEnum):
+    USER_REQUESTS = "user_requests"
+    TOURNAMENTS = "tournaments"
+    BACK = "back"
+    CANCEL = "cancel"
+
+
+class RegistrationsHubCallback(CallbackData, prefix="registrations_hub"):
+    action: RegistrationsHubAction
+
+
 class RegistrationReviewAction(StrEnum):
     APPROVE = "approve"
     REJECT = "reject"
@@ -54,6 +65,39 @@ class RegistrationListCallback(CallbackData, prefix="registration_list"):
     action: RegistrationListAction
     page: int
     request_id: int
+
+
+def registrations_hub_keyboard() -> InlineKeyboardMarkup:
+    builder = InlineKeyboardBuilder()
+    builder.button(
+        text=labels.REGISTRATIONS_USER_REQUESTS,
+        callback_data=RegistrationsHubCallback(action=RegistrationsHubAction.USER_REQUESTS),
+    )
+    builder.button(
+        text=labels.REGISTRATIONS_TOURNAMENTS,
+        callback_data=RegistrationsHubCallback(action=RegistrationsHubAction.TOURNAMENTS),
+    )
+    builder.button(
+        text=labels.ADMIN_CANCEL,
+        callback_data=RegistrationsHubCallback(action=RegistrationsHubAction.CANCEL),
+    )
+    builder.adjust(1)
+    return builder.as_markup()
+
+
+def tournament_registrations_keyboard(*, can_go_back: bool) -> InlineKeyboardMarkup:
+    builder = InlineKeyboardBuilder()
+    if can_go_back:
+        builder.button(
+            text="⬅️ Назад",
+            callback_data=RegistrationsHubCallback(action=RegistrationsHubAction.BACK),
+        )
+    builder.button(
+        text=labels.ADMIN_CANCEL,
+        callback_data=RegistrationsHubCallback(action=RegistrationsHubAction.CANCEL),
+    )
+    builder.adjust(1)
+    return builder.as_markup()
 
 
 def registration_review_keyboard(

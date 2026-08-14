@@ -118,7 +118,12 @@ class ResultService:
             tournaments = await TournamentRepository(session).list_active_on_or_before(
                 business_date
             )
-            return [tournament_view(tournament) for tournament in tournaments]
+            ready_tournaments: list[TournamentView] = []
+            for tournament in tournaments:
+                view = await self._results_view(session, tournament.id)
+                if not self._validate_game_results(view):
+                    ready_tournaments.append(tournament_view(tournament))
+            return ready_tournaments
 
     async def get_tournament_results(
         self,

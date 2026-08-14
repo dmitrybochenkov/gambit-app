@@ -24,6 +24,10 @@ REGISTRATION_NOT_ALLOWED = "Повторная регистрация недос
 REGISTRATION_PENDING = "Ваша заявка ожидает рассмотрения."
 REGISTRATION_SUBMITTED = "Заявка отправлена. Ожидайте одобрения."
 REGISTRATION_CANCELLED = "Отмена."
+REGISTRATION_APPROVED = "Ваша заявка одобрена."
+REGISTRATION_REJECTED = (
+    "Ваша заявка отклонена.\n\nТы не зарегистрирован/а. Попробуй другое имя игрока через /start."
+)
 
 
 def new_player_confirmation(display_name: str) -> str:

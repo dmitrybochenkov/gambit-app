@@ -49,6 +49,24 @@ def test_admin_prompts_table_is_removed(session: Session) -> None:
     assert "admin_prompts" not in tables
 
 
+def test_new_season_defaults_to_statistics_visible(session: Session) -> None:
+    scoring_config = ScoringConfig()
+    session.add(scoring_config)
+    session.flush()
+    session.add(
+        Season(
+            name="Visible season",
+            scoring_config_id=scoring_config.id,
+            starts_at=date(2026, 1, 1),
+        )
+    )
+
+    session.commit()
+
+    season = session.query(Season).filter_by(name="Visible season").one()
+    assert season.is_statistics_visible is True
+
+
 @pytest.mark.parametrize(
     ("table_name", "column_name", "invalid_value", "insert_sql"),
     [

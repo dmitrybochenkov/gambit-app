@@ -64,7 +64,7 @@ async def show_close_tournament_flow(message: Message, state: FSMContext) -> Non
 
     if not tournaments:
         await message.answer(
-            "Нет незакрытых турниров.",
+            text.NO_READY_TOURNAMENTS,
             reply_markup=superadmin_panel_kb.superadmin_panel_keyboard(),
         )
         return

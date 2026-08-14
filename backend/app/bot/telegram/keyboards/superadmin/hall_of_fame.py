@@ -125,7 +125,7 @@ def season_card_keyboard(*, season_id: int, page: int) -> InlineKeyboardMarkup:
         ),
     )
     builder.button(
-        text="🥊 Выбрать нокаутера",
+        text="💥 Выбрать нокаутера",
         callback_data=HallOfFameCardCallback(
             action=HallOfFameCardAction.CHOOSE_KNOCKOUT,
             season_id=season_id,

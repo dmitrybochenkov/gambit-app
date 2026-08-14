@@ -89,6 +89,8 @@ from app.services.dto.registrations import (
     RegistrationRequestView,
     RegistrationReviewResultView,
     RegistrationReviewView,
+    RegistrationsOverviewView,
+    TournamentRegistrationCountView,
 )
 from app.services.dto.results import TournamentResultPlayerView, TournamentResultsView
 from app.services.dto.schedules import (
@@ -1223,6 +1225,28 @@ def registration_review(player_id: int) -> RegistrationReviewView:
             created_at="27.07.2026 12:00",
         ),
         candidates=[],
+    )
+
+
+def registrations_overview(
+    *,
+    pending_count: int = 0,
+    tournament_count: int = 0,
+) -> RegistrationsOverviewView:
+    tournaments = []
+    if tournament_count:
+        tournaments.append(
+            TournamentRegistrationCountView(
+                tournament_id=1,
+                date=date(2026, 8, 19),
+                tournament_type_name="Баунти",
+                registrations_count=tournament_count,
+            )
+        )
+    return RegistrationsOverviewView(
+        pending_user_registration_count=pending_count,
+        active_tournament_registration_count=tournament_count,
+        tournaments=tournaments,
     )
 
 
@@ -2756,10 +2780,10 @@ async def test_hall_of_fame_button_shows_message(
     assert answer.args[0] == (
         "🏆 Зал славы\n\n"
         "💍 — победитель сезона\n"
-        "🥊 — лучший нокаутер сезона\n\n"
+        "💥 — лучший нокаутер сезона\n\n"
         "Сезон 2026\n"
         "💍 Иван\n"
-        "🥊 Петр"
+        "💥 Петр"
     )
     assert inline_keyboard_texts(answer.kwargs["reply_markup"]) == ["❌ Закрыть"]
     assert answer.kwargs["parse_mode"] == "Markdown"
@@ -2850,7 +2874,7 @@ async def test_superadmin_hall_of_fame_opens_card_and_searches_candidate(
     assert "Не выбран" in message.edit_text.await_args.args[0]
     assert inline_keyboard_texts(message.edit_text.await_args.kwargs["reply_markup"]) == [
         "💍 Выбрать чемпиона",
-        "🥊 Выбрать нокаутера",
+        "💥 Выбрать нокаутера",
         "⬅️ Назад",
         "❌ Отмена",
     ]
@@ -3697,9 +3721,9 @@ async def test_superadmin_panel_button_opens_superadmin_keyboard(
     assert message.answer.await_args.args[0] == "Суперадмин."
     reply_markup = message.answer.await_args.kwargs["reply_markup"]
     assert keyboard_rows(reply_markup) == [
-        ["📝 Регистрации", "➕ Добавить администратора"],
-        ["🗓 Календарь", "🔒 Закрыть турнир"],
-        ["🔧 Наполнить зал славы", "✏️ Переименовать пользователя"],
+        ["📝 Регистрации", "✏️ Переименовать пользователя"],
+        ["🔒 Закрыть турнир", "➕ Добавить администратора"],
+        ["🗓 Календарь", "🔧 Наполнить зал славы"],
         ["⬅️ Админка"],
     ]
     assert "📝 Заявки на регистрацию" not in keyboard_texts(reply_markup)
@@ -4722,6 +4746,9 @@ async def test_admin_panel_registration_requests_button_shows_pending(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     service = SimpleNamespace(
+        get_registrations_overview_for_superadmin=AsyncMock(
+            return_value=registrations_overview(),
+        ),
         list_pending_reviews_page_for_superadmin=AsyncMock(
             return_value=Page(items=[], page=0, page_size=5, total_items=0)
         ),
@@ -4734,16 +4761,11 @@ async def test_admin_panel_registration_requests_button_shows_pending(
 
     await superadmin_registration_handlers.show_pending_registrations(message)
 
-    service.list_pending_reviews_page_for_superadmin.assert_awaited_once_with(
-        100,
-        page=0,
-        page_size=5,
-    )
+    service.get_registrations_overview_for_superadmin.assert_awaited_once_with(100)
+    service.list_pending_reviews_page_for_superadmin.assert_not_awaited()
     message.answer.assert_awaited_once()
-    assert message.answer.await_args.args[0] == "Заявок на регистрацию нет."
-    assert labels.ADMIN_PANEL_REGISTRATIONS in keyboard_texts(
-        message.answer.await_args.kwargs["reply_markup"]
-    )
+    assert message.answer.await_args.args[0] == "Регистраций нет."
+    assert inline_keyboard_texts(message.answer.await_args.kwargs["reply_markup"]) == ["❌ Отмена"]
 
 
 async def test_admin_panel_registration_requests_button_shows_paginated_list(
@@ -4751,6 +4773,9 @@ async def test_admin_panel_registration_requests_button_shows_paginated_list(
 ) -> None:
     reviews = [registration_review(player_id) for player_id in range(10, 15)]
     service = SimpleNamespace(
+        get_registrations_overview_for_superadmin=AsyncMock(
+            return_value=registrations_overview(pending_count=6),
+        ),
         list_pending_reviews_page_for_superadmin=AsyncMock(
             return_value=Page(items=reviews, page=0, page_size=5, total_items=6)
         ),
@@ -4763,6 +4788,7 @@ async def test_admin_panel_registration_requests_button_shows_paginated_list(
 
     await superadmin_registration_handlers.show_pending_registrations(message)
 
+    service.get_registrations_overview_for_superadmin.assert_awaited_once_with(100)
     service.list_pending_reviews_page_for_superadmin.assert_awaited_once_with(
         100,
         page=0,
@@ -4782,6 +4808,82 @@ async def test_admin_panel_registration_requests_button_shows_paginated_list(
         "Игрок 14",
         "1/2",
         "➡️",
+        "❌ Отмена",
+    ]
+
+
+async def test_registrations_button_shows_hub_when_both_registration_types_exist(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    service = SimpleNamespace(
+        get_registrations_overview_for_superadmin=AsyncMock(
+            return_value=registrations_overview(pending_count=2, tournament_count=3),
+        ),
+        list_pending_reviews_page_for_superadmin=AsyncMock(),
+    )
+    monkeypatch.setattr(superadmin_registration_handlers, "registration_review_service", service)
+    message = SimpleNamespace(from_user=SimpleNamespace(id=100), answer=AsyncMock())
+
+    await superadmin_registration_handlers.show_pending_registrations(message)
+
+    service.get_registrations_overview_for_superadmin.assert_awaited_once_with(100)
+    service.list_pending_reviews_page_for_superadmin.assert_not_awaited()
+    assert message.answer.await_args.args[0] == "Регистрации"
+    assert inline_keyboard_texts(message.answer.await_args.kwargs["reply_markup"]) == [
+        "📝 Регистрации новых пользователей",
+        "🎲 Регистрации на турниры",
+        "❌ Отмена",
+    ]
+
+
+async def test_registrations_button_opens_tournament_counts_without_back_when_user_requests_absent(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    service = SimpleNamespace(
+        get_registrations_overview_for_superadmin=AsyncMock(
+            return_value=registrations_overview(tournament_count=14),
+        ),
+    )
+    monkeypatch.setattr(superadmin_registration_handlers, "registration_review_service", service)
+    message = SimpleNamespace(from_user=SimpleNamespace(id=100), answer=AsyncMock())
+
+    await superadmin_registration_handlers.show_pending_registrations(message)
+
+    assert message.answer.await_args.args[0] == (
+        "🎲 Регистрации на турниры\n\nСреда, 19 августа — Баунти\nЗарегистрировано: 14"
+    )
+    assert inline_keyboard_texts(message.answer.await_args.kwargs["reply_markup"]) == ["❌ Отмена"]
+
+
+async def test_registrations_hub_opens_tournament_counts_with_back(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    service = SimpleNamespace(
+        get_registrations_overview_for_superadmin=AsyncMock(
+            return_value=registrations_overview(pending_count=2, tournament_count=9),
+        ),
+    )
+    monkeypatch.setattr(superadmin_registration_handlers, "registration_review_service", service)
+    message = SimpleNamespace(edit_text=AsyncMock())
+    callback = SimpleNamespace(
+        from_user=SimpleNamespace(id=100),
+        message=message,
+        answer=AsyncMock(),
+    )
+
+    await superadmin_registration_handlers.registrations_hub(
+        callback,
+        superadmin_registrations_kb.RegistrationsHubCallback(
+            action=superadmin_registrations_kb.RegistrationsHubAction.TOURNAMENTS,
+        ),
+    )
+
+    callback.answer.assert_awaited_once_with()
+    assert message.edit_text.await_args.args[0] == (
+        "🎲 Регистрации на турниры\n\nСреда, 19 августа — Баунти\nЗарегистрировано: 9"
+    )
+    assert inline_keyboard_texts(message.edit_text.await_args.kwargs["reply_markup"]) == [
+        "⬅️ Назад",
         "❌ Отмена",
     ]
 

@@ -15,6 +15,7 @@ from app.bot.telegram.message_edit import edit_message_if_changed
 from app.bot.telegram.notifications import format_registration_review
 from app.bot.telegram.texts.superadmin import panel as panel_text
 from app.bot.telegram.texts.superadmin import registrations as text
+from app.bot.telegram.texts.user import registration as user_registration_text
 from app.services.access_policy import AdminAccessDeniedError
 from app.services.dto.registrations import RegistrationReviewResultView
 from app.services.pagination import Page
@@ -39,12 +40,72 @@ async def show_pending_registrations(message: Message) -> None:
         return
 
     try:
-        page = await _get_pending_reviews_page(message.from_user.id, page=0)
+        overview = await registration_review_service.get_registrations_overview_for_superadmin(
+            message.from_user.id,
+        )
     except AdminAccessDeniedError:
         await message.answer(panel_text.INSUFFICIENT_RIGHTS)
         return
 
-    await _answer_pending_reviews(message, page)
+    if overview.has_user_registrations and overview.has_tournament_registrations:
+        await message.answer(
+            text.REGISTRATION_LIST_TITLE,
+            reply_markup=superadmin_registrations_kb.registrations_hub_keyboard(),
+        )
+        return
+    if overview.has_user_registrations:
+        page = await _get_pending_reviews_page(message.from_user.id, page=0)
+        await _answer_pending_reviews(message, page)
+        return
+    if overview.has_tournament_registrations:
+        await message.answer(
+            text.tournament_registrations_overview(overview.tournaments),
+            reply_markup=superadmin_registrations_kb.tournament_registrations_keyboard(
+                can_go_back=False,
+            ),
+        )
+        return
+
+    await message.answer(
+        text.REGISTRATIONS_EMPTY,
+        reply_markup=superadmin_registrations_kb.tournament_registrations_keyboard(
+            can_go_back=False,
+        ),
+    )
+
+
+@router.callback_query(superadmin_registrations_kb.RegistrationsHubCallback.filter())
+async def registrations_hub(
+    callback: CallbackQuery,
+    callback_data: superadmin_registrations_kb.RegistrationsHubCallback,
+) -> None:
+    try:
+        if callback_data.action == superadmin_registrations_kb.RegistrationsHubAction.CANCEL:
+            await callback.answer(text.REGISTRATION_CANCELLED)
+            await _return_to_superadmin_menu(callback)
+            return
+
+        if callback_data.action == superadmin_registrations_kb.RegistrationsHubAction.USER_REQUESTS:
+            page = await _get_pending_reviews_page(callback.from_user.id, page=0)
+            await callback.answer()
+            await _edit_pending_reviews(callback, page)
+            return
+
+        overview = await registration_review_service.get_registrations_overview_for_superadmin(
+            callback.from_user.id,
+        )
+        await callback.answer()
+        if callback_data.action == superadmin_registrations_kb.RegistrationsHubAction.BACK:
+            await _edit_registrations_hub(callback, overview)
+            return
+
+        await _edit_tournament_registrations_overview(
+            callback,
+            overview.tournaments,
+            can_go_back=True,
+        )
+    except AdminAccessDeniedError:
+        await callback.answer(panel_text.INSUFFICIENT_RIGHTS, show_alert=True)
 
 
 @router.callback_query(superadmin_registrations_kb.RegistrationListCallback.filter())
@@ -117,7 +178,7 @@ async def review_registration(
                 request_id=callback_data.request_id,
             )
             result_text = text.REGISTRATION_APPROVED
-            player_text = "Ваша заявка одобрена."
+            player_text = user_registration_text.REGISTRATION_APPROVED
             player_keyboard = user_menu_kb.main_keyboard_after_registration()
         elif callback_data.action == superadmin_registrations_kb.RegistrationReviewAction.CANCEL:
             await callback.answer(text.REGISTRATION_CANCELLED)
@@ -129,7 +190,7 @@ async def review_registration(
                 request_id=callback_data.request_id,
             )
             result_text = text.REGISTRATION_REJECTED
-            player_text = "Ваша заявка отклонена."
+            player_text = user_registration_text.REGISTRATION_REJECTED
             player_keyboard = ReplyKeyboardRemove()
     except AdminAccessDeniedError:
         await callback.answer(panel_text.INSUFFICIENT_RIGHTS, show_alert=True)
@@ -188,7 +249,7 @@ async def select_registration_candidate(
         await callback.answer(text.REGISTRATION_NOT_ALLOWED, show_alert=True)
         return
 
-    await callback.answer("Игрок выбран.")
+    await callback.answer(text.REGISTRATION_CANDIDATE_SELECTED)
     if callback.message is not None:
         await edit_message_if_changed(
             callback.message,
@@ -262,7 +323,7 @@ async def confirm_registration_candidate(
         callback=callback,
         review_result=review_result,
         result_text=text.REGISTRATION_APPROVED,
-        player_text="Ваша заявка одобрена.",
+        player_text=user_registration_text.REGISTRATION_APPROVED,
         player_keyboard=user_menu_kb.main_keyboard_after_registration(),
         page=callback_data.page,
     )
@@ -360,6 +421,53 @@ async def _edit_pending_reviews(callback: CallbackQuery, page: Page) -> None:
         callback.message,
         text=text.registration_list(page),
         reply_markup=superadmin_registrations_kb.registration_list_keyboard(page),
+    )
+
+
+async def _edit_registrations_hub(callback: CallbackQuery, overview: object) -> None:
+    if callback.message is None:
+        return
+    if overview.has_user_registrations and overview.has_tournament_registrations:
+        await edit_message_if_changed(
+            callback.message,
+            text=text.REGISTRATION_LIST_TITLE,
+            reply_markup=superadmin_registrations_kb.registrations_hub_keyboard(),
+        )
+        return
+    if overview.has_user_registrations:
+        page = await _get_pending_reviews_page(callback.from_user.id, page=0)
+        await _edit_pending_reviews(callback, page)
+        return
+    if overview.has_tournament_registrations:
+        await _edit_tournament_registrations_overview(
+            callback,
+            overview.tournaments,
+            can_go_back=False,
+        )
+        return
+    await edit_message_if_changed(
+        callback.message,
+        text=text.REGISTRATIONS_EMPTY,
+        reply_markup=superadmin_registrations_kb.tournament_registrations_keyboard(
+            can_go_back=False,
+        ),
+    )
+
+
+async def _edit_tournament_registrations_overview(
+    callback: CallbackQuery,
+    tournaments: list[object],
+    *,
+    can_go_back: bool,
+) -> None:
+    if callback.message is None:
+        return
+    await edit_message_if_changed(
+        callback.message,
+        text=text.tournament_registrations_overview(tournaments),
+        reply_markup=superadmin_registrations_kb.tournament_registrations_keyboard(
+            can_go_back=can_go_back,
+        ),
     )
 
 

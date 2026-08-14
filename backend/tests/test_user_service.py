@@ -1,16 +1,26 @@
+from datetime import date
 from pathlib import Path
 from typing import Any
 
 import pytest
+from conftest import seed_tournament_types_async, tournament_type_id
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
 from app.db.base import Base
 from app.db.factories import create_user
-from app.db.models import RegistrationRequest, User
+from app.db.models import (
+    RegistrationRequest,
+    ScoringConfig,
+    Season,
+    Tournament,
+    TournamentRegistration,
+    User,
+)
 from app.db.models.enums import (
     RegistrationRequestStatus,
     RegistrationRequestType,
+    TournamentStatus,
     UserRole,
     UserStatus,
 )
@@ -86,6 +96,68 @@ async def test_new_player_registration_rejects_existing_display_name(tmp_path: P
                 telegram_id=1001,
                 display_name=" дима   боченков ",
             )
+    finally:
+        await engine.dispose()
+
+
+@pytest.mark.asyncio
+async def test_registrations_overview_counts_only_active_tournament_registrations(
+    tmp_path: Path,
+) -> None:
+    service, engine = await create_user_service(tmp_path / "registrations_overview.db")
+    try:
+        async with async_sessionmaker(engine, expire_on_commit=False)() as session:
+            config = ScoringConfig()
+            session.add(config)
+            await session.flush()
+            await seed_tournament_types_async(session)
+            season = Season(
+                name="Лето 2026",
+                scoring_config_id=config.id,
+                starts_at=date(2026, 7, 1),
+                ends_at=None,
+            )
+            superadmin = create_user(
+                telegram_id=1,
+                display_name="Superadmin",
+                role=UserRole.SUPERADMIN,
+                status=UserStatus.ACTIVE,
+            )
+            first = create_user(display_name="First", status=UserStatus.ACTIVE)
+            second = create_user(display_name="Second", status=UserStatus.ACTIVE)
+            session.add_all([season, superadmin, first, second])
+            await session.flush()
+            active = Tournament(
+                season_id=season.id,
+                tournament_type_id=tournament_type_id("bounty"),
+                date=date(2026, 8, 19),
+                status=TournamentStatus.ACTIVE,
+            )
+            closed = Tournament(
+                season_id=season.id,
+                tournament_type_id=tournament_type_id("classic"),
+                date=date(2026, 8, 20),
+                status=TournamentStatus.CLOSED,
+                tournament_fund=1000,
+            )
+            session.add_all([active, closed])
+            await session.flush()
+            session.add_all(
+                [
+                    TournamentRegistration(tournament_id=active.id, player_id=first.id),
+                    TournamentRegistration(tournament_id=active.id, player_id=second.id),
+                    TournamentRegistration(tournament_id=closed.id, player_id=first.id),
+                ]
+            )
+            await session.commit()
+
+        overview = await service.get_registrations_overview_for_superadmin(1)
+
+        assert overview.pending_user_registration_count == 0
+        assert overview.active_tournament_registration_count == 2
+        assert [
+            (item.tournament_type_name, item.registrations_count) for item in overview.tournaments
+        ] == [("Баунти турнир", 2)]
     finally:
         await engine.dispose()
 

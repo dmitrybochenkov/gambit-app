@@ -106,13 +106,13 @@ async def test_hall_of_fame_uses_manual_entries_from_completed_seasons(
         assert (
             hall_fmt.message(seasons) == "🏆 Зал славы\n\n"
             "💍 — победитель сезона\n"
-            "🥊 — лучший нокаутер сезона\n\n"
+            "💥 — лучший нокаутер сезона\n\n"
             "Сезон 2026\n"
             "💍 Петр\n"
-            "🥊 — нет данных\n\n"
+            "\n"
             "Сезон 2025\n"
             "💍 Иван\n"
-            "🥊 Петр"
+            "💥 Петр"
         )
     finally:
         await engine.dispose()

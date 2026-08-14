@@ -312,8 +312,22 @@ async def test_closeable_tournaments_use_business_date_and_status(
             status=UserStatus.ACTIVE,
             role=UserRole.SUPERADMIN,
         )
-        session.add_all([season, superadmin])
+        players = [
+            build_player(
+                telegram_id=101 + index,
+                display_name=f"Player {index + 1}",
+                status=UserStatus.ACTIVE,
+            )
+            for index in range(5)
+        ]
+        session.add_all([season, superadmin, *players])
         await session.flush()
+        not_ready_active = Tournament(
+            season_id=season.id,
+            tournament_type_id=tournament_type_id("classic"),
+            date=date(2026, 7, 17),
+            status=TournamentStatus.ACTIVE,
+        )
         old_active = Tournament(
             season_id=season.id,
             tournament_type_id=tournament_type_id("classic"),
@@ -339,7 +353,19 @@ async def test_closeable_tournaments_use_business_date_and_status(
             status=TournamentStatus.CLOSED,
             tournament_fund=1000,
         )
-        session.add_all([old_active, today_active, future_active, closed])
+        session.add_all([not_ready_active, old_active, today_active, future_active, closed])
+        await session.flush()
+        for tournament in [old_active, today_active]:
+            session.add_all(
+                TournamentResult(
+                    tournament_id=tournament.id,
+                    player_id=player.id,
+                    source=TournamentResultSource.REGISTERED,
+                    checked_in_by_user_id=superadmin.id,
+                    place=index,
+                )
+                for index, player in enumerate(players, start=1)
+            )
         await session.commit()
         old_active_id = old_active.id
         today_active_id = today_active.id

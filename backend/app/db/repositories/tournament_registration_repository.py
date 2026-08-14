@@ -1,11 +1,19 @@
 from datetime import date
+from typing import NamedTuple
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
-from app.db.models import Tournament, TournamentRegistration, TournamentResult, User
+from app.db.models import Tournament, TournamentRegistration, TournamentResult, TournamentType, User
 from app.db.models.enums import TournamentStatus, UserStatus
+
+
+class TournamentRegistrationCountRow(NamedTuple):
+    tournament_id: int
+    tournament_date: date
+    tournament_type_name: str
+    registrations_count: int
 
 
 class TournamentRegistrationRepository:
@@ -119,3 +127,29 @@ class TournamentRegistrationRepository:
             .order_by(Tournament.date, Tournament.tournament_type_id)
         )
         return list(result.scalars())
+
+    async def list_active_tournament_registration_counts(
+        self,
+    ) -> list[TournamentRegistrationCountRow]:
+        result = await self.session.execute(
+            select(
+                Tournament.id,
+                Tournament.date,
+                TournamentType.name,
+                func.count(TournamentRegistration.id),
+            )
+            .join(TournamentType, TournamentType.id == Tournament.tournament_type_id)
+            .join(TournamentRegistration, TournamentRegistration.tournament_id == Tournament.id)
+            .where(Tournament.status == TournamentStatus.ACTIVE)
+            .group_by(Tournament.id, Tournament.date, TournamentType.name)
+            .order_by(Tournament.date, Tournament.id)
+        )
+        return [
+            TournamentRegistrationCountRow(
+                tournament_id=int(row[0]),
+                tournament_date=row[1],
+                tournament_type_name=str(row[2]),
+                registrations_count=int(row[3]),
+            )
+            for row in result.all()
+        ]

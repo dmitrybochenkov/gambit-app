@@ -239,10 +239,10 @@ async def test_rating_filters_current_season_and_all_time(tmp_path: Path) -> Non
         )
         assert (
             "Рейтинг по нокаутам — за всё время\n"
-            "🥊 - лучший нокаутер сезона\n"
+            "💥 - лучший нокаутер сезона\n"
             "🎲 - количество турниров с нокаутами\n\n"
         ) in knockout_message
-        assert "👉 1. *Игрок Первый* 🥊 — 6 | 🎲 2" in knockout_message
+        assert "👉 1. *Игрок Первый* 💥 — 6 | 🎲 2" in knockout_message
         assert "⭐" not in knockout_message
         assert "✅" not in knockout_message
     finally:
@@ -375,9 +375,9 @@ def test_knockout_rating_format_hides_points_and_repeats_titles() -> None:
     assert "🥊 6" not in message
     assert (
         "Рейтинг по нокаутам — за всё время\n"
-        "🥊 - лучший нокаутер сезона\n"
+        "💥 - лучший нокаутер сезона\n"
         "🎲 - количество турниров с нокаутами\n\n"
-        "🥇 King 🥊×2 — 6 | 🎲 2"
+        "🥇 King 💥×2 — 6 | 🎲 2"
     ) == message
 
 
@@ -439,7 +439,7 @@ def test_knockout_rating_format_marks_current_player_with_ring_and_knockout_titl
 
     message = rating_fmt.message("Рейтинг по нокаутам — за всё время", page, current_player_id=5)
 
-    assert "👉 5. *Дима* 🥊 — 12 | 🎲 18" in message
+    assert "👉 5. *Дима* 💥 — 12 | 🎲 18" in message
     assert "✅" not in message
 
 
@@ -789,6 +789,13 @@ async def test_rating_selected_season_and_season_picker_exclude_future(
         session.add(config)
         await session.flush()
         await seed_tournament_types_async(session)
+        hidden = Season(
+            name="Сезон 1",
+            scoring_config_id=config.id,
+            starts_at=date(2026, 1, 1),
+            ends_at=date(2026, 3, 31),
+            is_statistics_visible=False,
+        )
         completed = Season(
             name="Весна 2026",
             scoring_config_id=config.id,
@@ -808,8 +815,15 @@ async def test_rating_selected_season_and_season_picker_exclude_future(
             ends_at=None,
         )
         player = build_player(telegram_id=100, display_name="Игрок")
-        session.add_all([completed, current, future, player])
+        session.add_all([hidden, completed, current, future, player])
         await session.flush()
+        hidden_tournament = Tournament(
+            season_id=hidden.id,
+            tournament_type_id=tournament_type_id("classic"),
+            date=date(2026, 1, 10),
+            status=TournamentStatus.CLOSED,
+            tournament_fund=1000,
+        )
         completed_tournament = Tournament(
             season_id=completed.id,
             tournament_type_id=tournament_type_id("classic"),
@@ -824,10 +838,15 @@ async def test_rating_selected_season_and_season_picker_exclude_future(
             status=TournamentStatus.CLOSED,
             tournament_fund=1000,
         )
-        session.add_all([completed_tournament, current_tournament])
+        session.add_all([hidden_tournament, completed_tournament, current_tournament])
         await session.flush()
         session.add_all(
             [
+                TournamentResult(
+                    tournament_id=hidden_tournament.id,
+                    player_id=player.id,
+                    tournament_points=Decimal("50"),
+                ),
                 TournamentResult(
                     tournament_id=completed_tournament.id,
                     player_id=player.id,
@@ -853,10 +872,16 @@ async def test_rating_selected_season_and_season_picker_exclude_future(
             season_id=completed_id,
             today=date(2026, 8, 10),
         )
+        all_time_rating = await service.get_rating_for_player(
+            100,
+            RatingKind.ALL_TIME,
+            today=date(2026, 8, 10),
+        )
 
         assert [season.name for season in seasons] == ["Лето 2026", "Весна 2026"]
         assert rating.title == "Рейтинг — Весна 2026"
         assert [row.total_points for row in rating.rows] == [Decimal("100")]
+        assert [row.total_points for row in all_time_rating.rows] == [Decimal("350")]
         with pytest.raises(RatingFutureSeasonError):
             await service.get_rating_for_player(
                 100,

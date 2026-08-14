@@ -19,3 +19,21 @@ def test_standard_project_paths() -> None:
     assert settings.effective_database_url == (
         f"sqlite+aiosqlite:///{(project_root / 'data/gambit.db').as_posix()}"
     )
+
+
+def test_telegram_publication_destinations_are_optional() -> None:
+    empty = Settings(
+        _env_file=None,
+        telegram_club_chat_id="",
+        telegram_club_channel_id=" ",
+    )
+    configured = Settings(
+        _env_file=None,
+        telegram_club_chat_id="-1001",
+        telegram_club_channel_id="-1002",
+    )
+
+    assert empty.telegram_club_chat_id is None
+    assert empty.telegram_club_channel_id is None
+    assert configured.telegram_club_chat_id == -1001
+    assert configured.telegram_club_channel_id == -1002

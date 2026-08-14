@@ -9,7 +9,8 @@ async def list_started_season_options(
     season_repository: SeasonRepository,
     today: date,
 ) -> list[SeasonOptionView]:
-    return [season_option_view(season) for season in await season_repository.list_started(today)]
+    seasons = await season_repository.list_started_visible_for_statistics(today)
+    return [season_option_view(season) for season in seasons]
 
 
 def season_option_view(season: Season) -> SeasonOptionView:

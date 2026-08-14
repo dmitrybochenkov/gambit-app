@@ -1,6 +1,7 @@
 from functools import lru_cache
 from pathlib import Path
 
+from pydantic import field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 BACKEND_ROOT = Path(__file__).resolve().parents[2]
@@ -21,6 +22,15 @@ class Settings(BaseSettings):
     database_url: str = ""
     telegram_bot_token: str = ""
     telegram_webhook_secret: str = ""
+    telegram_club_chat_id: int | None = None
+    telegram_club_channel_id: int | None = None
+
+    @field_validator("telegram_club_chat_id", "telegram_club_channel_id", mode="before")
+    @classmethod
+    def _empty_telegram_destination_is_none(cls, value: object) -> object:
+        if isinstance(value, str) and not value.strip():
+            return None
+        return value
 
     model_config = SettingsConfigDict(
         env_file=(".env", "../.env"),

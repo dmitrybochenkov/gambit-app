@@ -23,7 +23,7 @@ def message(
     else:
         lines.extend(
             [
-                "🥊 - лучший нокаутер сезона",
+                "💥 - лучший нокаутер сезона",
                 "🎲 - количество турниров с нокаутами",
             ]
         )
@@ -75,7 +75,7 @@ def _honours(row: object) -> str:
     if hasattr(row, "total_points"):
         honours.append(_honour("💍", row.season_champion_titles_count))
     else:
-        honours.append(_honour("🥊", getattr(row, "season_knockout_leader_titles_count", 0)))
+        honours.append(_honour("💥", getattr(row, "season_knockout_leader_titles_count", 0)))
     return " ".join(honour for honour in honours if honour)
 
 
