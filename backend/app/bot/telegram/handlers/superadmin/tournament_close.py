@@ -3,7 +3,7 @@ from datetime import date
 
 from aiogram import F, Router
 from aiogram.fsm.context import FSMContext
-from aiogram.types import CallbackQuery, Message
+from aiogram.types import CallbackQuery, InputMediaPhoto, Message
 
 from app.bot.telegram.formatters import results as result_fmt
 from app.bot.telegram.formatters import schedules as schedule_fmt
@@ -69,16 +69,6 @@ async def show_close_tournament_flow(message: Message, state: FSMContext) -> Non
         )
         return
 
-    if len(tournaments) == 1:
-        await _send_close_tournament_card(
-            message=message,
-            state=state,
-            superadmin_telegram_id=message.from_user.id,
-            tournament_id=tournaments[0].id,
-            page=0,
-        )
-        return
-
     page = pagination_service.paginate(
         tournaments,
         page=0,
@@ -139,6 +129,13 @@ async def select_close_tournament_action(
                     tournament_id=callback_data.tournament_id,
                     page=callback_data.page,
                 )
+            return
+
+        if (
+            callback_data.action
+            == superadmin_tournament_close_kb.AdminCloseTournamentAction.VIEW_PHOTOS
+        ):
+            await _send_tournament_photos(callback, callback_data.tournament_id)
             return
 
         if (
@@ -240,14 +237,14 @@ async def _send_close_tournament_card(
         superadmin_telegram_id=superadmin_telegram_id,
         tournament_id=tournament_id,
     )
-    errors = await result_service.validate_closeable_results(
+    readiness = await result_service.get_close_readiness(
         superadmin_telegram_id=superadmin_telegram_id,
         tournament_id=tournament_id,
     )
-    if errors:
+    if not readiness.is_ready:
         await state.clear()
         await message.answer(
-            result_fmt.close_tournament_blocked(errors),
+            result_fmt.close_tournament_blocked(readiness.reasons),
             reply_markup=superadmin_tournament_close_kb.admin_close_tournament_cancel_keyboard(
                 tournament_id=tournament_id,
                 page=page,
@@ -281,15 +278,15 @@ async def _edit_close_tournament_card(
         superadmin_telegram_id=callback.from_user.id,
         tournament_id=tournament_id,
     )
-    errors = await result_service.validate_closeable_results(
+    readiness = await result_service.get_close_readiness(
         superadmin_telegram_id=callback.from_user.id,
         tournament_id=tournament_id,
     )
-    if errors:
+    if not readiness.is_ready:
         await state.clear()
         await edit_message_if_changed(
             callback.message,
-            text=result_fmt.close_tournament_blocked(errors),
+            text=result_fmt.close_tournament_blocked(readiness.reasons),
             reply_markup=superadmin_tournament_close_kb.admin_close_tournament_cancel_keyboard(
                 tournament_id=tournament_id,
                 page=page,
@@ -394,8 +391,38 @@ async def enter_tournament_fund(message: Message, state: FSMContext) -> None:
         reply_markup=superadmin_tournament_close_kb.admin_close_tournament_confirmation_keyboard(
             tournament_id=tournament_id,
             page=page_number,
+            photo_count=results.photo_count,
         ),
         parse_mode=RESULT_SUMMARY_PARSE_MODE,
+    )
+
+
+async def _send_tournament_photos(
+    callback: CallbackQuery,
+    tournament_id: int,
+) -> None:
+    try:
+        photos = await result_service.list_tournament_photos(
+            admin_telegram_id=callback.from_user.id,
+            tournament_id=tournament_id,
+        )
+    except AdminAccessDeniedError:
+        await callback.answer(text.ACCESS_DENIED, show_alert=True)
+        return
+    except ResultTournamentNotFoundError:
+        await callback.answer(text.ADMIN_RESULTS_NOT_FOUND, show_alert=True)
+        return
+    if not photos:
+        await callback.answer("Фото турнира не добавлены.", show_alert=True)
+        return
+    await callback.answer()
+    if callback.message is None:
+        return
+    if len(photos) == 1:
+        await callback.message.answer_photo(photos[0].telegram_file_id)
+        return
+    await callback.message.answer_media_group(
+        [InputMediaPhoto(media=photo.telegram_file_id) for photo in photos]
     )
 
 

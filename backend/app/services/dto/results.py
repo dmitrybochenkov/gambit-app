@@ -27,6 +27,7 @@ class TournamentResultsView:
     players: list[TournamentResultPlayerView]
     knockout_mode: str = "none"
     supports_bonus_points: bool = False
+    photo_count: int = 0
 
     @property
     def entered_players(self) -> list[TournamentResultPlayerView]:
@@ -50,3 +51,31 @@ class TournamentResultsView:
         if self.tournament.tournament_type_code == "mystery_bounty":
             return "Доп. очки"
         return "Бонус"
+
+
+@dataclass(frozen=True)
+class TournamentPhotoView:
+    id: int
+    tournament_id: int
+    telegram_file_id: str
+    telegram_file_unique_id: str
+    position: int
+
+
+@dataclass(frozen=True)
+class TournamentPhotoAddView:
+    tournament_id: int
+    photo_count: int
+    created: bool
+    limit_reached: bool = False
+
+
+@dataclass(frozen=True)
+class TournamentCloseReadinessView:
+    tournament: TournamentView
+    is_ready: bool
+    photo_count: int
+    has_photos: bool
+    has_checkins: bool
+    validation_errors: list[str]
+    reasons: list[str]

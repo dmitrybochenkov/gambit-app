@@ -30,6 +30,7 @@ class HistoricalTournamentResultRowView:
     knockouts_count: int
     big_knockouts_count: int
     total_points: Decimal
+    bonus_points: int = 0
 
     @property
     def total_knockouts_count(self) -> int:
@@ -40,3 +41,15 @@ class HistoricalTournamentResultRowView:
 class HistoricalTournamentResultView:
     tournament: HistoricalTournamentView
     rows: list[HistoricalTournamentResultRowView]
+
+    @property
+    def has_knockouts(self) -> bool:
+        return any(row.knockouts_count > 0 for row in self.rows)
+
+    @property
+    def has_big_knockouts(self) -> bool:
+        return any(row.big_knockouts_count > 0 for row in self.rows)
+
+    @property
+    def has_bonus_points(self) -> bool:
+        return any(row.bonus_points > 0 for row in self.rows)

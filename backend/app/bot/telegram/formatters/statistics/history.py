@@ -47,7 +47,12 @@ def tournament_result(
         fmt_common.markdown_escape(tournament.display_name),
         "",
         "```",
-        *_table_lines(page.items),
+        *_table_lines(
+            page.items,
+            show_knockouts=result.has_knockouts,
+            show_big_knockouts=result.has_big_knockouts,
+            show_bonus=result.has_bonus_points,
+        ),
         "```",
     ]
     if page.total_pages > 1:
@@ -57,13 +62,30 @@ def tournament_result(
 
 def _table_lines(
     rows: list,
+    *,
+    show_knockouts: bool,
+    show_big_knockouts: bool,
+    show_bonus: bool,
 ) -> list[str]:
-    lines = [f"{'Место':<5}  {'Игрок':<20} {'КО':>3} {'БКО':>4} {'Очки':>6}"]
+    name_width = 20
+    header = f"{'Место':<5}  {'Игрок':<{name_width}}"
+    if show_knockouts:
+        header += f" {'КО':>3}"
+    if show_big_knockouts:
+        header += f" {'БКО':>4}"
+    if show_bonus:
+        header += f" {'Бонус':>6}"
+    header += f" {'Очки':>6}"
+    lines = [header]
     for row in rows:
         place = str(row.place) if row.place is not None else "—"
-        lines.append(
-            f"{place:<5}  {fmt_common.code_cell(row.display_name, 20):<20} "
-            f"{row.knockouts_count:>3} {row.big_knockouts_count:>4} "
-            f"{fmt_common.decimal(row.total_points):>6}"
-        )
+        line = f"{place:<5}  {fmt_common.code_cell(row.display_name, name_width):<{name_width}}"
+        if show_knockouts:
+            line += f" {row.knockouts_count:>3}"
+        if show_big_knockouts:
+            line += f" {row.big_knockouts_count:>4}"
+        if show_bonus:
+            line += f" {row.bonus_points:>6}"
+        line += f" {fmt_common.decimal(row.total_points):>6}"
+        lines.append(line)
     return lines

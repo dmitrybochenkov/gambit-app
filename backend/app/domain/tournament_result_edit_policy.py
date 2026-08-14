@@ -5,4 +5,4 @@ from app.db.models.enums import TournamentStatus
 
 
 def is_tournament_result_editable(tournament: Tournament, business_date: date) -> bool:
-    return tournament.status == TournamentStatus.ACTIVE and tournament.date == business_date
+    return tournament.status == TournamentStatus.ACTIVE and tournament.date <= business_date

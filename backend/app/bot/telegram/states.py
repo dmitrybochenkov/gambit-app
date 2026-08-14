@@ -33,3 +33,7 @@ class AdminResultStates(StatesGroup):
     entering_database_check_in_search = State()
     entering_new_check_in_player = State()
     confirming_new_check_in_player = State()
+    entering_result_existing_player_search = State()
+    entering_result_new_player = State()
+    confirming_result_new_player = State()
+    collecting_tournament_photos = State()

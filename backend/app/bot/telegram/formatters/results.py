@@ -21,15 +21,32 @@ def players_table(
         "",
         f"Игроки: {len(results.players)}",
         "",
+        *_photo_status_lines(results),
+        "",
         *_game_table_lines(results, include_required_place_slots=True),
     ]
     return "\n".join(lines)
 
 
-def close_tournament_list(page: object) -> str:
-    lines = ["Выбери незакрытый турнир:", ""]
+def past_tournament_list(page: object) -> str:
+    lines = ["Выбери прошедший турнир:", ""]
     for tournament in page.items:
         lines.append(tournament_fmt.label(tournament))
+    if page.total_pages > 1:
+        lines.extend(["", fmt_common.page_line(page)])
+    return "\n".join(lines)
+
+
+def close_tournament_list(page: object) -> str:
+    lines = ["🔒 Закрыть турнир", ""]
+    for readiness in page.items:
+        lines.append(tournament_fmt.label(readiness.tournament))
+        lines.append(
+            "✅ Готов к закрытию" if readiness.is_ready else "⚠️ " + "; ".join(readiness.reasons)
+        )
+        lines.append("")
+    if lines[-1] == "":
+        lines.pop()
     if page.total_pages > 1:
         lines.extend(["", fmt_common.page_line(page)])
     return "\n".join(lines)
@@ -44,6 +61,7 @@ def close_tournament_card(results: object) -> str:
             tournament_fmt.type_name(results.tournament),
             "",
             f"Игроков: {len(results.players)}",
+            f"Фотографий: {results.photo_count}",
             "",
             *_game_table_lines(results, include_points=_show_close_points(results)),
             "",
@@ -87,6 +105,7 @@ def close_tournament_confirmation(
             "",
             f"Игроков: {len(results.players)}",
             f"Фонд турнира: {fmt_common.decimal(tournament_fund)}",
+            f"Фотографий: {results.photo_count}",
             "",
             "После подтверждения будут рассчитаны рейтинговые очки,",
             "а турнир станет недоступен для редактирования.",
@@ -145,6 +164,44 @@ def field_prompt(
     field_name: str,
 ) -> str:
     return f"{player.display_name}\n\nВыбери {field_name}:"
+
+
+def add_existing_player_prompt(tournament: object, user: object) -> str:
+    return "\n".join(
+        [
+            "Добавить игрока в турнир?",
+            "",
+            user.display_name,
+            tournament_fmt.label(tournament),
+        ]
+    )
+
+
+def add_new_player_prompt(tournament: object, display_name: str) -> str:
+    return "\n".join(
+        [
+            f"Создать нового игрока «{display_name}» и добавить в турнир?",
+            "",
+            tournament_fmt.label(tournament),
+        ]
+    )
+
+
+def photo_upload_prompt() -> str:
+    return "\n".join(
+        [
+            "📸 Добавление фото",
+            "",
+            "Пришли фотографии турнира.",
+            "Можно отправлять по одной или альбомом.",
+            "",
+            "Когда закончишь — нажми «Готово».",
+        ]
+    )
+
+
+def delete_photos_confirmation() -> str:
+    return "Удалить все фотографии турнира?"
 
 
 def player_has_value(player: object) -> bool:
@@ -251,6 +308,15 @@ def _game_table_lines(
 
 def _show_close_points(results: object) -> bool:
     return getattr(results.tournament, "tournament_type_code", None) == "mystery_bounty"
+
+
+def _photo_status_lines(results: object) -> list[str]:
+    if results.photo_count <= 0:
+        return [
+            "⚠️ Фото турнира не добавлены.",
+            "Без фото турнир нельзя закрыть.",
+        ]
+    return [f"📸 Фотографий: {results.photo_count}"]
 
 
 def _table_number_cell(player: object, value: int, *, width: int) -> str:

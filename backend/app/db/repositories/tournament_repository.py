@@ -40,6 +40,7 @@ class HistoricalTournamentResultRow:
     place: int | None
     knockouts_count: int
     big_knockouts_count: int
+    bonus_points: int
     total_points: Decimal
 
 
@@ -101,6 +102,18 @@ class TournamentRepository:
             .where(
                 Tournament.status == TournamentStatus.ACTIVE,
                 Tournament.date <= tournament_date,
+            )
+            .order_by(Tournament.date.desc(), Tournament.id.desc())
+        )
+        return list(result.scalars())
+
+    async def list_active_before(self, tournament_date: date) -> list[Tournament]:
+        result = await self.session.execute(
+            select(Tournament)
+            .options(selectinload(Tournament.tournament_type))
+            .where(
+                Tournament.status == TournamentStatus.ACTIVE,
+                Tournament.date < tournament_date,
             )
             .order_by(Tournament.date.desc(), Tournament.id.desc())
         )
@@ -351,6 +364,7 @@ class TournamentRepository:
                 TournamentResult.place,
                 TournamentResult.knockouts_count,
                 TournamentResult.big_knockouts_count,
+                TournamentResult.bonus_points,
                 total_points.label("total_points"),
             )
             .join(TournamentType, TournamentType.id == Tournament.tournament_type_id)
@@ -380,6 +394,7 @@ class TournamentRepository:
                 place=row.place,
                 knockouts_count=row.knockouts_count,
                 big_knockouts_count=row.big_knockouts_count,
+                bonus_points=row.bonus_points,
                 total_points=row.total_points,
             )
             for row in result

@@ -13,6 +13,7 @@ from app.services.pagination import Page
 class AdminCloseTournamentAction(StrEnum):
     OPEN = "open"
     PAGE = "page"
+    VIEW_PHOTOS = "view_photos"
     CONFIRM = "confirm"
     CHANGE_FUND = "change_fund"
     CANCEL = "cancel"
@@ -24,11 +25,13 @@ class AdminCloseTournamentCallback(CallbackData, prefix="close_tour"):
     tournament_id: int = 0
 
 
-def admin_close_tournament_list_keyboard(page: Page[TournamentView]) -> InlineKeyboardMarkup:
+def admin_close_tournament_list_keyboard(page: Page[object]) -> InlineKeyboardMarkup:
     builder = InlineKeyboardBuilder()
-    for tournament in page.items:
+    for readiness in page.items:
+        tournament: TournamentView = readiness.tournament
+        marker = "✅" if readiness.is_ready else "⚠️"
         builder.button(
-            text=f"{tournament.date.day:02d}.{tournament.date.month:02d} — "
+            text=f"{marker} {tournament.date.day:02d}.{tournament.date.month:02d} — "
             f"{tournament.tournament_type_name or 'Неопределённый турнир'}",
             callback_data=AdminCloseTournamentCallback(
                 action=AdminCloseTournamentAction.OPEN,
@@ -119,8 +122,18 @@ def admin_close_tournament_confirmation_keyboard(
     *,
     tournament_id: int,
     page: int,
+    photo_count: int = 0,
 ) -> InlineKeyboardMarkup:
     builder = InlineKeyboardBuilder()
+    if photo_count > 0:
+        builder.button(
+            text=f"🖼 Посмотреть фото ({photo_count})",
+            callback_data=AdminCloseTournamentCallback(
+                action=AdminCloseTournamentAction.VIEW_PHOTOS,
+                page=page,
+                tournament_id=tournament_id,
+            ),
+        )
     builder.button(
         text="✅ Рассчитать и закрыть",
         callback_data=AdminCloseTournamentCallback(

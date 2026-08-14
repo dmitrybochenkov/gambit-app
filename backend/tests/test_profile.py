@@ -15,7 +15,7 @@ from app.db.models import (
     TournamentResult,
 )
 from app.db.models.enums import TournamentStatus, UserRole, UserStatus
-from app.services.dto.statistics.profile import PlayerProfileView
+from app.services.dto.statistics.profile import PlayerProfileHonourView, PlayerProfileView
 from app.services.profile_service import ProfileFutureSeasonError, ProfileKind, ProfileService
 
 
@@ -48,6 +48,39 @@ def test_profile_formats_only_non_zero_prize_places() -> None:
         "🥉 x5\n"
         "5️⃣ x4"
     )
+
+
+def test_profile_formats_season_honours() -> None:
+    message = profile_fmt.message(
+        "Твой профиль — за всё время",
+        PlayerProfileView(
+            display_name="Дима",
+            total_points=Decimal("0"),
+            knockouts_count=0,
+            big_knockouts_count=0,
+            tournaments_count=0,
+            first_places_count=0,
+            second_places_count=0,
+            third_places_count=0,
+            fourth_places_count=0,
+            fifth_places_count=0,
+            honours=(
+                PlayerProfileHonourView(
+                    season_name="Весна 2026",
+                    season_starts_at=date(2026, 4, 1),
+                    kind="champion",
+                ),
+                PlayerProfileHonourView(
+                    season_name="Лето 2026",
+                    season_starts_at=date(2026, 7, 1),
+                    kind="knockout",
+                ),
+            ),
+        ),
+    )
+
+    assert "💍 Победитель сезона «Весна 2026»" in message
+    assert "💥 Лучший нокаутер сезона «Лето 2026»" in message
 
 
 async def test_profile_filters_current_season_and_all_time(tmp_path: Path) -> None:

@@ -24,6 +24,9 @@ def message(title: str, stats: object | None) -> str:
     prize_place_lines = _prize_place_lines(stats)
     if prize_place_lines:
         lines.extend(["", PROFILE_PRIZE_PLACES_LABEL, *prize_place_lines])
+    honour_lines = _honour_lines(stats)
+    if honour_lines:
+        lines.extend(["", *honour_lines])
     return "\n".join(lines)
 
 
@@ -36,6 +39,16 @@ def _prize_place_lines(stats: object) -> list[str]:
         ("5️⃣", stats.fifth_places_count),
     ]
     return [f"{label} x{count}" for label, count in prize_places if count > 0]
+
+
+def _honour_lines(stats: object) -> list[str]:
+    lines = []
+    for honour in stats.honours:
+        if honour.kind == "champion":
+            lines.append(f"💍 Победитель сезона «{honour.season_name}»")
+        elif honour.kind == "knockout":
+            lines.append(f"💥 Лучший нокаутер сезона «{honour.season_name}»")
+    return lines
 
 
 def _format_decimal(value: Decimal) -> str:

@@ -14,6 +14,7 @@ from app.db.models import (
     ScoringConfig,
     Season,
     Tournament,
+    TournamentPhoto,
     TournamentRegistration,
     TournamentResult,
     TournamentTypeRule,
@@ -28,11 +29,11 @@ from app.db.models.enums import (
 from app.services.result_fields import ResultField
 from app.services.result_service import (
     FutureTournamentCannotBeClosedError,
+    ResultDuplicateNameError,
     ResultInvalidFundError,
     ResultInvalidPlayerDataError,
     ResultService,
     ResultTodayTournamentNotFoundError,
-    TournamentResultsEditingUnavailableError,
 )
 
 
@@ -229,6 +230,15 @@ async def test_result_rows_are_edited_directly_and_close_tournament(
                 for player in players
             ]
         )
+        session.add(
+            TournamentPhoto(
+                tournament_id=tournament.id,
+                telegram_file_id="file-1",
+                telegram_file_unique_id="unique-1",
+                uploaded_by_user_id=admin.id,
+                position=0,
+            )
+        )
         await session.commit()
         tournament_id = tournament.id
         player_ids = [player.id for player in players]
@@ -376,7 +386,13 @@ async def test_closeable_tournaments_use_business_date_and_status(
     )
     closeable = await service.list_unclosed_tournaments_for_superadmin(100)
 
-    assert [tournament.id for tournament in closeable] == [today_active_id, old_active_id]
+    assert [item.tournament.id for item in closeable] == [
+        today_active_id,
+        old_active_id,
+        not_ready_active.id,
+    ]
+    assert closeable[0].reasons == ["Фото не добавлены."]
+    assert closeable[-1].reasons == ["Турнир ещё не начался.", "Фото не добавлены."]
     await engine.dispose()
 
 
@@ -447,6 +463,15 @@ async def test_mystery_bounty_uses_places_and_bonus_without_knockouts(
                 for player in players
             ]
         )
+        session.add(
+            TournamentPhoto(
+                tournament_id=tournament.id,
+                telegram_file_id="mystery-file-1",
+                telegram_file_unique_id="mystery-unique-1",
+                uploaded_by_user_id=superadmin.id,
+                position=0,
+            )
+        )
         await session.commit()
         tournament_id = tournament.id
         player_ids = [player.id for player in players]
@@ -484,6 +509,196 @@ async def test_mystery_bounty_uses_places_and_bonus_without_knockouts(
     assert player.tournament_points == Decimal("400.00")
     assert player.knockout_points == Decimal("0.00")
     assert player.total_points == Decimal("412.00")
+    await engine.dispose()
+
+
+async def test_add_existing_player_to_past_tournament_creates_zero_result(
+    tmp_path: Path,
+) -> None:
+    engine = create_async_engine(f"sqlite+aiosqlite:///{tmp_path / 'past_add_existing.db'}")
+    async with engine.begin() as connection:
+        await connection.run_sync(Base.metadata.create_all)
+
+    session_factory = async_sessionmaker(engine, expire_on_commit=False)
+    async with session_factory() as session:
+        config = ScoringConfig()
+        session.add(config)
+        await session.flush()
+        await seed_tournament_types_async(session)
+        season = Season(
+            name="Test season",
+            scoring_config_id=config.id,
+            starts_at=date(2026, 7, 1),
+            ends_at=None,
+        )
+        admin = build_player(
+            telegram_id=100,
+            display_name="Admin",
+            status=UserStatus.ACTIVE,
+            role=UserRole.ADMIN,
+        )
+        player = build_player(telegram_id=101, display_name="Past Player")
+        session.add_all([season, admin, player])
+        await session.flush()
+        tournament = Tournament(
+            season_id=season.id,
+            tournament_type_id=tournament_type_id("classic"),
+            date=date(2026, 7, 18),
+            status=TournamentStatus.ACTIVE,
+        )
+        session.add(tournament)
+        await session.commit()
+        tournament_id = tournament.id
+        player_id = player.id
+
+    service = ResultService(
+        session_factory,
+        clock=FixedClock(datetime(2026, 7, 20, 12, tzinfo=ZoneInfo("Europe/Moscow"))),
+    )
+    results = await service.add_existing_player_to_tournament(100, tournament_id, player_id)
+
+    assert [player.display_name for player in results.players] == ["Past Player"]
+    async with session_factory() as session:
+        stored = (
+            await session.execute(
+                select(TournamentResult).where(TournamentResult.tournament_id == tournament_id)
+            )
+        ).scalar_one()
+    assert stored.source == TournamentResultSource.WALK_IN_EXISTING
+    assert stored.place is None
+    assert stored.knockouts_count == 0
+    assert stored.big_knockouts_count == 0
+    assert stored.tournament_points == Decimal("0.00")
+    assert stored.knockout_points == Decimal("0.00")
+    assert stored.bonus_points == 0
+    await engine.dispose()
+
+
+async def test_add_new_player_to_past_tournament_rejects_duplicate_name(
+    tmp_path: Path,
+) -> None:
+    engine = create_async_engine(f"sqlite+aiosqlite:///{tmp_path / 'past_add_new.db'}")
+    async with engine.begin() as connection:
+        await connection.run_sync(Base.metadata.create_all)
+
+    session_factory = async_sessionmaker(engine, expire_on_commit=False)
+    async with session_factory() as session:
+        config = ScoringConfig()
+        session.add(config)
+        await session.flush()
+        await seed_tournament_types_async(session)
+        season = Season(
+            name="Test season",
+            scoring_config_id=config.id,
+            starts_at=date(2026, 7, 1),
+            ends_at=None,
+        )
+        admin = build_player(
+            telegram_id=100,
+            display_name="Admin",
+            status=UserStatus.ACTIVE,
+            role=UserRole.ADMIN,
+        )
+        existing = build_player(telegram_id=101, display_name="Same Name")
+        session.add_all([season, admin, existing])
+        await session.flush()
+        tournament = Tournament(
+            season_id=season.id,
+            tournament_type_id=tournament_type_id("classic"),
+            date=date(2026, 7, 18),
+            status=TournamentStatus.ACTIVE,
+        )
+        session.add(tournament)
+        await session.commit()
+        tournament_id = tournament.id
+
+    service = ResultService(
+        session_factory,
+        clock=FixedClock(datetime(2026, 7, 20, 12, tzinfo=ZoneInfo("Europe/Moscow"))),
+    )
+    with pytest.raises(ResultDuplicateNameError):
+        await service.add_new_player_to_tournament(100, tournament_id, " same   name ")
+
+    async with session_factory() as session:
+        result_count = len((await session.execute(select(TournamentResult))).scalars().all())
+    assert result_count == 0
+    await engine.dispose()
+
+
+async def test_tournament_photos_limit_duplicates_and_delete_all(tmp_path: Path) -> None:
+    engine = create_async_engine(f"sqlite+aiosqlite:///{tmp_path / 'photos.db'}")
+    async with engine.begin() as connection:
+        await connection.run_sync(Base.metadata.create_all)
+
+    session_factory = async_sessionmaker(engine, expire_on_commit=False)
+    async with session_factory() as session:
+        config = ScoringConfig()
+        session.add(config)
+        await session.flush()
+        await seed_tournament_types_async(session)
+        season = Season(
+            name="Test season",
+            scoring_config_id=config.id,
+            starts_at=date(2026, 7, 1),
+            ends_at=None,
+        )
+        admin = build_player(
+            telegram_id=100,
+            display_name="Admin",
+            status=UserStatus.ACTIVE,
+            role=UserRole.ADMIN,
+        )
+        session.add_all([season, admin])
+        await session.flush()
+        tournament = Tournament(
+            season_id=season.id,
+            tournament_type_id=tournament_type_id("classic"),
+            date=date(2026, 7, 18),
+            status=TournamentStatus.ACTIVE,
+        )
+        session.add(tournament)
+        await session.commit()
+        tournament_id = tournament.id
+
+    service = ResultService(
+        session_factory,
+        clock=FixedClock(datetime(2026, 7, 20, 12, tzinfo=ZoneInfo("Europe/Moscow"))),
+    )
+    first = await service.add_tournament_photo(
+        100,
+        tournament_id,
+        telegram_file_id="file-1",
+        telegram_file_unique_id="unique-1",
+    )
+    duplicate = await service.add_tournament_photo(
+        100,
+        tournament_id,
+        telegram_file_id="file-1-again",
+        telegram_file_unique_id="unique-1",
+    )
+    for index in range(2, 11):
+        await service.add_tournament_photo(
+            100,
+            tournament_id,
+            telegram_file_id=f"file-{index}",
+            telegram_file_unique_id=f"unique-{index}",
+        )
+    over_limit = await service.add_tournament_photo(
+        100,
+        tournament_id,
+        telegram_file_id="file-11",
+        telegram_file_unique_id="unique-11",
+    )
+
+    assert first.created is True
+    assert duplicate.created is False
+    assert over_limit.limit_reached is True
+    assert len(await service.list_tournament_photos(100, tournament_id)) == 10
+
+    results = await service.delete_tournament_photos(100, tournament_id)
+
+    assert results.photo_count == 0
+    assert await service.list_tournament_photos(100, tournament_id) == []
     await engine.dispose()
 
 
@@ -781,14 +996,13 @@ async def test_stale_yesterday_result_callback_is_rejected_without_mutation(
         session_factory,
         clock=FixedClock(datetime(2026, 7, 20, 12, tzinfo=ZoneInfo("Europe/Moscow"))),
     )
-    with pytest.raises(TournamentResultsEditingUnavailableError):
-        await service.update_player_result_field(
-            100,
-            tournament_id,
-            player_id,
-            ResultField.PLACE,
-            1,
-        )
+    await service.update_player_result_field(
+        100,
+        tournament_id,
+        player_id,
+        ResultField.PLACE,
+        1,
+    )
 
     async with session_factory() as session:
         stored = (
@@ -796,5 +1010,5 @@ async def test_stale_yesterday_result_callback_is_rejected_without_mutation(
                 select(TournamentResult).where(TournamentResult.tournament_id == tournament_id)
             )
         ).scalar_one()
-    assert stored.place is None
+    assert stored.place == 1
     await engine.dispose()

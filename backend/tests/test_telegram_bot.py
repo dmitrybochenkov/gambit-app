@@ -71,6 +71,7 @@ from app.db.models import (
     ScoringConfig,
     Season,
     Tournament,
+    TournamentPhoto,
     TournamentRegistration,
     TournamentResult,
     User,
@@ -92,7 +93,11 @@ from app.services.dto.registrations import (
     RegistrationsOverviewView,
     TournamentRegistrationCountView,
 )
-from app.services.dto.results import TournamentResultPlayerView, TournamentResultsView
+from app.services.dto.results import (
+    TournamentCloseReadinessView,
+    TournamentResultPlayerView,
+    TournamentResultsView,
+)
 from app.services.dto.schedules import (
     TournamentPlanDayEditView,
     TournamentPlanItemView,
@@ -393,7 +398,11 @@ def test_admin_result_players_hide_ids_and_empty_places() -> None:
     assert buttons == [
         "Тест Игрок",
         "Илларионов Александр: 2️⃣",
+        "👤 Играл ранее",
+        "🆕 Новый игрок",
+        "📸 Добавить фото",
         "❌ Отмена",
+        "⌛ Прошедший турнир",
     ]
 
 
@@ -458,7 +467,11 @@ def test_admin_result_player_buttons_show_entered_knockouts_and_place() -> None:
     assert buttons == [
         "Илларионов Александр: 2️⃣ | 👑🥊 х1 | 🥊 х3",
         "Тест Игрок",
+        "👤 Играл ранее",
+        "🆕 Новый игрок",
+        "📸 Добавить фото",
         "❌ Отмена",
+        "⌛ Прошедший турнир",
     ]
 
 
@@ -2047,6 +2060,15 @@ async def test_superadmin_close_tournament_dispatcher_replaces_fund_preview(
                 for index, player in enumerate(players)
             ]
         )
+        session.add(
+            TournamentPhoto(
+                tournament_id=tournament.id,
+                telegram_file_id="close-file-1",
+                telegram_file_unique_id="close-unique-1",
+                uploaded_by_user_id=superadmin.id,
+                position=0,
+            )
+        )
         await session.commit()
         tournament_id = tournament.id
 
@@ -2055,6 +2077,11 @@ async def test_superadmin_close_tournament_dispatcher_replaces_fund_preview(
         clock=FixedClock(datetime(2026, 7, 9, 12, tzinfo=ZoneInfo("Europe/Moscow"))),
     )
     monkeypatch.setattr(superadmin_close_handlers, "result_service", service)
+    monkeypatch.setattr(
+        superadmin_close_handlers.tournament_planning_service,
+        "inspect_after_tournament_close",
+        AsyncMock(return_value=SimpleNamespace(status=SimpleNamespace(), plan=None)),
+    )
     bot = RecordingBot()
 
     def message_update(update_id: int, text: str) -> dict[str, object]:
@@ -2091,7 +2118,19 @@ async def test_superadmin_close_tournament_dispatcher_replaces_fund_preview(
             bot,
             message_update(1, labels.ADMIN_PANEL_CLOSE_TOURNAMENT),
         )
-        await runtime.telegram_dispatcher.feed_raw_update(bot, message_update(2, "10000"))
+        await runtime.telegram_dispatcher.feed_raw_update(
+            bot,
+            callback_update(
+                2,
+                superadmin_tournament_close_kb.AdminCloseTournamentCallback(
+                    action=superadmin_tournament_close_kb.AdminCloseTournamentAction.OPEN,
+                    tournament_id=tournament_id,
+                    page=0,
+                ).pack(),
+                message_id=101,
+            ),
+        )
+        await runtime.telegram_dispatcher.feed_raw_update(bot, message_update(3, "10000"))
         async with session_factory() as session:
             tournament_before_change = await session.get(Tournament, tournament_id)
             assert tournament_before_change is not None
@@ -2101,7 +2140,7 @@ async def test_superadmin_close_tournament_dispatcher_replaces_fund_preview(
         await runtime.telegram_dispatcher.feed_raw_update(
             bot,
             callback_update(
-                3,
+                4,
                 superadmin_tournament_close_kb.AdminCloseTournamentCallback(
                     action=superadmin_tournament_close_kb.AdminCloseTournamentAction.CHANGE_FUND,
                     tournament_id=tournament_id,
@@ -2115,11 +2154,11 @@ async def test_superadmin_close_tournament_dispatcher_replaces_fund_preview(
             assert tournament_after_change.status == TournamentStatus.ACTIVE
             assert tournament_after_change.tournament_fund is None
 
-        await runtime.telegram_dispatcher.feed_raw_update(bot, message_update(4, "15000"))
+        await runtime.telegram_dispatcher.feed_raw_update(bot, message_update(5, "15000"))
         await runtime.telegram_dispatcher.feed_raw_update(
             bot,
             callback_update(
-                5,
+                6,
                 superadmin_tournament_close_kb.AdminCloseTournamentCallback(
                     action=superadmin_tournament_close_kb.AdminCloseTournamentAction.CONFIRM,
                     tournament_id=tournament_id,
@@ -2134,8 +2173,9 @@ async def test_superadmin_close_tournament_dispatcher_replaces_fund_preview(
         edited_texts = [
             call.text for call in bot.calls if call.__class__.__name__ == "EditMessageText"
         ]
-        assert "🔒 Закрытие турнира" in sent_texts[0]
-        assert "Введите фонд турнира?" in sent_texts[0]
+        assert "🔒 Закрыть турнир" in sent_texts[0]
+        assert any("🔒 Закрытие турнира" in text for text in edited_texts)
+        assert any("Введите фонд турнира?" in text for text in edited_texts)
         assert "Введите фонд турнира." in edited_texts
         assert any("Фонд турнира: 10000" in text for text in sent_texts)
         assert any("Фонд турнира: 15000" in text for text in sent_texts)
@@ -2184,24 +2224,17 @@ async def test_close_tournament_single_tournament_root_shows_preview(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     tournament = tournament_view(125, date(2026, 8, 9), 1, "Баунти турнир")
-    results = TournamentResultsView(
+    readiness = TournamentCloseReadinessView(
         tournament=tournament,
-        tournament_fund=None,
-        players=[
-            TournamentResultPlayerView(
-                player_id=108,
-                display_name="Илларионов Александр",
-                place=1,
-                knockouts_count=0,
-                big_knockouts_count=0,
-            )
-        ],
-        knockout_mode="none",
+        is_ready=True,
+        photo_count=1,
+        has_photos=True,
+        has_checkins=True,
+        validation_errors=[],
+        reasons=[],
     )
     service = SimpleNamespace(
-        list_unclosed_tournaments_for_superadmin=AsyncMock(return_value=[tournament]),
-        get_closeable_tournament_results=AsyncMock(return_value=results),
-        validate_closeable_results=AsyncMock(return_value=[]),
+        list_unclosed_tournaments_for_superadmin=AsyncMock(return_value=[readiness]),
     )
     monkeypatch.setattr(superadmin_close_handlers, "result_service", service)
     state = MutableState()
@@ -2215,27 +2248,15 @@ async def test_close_tournament_single_tournament_root_shows_preview(
     await superadmin_close_handlers.show_close_tournament_flow(message, state)
 
     service.list_unclosed_tournaments_for_superadmin.assert_awaited_once_with(100)
-    service.get_closeable_tournament_results.assert_awaited_once_with(
-        superadmin_telegram_id=100,
-        tournament_id=125,
-    )
-    service.validate_closeable_results.assert_awaited_once_with(
-        superadmin_telegram_id=100,
-        tournament_id=125,
-    )
-    assert state.state == AdminResultStates.entering_tournament_fund
-    assert state.data == {
-        "close_tournament_id": 125,
-        "close_tournament_page": 0,
-        "close_tournament_prompt_chat_id": 100,
-        "close_tournament_prompt_message_id": 700,
-    }
+    assert state.state is None
+    assert state.data == {}
     message.answer.assert_awaited_once()
-    assert "🔒 Закрытие турнира" in message.answer.await_args.args[0]
-    assert "9 августа 2026" in message.answer.await_args.args[0]
+    assert "🔒 Закрыть турнир" in message.answer.await_args.args[0]
+    assert "Воскресенье, 9 августа — Баунти турнир" in message.answer.await_args.args[0]
+    assert "✅ Готов к закрытию" in message.answer.await_args.args[0]
     assert "Баунти турнир" in message.answer.await_args.args[0]
-    assert "Введите фонд турнира?" in message.answer.await_args.args[0]
     assert inline_keyboard_texts(message.answer.await_args.kwargs["reply_markup"]) == [
+        "✅ 09.08 — Баунти турнир",
         "❌ Отмена",
     ]
 

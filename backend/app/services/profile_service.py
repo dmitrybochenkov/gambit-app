@@ -6,6 +6,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from app.common.clock import Clock, club_clock
 from app.db.models import Season
+from app.db.repositories.hall_of_fame_repository import HallOfFameRepository
 from app.db.repositories.profile_repository import (
     PlayerProfileStats,
     ProfileRepository,
@@ -14,7 +15,7 @@ from app.db.repositories.season_repository import SeasonRepository
 from app.db.session import SessionFactory
 from app.services.access_policy import ActiveUserRequiredError, access_policy
 from app.services.dto.seasons import SeasonOptionView
-from app.services.dto.statistics.profile import PlayerProfileView
+from app.services.dto.statistics.profile import PlayerProfileHonourView, PlayerProfileView
 from app.services.season_options import list_started_season_options
 
 
@@ -60,6 +61,7 @@ class ProfileService:
                 raise ProfileNotAllowedError from exc
             return await self._get_profile(
                 profile_repository=ProfileRepository(session),
+                hall_of_fame_repository=HallOfFameRepository(session),
                 season_repository=SeasonRepository(session),
                 player_id=user.id,
                 display_name=user.display_name,
@@ -84,6 +86,7 @@ class ProfileService:
     @staticmethod
     async def _get_profile(
         profile_repository: ProfileRepository,
+        hall_of_fame_repository: HallOfFameRepository,
         season_repository: SeasonRepository,
         player_id: int,
         display_name: str,
@@ -102,9 +105,10 @@ class ProfileService:
                 player_id=player_id,
                 season_id=season.id,
             )
+            honours = await _player_honours(hall_of_fame_repository, player_id)
             return (
                 "Твой профиль — текущий сезон",
-                player_profile_view(stats) if stats else None,
+                player_profile_view(stats, honours=honours) if stats else None,
             )
         if kind == ProfileKind.SELECTED_SEASON:
             season = await _require_started_season(season_repository, season_id, today)
@@ -112,18 +116,24 @@ class ProfileService:
                 player_id=player_id,
                 season_id=season.id,
             )
+            honours = await _player_honours(hall_of_fame_repository, player_id)
             return (
                 f"Твой профиль — {season.name}",
-                player_profile_view(stats) if stats else None,
+                player_profile_view(stats, honours=honours) if stats else None,
             )
         stats = await profile_repository.get_player_stats(player_id=player_id)
+        honours = await _player_honours(hall_of_fame_repository, player_id)
         return (
             "Твой профиль — за всё время",
-            player_profile_view(stats) if stats else None,
+            player_profile_view(stats, honours=honours) if stats else None,
         )
 
 
-def player_profile_view(stats: PlayerProfileStats) -> PlayerProfileView:
+def player_profile_view(
+    stats: PlayerProfileStats,
+    *,
+    honours: tuple[PlayerProfileHonourView, ...] = (),
+) -> PlayerProfileView:
     return PlayerProfileView(
         display_name=stats.display_name,
         total_points=stats.total_points,
@@ -135,6 +145,7 @@ def player_profile_view(stats: PlayerProfileStats) -> PlayerProfileView:
         third_places_count=stats.third_places_count,
         fourth_places_count=stats.fourth_places_count,
         fifth_places_count=stats.fifth_places_count,
+        honours=honours,
     )
 
 
@@ -150,6 +161,21 @@ def empty_profile(display_name: str) -> PlayerProfileView:
         third_places_count=0,
         fourth_places_count=0,
         fifth_places_count=0,
+    )
+
+
+async def _player_honours(
+    repository: HallOfFameRepository,
+    player_id: int,
+) -> tuple[PlayerProfileHonourView, ...]:
+    rows = await repository.list_player_honours(player_id)
+    return tuple(
+        PlayerProfileHonourView(
+            season_name=row.season_name,
+            season_starts_at=row.starts_at,
+            kind=row.kind,
+        )
+        for row in rows
     )
 
 

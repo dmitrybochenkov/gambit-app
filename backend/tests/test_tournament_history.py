@@ -10,6 +10,11 @@ from app.bot.telegram.formatters.statistics import history as history_fmt
 from app.db.base import Base
 from app.db.models import ScoringConfig, Season, Tournament, TournamentResult, TournamentType
 from app.db.models.enums import TournamentStatus, UserStatus
+from app.services.dto.statistics.history import (
+    HistoricalTournamentResultRowView,
+    HistoricalTournamentResultView,
+    HistoricalTournamentView,
+)
 from app.services.pagination import pagination_service
 from app.services.user_statistics_service import (
     HistoricalTournamentNotFoundError,
@@ -128,6 +133,87 @@ async def test_history_lists_only_periods_and_tournaments_with_results(
         await engine.dispose()
 
 
+@pytest.mark.parametrize(
+    ("row", "present_headers", "absent_headers"),
+    [
+        (
+            HistoricalTournamentResultRowView(
+                player_id=1,
+                display_name="Игрок",
+                place=1,
+                knockouts_count=0,
+                big_knockouts_count=0,
+                bonus_points=0,
+                total_points=Decimal("10"),
+            ),
+            ["Место", "Игрок", "Очки"],
+            [" КО", "БКО", "Бонус"],
+        ),
+        (
+            HistoricalTournamentResultRowView(
+                player_id=1,
+                display_name="Игрок",
+                place=1,
+                knockouts_count=2,
+                big_knockouts_count=0,
+                bonus_points=0,
+                total_points=Decimal("10"),
+            ),
+            ["Место", "Игрок", "КО", "Очки"],
+            ["БКО", "Бонус"],
+        ),
+        (
+            HistoricalTournamentResultRowView(
+                player_id=1,
+                display_name="Игрок",
+                place=1,
+                knockouts_count=0,
+                big_knockouts_count=1,
+                bonus_points=0,
+                total_points=Decimal("10"),
+            ),
+            ["Место", "Игрок", "БКО", "Очки"],
+            [" КО", "Бонус"],
+        ),
+        (
+            HistoricalTournamentResultRowView(
+                player_id=1,
+                display_name="Игрок",
+                place=1,
+                knockouts_count=0,
+                big_knockouts_count=0,
+                bonus_points=3,
+                total_points=Decimal("10"),
+            ),
+            ["Место", "Игрок", "Бонус", "Очки"],
+            [" КО", "БКО"],
+        ),
+    ],
+)
+def test_history_result_table_uses_dynamic_columns(
+    row: HistoricalTournamentResultRowView,
+    present_headers: list[str],
+    absent_headers: list[str],
+) -> None:
+    result = HistoricalTournamentResultView(
+        tournament=HistoricalTournamentView(
+            id=1,
+            date=date(2026, 7, 17),
+            display_name="Классика",
+        ),
+        rows=[row],
+    )
+    page = pagination_service.paginate(result.rows, page=0, page_size=20)
+
+    text = history_fmt.tournament_result(result, page)
+
+    header = text.split("```", maxsplit=2)[1].splitlines()[1]
+    for present_header in present_headers:
+        assert present_header in header
+    for absent_header in absent_headers:
+        assert absent_header not in header
+
+
 async def test_history_result_sorting_and_formatter(tmp_path: Path) -> None:
     engine = create_async_engine(f"sqlite+aiosqlite:///{tmp_path / 'history_result.db'}")
     async with engine.begin() as connection:
@@ -225,12 +311,12 @@ async def test_history_result_sorting_and_formatter(tmp_path: Path) -> None:
         ]
         page = pagination_service.paginate(result.rows, page=0, page_size=20)
         text = history_fmt.tournament_result(result, page)
-        assert "Место  Игрок                 КО  БКО   Очки" in text
+        assert "Место  Игрок                 КО  БКО  Бонус   Очки" in text
         assert "Борис" in text
         assert "Александр Очень Дли…" in text
-        assert "—      Виктор                 9    0      0" in text
-        assert "Борис                  2    2     12" in text
-        assert "Глеб                   1    0     10" in text
+        assert "—      Виктор                 9    0      0      0" in text
+        assert "Борис                  2    2      0     12" in text
+        assert "Глеб                   1    0      6     10" in text
         assert text.startswith("⏳ История\n\n17 июля 2026\nКлассика\n\n```")
     finally:
         await engine.dispose()

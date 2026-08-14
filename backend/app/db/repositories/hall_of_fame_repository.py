@@ -19,6 +19,14 @@ class HallOfFameSeasonRow:
     knockout_leader_display_name: str | None
 
 
+@dataclass(frozen=True)
+class PlayerHallOfFameHonourRow:
+    season_id: int
+    season_name: str
+    starts_at: date
+    kind: str
+
+
 class HallOfFameRepository:
     def __init__(self, session: AsyncSession) -> None:
         self.session = session
@@ -77,3 +85,41 @@ class HallOfFameRepository:
             )
             for row in result
         ]
+
+    async def list_player_honours(self, player_id: int) -> list[PlayerHallOfFameHonourRow]:
+        result = await self.session.execute(
+            select(
+                Season.id.label("season_id"),
+                Season.name.label("season_name"),
+                Season.starts_at,
+                SeasonHallOfFame.champion_player_id,
+                SeasonHallOfFame.knockout_player_id,
+            )
+            .join(SeasonHallOfFame, SeasonHallOfFame.season_id == Season.id)
+            .where(
+                (SeasonHallOfFame.champion_player_id == player_id)
+                | (SeasonHallOfFame.knockout_player_id == player_id)
+            )
+            .order_by(Season.starts_at, Season.id)
+        )
+        honours: list[PlayerHallOfFameHonourRow] = []
+        for row in result:
+            if row.champion_player_id == player_id:
+                honours.append(
+                    PlayerHallOfFameHonourRow(
+                        season_id=row.season_id,
+                        season_name=row.season_name,
+                        starts_at=row.starts_at,
+                        kind="champion",
+                    )
+                )
+            if row.knockout_player_id == player_id:
+                honours.append(
+                    PlayerHallOfFameHonourRow(
+                        season_id=row.season_id,
+                        season_name=row.season_name,
+                        starts_at=row.starts_at,
+                        kind="knockout",
+                    )
+                )
+        return honours

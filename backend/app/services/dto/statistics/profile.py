@@ -1,5 +1,13 @@
 from dataclasses import dataclass
+from datetime import date
 from decimal import Decimal
+
+
+@dataclass(frozen=True)
+class PlayerProfileHonourView:
+    season_name: str
+    season_starts_at: date
+    kind: str
 
 
 @dataclass(frozen=True)
@@ -14,6 +22,7 @@ class PlayerProfileView:
     third_places_count: int
     fourth_places_count: int
     fifth_places_count: int
+    honours: tuple[PlayerProfileHonourView, ...] = ()
 
     @property
     def total_knockouts_count(self) -> int:

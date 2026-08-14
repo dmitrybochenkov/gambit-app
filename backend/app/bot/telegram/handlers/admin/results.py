@@ -2,7 +2,7 @@ import logging
 
 from aiogram import F, Router
 from aiogram.fsm.context import FSMContext
-from aiogram.types import CallbackQuery, Message
+from aiogram.types import CallbackQuery, InputMediaPhoto, Message
 
 from app.bot.telegram.formatters import results as result_fmt
 from app.bot.telegram.handlers.admin.shared import (
@@ -27,8 +27,10 @@ from app.bot.telegram.texts.admin import results as result_text
 from app.services.access_policy import AdminAccessDeniedError
 from app.services.pagination import pagination_service
 from app.services.result_service import (
+    ResultDuplicateNameError,
     ResultField,
     ResultInvalidPlayerDataError,
+    ResultPlayerAlreadyAddedError,
     ResultService,
     ResultTodayTournamentInvariantViolationError,
     ResultTodayTournamentNotFoundError,
@@ -81,7 +83,7 @@ async def show_result_tournaments(message: Message) -> None:
     except ResultTodayTournamentNotFoundError:
         await message.answer(
             "На сегодня нет активного турнира.",
-            reply_markup=admin_results_kb.admin_result_back_to_menu_keyboard(),
+            reply_markup=admin_results_kb.admin_result_root_no_today_keyboard(),
         )
         return
     except ResultTodayTournamentInvariantViolationError:
@@ -102,6 +104,66 @@ async def show_result_tournaments(message: Message) -> None:
     )
 
 
+@router.callback_query(admin_results_kb.AdminPastResultTournamentCallback.filter())
+async def select_past_result_tournament(
+    callback: CallbackQuery,
+    callback_data: admin_results_kb.AdminPastResultTournamentCallback,
+    state: FSMContext,
+) -> None:
+    try:
+        if callback_data.action == admin_results_kb.AdminResultTournamentAction.CANCEL:
+            await state.clear()
+            await callback.answer(result_text.ADMIN_RESULTS_CANCELLED)
+            if callback.message is not None:
+                await _delete_callback_message(callback)
+                await callback.message.answer(result_text.ADMIN_RESULTS_CANCELLED)
+            return
+        tournaments = await result_service.list_past_tournaments_for_admin(callback.from_user.id)
+        page = pagination_service.paginate(
+            tournaments,
+            page=callback_data.page,
+            page_size=admin_results_kb.ADMIN_RESULT_PAGE_SIZE,
+        )
+        if callback_data.action == admin_results_kb.AdminResultTournamentAction.PAGE:
+            await callback.answer()
+            if callback.message is not None:
+                await edit_message_if_changed(
+                    callback.message,
+                    text=result_fmt.past_tournament_list(page),
+                    reply_markup=admin_results_kb.admin_past_result_tournament_list_keyboard(page),
+                )
+            return
+        if callback_data.action == admin_results_kb.AdminResultTournamentAction.OPEN:
+            results = await result_service.get_tournament_results(
+                admin_telegram_id=callback.from_user.id,
+                tournament_id=callback_data.tournament_id,
+            )
+            result_page = pagination_service.paginate(
+                results.players,
+                page=0,
+                page_size=admin_results_kb.ADMIN_RESULT_PAGE_SIZE,
+            )
+            await callback.answer()
+            if callback.message is not None:
+                await edit_message_if_changed(
+                    callback.message,
+                    text=result_fmt.players_table(results, result_page),
+                    reply_markup=admin_results_kb.admin_result_players_keyboard(
+                        results,
+                        result_page,
+                    ),
+                    parse_mode=RESULT_SUMMARY_PARSE_MODE,
+                )
+            return
+    except AdminAccessDeniedError:
+        await callback.answer(panel_text.ACCESS_DENIED, show_alert=True)
+        return
+    except (ResultTournamentNotFoundError, TournamentResultsEditingUnavailableError):
+        await callback.answer(result_text.ADMIN_RESULTS_NOT_FOUND, show_alert=True)
+        return
+    await callback.answer(result_text.ADMIN_RESULTS_NOT_FOUND, show_alert=True)
+
+
 @router.callback_query(admin_results_kb.AdminResultPlayerCallback.filter())
 async def select_result_player(
     callback: CallbackQuery,
@@ -115,6 +177,24 @@ async def select_result_player(
             if callback.message is not None:
                 await _delete_callback_message(callback)
                 await callback.message.answer(result_text.ADMIN_RESULTS_CANCELLED)
+            return
+
+        if callback_data.action == admin_results_kb.AdminResultPlayerAction.PAST_TOURNAMENTS:
+            tournaments = await result_service.list_past_tournaments_for_admin(
+                callback.from_user.id
+            )
+            page = pagination_service.paginate(
+                tournaments,
+                page=0,
+                page_size=admin_results_kb.ADMIN_RESULT_PAGE_SIZE,
+            )
+            await callback.answer()
+            if callback.message is not None:
+                await edit_message_if_changed(
+                    callback.message,
+                    text=result_fmt.past_tournament_list(page),
+                    reply_markup=admin_results_kb.admin_past_result_tournament_list_keyboard(page),
+                )
             return
 
         results = await result_service.get_tournament_results(
@@ -134,6 +214,59 @@ async def select_result_player(
                     text=result_fmt.players_table(results, page),
                     reply_markup=admin_results_kb.admin_result_players_keyboard(results, page),
                     parse_mode=RESULT_SUMMARY_PARSE_MODE,
+                )
+            return
+        if callback_data.action == admin_results_kb.AdminResultPlayerAction.ADD_EXISTING_SEARCH:
+            await state.set_state(AdminResultStates.entering_result_existing_player_search)
+            await state.update_data(result_add_tournament_id=callback_data.tournament_id)
+            await callback.answer()
+            if callback.message is not None:
+                await _delete_callback_message(callback)
+                await callback.message.answer(
+                    "Введи имя игрока из базы.",
+                    reply_markup=admin_results_kb.admin_result_add_player_cancel_keyboard(
+                        callback_data.tournament_id
+                    ),
+                )
+            return
+        if callback_data.action == admin_results_kb.AdminResultPlayerAction.ADD_NEW_PLAYER:
+            await state.set_state(AdminResultStates.entering_result_new_player)
+            await state.update_data(result_add_tournament_id=callback_data.tournament_id)
+            await callback.answer()
+            if callback.message is not None:
+                await _delete_callback_message(callback)
+                await callback.message.answer(
+                    "Введи имя нового игрока.",
+                    reply_markup=admin_results_kb.admin_result_add_player_cancel_keyboard(
+                        tournament_id=callback_data.tournament_id
+                    ),
+                )
+            return
+        if callback_data.action == admin_results_kb.AdminResultPlayerAction.ADD_PHOTO:
+            await state.set_state(AdminResultStates.collecting_tournament_photos)
+            await state.update_data(result_photo_tournament_id=callback_data.tournament_id)
+            await callback.answer()
+            if callback.message is not None:
+                await _delete_callback_message(callback)
+                await callback.message.answer(
+                    result_fmt.photo_upload_prompt(),
+                    reply_markup=admin_results_kb.admin_result_photo_collect_keyboard(
+                        callback_data.tournament_id
+                    ),
+                )
+            return
+        if callback_data.action == admin_results_kb.AdminResultPlayerAction.VIEW_PHOTOS:
+            await _send_tournament_photos(callback, callback_data.tournament_id)
+            return
+        if callback_data.action == admin_results_kb.AdminResultPlayerAction.DELETE_PHOTOS:
+            await callback.answer()
+            if callback.message is not None:
+                await edit_message_if_changed(
+                    callback.message,
+                    text=result_fmt.delete_photos_confirmation(),
+                    reply_markup=admin_results_kb.admin_result_delete_photos_confirmation_keyboard(
+                        callback_data.tournament_id
+                    ),
                 )
             return
         player = ResultService.find_result_player(results, callback_data.player_id)
@@ -369,6 +502,328 @@ async def select_result_value(
             result_text.admin_results_invalid_manual_value(callback_data.field.value),
             show_alert=True,
         )
+
+
+@router.callback_query(admin_results_kb.AdminResultAddPlayerCallback.filter())
+async def select_result_add_player_action(
+    callback: CallbackQuery,
+    callback_data: admin_results_kb.AdminResultAddPlayerCallback,
+    state: FSMContext,
+) -> None:
+    try:
+        if callback_data.action == admin_results_kb.AdminResultAddPlayerAction.CANCEL:
+            await state.clear()
+            await callback.answer(result_text.ADMIN_RESULTS_CANCELLED)
+            await _return_to_admin_menu(callback, result_text.ADMIN_RESULTS_CANCELLED)
+            return
+
+        if callback_data.action == admin_results_kb.AdminResultAddPlayerAction.CONFIRM_EXISTING:
+            tournament, user = await result_service.get_existing_player_add_confirmation(
+                admin_telegram_id=callback.from_user.id,
+                tournament_id=callback_data.tournament_id,
+                user_id=callback_data.player_id,
+            )
+            await callback.answer()
+            if callback.message is not None:
+                await edit_message_if_changed(
+                    callback.message,
+                    text=result_fmt.add_existing_player_prompt(tournament, user),
+                    reply_markup=admin_results_kb.admin_result_add_existing_confirmation_keyboard(
+                        tournament_id=callback_data.tournament_id,
+                        player_id=callback_data.player_id,
+                    ),
+                )
+            return
+
+        if callback_data.action == admin_results_kb.AdminResultAddPlayerAction.ADD_EXISTING:
+            results = await result_service.add_existing_player_to_tournament(
+                admin_telegram_id=callback.from_user.id,
+                tournament_id=callback_data.tournament_id,
+                user_id=callback_data.player_id,
+            )
+            await state.clear()
+            await callback.answer(result_text.ADMIN_RESULTS_SAVED)
+            await _show_results_screen_from_callback(callback, results)
+            return
+
+        if callback_data.action == admin_results_kb.AdminResultAddPlayerAction.CONFIRM_NEW:
+            data = await state.get_data()
+            display_name = str(data.get("result_new_display_name", ""))
+            tournament, display_name = await result_service.get_new_player_add_confirmation(
+                admin_telegram_id=callback.from_user.id,
+                tournament_id=callback_data.tournament_id,
+                display_name=display_name,
+            )
+            await state.set_state(AdminResultStates.confirming_result_new_player)
+            await state.update_data(
+                result_add_tournament_id=callback_data.tournament_id,
+                result_new_display_name=display_name,
+            )
+            await callback.answer()
+            if callback.message is not None:
+                await edit_message_if_changed(
+                    callback.message,
+                    text=result_fmt.add_new_player_prompt(tournament, display_name),
+                    reply_markup=admin_results_kb.admin_result_add_new_confirmation_keyboard(
+                        tournament_id=callback_data.tournament_id
+                    ),
+                )
+            return
+
+        if callback_data.action == admin_results_kb.AdminResultAddPlayerAction.CREATE_NEW:
+            data = await state.get_data()
+            results = await result_service.add_new_player_to_tournament(
+                admin_telegram_id=callback.from_user.id,
+                tournament_id=callback_data.tournament_id,
+                display_name=str(data.get("result_new_display_name", "")),
+            )
+            await state.clear()
+            await callback.answer(result_text.ADMIN_RESULTS_SAVED)
+            await _show_results_screen_from_callback(callback, results)
+            return
+    except AdminAccessDeniedError:
+        await state.clear()
+        await callback.answer(panel_text.ACCESS_DENIED, show_alert=True)
+        return
+    except ResultDuplicateNameError:
+        await callback.answer(
+            "Такой игрок уже существует.\nИспользуй «Играл ранее».",
+            show_alert=True,
+        )
+        return
+    except ResultPlayerAlreadyAddedError:
+        await callback.answer("Этот игрок уже добавлен в турнир.", show_alert=True)
+        results = await result_service.get_tournament_results(
+            admin_telegram_id=callback.from_user.id,
+            tournament_id=callback_data.tournament_id,
+        )
+        await _show_results_screen_from_callback(callback, results)
+        return
+    except (ResultTournamentNotFoundError, ResultUserNotFoundError):
+        await callback.answer(result_text.ADMIN_RESULTS_NOT_FOUND, show_alert=True)
+        return
+    except TournamentResultsEditingUnavailableError:
+        await callback.answer(result_text.ADMIN_RESULTS_EDITING_UNAVAILABLE, show_alert=True)
+        return
+
+    await callback.answer(result_text.ADMIN_RESULTS_NOT_FOUND, show_alert=True)
+
+
+@router.callback_query(admin_results_kb.AdminResultPhotoCallback.filter())
+async def select_result_photo_action(
+    callback: CallbackQuery,
+    callback_data: admin_results_kb.AdminResultPhotoCallback,
+    state: FSMContext,
+) -> None:
+    try:
+        if callback_data.action == admin_results_kb.AdminResultPhotoAction.CANCEL:
+            await state.clear()
+            await callback.answer(result_text.ADMIN_RESULTS_CANCELLED)
+            await _return_to_admin_menu(callback, result_text.ADMIN_RESULTS_CANCELLED)
+            return
+        if callback_data.action == admin_results_kb.AdminResultPhotoAction.DONE:
+            await state.clear()
+            results = await result_service.get_tournament_results(
+                admin_telegram_id=callback.from_user.id,
+                tournament_id=callback_data.tournament_id,
+            )
+            await callback.answer()
+            await _show_results_screen_from_callback(callback, results)
+            return
+        if callback_data.action == admin_results_kb.AdminResultPhotoAction.DELETE_ALL:
+            results = await result_service.delete_tournament_photos(
+                admin_telegram_id=callback.from_user.id,
+                tournament_id=callback_data.tournament_id,
+            )
+            await state.clear()
+            await callback.answer("Фото удалены.")
+            await _show_results_screen_from_callback(callback, results)
+            return
+    except AdminAccessDeniedError:
+        await state.clear()
+        await callback.answer(panel_text.ACCESS_DENIED, show_alert=True)
+        return
+    except ResultTournamentNotFoundError:
+        await callback.answer(result_text.ADMIN_RESULTS_NOT_FOUND, show_alert=True)
+        return
+    except TournamentResultsEditingUnavailableError:
+        await callback.answer(result_text.ADMIN_RESULTS_EDITING_UNAVAILABLE, show_alert=True)
+        return
+    await callback.answer(result_text.ADMIN_RESULTS_NOT_FOUND, show_alert=True)
+
+
+@router.message(AdminResultStates.entering_result_existing_player_search)
+async def enter_result_existing_player_search(message: Message, state: FSMContext) -> None:
+    if message.from_user is None:
+        return
+    data = await state.get_data()
+    tournament_id = int(data["result_add_tournament_id"])
+    try:
+        players = await result_service.search_existing_users_for_tournament(
+            admin_telegram_id=message.from_user.id,
+            tournament_id=tournament_id,
+            query=message.text or "",
+        )
+    except AdminAccessDeniedError:
+        await state.clear()
+        await message.answer(panel_text.ACCESS_DENIED)
+        return
+    except ResultTournamentNotFoundError:
+        await state.clear()
+        await message.answer(result_text.ADMIN_RESULTS_NOT_FOUND)
+        return
+    except TournamentResultsEditingUnavailableError:
+        await state.clear()
+        await message.answer(result_text.ADMIN_RESULTS_EDITING_UNAVAILABLE)
+        return
+
+    if not players:
+        await message.answer(
+            "Игроки не найдены.",
+            reply_markup=admin_results_kb.admin_result_add_player_cancel_keyboard(tournament_id),
+        )
+        return
+    await message.answer(
+        "Нашел игроков в базе:",
+        reply_markup=admin_results_kb.admin_result_search_results_keyboard(
+            tournament_id=tournament_id,
+            players=players,
+        ),
+    )
+
+
+@router.message(AdminResultStates.entering_result_new_player)
+async def enter_result_new_player(message: Message, state: FSMContext) -> None:
+    if message.from_user is None:
+        return
+    data = await state.get_data()
+    tournament_id = int(data["result_add_tournament_id"])
+    display_name = message.text or ""
+    try:
+        tournament, display_name = await result_service.get_new_player_add_confirmation(
+            admin_telegram_id=message.from_user.id,
+            tournament_id=tournament_id,
+            display_name=display_name,
+        )
+    except AdminAccessDeniedError:
+        await state.clear()
+        await message.answer(panel_text.ACCESS_DENIED)
+        return
+    except ResultDuplicateNameError:
+        await message.answer("Такой игрок уже существует.\nИспользуй «Играл ранее».")
+        return
+    except TournamentResultsEditingUnavailableError:
+        await state.clear()
+        await message.answer(result_text.ADMIN_RESULTS_EDITING_UNAVAILABLE)
+        return
+    except (ResultTournamentNotFoundError, ValueError):
+        await message.answer("Введи корректное имя игрока.")
+        return
+
+    await state.set_state(AdminResultStates.confirming_result_new_player)
+    await state.update_data(
+        result_add_tournament_id=tournament_id,
+        result_new_display_name=display_name,
+    )
+    await message.answer(
+        result_fmt.add_new_player_prompt(tournament, display_name),
+        reply_markup=admin_results_kb.admin_result_add_new_confirmation_keyboard(
+            tournament_id=tournament_id
+        ),
+    )
+
+
+@router.message(AdminResultStates.collecting_tournament_photos, F.photo)
+async def collect_tournament_photo(message: Message, state: FSMContext) -> None:
+    if message.from_user is None or not message.photo:
+        return
+    data = await state.get_data()
+    tournament_id = int(data["result_photo_tournament_id"])
+    photo = message.photo[-1]
+    try:
+        result = await result_service.add_tournament_photo(
+            admin_telegram_id=message.from_user.id,
+            tournament_id=tournament_id,
+            telegram_file_id=photo.file_id,
+            telegram_file_unique_id=photo.file_unique_id,
+        )
+    except AdminAccessDeniedError:
+        await state.clear()
+        await message.answer(panel_text.ACCESS_DENIED)
+        return
+    except ResultTournamentNotFoundError:
+        await state.clear()
+        await message.answer(result_text.ADMIN_RESULTS_NOT_FOUND)
+        return
+    except TournamentResultsEditingUnavailableError:
+        await state.clear()
+        await message.answer(result_text.ADMIN_RESULTS_EDITING_UNAVAILABLE)
+        return
+    if result.limit_reached:
+        await message.answer("Можно добавить не больше 10 фотографий.")
+    elif result.created:
+        await message.answer(f"Фото добавлено. Всего: {result.photo_count}")
+    else:
+        await message.answer(f"Это фото уже добавлено. Всего: {result.photo_count}")
+
+
+async def _show_results_screen_from_callback(
+    callback: CallbackQuery,
+    results: object,
+) -> None:
+    if callback.message is None:
+        return
+    page = pagination_service.paginate(
+        results.players,
+        page=0,
+        page_size=admin_results_kb.ADMIN_RESULT_PAGE_SIZE,
+    )
+    await edit_message_if_changed(
+        callback.message,
+        text=result_fmt.players_table(results, page),
+        reply_markup=admin_results_kb.admin_result_players_keyboard(results, page),
+        parse_mode=RESULT_SUMMARY_PARSE_MODE,
+    )
+
+
+async def _send_tournament_photos(
+    callback: CallbackQuery,
+    tournament_id: int,
+) -> None:
+    try:
+        photos = await result_service.list_tournament_photos(
+            admin_telegram_id=callback.from_user.id,
+            tournament_id=tournament_id,
+        )
+    except AdminAccessDeniedError:
+        await callback.answer(panel_text.ACCESS_DENIED, show_alert=True)
+        return
+    except ResultTournamentNotFoundError:
+        await callback.answer(result_text.ADMIN_RESULTS_NOT_FOUND, show_alert=True)
+        return
+    if not photos:
+        await callback.answer("Фото турнира не добавлены.", show_alert=True)
+        return
+    await callback.answer()
+    if callback.message is None:
+        return
+    if len(photos) == 1:
+        await callback.message.answer_photo(photos[0].telegram_file_id)
+        return
+    await callback.message.answer_media_group(
+        [InputMediaPhoto(media=photo.telegram_file_id) for photo in photos]
+    )
+
+
+async def _return_to_admin_menu(callback: CallbackQuery, message_text: str) -> None:
+    if callback.message is None:
+        return
+    admin_panel = await user_access_service.get_admin_panel_for_admin(callback.from_user.id)
+    await _delete_callback_message(callback)
+    await callback.message.answer(
+        message_text,
+        reply_markup=admin_panel_kb.admin_panel_keyboard(admin_panel.admin),
+    )
 
 
 @router.message(AdminResultStates.entering_manual_value)
