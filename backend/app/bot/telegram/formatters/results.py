@@ -353,7 +353,7 @@ def _game_table_lines(
         if show_bonus:
             base += _table_number_cell(player, player.bonus_points, width=9)
         if include_points:
-            value = "" if _is_missing_place_row(player) else fmt_common.decimal(player.total_points)
+            value = "" if _is_missing_place_row(player) else fmt_common.points(player.total_points)
             base += f" {value:>6}"
         rows.append(base)
     return ["```", *rows, "```"]

@@ -22,6 +22,32 @@ from app.services.user_statistics_service import (
 )
 
 
+def test_history_formats_points_as_rounded_integer() -> None:
+    result = HistoricalTournamentResultView(
+        tournament=HistoricalTournamentView(
+            id=1,
+            date=date(2026, 3, 15),
+            display_name="Классика",
+        ),
+        rows=[
+            HistoricalTournamentResultRowView(
+                player_id=1,
+                display_name="Игрок",
+                place=1,
+                knockouts_count=0,
+                big_knockouts_count=0,
+                total_points=Decimal("88.5"),
+            )
+        ],
+    )
+    page = pagination_service.paginate(result.rows, page=0, page_size=20)
+
+    text = history_fmt.tournament_result(result, page)
+
+    assert "    89" in text
+    assert "88.5" not in text
+
+
 async def test_history_lists_only_periods_and_tournaments_with_results(
     tmp_path: Path,
 ) -> None:

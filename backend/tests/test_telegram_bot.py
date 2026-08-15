@@ -22,6 +22,7 @@ from sqlalchemy.ext.asyncio import AsyncEngine, async_sessionmaker, create_async
 from app.api import telegram_webhook as webhook_module
 from app.bot.telegram import notifications, runtime
 from app.bot.telegram.formatters import check_in as check_in_fmt
+from app.bot.telegram.formatters import common as fmt_common
 from app.bot.telegram.formatters import results as result_fmt
 from app.bot.telegram.formatters import seasons as season_fmt
 from app.bot.telegram.formatters import tournaments as tournament_fmt
@@ -500,6 +501,27 @@ def test_admin_result_players_hide_ids_and_empty_places() -> None:
     ]
 
 
+@pytest.mark.parametrize(
+    ("value", "expected"),
+    [
+        (0, "0"),
+        (1, "1"),
+        (Decimal("1.4"), "1"),
+        (Decimal("1.5"), "2"),
+        (Decimal("2.5"), "3"),
+        (Decimal("88.49"), "88"),
+        (Decimal("88.50"), "89"),
+        (Decimal("1347.5"), "1348"),
+        (1.5, "2"),
+    ],
+)
+def test_common_points_formatter_uses_half_up_rounding(
+    value: object,
+    expected: str,
+) -> None:
+    assert fmt_common.points(value) == expected
+
+
 def test_admin_result_players_show_empty_state_without_entered_results() -> None:
     tournament = tournament_view(125, date(2026, 7, 19), 2, "Классика")
     players = [
@@ -921,7 +943,7 @@ def test_admin_close_tournament_formatters_show_fund_and_game_tables() -> None:
                 knockouts_count=3,
                 big_knockouts_count=1,
                 bonus_points=5,
-                tournament_points=Decimal("1000"),
+                tournament_points=Decimal("1000.50"),
                 knockout_points=Decimal("105"),
             ),
             TournamentResultPlayerView(
@@ -954,7 +976,8 @@ def test_admin_close_tournament_formatters_show_fund_and_game_tables() -> None:
     assert "Место  Игрок               КО  БКО" in closed
     assert "Бонус" in closed
     assert "Очки" in closed
-    assert "1110" in closed
+    assert "1111" in closed
+    assert "1110.5" not in closed
     assert "Тест Игрок" not in card
     assert "Тест Игрок" not in confirmation
     assert "Тест Игрок" not in closed

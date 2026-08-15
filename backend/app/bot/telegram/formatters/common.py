@@ -1,4 +1,5 @@
 from datetime import date
+from decimal import ROUND_HALF_UP, Decimal
 
 from app.bot.telegram.texts import common as common_texts
 
@@ -20,6 +21,14 @@ def decimal(value: object) -> str:
     if "." in text:
         text = text.rstrip("0").rstrip(".")
     return text
+
+
+def points(value: object) -> str:
+    if isinstance(value, Decimal):
+        decimal_value = value
+    else:
+        decimal_value = Decimal(str(value))
+    return str(decimal_value.quantize(Decimal("1"), rounding=ROUND_HALF_UP))
 
 
 def page_line(page: object) -> str:

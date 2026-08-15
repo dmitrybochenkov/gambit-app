@@ -86,6 +86,6 @@ def _table_lines(
             line += f" {row.big_knockouts_count:>4}"
         if show_bonus:
             line += f" {row.bonus_points:>6}"
-        line += f" {fmt_common.decimal(row.total_points):>6}"
+        line += f" {fmt_common.points(row.total_points):>6}"
         lines.append(line)
     return lines

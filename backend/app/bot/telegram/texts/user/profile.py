@@ -1,4 +1,4 @@
-from decimal import Decimal
+from app.bot.telegram.formatters import common as fmt_common
 
 PROFILE_UNAVAILABLE = "Профиль доступен зарегистрированным игрокам. Нажми /start."
 PROFILE_MENU_PROMPT = "За какой период ты хочешь посмотреть свои достижения?"
@@ -11,7 +11,7 @@ def message(title: str, stats: object | None) -> str:
     if stats is None:
         return f"{title}\n\n{PROFILE_NOT_FOUND}"
 
-    points = _format_decimal(stats.total_points)
+    points = fmt_common.points(stats.total_points)
     lines = [
         title,
         "⭐ - количество очков",
@@ -49,7 +49,3 @@ def _honour_lines(stats: object) -> list[str]:
         elif honour.kind == "knockout":
             lines.append(f"💥 Лучший нокаутер сезона «{honour.season_name}»")
     return lines
-
-
-def _format_decimal(value: Decimal) -> str:
-    return format(value.normalize(), "f")

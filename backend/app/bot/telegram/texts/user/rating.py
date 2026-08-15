@@ -1,4 +1,4 @@
-from decimal import ROUND_HALF_UP, Decimal
+from app.bot.telegram.formatters import common as fmt_common
 
 RATING_UNAVAILABLE = (
     "Рейтинг доступен зарегистрированным игрокам. Нажми /start, чтобы зарегистрироваться!"
@@ -33,7 +33,7 @@ def message(
         position_label = _position_label(position, row.player_id == current_player_id)
         display_name = _display_name(row, current_player_id)
         if hasattr(row, "total_points"):
-            points = _format_points(row.total_points)
+            points = fmt_common.points(row.total_points)
             lines.append(f"{position_label} {display_name} — {points} | 🎲 {row.tournaments_count}")
         else:
             lines.append(
@@ -85,10 +85,6 @@ def _honour(label: str, count: int) -> str:
     if count == 1:
         return label
     return f"{label}×{count}"
-
-
-def _format_points(value: Decimal) -> str:
-    return str(value.quantize(Decimal("1"), rounding=ROUND_HALF_UP))
 
 
 def _escape_markdown(value: str) -> str:

@@ -83,6 +83,27 @@ def test_profile_formats_season_honours() -> None:
     assert "💥 Лучший нокаутер сезона «Лето 2026»" in message
 
 
+def test_profile_formats_points_as_rounded_integer() -> None:
+    message = profile_fmt.message(
+        "Твой профиль — за всё время",
+        PlayerProfileView(
+            display_name="Дима",
+            total_points=Decimal("1347.5"),
+            knockouts_count=0,
+            big_knockouts_count=0,
+            tournaments_count=1,
+            first_places_count=0,
+            second_places_count=0,
+            third_places_count=0,
+            fourth_places_count=0,
+            fifth_places_count=0,
+        ),
+    )
+
+    assert "⭐ 1348 | 🥊 0 | 🎲 1" in message
+    assert "1347.5" not in message
+
+
 async def test_profile_filters_current_season_and_all_time(tmp_path: Path) -> None:
     engine = create_async_engine(f"sqlite+aiosqlite:///{tmp_path / 'profile.db'}")
     async with engine.begin() as connection:
