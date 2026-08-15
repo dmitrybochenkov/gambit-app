@@ -496,7 +496,6 @@ def test_admin_result_players_hide_ids_and_empty_places() -> None:
     assert buttons == [
         "Тест Игрок",
         "Илларионов Александр: 2️⃣",
-        "📸 Добавить фото",
         "❌ Отмена",
     ]
 
@@ -562,7 +561,98 @@ def test_admin_result_player_buttons_show_entered_knockouts_and_place() -> None:
     assert buttons == [
         "Илларионов Александр: 2️⃣ | 👑🥊 х1 | 🥊 х3",
         "Тест Игрок",
+        "❌ Отмена",
+    ]
+
+
+def test_admin_result_root_keyboard_has_data_photos_cancel_only() -> None:
+    tournament = tournament_view(125, date(2026, 7, 19), 6, "Boss Bounty")
+    results = TournamentResultsView(
+        tournament=tournament,
+        tournament_fund=1800,
+        players=[],
+        knockout_mode="small_big",
+        photo_count=2,
+    )
+
+    assert result_fmt.management_root(results).startswith("🏁 Внести результаты\n\n")
+    assert inline_keyboard_texts(admin_results_kb.admin_result_root_keyboard(results)) == [
+        "🏁 Внести данные",
+        "📸 Фотографии",
+        "❌ Отмена",
+    ]
+
+
+def test_admin_result_data_keyboard_has_players_back_cancel_without_photo_actions() -> None:
+    tournament = tournament_view(125, date(2026, 7, 19), 6, "Boss Bounty")
+    results = TournamentResultsView(
+        tournament=tournament,
+        tournament_fund=1800,
+        players=[
+            TournamentResultPlayerView(
+                player_id=108,
+                display_name="Илларионов Александр",
+                place=None,
+                knockouts_count=0,
+                big_knockouts_count=0,
+            )
+        ],
+        knockout_mode="small_big",
+        photo_count=2,
+    )
+    page = Page(items=results.players, page=0, page_size=6, total_items=1)
+
+    buttons = inline_keyboard_texts(
+        admin_results_kb.admin_result_players_keyboard(
+            results,
+            page,
+            back_callback=admin_results_kb.AdminResultMenuCallback(
+                action=admin_results_kb.AdminResultMenuAction.ROOT,
+                tournament_id=results.tournament.id,
+            ),
+        )
+    )
+
+    assert buttons == ["Илларионов Александр", "⬅️ Назад", "❌ Отмена"]
+
+
+def test_admin_result_photo_menu_buttons_for_empty_and_existing_photos() -> None:
+    tournament = tournament_view(125, date(2026, 7, 19), 6, "Boss Bounty")
+    empty_results = TournamentResultsView(
+        tournament=tournament,
+        tournament_fund=1800,
+        players=[],
+        knockout_mode="small_big",
+        photo_count=0,
+    )
+    filled_results = TournamentResultsView(
+        tournament=tournament,
+        tournament_fund=1800,
+        players=[],
+        knockout_mode="small_big",
+        photo_count=2,
+    )
+    back_callback = admin_results_kb.AdminResultMenuCallback(
+        action=admin_results_kb.AdminResultMenuAction.ROOT,
+        tournament_id=tournament.id,
+    )
+
+    assert inline_keyboard_texts(
+        admin_results_kb.admin_result_photo_menu_keyboard(
+            empty_results,
+            back_callback=back_callback,
+        )
+    ) == ["📸 Добавить фото", "⬅️ Назад", "❌ Отмена"]
+    assert inline_keyboard_texts(
+        admin_results_kb.admin_result_photo_menu_keyboard(
+            filled_results,
+            back_callback=back_callback,
+        )
+    ) == [
         "📸 Добавить фото",
+        "🖼 Посмотреть фото (2)",
+        "🗑 Удалить все фото",
+        "⬅️ Назад",
         "❌ Отмена",
     ]
 
@@ -877,6 +967,46 @@ def test_admin_close_tournament_root_card_keyboard_has_only_cancel() -> None:
     )
 
     assert inline_keyboard_texts(keyboard) == ["❌ Отмена"]
+
+
+def test_superadmin_repair_root_keyboard_has_data_photos_add_player_cancel_only() -> None:
+    tournament = tournament_view(125, date(2026, 7, 19), 6, "Boss Bounty")
+    readiness = SimpleNamespace(tournament=tournament, photo_count=3)
+
+    keyboard = superadmin_tournament_close_kb.admin_problematic_tournament_card_keyboard(readiness)
+
+    assert inline_keyboard_texts(keyboard) == [
+        "👤 Добавить игрока",
+        "🏁 Внести данные",
+        "📸 Фотографии",
+        "❌ Отмена",
+    ]
+    assert "⬅️ Назад" not in inline_keyboard_texts(keyboard)
+
+
+def test_superadmin_repair_nested_keyboards_keep_back_and_cancel() -> None:
+    player = SimpleNamespace(id=42, display_name="Игрок")
+
+    assert inline_keyboard_texts(
+        superadmin_tournament_close_kb.admin_repair_add_player_mode_keyboard(125)
+    ) == ["👤 Играл ранее", "🆕 Новый игрок", "⬅️ Назад", "❌ Отмена"]
+    assert inline_keyboard_texts(
+        superadmin_tournament_close_kb.admin_repair_search_results_keyboard(
+            tournament_id=125,
+            players=[player],
+        )
+    ) == ["Игрок", "⬅️ Назад", "❌ Отмена"]
+    assert inline_keyboard_texts(
+        superadmin_tournament_close_kb.admin_repair_add_existing_confirmation_keyboard(
+            tournament_id=125,
+            player_id=42,
+        )
+    ) == ["✅ Добавить", "⬅️ Назад", "❌ Отмена"]
+    assert inline_keyboard_texts(
+        superadmin_tournament_close_kb.admin_repair_add_new_confirmation_keyboard(
+            tournament_id=125,
+        )
+    ) == ["✅ Создать", "⬅️ Назад", "❌ Отмена"]
 
 
 def test_admin_close_tournament_flow_keyboards_do_not_show_back() -> None:
@@ -2047,6 +2177,16 @@ async def test_admin_result_dispatcher_flow_opens_today_tournament_and_saves_pla
             bot,
             callback_update(
                 2,
+                admin_results_kb.AdminResultMenuCallback(
+                    action=admin_results_kb.AdminResultMenuAction.DATA,
+                    tournament_id=tournament_id,
+                ).pack(),
+            ),
+        )
+        await runtime.telegram_dispatcher.feed_raw_update(
+            bot,
+            callback_update(
+                3,
                 admin_results_kb.AdminResultPlayerCallback(
                     action=admin_results_kb.AdminResultPlayerAction.OPEN,
                     tournament_id=tournament_id,
@@ -2058,7 +2198,7 @@ async def test_admin_result_dispatcher_flow_opens_today_tournament_and_saves_pla
         await runtime.telegram_dispatcher.feed_raw_update(
             bot,
             callback_update(
-                3,
+                4,
                 admin_results_kb.AdminResultValueCallback(
                     action=admin_results_kb.AdminResultValueAction.SET,
                     tournament_id=tournament_id,
@@ -2075,10 +2215,11 @@ async def test_admin_result_dispatcher_flow_opens_today_tournament_and_saves_pla
             call.text for call in bot.calls if call.__class__.__name__ == "EditMessageText"
         ]
         assert sent_texts
-        assert "Игроки турнира" in sent_texts[0]
+        assert "🏁 Внести результаты" in sent_texts[0]
         assert "Четверг, 9 июля — Классика" in sent_texts[0]
         assert "Выбери турнир для внесения " + "результатов" not in sent_texts[0]
         assert "В " + "работе" not in sent_texts[0]
+        assert any("Игроки турнира" in text for text in edited_texts)
         assert any("Игрок Результатов\n\nВыбери место:" in text for text in edited_texts)
         assert any("1      Игрок Результатов" in text for text in edited_texts)
         async with session_factory() as session:
@@ -2717,7 +2858,8 @@ async def test_superadmin_repair_photo_collection_done_returns_to_repair_card(
         ]
         assert any("Загружено фото: 0" in text for text in sent_texts)
         assert any("Загружено фото: 1" in text for text in sent_texts)
-        assert any("🛠 Исправление турнира" in text for text in edited_texts)
+        assert any("📸 Фотографии" in text for text in edited_texts)
+        assert any("Фотографий: 1" in text for text in edited_texts)
         assert all("Фото добавлено" not in text for text in [*sent_texts, *edited_texts])
         async with service.session_factory() as session:
             photos = await TournamentPhotoRepository(session).list_for_tournament(tournament_id)
@@ -2763,8 +2905,8 @@ async def test_admin_view_single_photo_restores_control_after_photo(
         method_names = [call.__class__.__name__ for call in bot.calls]
         sent_texts = [call.text for call in bot.calls if call.__class__.__name__ == "SendMessage"]
         assert method_names == ["AnswerCallbackQuery", "DeleteMessage", "SendPhoto", "SendMessage"]
-        assert "Игроки турнира" in sent_texts[-1]
-        assert "📸 Фотографий: 1" in sent_texts[-1]
+        assert "📸 Фотографии" in sent_texts[-1]
+        assert "Фотографий: 1" in sent_texts[-1]
         assert all("Фото добавлено" not in text for text in sent_texts)
     finally:
         await bot.session.close()
@@ -2814,7 +2956,8 @@ async def test_admin_view_album_restores_one_control_after_album(
             "SendMessage",
         ]
         assert len([name for name in method_names if name == "SendMessage"]) == 1
-        assert "📸 Фотографий: 2" in sent_texts[-1]
+        assert "📸 Фотографии" in sent_texts[-1]
+        assert "Фотографий: 2" in sent_texts[-1]
         assert all("Фото добавлено" not in text for text in sent_texts)
     finally:
         await bot.session.close()
@@ -2861,8 +3004,8 @@ async def test_superadmin_repair_view_album_restores_repair_card(
             "SendMediaGroup",
             "SendMessage",
         ]
-        assert "🛠 Исправление турнира" in sent_texts[-1]
-        assert "⚠️ Турнир ещё не начался." in sent_texts[-1]
+        assert "📸 Фотографии" in sent_texts[-1]
+        assert "Фотографий: 2" in sent_texts[-1]
         assert all("Фото добавлено" not in text for text in sent_texts)
     finally:
         await bot.session.close()

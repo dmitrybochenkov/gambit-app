@@ -36,9 +36,11 @@ class AdminTournamentRepairAction(StrEnum):
     CONFIRM_NEW = "confirm_new"
     CREATE_NEW = "create_new"
     EDIT_RESULTS = "edit_results"
+    PHOTOS = "photos"
     ADD_PHOTO = "add_photo"
     PHOTO_DONE = "photo_done"
     VIEW_PHOTOS = "view_photos"
+    DELETE_PHOTOS_CONFIRM = "delete_photos_confirm"
     DELETE_PHOTOS = "delete_photos"
     CANCEL = "cancel"
 
@@ -158,27 +160,12 @@ def admin_problematic_tournament_card_keyboard(readiness: object) -> InlineKeybo
         ),
     )
     builder.button(
-        text="📸 Добавить фото",
+        text="📸 Фотографии",
         callback_data=AdminTournamentRepairCallback(
-            action=AdminTournamentRepairAction.ADD_PHOTO,
+            action=AdminTournamentRepairAction.PHOTOS,
             tournament_id=tournament.id,
         ),
     )
-    if readiness.photo_count > 0:
-        builder.button(
-            text=f"🖼 Посмотреть фото ({readiness.photo_count})",
-            callback_data=AdminTournamentRepairCallback(
-                action=AdminTournamentRepairAction.VIEW_PHOTOS,
-                tournament_id=tournament.id,
-            ),
-        )
-        builder.button(
-            text="🗑 Удалить все фото",
-            callback_data=AdminTournamentRepairCallback(
-                action=AdminTournamentRepairAction.DELETE_PHOTOS,
-                tournament_id=tournament.id,
-            ),
-        )
     builder.button(
         text=labels.ADMIN_CANCEL,
         callback_data=AdminTournamentRepairCallback(
@@ -203,6 +190,13 @@ def admin_repair_add_player_mode_keyboard(tournament_id: int) -> InlineKeyboardM
         text="🆕 Новый игрок",
         callback_data=AdminTournamentRepairCallback(
             action=AdminTournamentRepairAction.ADD_NEW_PLAYER,
+            tournament_id=tournament_id,
+        ),
+    )
+    builder.button(
+        text="⬅️ Назад",
+        callback_data=AdminTournamentRepairCallback(
+            action=AdminTournamentRepairAction.OPEN,
             tournament_id=tournament_id,
         ),
     )
@@ -233,13 +227,20 @@ def admin_repair_search_results_keyboard(
             ),
         )
     builder.button(
+        text="⬅️ Назад",
+        callback_data=AdminTournamentRepairCallback(
+            action=AdminTournamentRepairAction.ADD_PLAYER,
+            tournament_id=tournament_id,
+        ),
+    )
+    builder.button(
         text=labels.ADMIN_CANCEL,
         callback_data=AdminTournamentRepairCallback(
             action=AdminTournamentRepairAction.CANCEL,
             tournament_id=tournament_id,
         ),
     )
-    builder.adjust(*([1] * len(players)), 1)
+    builder.adjust(*([1] * len(players)), 1, 1)
     return builder.as_markup()
 
 
@@ -255,6 +256,13 @@ def admin_repair_add_existing_confirmation_keyboard(
             action=AdminTournamentRepairAction.ADD_EXISTING,
             tournament_id=tournament_id,
             player_id=player_id,
+        ),
+    )
+    builder.button(
+        text="⬅️ Назад",
+        callback_data=AdminTournamentRepairCallback(
+            action=AdminTournamentRepairAction.ADD_PLAYER,
+            tournament_id=tournament_id,
         ),
     )
     builder.button(
@@ -274,6 +282,13 @@ def admin_repair_add_new_confirmation_keyboard(*, tournament_id: int) -> InlineK
         text="✅ Создать",
         callback_data=AdminTournamentRepairCallback(
             action=AdminTournamentRepairAction.CREATE_NEW,
+            tournament_id=tournament_id,
+        ),
+    )
+    builder.button(
+        text="⬅️ Назад",
+        callback_data=AdminTournamentRepairCallback(
+            action=AdminTournamentRepairAction.ADD_PLAYER,
             tournament_id=tournament_id,
         ),
     )

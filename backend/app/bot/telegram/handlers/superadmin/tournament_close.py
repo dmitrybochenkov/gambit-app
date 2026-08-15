@@ -393,13 +393,33 @@ async def select_repair_tournament_action(
                 page=0,
                 page_size=admin_results_kb.ADMIN_RESULT_PAGE_SIZE,
             )
+            await state.update_data(
+                result_return_context="superadmin_repair",
+                repair_tournament_id=callback_data.tournament_id,
+            )
             await callback.answer()
             if callback.message is not None:
                 await edit_message_if_changed(
                     callback.message,
                     text=result_fmt.players_table(results, page),
-                    reply_markup=admin_results_kb.admin_result_players_keyboard(results, page),
+                    reply_markup=_repair_result_players_keyboard(results, page),
                     parse_mode=RESULT_SUMMARY_PARSE_MODE,
+                )
+            return
+        if (
+            callback_data.action
+            == superadmin_tournament_close_kb.AdminTournamentRepairAction.PHOTOS
+        ):
+            results = await result_service.get_tournament_results(
+                admin_telegram_id=callback.from_user.id,
+                tournament_id=callback_data.tournament_id,
+            )
+            await callback.answer()
+            if callback.message is not None:
+                await edit_message_if_changed(
+                    callback.message,
+                    text=result_fmt.photo_menu(results),
+                    reply_markup=_repair_photo_menu_keyboard(results),
                 )
             return
         if (
@@ -427,9 +447,17 @@ async def select_repair_tournament_action(
             == superadmin_tournament_close_kb.AdminTournamentRepairAction.PHOTO_DONE
         ):
             await state.clear()
+            results = await result_service.get_tournament_results(
+                admin_telegram_id=callback.from_user.id,
+                tournament_id=callback_data.tournament_id,
+            )
             await callback.answer()
             if callback.message is not None:
-                await _edit_repair_tournament_card(callback, callback_data.tournament_id)
+                await edit_message_if_changed(
+                    callback.message,
+                    text=result_fmt.photo_menu(results),
+                    reply_markup=_repair_photo_menu_keyboard(results),
+                )
             return
         if (
             callback_data.action
@@ -444,7 +472,7 @@ async def select_repair_tournament_action(
                 tournament_id=callback_data.tournament_id,
                 state=state,
                 context=_repair_photo_control_context(callback_data.tournament_id),
-                restore_control=lambda: _restore_repair_control(
+                restore_control=lambda: _restore_repair_photo_menu_control(
                     callback,
                     callback_data.tournament_id,
                 ),
@@ -452,15 +480,41 @@ async def select_repair_tournament_action(
             return
         if (
             callback_data.action
+            == superadmin_tournament_close_kb.AdminTournamentRepairAction.DELETE_PHOTOS_CONFIRM
+        ):
+            await callback.answer()
+            if callback.message is not None:
+                await edit_message_if_changed(
+                    callback.message,
+                    text=result_fmt.delete_photos_confirmation(),
+                    reply_markup=admin_results_kb.admin_result_delete_photos_confirmation_keyboard(
+                        callback_data.tournament_id,
+                        back_callback=superadmin_tournament_close_kb.AdminTournamentRepairCallback(
+                            action=superadmin_tournament_close_kb.AdminTournamentRepairAction.PHOTOS,
+                            tournament_id=callback_data.tournament_id,
+                        ),
+                        cancel_callback=superadmin_tournament_close_kb.AdminTournamentRepairCallback(
+                            action=superadmin_tournament_close_kb.AdminTournamentRepairAction.CANCEL,
+                            tournament_id=callback_data.tournament_id,
+                        ),
+                    ),
+                )
+            return
+        if (
+            callback_data.action
             == superadmin_tournament_close_kb.AdminTournamentRepairAction.DELETE_PHOTOS
         ):
-            await result_service.delete_tournament_photos(
+            results = await result_service.delete_tournament_photos(
                 admin_telegram_id=callback.from_user.id,
                 tournament_id=callback_data.tournament_id,
             )
             await callback.answer("Фото удалены.")
             if callback.message is not None:
-                await _edit_repair_tournament_card(callback, callback_data.tournament_id)
+                await edit_message_if_changed(
+                    callback.message,
+                    text=result_fmt.photo_menu(results),
+                    reply_markup=_repair_photo_menu_keyboard(results),
+                )
             return
     except AdminAccessDeniedError:
         await callback.answer(text.ACCESS_DENIED, show_alert=True)
@@ -742,6 +796,49 @@ async def _edit_repair_tournament_card(
     )
 
 
+def _repair_result_players_keyboard(results: object, page: object) -> object:
+    tournament_id = results.tournament.id
+    return admin_results_kb.admin_result_players_keyboard(
+        results,
+        page,
+        back_callback=superadmin_tournament_close_kb.AdminTournamentRepairCallback(
+            action=superadmin_tournament_close_kb.AdminTournamentRepairAction.OPEN,
+            tournament_id=tournament_id,
+        ),
+        cancel_callback=superadmin_tournament_close_kb.AdminTournamentRepairCallback(
+            action=superadmin_tournament_close_kb.AdminTournamentRepairAction.CANCEL,
+            tournament_id=tournament_id,
+        ),
+    )
+
+
+def _repair_photo_menu_keyboard(results: object) -> object:
+    tournament_id = results.tournament.id
+    return admin_results_kb.admin_result_photo_menu_keyboard(
+        results,
+        add_callback=superadmin_tournament_close_kb.AdminTournamentRepairCallback(
+            action=superadmin_tournament_close_kb.AdminTournamentRepairAction.ADD_PHOTO,
+            tournament_id=tournament_id,
+        ),
+        view_callback=superadmin_tournament_close_kb.AdminTournamentRepairCallback(
+            action=superadmin_tournament_close_kb.AdminTournamentRepairAction.VIEW_PHOTOS,
+            tournament_id=tournament_id,
+        ),
+        delete_callback=superadmin_tournament_close_kb.AdminTournamentRepairCallback(
+            action=superadmin_tournament_close_kb.AdminTournamentRepairAction.DELETE_PHOTOS_CONFIRM,
+            tournament_id=tournament_id,
+        ),
+        back_callback=superadmin_tournament_close_kb.AdminTournamentRepairCallback(
+            action=superadmin_tournament_close_kb.AdminTournamentRepairAction.OPEN,
+            tournament_id=tournament_id,
+        ),
+        cancel_callback=superadmin_tournament_close_kb.AdminTournamentRepairCallback(
+            action=superadmin_tournament_close_kb.AdminTournamentRepairAction.CANCEL,
+            tournament_id=tournament_id,
+        ),
+    )
+
+
 def _repair_photo_control_context(tournament_id: int) -> PhotoControlContext:
     return PhotoControlContext(
         tournament_id=tournament_id,
@@ -894,21 +991,19 @@ async def _send_photo_media(message: Message, photos: list[object]) -> None:
     )
 
 
-async def _restore_repair_control(
+async def _restore_repair_photo_menu_control(
     callback: CallbackQuery,
     tournament_id: int,
 ) -> int | None:
     if callback.message is None:
         return None
-    readiness = await result_service.get_close_readiness(
-        superadmin_telegram_id=callback.from_user.id,
+    results = await result_service.get_tournament_results(
+        admin_telegram_id=callback.from_user.id,
         tournament_id=tournament_id,
     )
     sent = await callback.message.answer(
-        result_fmt.problematic_tournament_card(readiness),
-        reply_markup=superadmin_tournament_close_kb.admin_problematic_tournament_card_keyboard(
-            readiness
-        ),
+        result_fmt.photo_menu(results),
+        reply_markup=_repair_photo_menu_keyboard(results),
     )
     return sent.message_id
 

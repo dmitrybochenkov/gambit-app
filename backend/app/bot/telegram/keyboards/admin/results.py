@@ -1,4 +1,5 @@
 from enum import StrEnum
+from typing import Any
 
 from aiogram.filters.callback_data import CallbackData
 from aiogram.types import InlineKeyboardMarkup
@@ -92,11 +93,24 @@ class AdminResultPhotoAction(StrEnum):
     VIEW = "view"
     DELETE_CONFIRM = "delete_confirm"
     DELETE_ALL = "delete_all"
+    BACK = "back"
     CANCEL = "cancel"
 
 
 class AdminResultPhotoCallback(CallbackData, prefix="res_photo"):
     action: AdminResultPhotoAction
+    tournament_id: int
+
+
+class AdminResultMenuAction(StrEnum):
+    ROOT = "root"
+    DATA = "data"
+    PHOTOS = "photos"
+    CANCEL = "cancel"
+
+
+class AdminResultMenuCallback(CallbackData, prefix="res_menu"):
+    action: AdminResultMenuAction
     tournament_id: int
 
 
@@ -132,6 +146,9 @@ def admin_result_tournament_list_keyboard(
 def admin_result_players_keyboard(
     results: TournamentResultsView,
     page: Page[TournamentResultPlayerView],
+    *,
+    back_callback: Any | None = None,
+    cancel_callback: Any | None = None,
 ) -> InlineKeyboardMarkup:
     builder = InlineKeyboardBuilder()
     for player in page.items:
@@ -145,37 +162,15 @@ def admin_result_players_keyboard(
             ),
         )
     _add_result_player_page_buttons(builder, page, results.tournament.id)
-    builder.button(
-        text="📸 Добавить фото",
-        callback_data=AdminResultPlayerCallback(
-            action=AdminResultPlayerAction.ADD_PHOTO,
-            tournament_id=results.tournament.id,
-            page=page.page,
-            player_id=0,
-        ),
-    )
-    if results.photo_count > 0:
+    if back_callback is not None:
         builder.button(
-            text=f"🖼 Посмотреть фото ({results.photo_count})",
-            callback_data=AdminResultPlayerCallback(
-                action=AdminResultPlayerAction.VIEW_PHOTOS,
-                tournament_id=results.tournament.id,
-                page=page.page,
-                player_id=0,
-            ),
-        )
-        builder.button(
-            text="🗑 Удалить все фото",
-            callback_data=AdminResultPlayerCallback(
-                action=AdminResultPlayerAction.DELETE_PHOTOS,
-                tournament_id=results.tournament.id,
-                page=page.page,
-                player_id=0,
-            ),
+            text="⬅️ Назад",
+            callback_data=back_callback,
         )
     builder.button(
         text=labels.ADMIN_CANCEL,
-        callback_data=AdminResultPlayerCallback(
+        callback_data=cancel_callback
+        or AdminResultPlayerCallback(
             action=AdminResultPlayerAction.CANCEL,
             tournament_id=results.tournament.id,
             page=page.page,
@@ -183,8 +178,35 @@ def admin_result_players_keyboard(
         ),
     )
     item_rows = [1] * len(page.items)
-    footer_rows = [1] + ([1, 1] if results.photo_count > 0 else []) + [1]
+    footer_rows = ([1] if back_callback is not None else []) + [1]
     _adjust_paged_keyboard(builder, page, item_rows=item_rows, footer_rows=footer_rows)
+    return builder.as_markup()
+
+
+def admin_result_root_keyboard(results: TournamentResultsView) -> InlineKeyboardMarkup:
+    builder = InlineKeyboardBuilder()
+    builder.button(
+        text="🏁 Внести данные",
+        callback_data=AdminResultMenuCallback(
+            action=AdminResultMenuAction.DATA,
+            tournament_id=results.tournament.id,
+        ),
+    )
+    builder.button(
+        text="📸 Фотографии",
+        callback_data=AdminResultMenuCallback(
+            action=AdminResultMenuAction.PHOTOS,
+            tournament_id=results.tournament.id,
+        ),
+    )
+    builder.button(
+        text=labels.ADMIN_CANCEL,
+        callback_data=AdminResultMenuCallback(
+            action=AdminResultMenuAction.CANCEL,
+            tournament_id=results.tournament.id,
+        ),
+    )
+    builder.adjust(1)
     return builder.as_markup()
 
 
@@ -200,6 +222,68 @@ def admin_result_root_no_today_keyboard() -> InlineKeyboardMarkup:
         ),
     )
     builder.adjust(1)
+    return builder.as_markup()
+
+
+def admin_result_photo_menu_keyboard(
+    results: TournamentResultsView,
+    *,
+    add_callback: Any | None = None,
+    view_callback: Any | None = None,
+    delete_callback: Any | None = None,
+    back_callback: Any | None = None,
+    cancel_callback: Any | None = None,
+) -> InlineKeyboardMarkup:
+    tournament_id = results.tournament.id
+    builder = InlineKeyboardBuilder()
+    builder.button(
+        text="📸 Добавить фото",
+        callback_data=add_callback
+        or AdminResultPlayerCallback(
+            action=AdminResultPlayerAction.ADD_PHOTO,
+            tournament_id=tournament_id,
+            page=0,
+            player_id=0,
+        ),
+    )
+    if results.photo_count > 0:
+        builder.button(
+            text=f"🖼 Посмотреть фото ({results.photo_count})",
+            callback_data=view_callback
+            or AdminResultPlayerCallback(
+                action=AdminResultPlayerAction.VIEW_PHOTOS,
+                tournament_id=tournament_id,
+                page=0,
+                player_id=0,
+            ),
+        )
+        builder.button(
+            text="🗑 Удалить все фото",
+            callback_data=delete_callback
+            or AdminResultPlayerCallback(
+                action=AdminResultPlayerAction.DELETE_PHOTOS,
+                tournament_id=tournament_id,
+                page=0,
+                player_id=0,
+            ),
+        )
+    if back_callback is not None:
+        builder.button(text="⬅️ Назад", callback_data=back_callback)
+    builder.button(
+        text=labels.ADMIN_CANCEL,
+        callback_data=cancel_callback
+        or AdminResultPhotoCallback(
+            action=AdminResultPhotoAction.CANCEL,
+            tournament_id=tournament_id,
+        ),
+    )
+    footer_rows = [1]
+    if results.photo_count > 0:
+        footer_rows.extend([1, 1])
+    if back_callback is not None:
+        footer_rows.append(1)
+    footer_rows.append(1)
+    builder.adjust(*footer_rows)
     return builder.as_markup()
 
 
@@ -223,7 +307,12 @@ def admin_result_photo_collect_keyboard(tournament_id: int) -> InlineKeyboardMar
     return builder.as_markup()
 
 
-def admin_result_delete_photos_confirmation_keyboard(tournament_id: int) -> InlineKeyboardMarkup:
+def admin_result_delete_photos_confirmation_keyboard(
+    tournament_id: int,
+    *,
+    back_callback: Any | None = None,
+    cancel_callback: Any | None = None,
+) -> InlineKeyboardMarkup:
     builder = InlineKeyboardBuilder()
     builder.button(
         text="🗑 Удалить",
@@ -232,9 +321,12 @@ def admin_result_delete_photos_confirmation_keyboard(tournament_id: int) -> Inli
             tournament_id=tournament_id,
         ),
     )
+    if back_callback is not None:
+        builder.button(text="⬅️ Назад", callback_data=back_callback)
     builder.button(
         text=labels.ADMIN_CANCEL,
-        callback_data=AdminResultPhotoCallback(
+        callback_data=cancel_callback
+        or AdminResultPhotoCallback(
             action=AdminResultPhotoAction.CANCEL,
             tournament_id=tournament_id,
         ),
@@ -275,6 +367,9 @@ def admin_result_player_fields_keyboard(
     results: TournamentResultsView,
     player: TournamentResultPlayerView,
     page: int,
+    *,
+    back_callback: Any | None = None,
+    cancel_callback: Any | None = None,
 ) -> InlineKeyboardMarkup:
     builder = InlineKeyboardBuilder()
     for field, text in [
@@ -299,9 +394,12 @@ def admin_result_player_fields_keyboard(
                 field=field,
             ),
         )
+    if back_callback is not None:
+        builder.button(text="⬅️ Назад", callback_data=back_callback)
     builder.button(
         text=labels.ADMIN_CANCEL,
-        callback_data=AdminResultFieldCallback(
+        callback_data=cancel_callback
+        or AdminResultFieldCallback(
             action=AdminResultFieldAction.CANCEL,
             tournament_id=results.tournament.id,
             page=page,

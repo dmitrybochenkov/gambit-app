@@ -28,6 +28,29 @@ def players_table(
     return "\n".join(lines)
 
 
+def management_root(results: object) -> str:
+    lines = [
+        "🏁 Внести результаты",
+        "",
+        tournament_fmt.label(results.tournament),
+        "",
+        *_photo_status_lines(results),
+    ]
+    return "\n".join(lines)
+
+
+def photo_menu(results: object) -> str:
+    return "\n".join(
+        [
+            "📸 Фотографии",
+            "",
+            tournament_fmt.label(results.tournament),
+            "",
+            f"Фотографий: {results.photo_count}",
+        ]
+    )
+
+
 def close_tournament_list(page: object) -> str:
     lines = ["🔒 Закрыть турнир", ""]
     for readiness in page.items:
