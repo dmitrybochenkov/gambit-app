@@ -25,6 +25,7 @@ from app.bot.telegram.photo_collection import (
     PhotoControlContext,
     refresh_photo_control_message,
     schedule_album_photo_control_refresh,
+    send_media_then_restore_control,
     send_photo_control_message,
 )
 from app.bot.telegram.states import AdminResultStates
@@ -160,7 +161,16 @@ async def select_result_player(
                 )
             return
         if callback_data.action == admin_results_kb.AdminResultPlayerAction.VIEW_PHOTOS:
-            await _send_tournament_photos(callback, callback_data.tournament_id)
+            if callback.message is not None:
+                await state.update_data(
+                    result_photo_control_message_id=callback.message.message_id,
+                )
+            await _send_tournament_photos(
+                callback,
+                state,
+                callback_data.tournament_id,
+                _admin_photo_control_context(callback_data.tournament_id),
+            )
             return
         if callback_data.action == admin_results_kb.AdminResultPlayerAction.DELETE_PHOTOS:
             await callback.answer()
@@ -520,7 +530,9 @@ async def _show_results_screen_from_callback(
 
 async def _send_tournament_photos(
     callback: CallbackQuery,
+    state: FSMContext,
     tournament_id: int,
+    context: PhotoControlContext,
 ) -> None:
     try:
         photos = await result_service.list_tournament_photos(
@@ -539,12 +551,45 @@ async def _send_tournament_photos(
     await callback.answer()
     if callback.message is None:
         return
+    await send_media_then_restore_control(
+        callback.message,
+        state,
+        context,
+        media_sender=lambda: _send_photo_media(callback.message, photos),
+        restore_control=lambda: _restore_admin_results_control(callback, tournament_id),
+    )
+
+
+async def _send_photo_media(message: Message, photos: list[object]) -> None:
     if len(photos) == 1:
-        await callback.message.answer_photo(photos[0].telegram_file_id)
+        await message.answer_photo(photos[0].telegram_file_id)
         return
-    await callback.message.answer_media_group(
+    await message.answer_media_group(
         [InputMediaPhoto(media=photo.telegram_file_id) for photo in photos]
     )
+
+
+async def _restore_admin_results_control(
+    callback: CallbackQuery,
+    tournament_id: int,
+) -> int | None:
+    if callback.message is None:
+        return None
+    results = await result_service.get_tournament_results(
+        admin_telegram_id=callback.from_user.id,
+        tournament_id=tournament_id,
+    )
+    page = pagination_service.paginate(
+        results.players,
+        page=0,
+        page_size=admin_results_kb.ADMIN_RESULT_PAGE_SIZE,
+    )
+    sent = await callback.message.answer(
+        result_fmt.players_table(results, page),
+        reply_markup=admin_results_kb.admin_result_players_keyboard(results, page),
+        parse_mode=RESULT_SUMMARY_PARSE_MODE,
+    )
+    return sent.message_id
 
 
 def _admin_photo_control_context(tournament_id: int) -> PhotoControlContext:

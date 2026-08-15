@@ -1,4 +1,5 @@
 import logging
+from collections.abc import Awaitable, Callable
 from datetime import date
 
 from aiogram import F, Router
@@ -26,6 +27,7 @@ from app.bot.telegram.photo_collection import (
     PhotoControlContext,
     refresh_photo_control_message,
     schedule_album_photo_control_refresh,
+    send_media_then_restore_control,
     send_photo_control_message,
 )
 from app.bot.telegram.states import AdminResultStates
@@ -433,7 +435,20 @@ async def select_repair_tournament_action(
             callback_data.action
             == superadmin_tournament_close_kb.AdminTournamentRepairAction.VIEW_PHOTOS
         ):
-            await _send_tournament_photos(callback, callback_data.tournament_id)
+            if callback.message is not None:
+                await state.update_data(
+                    repair_photo_control_message_id=callback.message.message_id,
+                )
+            await _send_tournament_photos(
+                callback=callback,
+                tournament_id=callback_data.tournament_id,
+                state=state,
+                context=_repair_photo_control_context(callback_data.tournament_id),
+                restore_control=lambda: _restore_repair_control(
+                    callback,
+                    callback_data.tournament_id,
+                ),
+            )
             return
         if (
             callback_data.action
@@ -837,6 +852,9 @@ async def enter_tournament_fund(message: Message, state: FSMContext) -> None:
 async def _send_tournament_photos(
     callback: CallbackQuery,
     tournament_id: int,
+    state: FSMContext | None = None,
+    context: PhotoControlContext | None = None,
+    restore_control: Callable[[], Awaitable[int | None]] | None = None,
 ) -> None:
     try:
         photos = await result_service.list_tournament_photos(
@@ -855,12 +873,44 @@ async def _send_tournament_photos(
     await callback.answer()
     if callback.message is None:
         return
-    if len(photos) == 1:
-        await callback.message.answer_photo(photos[0].telegram_file_id)
+    if state is not None and context is not None and restore_control is not None:
+        await send_media_then_restore_control(
+            callback.message,
+            state,
+            context,
+            media_sender=lambda: _send_photo_media(callback.message, photos),
+            restore_control=restore_control,
+        )
         return
-    await callback.message.answer_media_group(
+    await _send_photo_media(callback.message, photos)
+
+
+async def _send_photo_media(message: Message, photos: list[object]) -> None:
+    if len(photos) == 1:
+        await message.answer_photo(photos[0].telegram_file_id)
+        return
+    await message.answer_media_group(
         [InputMediaPhoto(media=photo.telegram_file_id) for photo in photos]
     )
+
+
+async def _restore_repair_control(
+    callback: CallbackQuery,
+    tournament_id: int,
+) -> int | None:
+    if callback.message is None:
+        return None
+    readiness = await result_service.get_close_readiness(
+        superadmin_telegram_id=callback.from_user.id,
+        tournament_id=tournament_id,
+    )
+    sent = await callback.message.answer(
+        result_fmt.problematic_tournament_card(readiness),
+        reply_markup=superadmin_tournament_close_kb.admin_problematic_tournament_card_keyboard(
+            readiness
+        ),
+    )
+    return sent.message_id
 
 
 def _message_identity(message: Message | None) -> tuple[int, int] | None:

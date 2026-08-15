@@ -67,6 +67,25 @@ async def delete_current_photo_control_message(
         await delete_message_by_id(message, message_id)
 
 
+async def send_media_then_restore_control(
+    message: Message,
+    state: FSMContext,
+    context: PhotoControlContext,
+    *,
+    media_sender: Callable[[], Awaitable[None]],
+    restore_control: Callable[[], Awaitable[int | None]],
+) -> int | None:
+    await delete_current_photo_control_message(message, state, context)
+    restored_message_id: int | None = None
+    try:
+        await media_sender()
+    finally:
+        restored_message_id = await restore_control()
+        if restored_message_id is not None:
+            await state.update_data(**{context.control_message_id_key: restored_message_id})
+    return restored_message_id
+
+
 def schedule_album_photo_control_refresh(
     message: Message,
     state: FSMContext,

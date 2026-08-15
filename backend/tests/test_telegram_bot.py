@@ -2727,6 +2727,148 @@ async def test_superadmin_repair_photo_collection_done_returns_to_repair_card(
         await engine.dispose()
 
 
+async def test_admin_view_single_photo_restores_control_after_photo(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    service, engine, tournament_id = await _build_photo_collection_service(
+        tmp_path / "admin_view_single_photo.db",
+        telegram_id=100,
+        role=UserRole.ADMIN,
+    )
+    await service.add_tournament_photo(
+        admin_telegram_id=100,
+        tournament_id=tournament_id,
+        telegram_file_id="view-file-1",
+        telegram_file_unique_id="view-unique-1",
+    )
+    monkeypatch.setattr(admin_result_handlers, "result_service", service)
+    bot = RecordingBot()
+
+    try:
+        await runtime.telegram_dispatcher.feed_raw_update(
+            bot,
+            _photo_callback_update(
+                70,
+                user_id=100,
+                data=admin_results_kb.AdminResultPlayerCallback(
+                    action=admin_results_kb.AdminResultPlayerAction.VIEW_PHOTOS,
+                    tournament_id=tournament_id,
+                    page=0,
+                    player_id=0,
+                ).pack(),
+            ),
+        )
+
+        method_names = [call.__class__.__name__ for call in bot.calls]
+        sent_texts = [call.text for call in bot.calls if call.__class__.__name__ == "SendMessage"]
+        assert method_names == ["AnswerCallbackQuery", "DeleteMessage", "SendPhoto", "SendMessage"]
+        assert "Игроки турнира" in sent_texts[-1]
+        assert "📸 Фотографий: 1" in sent_texts[-1]
+        assert all("Фото добавлено" not in text for text in sent_texts)
+    finally:
+        await bot.session.close()
+        await engine.dispose()
+
+
+async def test_admin_view_album_restores_one_control_after_album(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    service, engine, tournament_id = await _build_photo_collection_service(
+        tmp_path / "admin_view_album.db",
+        telegram_id=100,
+        role=UserRole.ADMIN,
+    )
+    for index in range(2):
+        await service.add_tournament_photo(
+            admin_telegram_id=100,
+            tournament_id=tournament_id,
+            telegram_file_id=f"view-album-file-{index}",
+            telegram_file_unique_id=f"view-album-unique-{index}",
+        )
+    monkeypatch.setattr(admin_result_handlers, "result_service", service)
+    bot = RecordingBot()
+
+    try:
+        await runtime.telegram_dispatcher.feed_raw_update(
+            bot,
+            _photo_callback_update(
+                80,
+                user_id=100,
+                data=admin_results_kb.AdminResultPlayerCallback(
+                    action=admin_results_kb.AdminResultPlayerAction.VIEW_PHOTOS,
+                    tournament_id=tournament_id,
+                    page=0,
+                    player_id=0,
+                ).pack(),
+            ),
+        )
+
+        method_names = [call.__class__.__name__ for call in bot.calls]
+        sent_texts = [call.text for call in bot.calls if call.__class__.__name__ == "SendMessage"]
+        assert method_names == [
+            "AnswerCallbackQuery",
+            "DeleteMessage",
+            "SendMediaGroup",
+            "SendMessage",
+        ]
+        assert len([name for name in method_names if name == "SendMessage"]) == 1
+        assert "📸 Фотографий: 2" in sent_texts[-1]
+        assert all("Фото добавлено" not in text for text in sent_texts)
+    finally:
+        await bot.session.close()
+        await engine.dispose()
+
+
+async def test_superadmin_repair_view_album_restores_repair_card(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    service, engine, tournament_id = await _build_photo_collection_service(
+        tmp_path / "repair_view_album.db",
+        telegram_id=100,
+        role=UserRole.SUPERADMIN,
+    )
+    for index in range(2):
+        await service.add_tournament_photo(
+            admin_telegram_id=100,
+            tournament_id=tournament_id,
+            telegram_file_id=f"repair-view-file-{index}",
+            telegram_file_unique_id=f"repair-view-unique-{index}",
+        )
+    monkeypatch.setattr(superadmin_close_handlers, "result_service", service)
+    bot = RecordingBot()
+
+    try:
+        await runtime.telegram_dispatcher.feed_raw_update(
+            bot,
+            _photo_callback_update(
+                90,
+                user_id=100,
+                data=superadmin_tournament_close_kb.AdminTournamentRepairCallback(
+                    action=superadmin_tournament_close_kb.AdminTournamentRepairAction.VIEW_PHOTOS,
+                    tournament_id=tournament_id,
+                ).pack(),
+            ),
+        )
+
+        method_names = [call.__class__.__name__ for call in bot.calls]
+        sent_texts = [call.text for call in bot.calls if call.__class__.__name__ == "SendMessage"]
+        assert method_names == [
+            "AnswerCallbackQuery",
+            "DeleteMessage",
+            "SendMediaGroup",
+            "SendMessage",
+        ]
+        assert "🛠 Исправление турнира" in sent_texts[-1]
+        assert "⚠️ Турнир ещё не начался." in sent_texts[-1]
+        assert all("Фото добавлено" not in text for text in sent_texts)
+    finally:
+        await bot.session.close()
+        await engine.dispose()
+
+
 async def test_telegram_error_boundary_handles_unexpected_handler_error(
     monkeypatch: pytest.MonkeyPatch,
     caplog: pytest.LogCaptureFixture,
