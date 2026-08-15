@@ -22,6 +22,12 @@ from app.bot.telegram.message_edit import (
     edit_message_if_changed,
     edit_message_text_by_id_if_changed,
 )
+from app.bot.telegram.photo_collection import (
+    PhotoControlContext,
+    refresh_photo_control_message,
+    schedule_album_photo_control_refresh,
+    send_photo_control_message,
+)
 from app.bot.telegram.states import AdminResultStates
 from app.bot.telegram.texts.admin import calendar as calendar_text
 from app.bot.telegram.texts.superadmin import panel as panel_text
@@ -400,10 +406,28 @@ async def select_repair_tournament_action(
         ):
             await state.set_state(AdminResultStates.collecting_repair_tournament_photos)
             await state.update_data(repair_photo_tournament_id=callback_data.tournament_id)
+            photo_count = await result_service.count_tournament_photos(
+                admin_telegram_id=callback.from_user.id,
+                tournament_id=callback_data.tournament_id,
+            )
             await callback.answer()
             if callback.message is not None:
                 await _delete_callback_message(callback)
-                await callback.message.answer(result_fmt.photo_upload_prompt())
+                await send_photo_control_message(
+                    callback.message,
+                    state,
+                    _repair_photo_control_context(callback_data.tournament_id),
+                    photo_count=photo_count,
+                )
+            return
+        if (
+            callback_data.action
+            == superadmin_tournament_close_kb.AdminTournamentRepairAction.PHOTO_DONE
+        ):
+            await state.clear()
+            await callback.answer()
+            if callback.message is not None:
+                await _edit_repair_tournament_card(callback, callback_data.tournament_id)
             return
         if (
             callback_data.action
@@ -577,12 +601,26 @@ async def collect_repair_tournament_photo(message: Message, state: FSMContext) -
         await state.clear()
         await message.answer("Турнир недоступен для редактирования.")
         return
-    if result.limit_reached:
-        await message.answer("Можно добавить не больше 10 фотографий.")
-    elif result.created:
-        await message.answer(f"Фото добавлено. Всего: {result.photo_count}")
-    else:
-        await message.answer(f"Это фото уже добавлено. Всего: {result.photo_count}")
+    context = _repair_photo_control_context(tournament_id)
+    if message.media_group_id:
+        schedule_album_photo_control_refresh(
+            message,
+            state,
+            context,
+            count_provider=lambda: result_service.count_tournament_photos(
+                admin_telegram_id=message.from_user.id,
+                tournament_id=tournament_id,
+            ),
+            limit_reached=result.limit_reached,
+        )
+        return
+    await refresh_photo_control_message(
+        message,
+        state,
+        context,
+        photo_count=result.photo_count,
+        limit_reached=result.limit_reached,
+    )
 
 
 async def _send_close_tournament_card(
@@ -685,6 +723,16 @@ async def _edit_repair_tournament_card(
         text=result_fmt.problematic_tournament_card(readiness),
         reply_markup=superadmin_tournament_close_kb.admin_problematic_tournament_card_keyboard(
             readiness
+        ),
+    )
+
+
+def _repair_photo_control_context(tournament_id: int) -> PhotoControlContext:
+    return PhotoControlContext(
+        tournament_id=tournament_id,
+        control_message_id_key="repair_photo_control_message_id",
+        reply_markup=superadmin_tournament_close_kb.admin_repair_photo_collect_keyboard(
+            tournament_id
         ),
     )
 

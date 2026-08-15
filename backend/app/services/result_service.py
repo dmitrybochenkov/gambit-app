@@ -417,6 +417,16 @@ class ResultService:
                 for photo in photos
             ]
 
+    async def count_tournament_photos(
+        self,
+        admin_telegram_id: int,
+        tournament_id: int,
+    ) -> int:
+        async with self.session_factory() as session:
+            await access_policy.require_admin(session, admin_telegram_id)
+            await self._require_active_tournament(session, tournament_id)
+            return await TournamentPhotoRepository(session).count_for_tournament(tournament_id)
+
     async def add_tournament_photo(
         self,
         admin_telegram_id: int,

@@ -37,6 +37,7 @@ class AdminTournamentRepairAction(StrEnum):
     CREATE_NEW = "create_new"
     EDIT_RESULTS = "edit_results"
     ADD_PHOTO = "add_photo"
+    PHOTO_DONE = "photo_done"
     VIEW_PHOTOS = "view_photos"
     DELETE_PHOTOS = "delete_photos"
     CANCEL = "cancel"
@@ -273,6 +274,26 @@ def admin_repair_add_new_confirmation_keyboard(*, tournament_id: int) -> InlineK
         text="✅ Создать",
         callback_data=AdminTournamentRepairCallback(
             action=AdminTournamentRepairAction.CREATE_NEW,
+            tournament_id=tournament_id,
+        ),
+    )
+    builder.button(
+        text=labels.ADMIN_CANCEL,
+        callback_data=AdminTournamentRepairCallback(
+            action=AdminTournamentRepairAction.CANCEL,
+            tournament_id=tournament_id,
+        ),
+    )
+    builder.adjust(1)
+    return builder.as_markup()
+
+
+def admin_repair_photo_collect_keyboard(tournament_id: int) -> InlineKeyboardMarkup:
+    builder = InlineKeyboardBuilder()
+    builder.button(
+        text="✅ Готово",
+        callback_data=AdminTournamentRepairCallback(
+            action=AdminTournamentRepairAction.PHOTO_DONE,
             tournament_id=tournament_id,
         ),
     )

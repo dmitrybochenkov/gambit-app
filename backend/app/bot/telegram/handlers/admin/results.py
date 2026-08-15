@@ -21,6 +21,12 @@ from app.bot.telegram.keyboards import labels
 from app.bot.telegram.keyboards.admin import panel as admin_panel_kb
 from app.bot.telegram.keyboards.admin import results as admin_results_kb
 from app.bot.telegram.message_edit import edit_message_if_changed
+from app.bot.telegram.photo_collection import (
+    PhotoControlContext,
+    refresh_photo_control_message,
+    schedule_album_photo_control_refresh,
+    send_photo_control_message,
+)
 from app.bot.telegram.states import AdminResultStates
 from app.bot.telegram.texts.admin import panel as panel_text
 from app.bot.telegram.texts.admin import results as result_text
@@ -139,14 +145,18 @@ async def select_result_player(
         if callback_data.action == admin_results_kb.AdminResultPlayerAction.ADD_PHOTO:
             await state.set_state(AdminResultStates.collecting_tournament_photos)
             await state.update_data(result_photo_tournament_id=callback_data.tournament_id)
+            photo_count = await result_service.count_tournament_photos(
+                admin_telegram_id=callback.from_user.id,
+                tournament_id=callback_data.tournament_id,
+            )
             await callback.answer()
             if callback.message is not None:
                 await _delete_callback_message(callback)
-                await callback.message.answer(
-                    result_fmt.photo_upload_prompt(),
-                    reply_markup=admin_results_kb.admin_result_photo_collect_keyboard(
-                        callback_data.tournament_id
-                    ),
+                await send_photo_control_message(
+                    callback.message,
+                    state,
+                    _admin_photo_control_context(callback_data.tournament_id),
+                    photo_count=photo_count,
                 )
             return
         if callback_data.action == admin_results_kb.AdminResultPlayerAction.VIEW_PHOTOS:
@@ -467,12 +477,26 @@ async def collect_tournament_photo(message: Message, state: FSMContext) -> None:
         await state.clear()
         await message.answer(result_text.ADMIN_RESULTS_EDITING_UNAVAILABLE)
         return
-    if result.limit_reached:
-        await message.answer("Можно добавить не больше 10 фотографий.")
-    elif result.created:
-        await message.answer(f"Фото добавлено. Всего: {result.photo_count}")
-    else:
-        await message.answer(f"Это фото уже добавлено. Всего: {result.photo_count}")
+    context = _admin_photo_control_context(tournament_id)
+    if message.media_group_id:
+        schedule_album_photo_control_refresh(
+            message,
+            state,
+            context,
+            count_provider=lambda: result_service.count_tournament_photos(
+                admin_telegram_id=message.from_user.id,
+                tournament_id=tournament_id,
+            ),
+            limit_reached=result.limit_reached,
+        )
+        return
+    await refresh_photo_control_message(
+        message,
+        state,
+        context,
+        photo_count=result.photo_count,
+        limit_reached=result.limit_reached,
+    )
 
 
 async def _show_results_screen_from_callback(
@@ -520,6 +544,14 @@ async def _send_tournament_photos(
         return
     await callback.message.answer_media_group(
         [InputMediaPhoto(media=photo.telegram_file_id) for photo in photos]
+    )
+
+
+def _admin_photo_control_context(tournament_id: int) -> PhotoControlContext:
+    return PhotoControlContext(
+        tournament_id=tournament_id,
+        control_message_id_key="result_photo_control_message_id",
+        reply_markup=admin_results_kb.admin_result_photo_collect_keyboard(tournament_id),
     )
 
 

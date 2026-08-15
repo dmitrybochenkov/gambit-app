@@ -210,17 +210,24 @@ def add_new_player_prompt(tournament: object, display_name: str) -> str:
     )
 
 
-def photo_upload_prompt() -> str:
-    return "\n".join(
+def photo_upload_prompt(photo_count: int, *, limit_reached: bool = False) -> str:
+    lines = [
+        "📸 Добавление фото",
+        "",
+        "Пришли фотографии турнира.",
+        "Можно отправлять по одной или альбомом.",
+        "",
+        f"Загружено фото: {photo_count}",
+    ]
+    if limit_reached:
+        lines.extend(["⚠️ Можно добавить не больше 10 фотографий."])
+    lines.extend(
         [
-            "📸 Добавление фото",
-            "",
-            "Пришли фотографии турнира.",
-            "Можно отправлять по одной или альбомом.",
             "",
             "Когда закончишь — нажми «Готово».",
         ]
     )
+    return "\n".join(lines)
 
 
 def delete_photos_confirmation() -> str:

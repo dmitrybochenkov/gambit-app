@@ -1,3 +1,4 @@
+import asyncio
 from datetime import date, datetime
 from decimal import Decimal
 from pathlib import Path
@@ -16,7 +17,7 @@ from aiogram.types import (
 from conftest import build_player, seed_tournament_types_async, tournament_type_id
 from fastapi import HTTPException
 from sqlalchemy import select
-from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
+from sqlalchemy.ext.asyncio import AsyncEngine, async_sessionmaker, create_async_engine
 
 from app.api import telegram_webhook as webhook_module
 from app.bot.telegram import notifications, runtime
@@ -77,6 +78,7 @@ from app.db.models import (
     User,
 )
 from app.db.models.enums import TournamentResultSource, TournamentStatus, UserRole, UserStatus
+from app.db.repositories.tournament_photo_repository import TournamentPhotoRepository
 from app.services.access_policy import AdminAccessDeniedError
 from app.services.dto.hall_of_fame import (
     HallOfFameCandidateView,
@@ -157,6 +159,102 @@ class RecordingBot(Bot):
                 text=method.text,
             )
         return True
+
+
+async def _build_photo_collection_service(
+    database_path: Path,
+    *,
+    telegram_id: int,
+    role: UserRole,
+) -> tuple[ResultService, AsyncEngine, int]:
+    engine = create_async_engine(f"sqlite+aiosqlite:///{database_path}")
+    async with engine.begin() as connection:
+        await connection.run_sync(Base.metadata.create_all)
+
+    session_factory = async_sessionmaker(engine, expire_on_commit=False)
+    async with session_factory() as session:
+        config = ScoringConfig()
+        session.add(config)
+        await session.flush()
+        await seed_tournament_types_async(session)
+        season = Season(
+            name="Test season",
+            scoring_config_id=config.id,
+            starts_at=date(2026, 7, 1),
+            ends_at=None,
+        )
+        admin = build_player(
+            telegram_id=telegram_id,
+            display_name="Photo Admin",
+            status=UserStatus.ACTIVE,
+            role=role,
+        )
+        session.add_all([season, admin])
+        await session.flush()
+        tournament = Tournament(
+            season_id=season.id,
+            tournament_type_id=tournament_type_id("classic"),
+            date=date(2026, 7, 9),
+            status=TournamentStatus.ACTIVE,
+        )
+        session.add(tournament)
+        await session.flush()
+        tournament_id = tournament.id
+        await session.commit()
+
+    return (
+        ResultService(
+            session_factory,
+            clock=FixedClock(datetime(2026, 7, 9, 12, tzinfo=ZoneInfo("Europe/Moscow"))),
+        ),
+        engine,
+        tournament_id,
+    )
+
+
+def _photo_callback_update(update_id: int, *, user_id: int, data: str) -> dict[str, object]:
+    return {
+        "update_id": update_id,
+        "callback_query": {
+            "id": f"photo-callback-{update_id}",
+            "from": {"id": user_id, "is_bot": False, "first_name": "Admin"},
+            "message": {
+                "message_id": update_id + 1000,
+                "date": 1783598400,
+                "chat": {"id": user_id, "type": "private"},
+                "text": "Фото",
+            },
+            "chat_instance": "chat-instance",
+            "data": data,
+        },
+    }
+
+
+def _photo_message_update(
+    update_id: int,
+    *,
+    user_id: int,
+    file_id: str,
+    unique_id: str,
+    media_group_id: str | None = None,
+) -> dict[str, object]:
+    message: dict[str, object] = {
+        "message_id": update_id + 1000,
+        "date": 1783598400,
+        "chat": {"id": user_id, "type": "private"},
+        "from": {"id": user_id, "is_bot": False, "first_name": "Admin"},
+        "photo": [
+            {
+                "file_id": file_id,
+                "file_unique_id": unique_id,
+                "width": 1,
+                "height": 1,
+            }
+        ],
+    }
+    if media_group_id is not None:
+        message["media_group_id"] = media_group_id
+    return {"update_id": update_id, "message": message}
 
 
 def active_player() -> UserView:
@@ -2385,6 +2483,248 @@ async def test_close_tournament_valid_fund_replaces_root_preview_with_prompt(
     assert "Фонд турнира: 15000" in message.answer.await_args.args[0]
     assert state.state is None
     assert state.data["tournament_fund"] == 15000
+
+
+async def test_admin_photo_collection_reissues_single_control_message(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    service, engine, tournament_id = await _build_photo_collection_service(
+        tmp_path / "admin_photo_collection.db",
+        telegram_id=100,
+        role=UserRole.ADMIN,
+    )
+    monkeypatch.setattr(admin_result_handlers, "result_service", service)
+    bot = RecordingBot()
+
+    try:
+        await runtime.telegram_dispatcher.feed_raw_update(
+            bot,
+            _photo_callback_update(
+                1,
+                user_id=100,
+                data=admin_results_kb.AdminResultPlayerCallback(
+                    action=admin_results_kb.AdminResultPlayerAction.ADD_PHOTO,
+                    tournament_id=tournament_id,
+                    page=0,
+                    player_id=0,
+                ).pack(),
+            ),
+        )
+        await runtime.telegram_dispatcher.feed_raw_update(
+            bot,
+            _photo_message_update(2, user_id=100, file_id="file-1", unique_id="unique-1"),
+        )
+        await runtime.telegram_dispatcher.feed_raw_update(
+            bot,
+            _photo_message_update(3, user_id=100, file_id="file-2", unique_id="unique-2"),
+        )
+
+        sent_texts = [call.text for call in bot.calls if call.__class__.__name__ == "SendMessage"]
+        method_names = [call.__class__.__name__ for call in bot.calls]
+        assert "Загружено фото: 0" in sent_texts[0]
+        assert "Загружено фото: 1" in sent_texts[1]
+        assert "Загружено фото: 2" in sent_texts[2]
+        assert all("Фото добавлено" not in text for text in sent_texts)
+        assert method_names.count("DeleteMessage") >= 3
+        async with service.session_factory() as session:
+            photos = await TournamentPhotoRepository(session).list_for_tournament(tournament_id)
+        assert len(photos) == 2
+    finally:
+        await bot.session.close()
+        await engine.dispose()
+
+
+async def test_admin_photo_collection_album_refreshes_control_once(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    service, engine, tournament_id = await _build_photo_collection_service(
+        tmp_path / "admin_photo_album.db",
+        telegram_id=100,
+        role=UserRole.ADMIN,
+    )
+    monkeypatch.setattr(admin_result_handlers, "result_service", service)
+    bot = RecordingBot()
+
+    try:
+        await runtime.telegram_dispatcher.feed_raw_update(
+            bot,
+            _photo_callback_update(
+                10,
+                user_id=100,
+                data=admin_results_kb.AdminResultPlayerCallback(
+                    action=admin_results_kb.AdminResultPlayerAction.ADD_PHOTO,
+                    tournament_id=tournament_id,
+                    page=0,
+                    player_id=0,
+                ).pack(),
+            ),
+        )
+        await asyncio.gather(
+            runtime.telegram_dispatcher.feed_raw_update(
+                bot,
+                _photo_message_update(
+                    11,
+                    user_id=100,
+                    file_id="album-file-1",
+                    unique_id="album-unique-1",
+                    media_group_id="album-1",
+                ),
+            ),
+            runtime.telegram_dispatcher.feed_raw_update(
+                bot,
+                _photo_message_update(
+                    12,
+                    user_id=100,
+                    file_id="album-file-2",
+                    unique_id="album-unique-2",
+                    media_group_id="album-1",
+                ),
+            ),
+            runtime.telegram_dispatcher.feed_raw_update(
+                bot,
+                _photo_message_update(
+                    13,
+                    user_id=100,
+                    file_id="album-file-3",
+                    unique_id="album-unique-3",
+                    media_group_id="album-1",
+                ),
+            ),
+        )
+        await asyncio.sleep(0.5)
+
+        sent_texts = [call.text for call in bot.calls if call.__class__.__name__ == "SendMessage"]
+        control_texts = [text for text in sent_texts if "📸 Добавление фото" in text]
+        assert len(control_texts) == 2
+        assert "Загружено фото: 0" in control_texts[0]
+        assert "Загружено фото: 3" in control_texts[1]
+        assert all("Фото добавлено" not in text for text in sent_texts)
+        async with service.session_factory() as session:
+            photos = await TournamentPhotoRepository(session).list_for_tournament(tournament_id)
+        assert len(photos) == 3
+    finally:
+        await bot.session.close()
+        await engine.dispose()
+
+
+async def test_admin_photo_collection_duplicate_and_limit_use_control_message(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    service, engine, tournament_id = await _build_photo_collection_service(
+        tmp_path / "admin_photo_limit.db",
+        telegram_id=100,
+        role=UserRole.ADMIN,
+    )
+    monkeypatch.setattr(admin_result_handlers, "result_service", service)
+    bot = RecordingBot()
+
+    try:
+        await runtime.telegram_dispatcher.feed_raw_update(
+            bot,
+            _photo_callback_update(
+                20,
+                user_id=100,
+                data=admin_results_kb.AdminResultPlayerCallback(
+                    action=admin_results_kb.AdminResultPlayerAction.ADD_PHOTO,
+                    tournament_id=tournament_id,
+                    page=0,
+                    player_id=0,
+                ).pack(),
+            ),
+        )
+        await runtime.telegram_dispatcher.feed_raw_update(
+            bot,
+            _photo_message_update(21, user_id=100, file_id="file-1", unique_id="unique-1"),
+        )
+        await runtime.telegram_dispatcher.feed_raw_update(
+            bot,
+            _photo_message_update(22, user_id=100, file_id="file-1", unique_id="unique-1"),
+        )
+        for index in range(2, 11):
+            await runtime.telegram_dispatcher.feed_raw_update(
+                bot,
+                _photo_message_update(
+                    30 + index,
+                    user_id=100,
+                    file_id=f"file-{index}",
+                    unique_id=f"unique-{index}",
+                ),
+            )
+        await runtime.telegram_dispatcher.feed_raw_update(
+            bot,
+            _photo_message_update(50, user_id=100, file_id="file-11", unique_id="unique-11"),
+        )
+
+        sent_texts = [call.text for call in bot.calls if call.__class__.__name__ == "SendMessage"]
+        assert any("Загружено фото: 1" in text for text in sent_texts)
+        assert any("Загружено фото: 10" in text for text in sent_texts)
+        assert "⚠️ Можно добавить не больше 10 фотографий." in sent_texts[-1]
+        assert all("Фото добавлено" not in text for text in sent_texts)
+        async with service.session_factory() as session:
+            photos = await TournamentPhotoRepository(session).list_for_tournament(tournament_id)
+        assert len(photos) == 10
+    finally:
+        await bot.session.close()
+        await engine.dispose()
+
+
+async def test_superadmin_repair_photo_collection_done_returns_to_repair_card(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    service, engine, tournament_id = await _build_photo_collection_service(
+        tmp_path / "repair_photo_collection.db",
+        telegram_id=100,
+        role=UserRole.SUPERADMIN,
+    )
+    monkeypatch.setattr(superadmin_close_handlers, "result_service", service)
+    bot = RecordingBot()
+
+    try:
+        await runtime.telegram_dispatcher.feed_raw_update(
+            bot,
+            _photo_callback_update(
+                60,
+                user_id=100,
+                data=superadmin_tournament_close_kb.AdminTournamentRepairCallback(
+                    action=superadmin_tournament_close_kb.AdminTournamentRepairAction.ADD_PHOTO,
+                    tournament_id=tournament_id,
+                ).pack(),
+            ),
+        )
+        await runtime.telegram_dispatcher.feed_raw_update(
+            bot,
+            _photo_message_update(61, user_id=100, file_id="file-1", unique_id="unique-1"),
+        )
+        await runtime.telegram_dispatcher.feed_raw_update(
+            bot,
+            _photo_callback_update(
+                62,
+                user_id=100,
+                data=superadmin_tournament_close_kb.AdminTournamentRepairCallback(
+                    action=superadmin_tournament_close_kb.AdminTournamentRepairAction.PHOTO_DONE,
+                    tournament_id=tournament_id,
+                ).pack(),
+            ),
+        )
+
+        sent_texts = [call.text for call in bot.calls if call.__class__.__name__ == "SendMessage"]
+        edited_texts = [
+            call.text for call in bot.calls if call.__class__.__name__ == "EditMessageText"
+        ]
+        assert any("Загружено фото: 0" in text for text in sent_texts)
+        assert any("Загружено фото: 1" in text for text in sent_texts)
+        assert any("🛠 Исправление турнира" in text for text in edited_texts)
+        assert all("Фото добавлено" not in text for text in [*sent_texts, *edited_texts])
+        async with service.session_factory() as session:
+            photos = await TournamentPhotoRepository(session).list_for_tournament(tournament_id)
+        assert len(photos) == 1
+    finally:
+        await bot.session.close()
+        await engine.dispose()
 
 
 async def test_telegram_error_boundary_handles_unexpected_handler_error(
