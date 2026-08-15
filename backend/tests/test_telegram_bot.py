@@ -398,11 +398,8 @@ def test_admin_result_players_hide_ids_and_empty_places() -> None:
     assert buttons == [
         "Тест Игрок",
         "Илларионов Александр: 2️⃣",
-        "👤 Играл ранее",
-        "🆕 Новый игрок",
         "📸 Добавить фото",
         "❌ Отмена",
-        "⌛ Прошедший турнир",
     ]
 
 
@@ -467,11 +464,8 @@ def test_admin_result_player_buttons_show_entered_knockouts_and_place() -> None:
     assert buttons == [
         "Илларионов Александр: 2️⃣ | 👑🥊 х1 | 🥊 х3",
         "Тест Игрок",
-        "👤 Играл ранее",
-        "🆕 Новый игрок",
         "📸 Добавить фото",
         "❌ Отмена",
-        "⌛ Прошедший турнир",
     ]
 
 
@@ -2173,7 +2167,7 @@ async def test_superadmin_close_tournament_dispatcher_replaces_fund_preview(
         edited_texts = [
             call.text for call in bot.calls if call.__class__.__name__ == "EditMessageText"
         ]
-        assert "🔒 Закрыть турнир" in sent_texts[0]
+        assert "🔒 Закрытие турнира" in sent_texts[0]
         assert any("🔒 Закрытие турнира" in text for text in edited_texts)
         assert any("Введите фонд турнира?" in text for text in edited_texts)
         assert "Введите фонд турнира." in edited_texts
@@ -2220,10 +2214,24 @@ async def test_future_tournament_close_callback_shows_domain_error(
     callback.message.edit_text.assert_not_awaited()
 
 
-async def test_close_tournament_single_tournament_root_shows_preview(
+async def test_close_tournament_single_ready_tournament_root_auto_opens_preview(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     tournament = tournament_view(125, date(2026, 8, 9), 1, "Баунти турнир")
+    results = TournamentResultsView(
+        tournament=tournament,
+        tournament_fund=None,
+        players=[
+            TournamentResultPlayerView(
+                player_id=1,
+                display_name="Игрок",
+                place=1,
+                knockouts_count=0,
+                big_knockouts_count=0,
+            )
+        ],
+        photo_count=1,
+    )
     readiness = TournamentCloseReadinessView(
         tournament=tournament,
         is_ready=True,
@@ -2235,6 +2243,8 @@ async def test_close_tournament_single_tournament_root_shows_preview(
     )
     service = SimpleNamespace(
         list_unclosed_tournaments_for_superadmin=AsyncMock(return_value=[readiness]),
+        get_closeable_tournament_results=AsyncMock(return_value=results),
+        get_close_readiness=AsyncMock(return_value=readiness),
     )
     monkeypatch.setattr(superadmin_close_handlers, "result_service", service)
     state = MutableState()
@@ -2248,17 +2258,20 @@ async def test_close_tournament_single_tournament_root_shows_preview(
     await superadmin_close_handlers.show_close_tournament_flow(message, state)
 
     service.list_unclosed_tournaments_for_superadmin.assert_awaited_once_with(100)
-    assert state.state is None
-    assert state.data == {}
+    service.get_closeable_tournament_results.assert_awaited_once_with(
+        superadmin_telegram_id=100,
+        tournament_id=125,
+    )
+    service.get_close_readiness.assert_awaited_once_with(
+        superadmin_telegram_id=100,
+        tournament_id=125,
+    )
+    assert state.state == AdminResultStates.entering_tournament_fund
+    assert state.data["close_tournament_id"] == 125
     message.answer.assert_awaited_once()
-    assert "🔒 Закрыть турнир" in message.answer.await_args.args[0]
-    assert "Воскресенье, 9 августа — Баунти турнир" in message.answer.await_args.args[0]
-    assert "✅ Готов к закрытию" in message.answer.await_args.args[0]
+    assert "🔒 Закрытие турнира" in message.answer.await_args.args[0]
     assert "Баунти турнир" in message.answer.await_args.args[0]
-    assert inline_keyboard_texts(message.answer.await_args.kwargs["reply_markup"]) == [
-        "✅ 09.08 — Баунти турнир",
-        "❌ Отмена",
-    ]
+    assert inline_keyboard_texts(message.answer.await_args.kwargs["reply_markup"]) == ["❌ Отмена"]
 
 
 async def test_close_tournament_change_fund_deletes_preview_and_waits_for_new_value(

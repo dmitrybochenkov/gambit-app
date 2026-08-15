@@ -23,6 +23,9 @@ uv run uvicorn app.main:app --reload
 
 The backend reads `backend/.env` and `../.env`; the root `.env` is the standard
 local location. The health check is available at `http://127.0.0.1:8100/health`.
+Tournament operations use `TOURNAMENT_DAY_START_HOUR` in the club timezone:
+before that hour, check-in/results/close still treat the tournament day as
+yesterday.
 
 ## Tests
 

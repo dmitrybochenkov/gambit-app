@@ -1,9 +1,11 @@
 from dataclasses import dataclass
+from datetime import date
 
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from app.common.clock import Clock, club_clock
+from app.config import settings
 from app.db.factories import create_user
 from app.db.models import Tournament
 from app.db.models.enums import (
@@ -17,6 +19,7 @@ from app.db.repositories.tournament_repository import TournamentRepository
 from app.db.repositories.tournament_result_repository import TournamentResultRepository
 from app.db.repositories.user_repository import UserRepository
 from app.db.session import SessionFactory
+from app.domain.tournament_day import resolve_tournament_day
 from app.services.access_policy import access_policy
 from app.services.dto.check_in import (
     CheckedInPlayersView,
@@ -69,15 +72,17 @@ class TournamentCheckInService:
         self,
         session_factory: async_sessionmaker[AsyncSession],
         clock: Clock = club_clock,
+        tournament_day_start_hour: int = settings.tournament_day_start_hour,
     ) -> None:
         self.session_factory = session_factory
         self.clock = clock
+        self.tournament_day_start_hour = tournament_day_start_hour
 
     async def list_today_tournaments(self, admin_telegram_id: int) -> list[TournamentView]:
         async with self.session_factory() as session:
             await access_policy.require_admin(session, admin_telegram_id)
             tournaments = await TournamentRepository(session).list_active_on_date(
-                self.clock.today()
+                self._tournament_day()
             )
             return [tournament_view(tournament) for tournament in tournaments]
 
@@ -292,9 +297,15 @@ class TournamentCheckInService:
         tournament = await TournamentRepository(session).get_by_id(tournament_id)
         if tournament is None:
             raise TournamentCheckInNotFoundError
-        if tournament.status != TournamentStatus.ACTIVE or tournament.date != self.clock.today():
+        if (
+            tournament.status != TournamentStatus.ACTIVE
+            or tournament.date != self._tournament_day()
+        ):
             raise TournamentCheckInClosedError
         return tournament
+
+    def _tournament_day(self) -> date:
+        return resolve_tournament_day(self.clock, self.tournament_day_start_hour)
 
     async def _get_active_check_in_user(self, session: AsyncSession, user_id: int):
         user = await UserRepository(session).get_active_by_id(user_id)

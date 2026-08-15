@@ -107,18 +107,6 @@ class TournamentRepository:
         )
         return list(result.scalars())
 
-    async def list_active_before(self, tournament_date: date) -> list[Tournament]:
-        result = await self.session.execute(
-            select(Tournament)
-            .options(selectinload(Tournament.tournament_type))
-            .where(
-                Tournament.status == TournamentStatus.ACTIVE,
-                Tournament.date < tournament_date,
-            )
-            .order_by(Tournament.date.desc(), Tournament.id.desc())
-        )
-        return list(result.scalars())
-
     async def get_by_id(self, tournament_id: int) -> Tournament | None:
         result = await self.session.execute(
             select(Tournament)

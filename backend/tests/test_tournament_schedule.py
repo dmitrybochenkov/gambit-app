@@ -521,6 +521,90 @@ async def test_check_in_registered_player_creates_result_without_new_registratio
         await engine.dispose()
 
 
+async def test_check_in_uses_tournament_day_before_start_hour(
+    tmp_path: Path,
+) -> None:
+    engine = create_async_engine(f"sqlite+aiosqlite:///{tmp_path / 'check_in_boundary.db'}")
+    async with engine.begin() as connection:
+        await connection.run_sync(Base.metadata.create_all)
+
+    session_factory = async_sessionmaker(engine, expire_on_commit=False)
+    async with session_factory() as session:
+        config = ScoringConfig()
+        session.add(config)
+        await session.flush()
+        await seed_tournament_types_async(session)
+        season = Season(
+            name="Test season",
+            scoring_config_id=config.id,
+            starts_at=date(2026, 7, 1),
+            ends_at=None,
+        )
+        admin = build_player(
+            telegram_id=100,
+            display_name="Админ Первый",
+            status=UserStatus.ACTIVE,
+            role=UserRole.ADMIN,
+        )
+        player = build_player(
+            telegram_id=101,
+            display_name="Игрок Первый",
+            status=UserStatus.ACTIVE,
+        )
+        session.add_all([season, admin, player])
+        await session.flush()
+        previous_tournament = Tournament(
+            season_id=season.id,
+            tournament_type_id=tournament_type_id("classic"),
+            date=date(2026, 7, 9),
+            status=TournamentStatus.ACTIVE,
+        )
+        current_tournament = Tournament(
+            season_id=season.id,
+            tournament_type_id=tournament_type_id("freezeout"),
+            date=date(2026, 7, 10),
+            status=TournamentStatus.ACTIVE,
+        )
+        session.add_all([previous_tournament, current_tournament])
+        await session.flush()
+        session.add(
+            TournamentRegistration(
+                tournament_id=previous_tournament.id,
+                player_id=player.id,
+            )
+        )
+        await session.commit()
+        previous_tournament_id = previous_tournament.id
+        current_tournament_id = current_tournament.id
+        player_id = player.id
+
+    before_start = TournamentCheckInService(
+        session_factory,
+        clock=FixedClock(datetime(2026, 7, 10, 5, tzinfo=ZoneInfo("Europe/Moscow"))),
+        tournament_day_start_hour=11,
+    )
+    at_start = TournamentCheckInService(
+        session_factory,
+        clock=FixedClock(datetime(2026, 7, 10, 11, tzinfo=ZoneInfo("Europe/Moscow"))),
+        tournament_day_start_hour=11,
+    )
+    try:
+        today_before_start = await before_start.list_today_tournaments(100)
+        today_at_start = await at_start.list_today_tournaments(100)
+        check_in = await before_start.check_in_registered(
+            admin_telegram_id=100,
+            tournament_id=previous_tournament_id,
+            user_id=player_id,
+        )
+
+        assert [tournament.id for tournament in today_before_start] == [previous_tournament_id]
+        assert [tournament.id for tournament in today_at_start] == [current_tournament_id]
+        assert check_in.tournament.id == previous_tournament_id
+        assert check_in.created is True
+    finally:
+        await engine.dispose()
+
+
 async def test_cannot_cancel_tournament_registration_after_check_in(
     tmp_path: Path,
 ) -> None:

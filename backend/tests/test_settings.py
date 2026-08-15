@@ -1,3 +1,5 @@
+import pytest
+
 from app.config.settings import BACKEND_ROOT, Settings
 
 
@@ -37,3 +39,16 @@ def test_telegram_publication_destinations_are_optional() -> None:
     assert empty.telegram_club_channel_id is None
     assert configured.telegram_club_chat_id == -1001
     assert configured.telegram_club_channel_id == -1002
+
+
+def test_tournament_day_start_hour_defaults_to_11() -> None:
+    settings = Settings(_env_file=None)
+
+    assert settings.tournament_day_start_hour == 11
+
+
+def test_tournament_day_start_hour_must_be_valid() -> None:
+    with pytest.raises(ValueError):
+        Settings(_env_file=None, tournament_day_start_hour=-1)
+    with pytest.raises(ValueError):
+        Settings(_env_file=None, tournament_day_start_hour=24)

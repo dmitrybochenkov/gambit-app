@@ -1,10 +1,12 @@
 import logging
+from datetime import date
 from decimal import ROUND_HALF_UP, Decimal
 
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from app.common.clock import Clock, club_clock
+from app.config import settings
 from app.db.factories import create_user
 from app.db.models import (
     ScoringConfig,
@@ -29,6 +31,7 @@ from app.domain.prize_multiplier_places import (
     parse_prize_multiplier_places,
 )
 from app.domain.tournament_close_policy import is_tournament_closeable
+from app.domain.tournament_day import resolve_tournament_day
 from app.domain.tournament_result_edit_policy import is_tournament_result_editable
 from app.services.access_policy import access_policy
 from app.services.dto.results import (
@@ -107,9 +110,11 @@ class ResultService:
         self,
         session_factory: async_sessionmaker[AsyncSession],
         clock: Clock = club_clock,
+        tournament_day_start_hour: int = settings.tournament_day_start_hour,
     ) -> None:
         self.session_factory = session_factory
         self.clock = clock
+        self.tournament_day_start_hour = tournament_day_start_hour
 
     async def get_today_tournament_results(
         self,
@@ -117,7 +122,7 @@ class ResultService:
     ) -> TournamentResultsView:
         async with self.session_factory() as session:
             await access_policy.require_admin(session, admin_telegram_id)
-            business_date = self.clock.today()
+            business_date = self._tournament_day()
             tournaments = await TournamentRepository(session).list_active_on_date(business_date)
             if not tournaments:
                 raise ResultTodayTournamentNotFoundError
@@ -139,20 +144,11 @@ class ResultService:
     ) -> list[TournamentCloseReadinessView]:
         async with self.session_factory() as session:
             await access_policy.require_superadmin(session, superadmin_telegram_id)
-            business_date = self.clock.today()
+            business_date = self._tournament_day()
             tournaments = await TournamentRepository(session).list_active_on_or_before(
                 business_date
             )
             return [await self._readiness_view(session, tournament) for tournament in tournaments]
-
-    async def list_past_tournaments_for_admin(
-        self,
-        admin_telegram_id: int,
-    ) -> list[TournamentView]:
-        async with self.session_factory() as session:
-            await access_policy.require_admin(session, admin_telegram_id)
-            tournaments = await TournamentRepository(session).list_active_before(self.clock.today())
-            return [tournament_view(tournament) for tournament in tournaments]
 
     async def get_tournament_results(
         self,
@@ -492,7 +488,7 @@ class ResultService:
         tournament_id: int,
     ) -> Tournament:
         tournament = await self._require_active_tournament(session, tournament_id)
-        if not is_tournament_result_editable(tournament, self.clock.today()):
+        if not is_tournament_result_editable(tournament, self._tournament_day()):
             raise TournamentResultsEditingUnavailableError
         return tournament
 
@@ -502,9 +498,12 @@ class ResultService:
         tournament_id: int,
     ) -> Tournament:
         tournament = await self._require_active_tournament(session, tournament_id)
-        if not is_tournament_closeable(tournament, self.clock.today()):
+        if not is_tournament_closeable(tournament, self._tournament_day()):
             raise FutureTournamentCannotBeClosedError
         return tournament
+
+    def _tournament_day(self) -> date:
+        return resolve_tournament_day(self.clock, self.tournament_day_start_hour)
 
     async def _result_capabilities(
         self,

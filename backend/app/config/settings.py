@@ -14,6 +14,7 @@ class Settings(BaseSettings):
     debug: bool = False
     public_base_url: str = ""
     club_timezone: str = "Europe/Moscow"
+    tournament_day_start_hour: int = 11
 
     data_dir: str = "../data"
     logs_dir: str = "../logs"
@@ -30,6 +31,13 @@ class Settings(BaseSettings):
     def _empty_telegram_destination_is_none(cls, value: object) -> object:
         if isinstance(value, str) and not value.strip():
             return None
+        return value
+
+    @field_validator("tournament_day_start_hour")
+    @classmethod
+    def _tournament_day_start_hour_is_valid(cls, value: int) -> int:
+        if not 0 <= value <= 23:
+            raise ValueError("tournament_day_start_hour must be between 0 and 23")
         return value
 
     model_config = SettingsConfigDict(

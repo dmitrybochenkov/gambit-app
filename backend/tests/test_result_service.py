@@ -110,6 +110,141 @@ async def test_today_result_entry_uses_only_today_active_tournament(
     await engine.dispose()
 
 
+async def test_today_result_entry_uses_tournament_day_boundary(
+    tmp_path: Path,
+) -> None:
+    engine = create_async_engine(f"sqlite+aiosqlite:///{tmp_path / 'boundary_results.db'}")
+    async with engine.begin() as connection:
+        await connection.run_sync(Base.metadata.create_all)
+
+    session_factory = async_sessionmaker(engine, expire_on_commit=False)
+    async with session_factory() as session:
+        config = ScoringConfig()
+        session.add(config)
+        await session.flush()
+        await seed_tournament_types_async(session)
+        season = Season(
+            name="Test season",
+            scoring_config_id=config.id,
+            starts_at=date(2026, 7, 1),
+            ends_at=None,
+        )
+        admin = build_player(
+            telegram_id=100,
+            display_name="Admin",
+            status=UserStatus.ACTIVE,
+            role=UserRole.ADMIN,
+        )
+        session.add_all([season, admin])
+        await session.flush()
+        session.add_all(
+            [
+                Tournament(
+                    season_id=season.id,
+                    tournament_type_id=tournament_type_id("classic"),
+                    date=date(2026, 7, 19),
+                    status=TournamentStatus.ACTIVE,
+                ),
+                Tournament(
+                    season_id=season.id,
+                    tournament_type_id=tournament_type_id("freezeout"),
+                    date=date(2026, 7, 20),
+                    status=TournamentStatus.ACTIVE,
+                ),
+            ]
+        )
+        await session.commit()
+
+    before_start = ResultService(
+        session_factory,
+        clock=FixedClock(datetime(2026, 7, 20, 5, tzinfo=ZoneInfo("Europe/Moscow"))),
+        tournament_day_start_hour=11,
+    )
+    at_start = ResultService(
+        session_factory,
+        clock=FixedClock(datetime(2026, 7, 20, 11, tzinfo=ZoneInfo("Europe/Moscow"))),
+        tournament_day_start_hour=11,
+    )
+
+    assert (await before_start.get_today_tournament_results(100)).tournament.date == date(
+        2026,
+        7,
+        19,
+    )
+    assert (await at_start.get_today_tournament_results(100)).tournament.date == date(
+        2026,
+        7,
+        20,
+    )
+    await engine.dispose()
+
+
+async def test_superadmin_close_horizon_uses_tournament_day_boundary(
+    tmp_path: Path,
+) -> None:
+    engine = create_async_engine(f"sqlite+aiosqlite:///{tmp_path / 'close_boundary.db'}")
+    async with engine.begin() as connection:
+        await connection.run_sync(Base.metadata.create_all)
+
+    session_factory = async_sessionmaker(engine, expire_on_commit=False)
+    async with session_factory() as session:
+        config = ScoringConfig()
+        session.add(config)
+        await session.flush()
+        await seed_tournament_types_async(session)
+        season = Season(
+            name="Test season",
+            scoring_config_id=config.id,
+            starts_at=date(2026, 7, 1),
+            ends_at=None,
+        )
+        superadmin = build_player(
+            telegram_id=100,
+            display_name="Superadmin",
+            status=UserStatus.ACTIVE,
+            role=UserRole.SUPERADMIN,
+        )
+        session.add_all([season, superadmin])
+        await session.flush()
+        previous_tournament = Tournament(
+            season_id=season.id,
+            tournament_type_id=tournament_type_id("classic"),
+            date=date(2026, 7, 19),
+            status=TournamentStatus.ACTIVE,
+        )
+        current_tournament = Tournament(
+            season_id=season.id,
+            tournament_type_id=tournament_type_id("freezeout"),
+            date=date(2026, 7, 20),
+            status=TournamentStatus.ACTIVE,
+        )
+        session.add_all([previous_tournament, current_tournament])
+        await session.commit()
+        previous_tournament_id = previous_tournament.id
+        current_tournament_id = current_tournament.id
+
+    before_start = ResultService(
+        session_factory,
+        clock=FixedClock(datetime(2026, 7, 20, 5, tzinfo=ZoneInfo("Europe/Moscow"))),
+        tournament_day_start_hour=11,
+    )
+    at_start = ResultService(
+        session_factory,
+        clock=FixedClock(datetime(2026, 7, 20, 11, tzinfo=ZoneInfo("Europe/Moscow"))),
+        tournament_day_start_hour=11,
+    )
+
+    before_start_items = await before_start.list_unclosed_tournaments_for_superadmin(100)
+    at_start_items = await at_start.list_unclosed_tournaments_for_superadmin(100)
+
+    assert [item.tournament.id for item in before_start_items] == [previous_tournament_id]
+    assert {item.tournament.id for item in at_start_items} == {
+        previous_tournament_id,
+        current_tournament_id,
+    }
+    await engine.dispose()
+
+
 async def test_today_result_entry_rejects_when_today_has_no_active_tournament(
     tmp_path: Path,
 ) -> None:

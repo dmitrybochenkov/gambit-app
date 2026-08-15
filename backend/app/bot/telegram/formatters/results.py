@@ -28,28 +28,42 @@ def players_table(
     return "\n".join(lines)
 
 
-def past_tournament_list(page: object) -> str:
-    lines = ["Выбери прошедший турнир:", ""]
-    for tournament in page.items:
-        lines.append(tournament_fmt.label(tournament))
-    if page.total_pages > 1:
-        lines.extend(["", fmt_common.page_line(page)])
-    return "\n".join(lines)
-
-
 def close_tournament_list(page: object) -> str:
     lines = ["🔒 Закрыть турнир", ""]
     for readiness in page.items:
         lines.append(tournament_fmt.label(readiness.tournament))
-        lines.append(
-            "✅ Готов к закрытию" if readiness.is_ready else "⚠️ " + "; ".join(readiness.reasons)
-        )
+        lines.append("✅ Готов к закрытию" if readiness.is_ready else _readiness_warning(readiness))
         lines.append("")
     if lines[-1] == "":
         lines.pop()
     if page.total_pages > 1:
         lines.extend(["", fmt_common.page_line(page)])
     return "\n".join(lines)
+
+
+def problematic_tournament_list(page: object) -> str:
+    lines = ["🛠 Проблемные турниры", ""]
+    for readiness in page.items:
+        lines.append(tournament_fmt.label(readiness.tournament))
+        lines.append(_readiness_warning(readiness))
+        lines.append("")
+    if lines[-1] == "":
+        lines.pop()
+    if page.total_pages > 1:
+        lines.extend(["", fmt_common.page_line(page)])
+    return "\n".join(lines)
+
+
+def problematic_tournament_card(readiness: object) -> str:
+    return "\n".join(
+        [
+            "🛠 Исправление турнира",
+            "",
+            tournament_fmt.label(readiness.tournament),
+            "",
+            "✅ Готов к закрытию" if readiness.is_ready else _readiness_warning(readiness),
+        ]
+    )
 
 
 def close_tournament_card(results: object) -> str:
@@ -82,6 +96,15 @@ def close_tournament_blocked(errors: list[str]) -> str:
             *[f"• {error}" for error in errors],
         ]
     )
+
+
+def _readiness_warning(readiness: object) -> str:
+    if not readiness.reasons:
+        return "⚠️ Результаты заполнены не полностью."
+    reasons = [str(reason).rstrip(".") for reason in readiness.reasons]
+    first, *rest = reasons
+    normalized = [first, *[reason[:1].lower() + reason[1:] for reason in rest]]
+    return f"⚠️ {'; '.join(normalized)}."
 
 
 def tournament_fund_error() -> str:
