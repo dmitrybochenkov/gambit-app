@@ -135,6 +135,19 @@ async def select_close_tournament_action(
                 )
             return
 
+        if callback_data.action == superadmin_tournament_close_kb.AdminCloseTournamentAction.BACK:
+            data = await state.get_data()
+            if "tournament_fund" in data and callback_data.tournament_id:
+                await _return_to_fund_input(
+                    callback=callback,
+                    state=state,
+                    tournament_id=callback_data.tournament_id,
+                    page=callback_data.page,
+                )
+                return
+            await _edit_close_tournament_root(callback, state, page=callback_data.page)
+            return
+
         if (
             callback_data.action
             == superadmin_tournament_close_kb.AdminCloseTournamentAction.CORRECTION_LIST
@@ -885,6 +898,75 @@ async def _set_fund_input_state(
     await state.update_data(**data)
 
 
+async def _edit_close_tournament_root(
+    callback: CallbackQuery,
+    state: FSMContext,
+    *,
+    page: int,
+) -> None:
+    tournaments = await result_service.list_unclosed_tournaments_for_superadmin(
+        callback.from_user.id
+    )
+    ready = [item for item in tournaments if item.is_ready]
+    problematic = [item for item in tournaments if not item.is_ready]
+    await state.clear()
+    await callback.answer()
+    if callback.message is None:
+        return
+    if not ready and not problematic:
+        await edit_message_if_changed(
+            callback.message,
+            text=text.NO_READY_TOURNAMENTS,
+            reply_markup=superadmin_panel_kb.superadmin_panel_keyboard(),
+        )
+        return
+    page_view = pagination_service.paginate(
+        tournaments,
+        page=page,
+        page_size=admin_results_kb.ADMIN_RESULT_PAGE_SIZE,
+    )
+    await edit_message_if_changed(
+        callback.message,
+        text=result_fmt.close_tournament_list(page_view),
+        reply_markup=superadmin_tournament_close_kb.admin_close_tournament_list_keyboard(
+            page_view,
+            has_correction_targets=bool(tournaments),
+        ),
+    )
+
+
+async def _return_to_fund_input(
+    *,
+    callback: CallbackQuery,
+    state: FSMContext,
+    tournament_id: int,
+    page: int,
+) -> None:
+    await state.set_state(AdminResultStates.entering_tournament_fund)
+    await state.update_data(
+        close_tournament_id=tournament_id,
+        close_tournament_page=page,
+    )
+    await callback.answer()
+    if callback.message is None:
+        return
+    await edit_message_if_changed(
+        callback.message,
+        text=result_fmt.tournament_fund_prompt(),
+        reply_markup=superadmin_tournament_close_kb.admin_close_tournament_card_keyboard(
+            tournament_id=tournament_id,
+            page=page,
+        ),
+    )
+    identity = _message_identity(callback.message)
+    if identity is not None:
+        chat_id, message_id = identity
+        await state.update_data(
+            close_tournament_prompt_chat_id=chat_id,
+            close_tournament_prompt_message_id=message_id,
+        )
+
+
 @router.message(AdminResultStates.entering_tournament_fund)
 async def enter_tournament_fund(message: Message, state: FSMContext) -> None:
     if message.from_user is None:
@@ -1020,5 +1102,8 @@ async def _replace_close_preview_with_fund_prompt(
         chat_id=chat_id,
         message_id=message_id,
         text=result_fmt.tournament_fund_prompt(),
-        reply_markup=None,
+        reply_markup=superadmin_tournament_close_kb.admin_close_tournament_card_keyboard(
+            tournament_id=int(data["close_tournament_id"]),
+            page=int(data.get("close_tournament_page", 0)),
+        ),
     )

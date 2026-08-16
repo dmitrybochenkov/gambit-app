@@ -13,6 +13,7 @@ from app.services.pagination import Page
 class AdminCloseTournamentAction(StrEnum):
     OPEN = "open"
     PAGE = "page"
+    BACK = "back"
     CORRECTION_LIST = "correction"
     VIEW_PHOTOS = "view_photos"
     CONFIRM = "confirm"
@@ -133,13 +134,20 @@ def admin_correction_tournament_list_keyboard(page: Page[object]) -> InlineKeybo
             ),
         )
     builder.button(
+        text="⬅️ Назад",
+        callback_data=AdminCloseTournamentCallback(
+            action=AdminCloseTournamentAction.BACK,
+            page=page.page,
+        ),
+    )
+    builder.button(
         text=labels.ADMIN_CANCEL,
         callback_data=AdminTournamentRepairCallback(
             action=AdminTournamentRepairAction.CANCEL,
             tournament_id=0,
         ),
     )
-    builder.adjust(*([1] * len(page.items)), 1)
+    builder.adjust(*([1] * len(page.items)), 1, 1)
     return builder.as_markup()
 
 
@@ -165,6 +173,13 @@ def admin_correction_tournament_card_keyboard(readiness: object) -> InlineKeyboa
         callback_data=AdminTournamentRepairCallback(
             action=AdminTournamentRepairAction.PHOTOS,
             tournament_id=tournament.id,
+        ),
+    )
+    builder.button(
+        text="⬅️ Назад",
+        callback_data=AdminCloseTournamentCallback(
+            action=AdminCloseTournamentAction.CORRECTION_LIST,
+            page=0,
         ),
     )
     builder.button(
@@ -327,6 +342,14 @@ def admin_repair_photo_collect_keyboard(tournament_id: int) -> InlineKeyboardMar
 def admin_close_tournament_card_keyboard(*, tournament_id: int, page: int) -> InlineKeyboardMarkup:
     builder = InlineKeyboardBuilder()
     builder.button(
+        text="⬅️ Назад",
+        callback_data=AdminCloseTournamentCallback(
+            action=AdminCloseTournamentAction.BACK,
+            page=page,
+            tournament_id=tournament_id,
+        ),
+    )
+    builder.button(
         text=labels.ADMIN_CANCEL,
         callback_data=AdminCloseTournamentCallback(
             action=AdminCloseTournamentAction.CANCEL,
@@ -344,6 +367,14 @@ def admin_close_tournament_cancel_keyboard(
     page: int,
 ) -> InlineKeyboardMarkup:
     builder = InlineKeyboardBuilder()
+    builder.button(
+        text="⬅️ Назад",
+        callback_data=AdminCloseTournamentCallback(
+            action=AdminCloseTournamentAction.BACK,
+            page=page,
+            tournament_id=tournament_id,
+        ),
+    )
     builder.button(
         text=labels.ADMIN_CANCEL,
         callback_data=AdminCloseTournamentCallback(
@@ -392,6 +423,14 @@ def admin_close_tournament_confirmation_keyboard(
         text="✏️ Изменить фонд",
         callback_data=AdminCloseTournamentCallback(
             action=AdminCloseTournamentAction.CHANGE_FUND,
+            page=page,
+            tournament_id=tournament_id,
+        ),
+    )
+    builder.button(
+        text="⬅️ Назад",
+        callback_data=AdminCloseTournamentCallback(
+            action=AdminCloseTournamentAction.BACK,
             page=page,
             tournament_id=tournament_id,
         ),

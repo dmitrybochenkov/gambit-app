@@ -9,6 +9,9 @@ from app.bot.telegram.formatters import hall_of_fame as hall_fmt
 from app.bot.telegram.handlers.admin.shared import (
     delete_callback_message as _delete_callback_message,
 )
+from app.bot.telegram.handlers.admin.shared import (
+    delete_message_by_id as _delete_message_by_id,
+)
 from app.bot.telegram.handlers.user.shared import clean_text as _clean_text
 from app.bot.telegram.keyboards import labels
 from app.bot.telegram.keyboards.superadmin import hall_of_fame as hall_kb
@@ -362,10 +365,11 @@ async def _start_photo_flow(
     await callback.answer()
     if callback.message is not None:
         await _delete_callback_message(callback)
-        await callback.message.answer(
+        prompt = await callback.message.answer(
             hall_fmt.photo_prompt(field=field, season_name=entry.season_name),
             reply_markup=hall_kb.photo_prompt_keyboard(season_id=season_id, field=field),
         )
+        await state.update_data(hall_photo_prompt_message_id=prompt.message_id)
 
 
 @router.message(HallOfFameStates.collecting_photo, F.photo)
@@ -377,9 +381,11 @@ async def collect_hall_of_fame_photo(message: Message, state: FSMContext) -> Non
     field = hall_kb.HallOfFameField(str(data["hall_field"]))
     season_name = str(data["hall_season_name"])
     photo = message.photo[-1]
+    await _clear_photo_prompt_message(message, data)
     await state.update_data(
         hall_photo_file_id=photo.file_id,
         hall_photo_file_unique_id=photo.file_unique_id,
+        hall_photo_prompt_message_id=0,
     )
     await message.answer_photo(photo.file_id)
     await message.answer(
@@ -486,3 +492,10 @@ async def _clear_search_prompt_markup(message: Message, data: dict[str, object])
         )
     except TelegramBadRequest:
         logger.info("Failed to clear Hall of Fame search prompt markup", exc_info=True)
+
+
+async def _clear_photo_prompt_message(message: Message, data: dict[str, object]) -> None:
+    prompt_message_id = int(data.get("hall_photo_prompt_message_id") or 0)
+    if prompt_message_id <= 0:
+        return
+    await _delete_message_by_id(message, prompt_message_id)

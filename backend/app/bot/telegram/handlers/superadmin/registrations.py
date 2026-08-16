@@ -66,12 +66,7 @@ async def show_pending_registrations(message: Message) -> None:
         )
         return
 
-    await message.answer(
-        text.REGISTRATIONS_EMPTY,
-        reply_markup=superadmin_registrations_kb.tournament_registrations_keyboard(
-            can_go_back=False,
-        ),
-    )
+    await message.answer(text.REGISTRATIONS_EMPTY)
 
 
 @router.callback_query(superadmin_registrations_kb.RegistrationsHubCallback.filter())

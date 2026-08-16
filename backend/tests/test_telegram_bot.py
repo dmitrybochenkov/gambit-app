@@ -983,16 +983,16 @@ def test_admin_close_tournament_formatters_show_fund_and_game_tables() -> None:
     assert "Тест Игрок" not in closed
 
 
-def test_admin_close_tournament_root_card_keyboard_has_only_cancel() -> None:
+def test_admin_close_tournament_fund_input_keyboard_has_back_and_cancel() -> None:
     keyboard = superadmin_tournament_close_kb.admin_close_tournament_card_keyboard(
         tournament_id=125,
         page=0,
     )
 
-    assert inline_keyboard_texts(keyboard) == ["❌ Отмена"]
+    assert inline_keyboard_texts(keyboard) == ["⬅️ Назад", "❌ Отмена"]
 
 
-def test_superadmin_repair_root_keyboard_has_data_photos_add_player_cancel_only() -> None:
+def test_superadmin_repair_root_keyboard_has_back_and_cancel() -> None:
     tournament = tournament_view(125, date(2026, 7, 19), 6, "Boss Bounty")
     readiness = SimpleNamespace(tournament=tournament, photo_count=3)
 
@@ -1002,9 +1002,23 @@ def test_superadmin_repair_root_keyboard_has_data_photos_add_player_cancel_only(
         "👤 Добавить игрока",
         "🏁 Внести данные",
         "📸 Фотографии",
+        "⬅️ Назад",
         "❌ Отмена",
     ]
-    assert "⬅️ Назад" not in inline_keyboard_texts(keyboard)
+
+
+def test_superadmin_correction_list_keyboard_has_back_and_cancel() -> None:
+    tournament = tournament_view(125, date(2026, 7, 19), 6, "Boss Bounty")
+    readiness = SimpleNamespace(tournament=tournament, is_ready=True)
+    page = Page(items=[readiness], page=0, page_size=6, total_items=1)
+
+    keyboard = superadmin_tournament_close_kb.admin_correction_tournament_list_keyboard(page)
+
+    assert inline_keyboard_texts(keyboard) == [
+        "✅ 19.07 — Boss Bounty",
+        "⬅️ Назад",
+        "❌ Отмена",
+    ]
 
 
 def test_superadmin_repair_nested_keyboards_keep_back_and_cancel() -> None:
@@ -1032,7 +1046,7 @@ def test_superadmin_repair_nested_keyboards_keep_back_and_cancel() -> None:
     ) == ["✅ Создать", "⬅️ Назад", "❌ Отмена"]
 
 
-def test_admin_close_tournament_flow_keyboards_do_not_show_back() -> None:
+def test_admin_close_tournament_nested_keyboards_show_back() -> None:
     keyboards = [
         superadmin_tournament_close_kb.admin_close_tournament_card_keyboard(
             tournament_id=125,
@@ -1049,8 +1063,8 @@ def test_admin_close_tournament_flow_keyboards_do_not_show_back() -> None:
     ]
 
     for keyboard in keyboards:
-        assert "↩️ Назад" not in inline_keyboard_texts(keyboard)
-        assert "⬅️ Назад" not in inline_keyboard_texts(keyboard)
+        assert "⬅️ Назад" in inline_keyboard_texts(keyboard)
+        assert "❌ Отмена" in inline_keyboard_texts(keyboard)
 
 
 def test_close_tournament_tables_hide_disabled_columns_for_classic() -> None:
@@ -2557,6 +2571,177 @@ async def test_close_tournament_single_ready_tournament_root_shows_list(
     ]
 
 
+async def test_close_tournament_fund_back_returns_to_root(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    tournament = tournament_view(125, date(2026, 8, 9), 1, "Баунти турнир")
+    readiness = TournamentCloseReadinessView(
+        tournament=tournament,
+        is_ready=True,
+        photo_count=1,
+        has_photos=True,
+        has_checkins=True,
+        validation_errors=[],
+        reasons=[],
+    )
+    service = SimpleNamespace(
+        list_unclosed_tournaments_for_superadmin=AsyncMock(return_value=[readiness])
+    )
+    monkeypatch.setattr(superadmin_close_handlers, "result_service", service)
+    state = MutableState()
+    await state.set_state(AdminResultStates.entering_tournament_fund)
+    await state.update_data(close_tournament_id=125, close_tournament_page=0)
+    message = SimpleNamespace(edit_text=AsyncMock())
+    callback = SimpleNamespace(
+        from_user=SimpleNamespace(id=100),
+        message=message,
+        answer=AsyncMock(),
+    )
+
+    await superadmin_close_handlers.select_close_tournament_action(
+        callback,
+        superadmin_tournament_close_kb.AdminCloseTournamentCallback(
+            action=superadmin_tournament_close_kb.AdminCloseTournamentAction.BACK,
+            tournament_id=125,
+            page=0,
+        ),
+        state,
+    )
+
+    service.list_unclosed_tournaments_for_superadmin.assert_awaited_once_with(100)
+    callback.answer.assert_awaited_once_with()
+    assert state.state is None
+    assert "🔒 Закрыть турнир" in message.edit_text.await_args.args[0]
+    assert inline_keyboard_texts(message.edit_text.await_args.kwargs["reply_markup"]) == [
+        "✅ 09.08 — Баунти турнир",
+        "🛠 Корректировать турниры",
+        "❌ Отмена",
+    ]
+
+
+async def test_close_tournament_confirmation_back_returns_to_fund_input() -> None:
+    state = MutableState()
+    await state.update_data(
+        close_tournament_id=125,
+        close_tournament_page=0,
+        tournament_fund=15000,
+    )
+    message = SimpleNamespace(
+        chat=SimpleNamespace(id=100),
+        message_id=700,
+        edit_text=AsyncMock(),
+    )
+    callback = SimpleNamespace(
+        from_user=SimpleNamespace(id=100),
+        message=message,
+        answer=AsyncMock(),
+    )
+
+    await superadmin_close_handlers.select_close_tournament_action(
+        callback,
+        superadmin_tournament_close_kb.AdminCloseTournamentCallback(
+            action=superadmin_tournament_close_kb.AdminCloseTournamentAction.BACK,
+            tournament_id=125,
+            page=0,
+        ),
+        state,
+    )
+
+    callback.answer.assert_awaited_once_with()
+    assert state.state == AdminResultStates.entering_tournament_fund
+    assert state.data["tournament_fund"] == 15000
+    assert state.data["close_tournament_prompt_message_id"] == 700
+    assert message.edit_text.await_args.args[0] == "Введите фонд турнира."
+    assert inline_keyboard_texts(message.edit_text.await_args.kwargs["reply_markup"]) == [
+        "⬅️ Назад",
+        "❌ Отмена",
+    ]
+
+
+async def test_correction_list_back_returns_to_close_root(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    tournament = tournament_view(125, date(2026, 8, 9), 1, "Баунти турнир")
+    readiness = TournamentCloseReadinessView(
+        tournament=tournament,
+        is_ready=True,
+        photo_count=1,
+        has_photos=True,
+        has_checkins=True,
+        validation_errors=[],
+        reasons=[],
+    )
+    service = SimpleNamespace(
+        list_unclosed_tournaments_for_superadmin=AsyncMock(return_value=[readiness])
+    )
+    monkeypatch.setattr(superadmin_close_handlers, "result_service", service)
+    state = MutableState()
+    message = SimpleNamespace(edit_text=AsyncMock())
+    callback = SimpleNamespace(
+        from_user=SimpleNamespace(id=100),
+        message=message,
+        answer=AsyncMock(),
+    )
+
+    await superadmin_close_handlers.select_close_tournament_action(
+        callback,
+        superadmin_tournament_close_kb.AdminCloseTournamentCallback(
+            action=superadmin_tournament_close_kb.AdminCloseTournamentAction.BACK,
+            page=0,
+        ),
+        state,
+    )
+
+    assert "🔒 Закрыть турнир" in message.edit_text.await_args.args[0]
+    assert inline_keyboard_texts(message.edit_text.await_args.kwargs["reply_markup"]) == [
+        "✅ 09.08 — Баунти турнир",
+        "🛠 Корректировать турниры",
+        "❌ Отмена",
+    ]
+
+
+async def test_correction_card_back_returns_to_correction_list(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    tournament = tournament_view(125, date(2026, 8, 9), 1, "Баунти турнир")
+    readiness = TournamentCloseReadinessView(
+        tournament=tournament,
+        is_ready=True,
+        photo_count=1,
+        has_photos=True,
+        has_checkins=True,
+        validation_errors=[],
+        reasons=[],
+    )
+    service = SimpleNamespace(
+        list_unclosed_tournaments_for_superadmin=AsyncMock(return_value=[readiness])
+    )
+    monkeypatch.setattr(superadmin_close_handlers, "result_service", service)
+    state = MutableState()
+    message = SimpleNamespace(edit_text=AsyncMock())
+    callback = SimpleNamespace(
+        from_user=SimpleNamespace(id=100),
+        message=message,
+        answer=AsyncMock(),
+    )
+
+    await superadmin_close_handlers.select_close_tournament_action(
+        callback,
+        superadmin_tournament_close_kb.AdminCloseTournamentCallback(
+            action=superadmin_tournament_close_kb.AdminCloseTournamentAction.CORRECTION_LIST,
+            page=0,
+        ),
+        state,
+    )
+
+    assert "🛠 Корректировать турниры" in message.edit_text.await_args.args[0]
+    assert inline_keyboard_texts(message.edit_text.await_args.kwargs["reply_markup"]) == [
+        "✅ 09.08 — Баунти турнир",
+        "⬅️ Назад",
+        "❌ Отмена",
+    ]
+
+
 async def test_close_tournament_change_fund_deletes_preview_and_waits_for_new_value(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -2662,7 +2847,10 @@ async def test_close_tournament_valid_fund_replaces_root_preview_with_prompt(
         chat_id=100,
         message_id=700,
         text="Введите фонд турнира.",
-        reply_markup=None,
+        reply_markup=superadmin_tournament_close_kb.admin_close_tournament_card_keyboard(
+            tournament_id=125,
+            page=0,
+        ),
     )
     message.answer.assert_awaited_once()
     assert "Фонд турнира: 15000" in message.answer.await_args.args[0]
@@ -3687,6 +3875,113 @@ async def test_superadmin_hall_of_fame_opens_card_and_searches_candidate(
         "⬅️ Назад",
         "❌ Отмена",
     ]
+
+
+async def test_hall_of_fame_photo_prompt_is_stored_and_deleted_before_confirmation(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    entry = HallOfFameEntryView(
+        season_id=1,
+        season_name="Зима 2025",
+        starts_at=date(2025, 1, 1),
+        ends_at=date(2025, 3, 31),
+        champion=UserView(
+            id=10,
+            telegram_id=None,
+            display_name="Иван",
+            status=UserStatus.ACTIVE,
+            role=UserRole.PLAYER,
+        ),
+        knockout_leader=None,
+    )
+    service = SimpleNamespace(get_season_hall_of_fame=AsyncMock(return_value=entry))
+    monkeypatch.setattr(
+        superadmin_hall_of_fame_handlers,
+        "hall_of_fame_management_service",
+        service,
+    )
+    prompt_message = SimpleNamespace(message_id=701)
+    source_message = SimpleNamespace(
+        delete=AsyncMock(), answer=AsyncMock(return_value=prompt_message)
+    )
+    callback = SimpleNamespace(
+        from_user=SimpleNamespace(id=123),
+        message=source_message,
+        answer=AsyncMock(),
+    )
+    state = MutableState()
+
+    await superadmin_hall_of_fame_handlers.select_hall_of_fame_card_action(
+        callback,
+        superadmin_hall_of_fame_kb.HallOfFameCardCallback(
+            action=superadmin_hall_of_fame_kb.HallOfFameCardAction.CHAMPION_PHOTO,
+            season_id=1,
+            page=0,
+        ),
+        state,
+    )
+
+    assert state.state == HallOfFameStates.collecting_photo
+    assert state.data["hall_photo_prompt_message_id"] == 701
+    source_message.delete.assert_awaited_once_with()
+    assert source_message.answer.await_args.args[0] == (
+        "📸 Фото победителя сезона\n\nПришли одну фотографию для сезона «Зима 2025»."
+    )
+
+    photo_message = SimpleNamespace(
+        from_user=SimpleNamespace(id=123),
+        chat=SimpleNamespace(id=123),
+        bot=SimpleNamespace(delete_message=AsyncMock()),
+        photo=[SimpleNamespace(file_id="small", file_unique_id="small-u")],
+        answer_photo=AsyncMock(),
+        answer=AsyncMock(),
+    )
+
+    await superadmin_hall_of_fame_handlers.collect_hall_of_fame_photo(photo_message, state)
+
+    photo_message.bot.delete_message.assert_awaited_once_with(chat_id=123, message_id=701)
+    photo_message.answer_photo.assert_awaited_once_with("small")
+    photo_message.answer.assert_awaited_once()
+    assert photo_message.answer.await_args.args[0] == (
+        "Использовать это фото победителя для сезона «Зима 2025»?"
+    )
+    assert state.data["hall_photo_file_id"] == "small"
+    assert state.data["hall_photo_file_unique_id"] == "small-u"
+    assert state.data["hall_photo_prompt_message_id"] == 0
+
+
+async def test_hall_of_fame_photo_prompt_delete_failure_keeps_confirmation() -> None:
+    state = MutableState()
+    await state.set_state(HallOfFameStates.collecting_photo)
+    await state.update_data(
+        hall_season_id=1,
+        hall_field=superadmin_hall_of_fame_kb.HallOfFameField.KNOCKOUT.value,
+        hall_season_name="Зима 2025",
+        hall_photo_prompt_message_id=701,
+    )
+    photo_message = SimpleNamespace(
+        from_user=SimpleNamespace(id=123),
+        chat=SimpleNamespace(id=123),
+        bot=SimpleNamespace(
+            delete_message=AsyncMock(
+                side_effect=TelegramBadRequest(
+                    method=SendMessage(chat_id=123, text="noop"),
+                    message="message to delete not found",
+                )
+            )
+        ),
+        photo=[SimpleNamespace(file_id="knockout-photo", file_unique_id="knockout-unique")],
+        answer_photo=AsyncMock(),
+        answer=AsyncMock(),
+    )
+
+    await superadmin_hall_of_fame_handlers.collect_hall_of_fame_photo(photo_message, state)
+
+    photo_message.answer_photo.assert_awaited_once_with("knockout-photo")
+    photo_message.answer.assert_awaited_once()
+    assert photo_message.answer.await_args.args[0] == (
+        "Использовать это фото лучшего нокаутера для сезона «Зима 2025»?"
+    )
 
 
 def test_superadmin_hall_of_fame_photo_buttons_follow_assigned_slots() -> None:
@@ -5594,7 +5889,7 @@ async def test_admin_panel_registration_requests_button_shows_pending(
     service.list_pending_reviews_page_for_superadmin.assert_not_awaited()
     message.answer.assert_awaited_once()
     assert message.answer.await_args.args[0] == "Регистраций нет."
-    assert inline_keyboard_texts(message.answer.await_args.kwargs["reply_markup"]) == ["❌ Отмена"]
+    assert "reply_markup" not in message.answer.await_args.kwargs
 
 
 async def test_admin_panel_registration_requests_button_shows_paginated_list(
