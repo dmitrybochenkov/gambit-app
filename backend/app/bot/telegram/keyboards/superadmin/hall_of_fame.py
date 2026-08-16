@@ -32,6 +32,8 @@ class HallOfFameSeasonCallback(CallbackData, prefix="hof_season"):
 class HallOfFameCardAction(StrEnum):
     CHOOSE_CHAMPION = "choose_champion"
     CHOOSE_KNOCKOUT = "choose_knockout"
+    CHAMPION_PHOTO = "champion_photo"
+    KNOCKOUT_PHOTO = "knockout_photo"
     BACK = "back"
     CANCEL = "cancel"
 
@@ -66,6 +68,18 @@ class HallOfFameConfirmCallback(CallbackData, prefix="hof_confirm"):
     season_id: int
     field: HallOfFameField
     player_id: int
+
+
+class HallOfFamePhotoAction(StrEnum):
+    SAVE = "save"
+    BACK = "back"
+    CANCEL = "cancel"
+
+
+class HallOfFamePhotoCallback(CallbackData, prefix="hof_photo"):
+    action: HallOfFamePhotoAction
+    season_id: int
+    field: HallOfFameField
 
 
 def seasons_keyboard(page: Page[HallOfFameSeasonListItemView]) -> InlineKeyboardMarkup:
@@ -114,7 +128,8 @@ def seasons_keyboard(page: Page[HallOfFameSeasonListItemView]) -> InlineKeyboard
     return builder.as_markup()
 
 
-def season_card_keyboard(*, season_id: int, page: int) -> InlineKeyboardMarkup:
+def season_card_keyboard(*, entry: object, page: int) -> InlineKeyboardMarkup:
+    season_id = entry.season_id
     builder = InlineKeyboardBuilder()
     builder.button(
         text="💍 Выбрать чемпиона",
@@ -132,6 +147,32 @@ def season_card_keyboard(*, season_id: int, page: int) -> InlineKeyboardMarkup:
             page=page,
         ),
     )
+    if entry.champion is not None:
+        builder.button(
+            text=(
+                "💍📸 Заменить фото победителя"
+                if getattr(entry, "champion_photo_file_id", None)
+                else "💍📸 Прикрепить фото победителя"
+            ),
+            callback_data=HallOfFameCardCallback(
+                action=HallOfFameCardAction.CHAMPION_PHOTO,
+                season_id=season_id,
+                page=page,
+            ),
+        )
+    if entry.knockout_leader is not None:
+        builder.button(
+            text=(
+                "💥📸 Заменить фото нокаутера"
+                if getattr(entry, "knockout_photo_file_id", None)
+                else "💥📸 Прикрепить фото нокаутера"
+            ),
+            callback_data=HallOfFameCardCallback(
+                action=HallOfFameCardAction.KNOCKOUT_PHOTO,
+                season_id=season_id,
+                page=page,
+            ),
+        )
     builder.button(
         text="⬅️ Назад",
         callback_data=HallOfFameCardCallback(
@@ -243,6 +284,58 @@ def confirmation_keyboard(
             season_id=season_id,
             field=field,
             player_id=player_id,
+        ),
+    )
+    builder.adjust(1)
+    return builder.as_markup()
+
+
+def photo_prompt_keyboard(*, season_id: int, field: HallOfFameField) -> InlineKeyboardMarkup:
+    builder = InlineKeyboardBuilder()
+    builder.button(
+        text="⬅️ Назад",
+        callback_data=HallOfFamePhotoCallback(
+            action=HallOfFamePhotoAction.BACK,
+            season_id=season_id,
+            field=field,
+        ),
+    )
+    builder.button(
+        text=labels.ADMIN_CANCEL,
+        callback_data=HallOfFamePhotoCallback(
+            action=HallOfFamePhotoAction.CANCEL,
+            season_id=season_id,
+            field=field,
+        ),
+    )
+    builder.adjust(1)
+    return builder.as_markup()
+
+
+def photo_confirmation_keyboard(*, season_id: int, field: HallOfFameField) -> InlineKeyboardMarkup:
+    builder = InlineKeyboardBuilder()
+    builder.button(
+        text="✅ Сохранить",
+        callback_data=HallOfFamePhotoCallback(
+            action=HallOfFamePhotoAction.SAVE,
+            season_id=season_id,
+            field=field,
+        ),
+    )
+    builder.button(
+        text="⬅️ Назад",
+        callback_data=HallOfFamePhotoCallback(
+            action=HallOfFamePhotoAction.BACK,
+            season_id=season_id,
+            field=field,
+        ),
+    )
+    builder.button(
+        text=labels.ADMIN_CANCEL,
+        callback_data=HallOfFamePhotoCallback(
+            action=HallOfFamePhotoAction.CANCEL,
+            season_id=season_id,
+            field=field,
         ),
     )
     builder.adjust(1)

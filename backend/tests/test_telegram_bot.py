@@ -996,7 +996,7 @@ def test_superadmin_repair_root_keyboard_has_data_photos_add_player_cancel_only(
     tournament = tournament_view(125, date(2026, 7, 19), 6, "Boss Bounty")
     readiness = SimpleNamespace(tournament=tournament, photo_count=3)
 
-    keyboard = superadmin_tournament_close_kb.admin_problematic_tournament_card_keyboard(readiness)
+    keyboard = superadmin_tournament_close_kb.admin_correction_tournament_card_keyboard(readiness)
 
     assert inline_keyboard_texts(keyboard) == [
         "👤 Добавить игрока",
@@ -2102,7 +2102,7 @@ async def test_admin_check_in_registered_user_dispatcher_flow_creates_result(
         await engine.dispose()
 
 
-async def test_admin_result_dispatcher_flow_opens_today_tournament_and_saves_place(
+async def test_admin_result_dispatcher_flow_reassigns_occupied_place(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -2128,12 +2128,17 @@ async def test_admin_result_dispatcher_flow_opens_today_tournament_and_saves_pla
             status=UserStatus.ACTIVE,
             role=UserRole.ADMIN,
         )
+        occupied_player = build_player(
+            telegram_id=202,
+            display_name="Игрок С Местом",
+            status=UserStatus.ACTIVE,
+        )
         player = build_player(
             telegram_id=201,
             display_name="Игрок Результатов",
             status=UserStatus.ACTIVE,
         )
-        session.add_all([season, admin, player])
+        session.add_all([season, admin, occupied_player, player])
         await session.flush()
         tournament = Tournament(
             season_id=season.id,
@@ -2143,16 +2148,26 @@ async def test_admin_result_dispatcher_flow_opens_today_tournament_and_saves_pla
         )
         session.add(tournament)
         await session.flush()
-        session.add(
-            TournamentResult(
-                tournament_id=tournament.id,
-                player_id=player.id,
-                source=TournamentResultSource.REGISTERED,
-                checked_in_by_user_id=admin.id,
-            )
+        session.add_all(
+            [
+                TournamentResult(
+                    tournament_id=tournament.id,
+                    player_id=occupied_player.id,
+                    source=TournamentResultSource.REGISTERED,
+                    checked_in_by_user_id=admin.id,
+                    place=1,
+                ),
+                TournamentResult(
+                    tournament_id=tournament.id,
+                    player_id=player.id,
+                    source=TournamentResultSource.REGISTERED,
+                    checked_in_by_user_id=admin.id,
+                ),
+            ]
         )
         await session.commit()
         tournament_id = tournament.id
+        occupied_player_id = occupied_player.id
         player_id = player.id
 
     service = ResultService(
@@ -2246,7 +2261,7 @@ async def test_admin_result_dispatcher_flow_opens_today_tournament_and_saves_pla
         assert any("Игрок Результатов\n\nВыбери место:" in text for text in edited_texts)
         assert any("1      Игрок Результатов" in text for text in edited_texts)
         async with session_factory() as session:
-            result = (
+            reassigned = (
                 await session.execute(
                     select(TournamentResult).where(
                         TournamentResult.tournament_id == tournament_id,
@@ -2254,7 +2269,16 @@ async def test_admin_result_dispatcher_flow_opens_today_tournament_and_saves_pla
                     )
                 )
             ).scalar_one()
-        assert result.place == 1
+            old_place = (
+                await session.execute(
+                    select(TournamentResult).where(
+                        TournamentResult.tournament_id == tournament_id,
+                        TournamentResult.player_id == occupied_player_id,
+                    )
+                )
+            ).scalar_one()
+        assert reassigned.place == 1
+        assert old_place.place is None
     finally:
         await bot.session.close()
         await engine.dispose()
@@ -2429,7 +2453,7 @@ async def test_superadmin_close_tournament_dispatcher_replaces_fund_preview(
         edited_texts = [
             call.text for call in bot.calls if call.__class__.__name__ == "EditMessageText"
         ]
-        assert "🔒 Закрытие турнира" in sent_texts[0]
+        assert "🔒 Закрыть турнир" in sent_texts[0]
         assert any("🔒 Закрытие турнира" in text for text in edited_texts)
         assert any("Введите фонд турнира?" in text for text in edited_texts)
         assert "Введите фонд турнира." in edited_texts
@@ -2476,7 +2500,7 @@ async def test_future_tournament_close_callback_shows_domain_error(
     callback.message.edit_text.assert_not_awaited()
 
 
-async def test_close_tournament_single_ready_tournament_root_auto_opens_preview(
+async def test_close_tournament_single_ready_tournament_root_shows_list(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     tournament = tournament_view(125, date(2026, 8, 9), 1, "Баунти турнир")
@@ -2520,20 +2544,17 @@ async def test_close_tournament_single_ready_tournament_root_auto_opens_preview(
     await superadmin_close_handlers.show_close_tournament_flow(message, state)
 
     service.list_unclosed_tournaments_for_superadmin.assert_awaited_once_with(100)
-    service.get_closeable_tournament_results.assert_awaited_once_with(
-        superadmin_telegram_id=100,
-        tournament_id=125,
-    )
-    service.get_close_readiness.assert_awaited_once_with(
-        superadmin_telegram_id=100,
-        tournament_id=125,
-    )
-    assert state.state == AdminResultStates.entering_tournament_fund
-    assert state.data["close_tournament_id"] == 125
+    service.get_closeable_tournament_results.assert_not_awaited()
+    service.get_close_readiness.assert_not_awaited()
+    assert state.state is None
     message.answer.assert_awaited_once()
-    assert "🔒 Закрытие турнира" in message.answer.await_args.args[0]
+    assert "🔒 Закрыть турнир" in message.answer.await_args.args[0]
     assert "Баунти турнир" in message.answer.await_args.args[0]
-    assert inline_keyboard_texts(message.answer.await_args.kwargs["reply_markup"]) == ["❌ Отмена"]
+    assert inline_keyboard_texts(message.answer.await_args.kwargs["reply_markup"]) == [
+        "✅ 09.08 — Баунти турнир",
+        "🛠 Корректировать турниры",
+        "❌ Отмена",
+    ]
 
 
 async def test_close_tournament_change_fund_deletes_preview_and_waits_for_new_value(
@@ -3458,17 +3479,99 @@ async def test_hall_of_fame_button_shows_message(
     await user_hall_of_fame_handlers.show_hall_of_fame(message)
 
     service.get_hall_of_fame.assert_awaited_once_with(123)
-    answer = message.answer.await_args
-    assert answer.args[0] == (
-        "🏆 Зал славы\n\n"
-        "💍 — победитель сезона\n"
-        "💥 — лучший нокаутер сезона\n\n"
-        "Сезон 2026\n"
-        "💍 Иван\n"
-        "💥 Петр"
+    first_answer = message.answer.await_args_list[0]
+    second_answer = message.answer.await_args_list[1]
+    assert first_answer.args[0] == (
+        "🏆 Зал славы\n\n💍 — победитель сезона\n💥 — лучший нокаутер сезона"
     )
-    assert inline_keyboard_texts(answer.kwargs["reply_markup"]) == ["❌ Закрыть"]
-    assert answer.kwargs["parse_mode"] == "Markdown"
+    assert second_answer.args[0] == ("Сезон 2026\n\n💍 Иван\n💥 Петр")
+    assert "reply_markup" not in first_answer.kwargs
+    assert "reply_markup" not in second_answer.kwargs
+    assert first_answer.kwargs["parse_mode"] == "Markdown"
+    assert second_answer.kwargs["parse_mode"] == "Markdown"
+
+
+async def test_hall_of_fame_season_without_photos_is_text_card() -> None:
+    message = SimpleNamespace(
+        answer=AsyncMock(),
+        answer_photo=AsyncMock(),
+        answer_media_group=AsyncMock(),
+    )
+    season = HallOfFameSeasonView(
+        season_id=1,
+        season_name="Лето 2026",
+        starts_at=date(2026, 6, 1),
+        champion_player_id=1,
+        champion_display_name="Иван",
+        knockout_leader_player_id=2,
+        knockout_leader_display_name="Петр",
+    )
+
+    await user_hall_of_fame_handlers._send_hall_of_fame_season(message, season)
+
+    message.answer.assert_awaited_once_with(
+        "Лето 2026\n\n💍 Иван\n💥 Петр",
+        parse_mode="Markdown",
+    )
+    message.answer_photo.assert_not_awaited()
+    message.answer_media_group.assert_not_awaited()
+
+
+async def test_hall_of_fame_season_with_one_photo_uses_photo_caption() -> None:
+    message = SimpleNamespace(
+        answer=AsyncMock(),
+        answer_photo=AsyncMock(),
+        answer_media_group=AsyncMock(),
+    )
+    season = HallOfFameSeasonView(
+        season_id=1,
+        season_name="Лето 2026",
+        starts_at=date(2026, 6, 1),
+        champion_player_id=1,
+        champion_display_name="Иван",
+        knockout_leader_player_id=2,
+        knockout_leader_display_name="Петр",
+        champion_photo_file_id="champion-photo",
+    )
+
+    await user_hall_of_fame_handlers._send_hall_of_fame_season(message, season)
+
+    message.answer.assert_not_awaited()
+    message.answer_photo.assert_awaited_once_with(
+        "champion-photo",
+        caption="Лето 2026\n\n💍 Иван\n💥 Петр",
+        parse_mode="Markdown",
+    )
+    message.answer_media_group.assert_not_awaited()
+
+
+async def test_hall_of_fame_season_with_two_photos_uses_album() -> None:
+    message = SimpleNamespace(
+        answer=AsyncMock(),
+        answer_photo=AsyncMock(),
+        answer_media_group=AsyncMock(),
+    )
+    season = HallOfFameSeasonView(
+        season_id=1,
+        season_name="Лето 2026",
+        starts_at=date(2026, 6, 1),
+        champion_player_id=1,
+        champion_display_name="Иван",
+        knockout_leader_player_id=2,
+        knockout_leader_display_name="Петр",
+        champion_photo_file_id="champion-photo",
+        knockout_photo_file_id="knockout-photo",
+    )
+
+    await user_hall_of_fame_handlers._send_hall_of_fame_season(message, season)
+
+    message.answer.assert_not_awaited()
+    message.answer_photo.assert_not_awaited()
+    media = message.answer_media_group.await_args.args[0]
+    assert [item.media for item in media] == ["champion-photo", "knockout-photo"]
+    assert media[0].caption == "Лето 2026\n\n💍 Иван\n💥 Петр"
+    assert media[0].parse_mode == "Markdown"
+    assert media[1].caption is None
 
 
 async def test_superadmin_hall_of_fame_lists_completed_seasons(
@@ -3586,6 +3689,60 @@ async def test_superadmin_hall_of_fame_opens_card_and_searches_candidate(
     ]
 
 
+def test_superadmin_hall_of_fame_photo_buttons_follow_assigned_slots() -> None:
+    champion = UserView(
+        id=10,
+        telegram_id=None,
+        display_name="Иван",
+        status=UserStatus.ACTIVE,
+        role=UserRole.PLAYER,
+    )
+    knockout = UserView(
+        id=11,
+        telegram_id=None,
+        display_name="Петр",
+        status=UserStatus.ACTIVE,
+        role=UserRole.PLAYER,
+    )
+    champion_only = HallOfFameEntryView(
+        season_id=1,
+        season_name="Лето 2026",
+        starts_at=date(2026, 6, 1),
+        ends_at=date(2026, 8, 31),
+        champion=champion,
+        knockout_leader=None,
+    )
+    full_entry = HallOfFameEntryView(
+        season_id=1,
+        season_name="Лето 2026",
+        starts_at=date(2026, 6, 1),
+        ends_at=date(2026, 8, 31),
+        champion=champion,
+        knockout_leader=knockout,
+        champion_photo_file_id="champion-photo",
+    )
+
+    assert inline_keyboard_texts(
+        superadmin_hall_of_fame_kb.season_card_keyboard(entry=champion_only, page=0)
+    ) == [
+        "💍 Выбрать чемпиона",
+        "💥 Выбрать нокаутера",
+        "💍📸 Прикрепить фото победителя",
+        "⬅️ Назад",
+        "❌ Отмена",
+    ]
+    assert inline_keyboard_texts(
+        superadmin_hall_of_fame_kb.season_card_keyboard(entry=full_entry, page=0)
+    ) == [
+        "💍 Выбрать чемпиона",
+        "💥 Выбрать нокаутера",
+        "💍📸 Заменить фото победителя",
+        "💥📸 Прикрепить фото нокаутера",
+        "⬅️ Назад",
+        "❌ Отмена",
+    ]
+
+
 async def test_hall_of_fame_requires_active_user(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -3612,16 +3769,6 @@ async def test_history_cancel_deletes_message_and_sends_confirmation() -> None:
     callback.answer.assert_awaited_once_with("История закрыта")
     message.delete.assert_awaited_once()
     message.answer.assert_awaited_once_with("История закрыта")
-
-
-async def test_hall_of_fame_close_deletes_message() -> None:
-    message = SimpleNamespace(delete=AsyncMock(), answer=AsyncMock())
-    callback = SimpleNamespace(message=message, answer=AsyncMock())
-
-    await user_hall_of_fame_handlers.close_hall_of_fame(callback)
-
-    callback.answer.assert_awaited_once_with("Зал славы закрыт")
-    message.delete.assert_awaited_once()
 
 
 async def test_rating_callback_edits_selected_rating(

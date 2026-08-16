@@ -22,6 +22,7 @@ from app.bot.telegram.texts.superadmin import hall_of_fame as text
 from app.bot.telegram.texts.superadmin import panel as panel_text
 from app.services.access_policy import AdminAccessDeniedError
 from app.services.hall_of_fame_management_service import (
+    HallOfFamePhotoRole,
     HallOfFameSeasonNotFoundError,
     hall_of_fame_management_service,
 )
@@ -96,7 +97,7 @@ async def select_hall_of_fame_season(
             callback.message,
             text=hall_fmt.season_card(entry),
             reply_markup=hall_kb.season_card_keyboard(
-                season_id=entry.season_id,
+                entry=entry,
                 page=callback_data.page,
             ),
             parse_mode="Markdown",
@@ -114,6 +115,18 @@ async def select_hall_of_fame_card_action(
         return
     if callback_data.action == hall_kb.HallOfFameCardAction.BACK:
         await _show_season_list_callback(callback, callback_data.page, state)
+        return
+
+    if callback_data.action in {
+        hall_kb.HallOfFameCardAction.CHAMPION_PHOTO,
+        hall_kb.HallOfFameCardAction.KNOCKOUT_PHOTO,
+    }:
+        field = (
+            hall_kb.HallOfFameField.CHAMPION
+            if callback_data.action == hall_kb.HallOfFameCardAction.CHAMPION_PHOTO
+            else hall_kb.HallOfFameField.KNOCKOUT
+        )
+        await _start_photo_flow(callback, callback_data.season_id, field, state)
         return
 
     field = (
@@ -263,7 +276,7 @@ async def confirm_hall_of_fame_player(
         await callback.message.answer(
             hall_fmt.season_card(entry),
             reply_markup=hall_kb.season_card_keyboard(
-                season_id=entry.season_id,
+                entry=entry,
                 page=0,
             ),
             parse_mode="Markdown",
@@ -317,7 +330,106 @@ async def _show_hall_card_callback(
         await edit_message_if_changed(
             callback.message,
             text=hall_fmt.season_card(entry),
-            reply_markup=hall_kb.season_card_keyboard(season_id=season_id, page=page),
+            reply_markup=hall_kb.season_card_keyboard(entry=entry, page=page),
+            parse_mode="Markdown",
+        )
+
+
+async def _start_photo_flow(
+    callback: CallbackQuery,
+    season_id: int,
+    field: hall_kb.HallOfFameField,
+    state: FSMContext,
+) -> None:
+    try:
+        entry = await hall_of_fame_management_service.get_season_hall_of_fame(
+            callback.from_user.id,
+            season_id,
+        )
+    except AdminAccessDeniedError:
+        await callback.answer(panel_text.INSUFFICIENT_RIGHTS, show_alert=True)
+        return
+    except HallOfFameSeasonNotFoundError:
+        await callback.answer(text.HALL_OF_FAME_SEASON_NOT_FOUND, show_alert=True)
+        return
+    await state.clear()
+    await state.set_state(HallOfFameStates.collecting_photo)
+    await state.update_data(
+        hall_season_id=season_id,
+        hall_field=field.value,
+        hall_season_name=entry.season_name,
+    )
+    await callback.answer()
+    if callback.message is not None:
+        await _delete_callback_message(callback)
+        await callback.message.answer(
+            hall_fmt.photo_prompt(field=field, season_name=entry.season_name),
+            reply_markup=hall_kb.photo_prompt_keyboard(season_id=season_id, field=field),
+        )
+
+
+@router.message(HallOfFameStates.collecting_photo, F.photo)
+async def collect_hall_of_fame_photo(message: Message, state: FSMContext) -> None:
+    if message.from_user is None or not message.photo:
+        return
+    data = await state.get_data()
+    season_id = int(data["hall_season_id"])
+    field = hall_kb.HallOfFameField(str(data["hall_field"]))
+    season_name = str(data["hall_season_name"])
+    photo = message.photo[-1]
+    await state.update_data(
+        hall_photo_file_id=photo.file_id,
+        hall_photo_file_unique_id=photo.file_unique_id,
+    )
+    await message.answer_photo(photo.file_id)
+    await message.answer(
+        hall_fmt.photo_confirmation(field=field, season_name=season_name),
+        reply_markup=hall_kb.photo_confirmation_keyboard(season_id=season_id, field=field),
+    )
+
+
+@router.message(HallOfFameStates.collecting_photo)
+async def reject_hall_of_fame_non_photo(message: Message) -> None:
+    await message.answer("Пришли фотографию.")
+
+
+@router.callback_query(hall_kb.HallOfFamePhotoCallback.filter())
+async def select_hall_of_fame_photo_action(
+    callback: CallbackQuery,
+    callback_data: hall_kb.HallOfFamePhotoCallback,
+    state: FSMContext,
+) -> None:
+    if callback_data.action == hall_kb.HallOfFamePhotoAction.CANCEL:
+        await _cancel(callback, state)
+        return
+    if callback_data.action == hall_kb.HallOfFamePhotoAction.BACK:
+        await _show_hall_card_callback(callback, callback_data.season_id, page=0, state=state)
+        return
+    data = await state.get_data()
+    try:
+        entry = await hall_of_fame_management_service.set_photo(
+            callback.from_user.id,
+            callback_data.season_id,
+            role=HallOfFamePhotoRole(callback_data.field.value),
+            telegram_file_id=str(data["hall_photo_file_id"]),
+            telegram_file_unique_id=str(data["hall_photo_file_unique_id"]),
+        )
+    except KeyError:
+        await callback.answer("Пришли фотографию.", show_alert=True)
+        return
+    except AdminAccessDeniedError:
+        await callback.answer(panel_text.INSUFFICIENT_RIGHTS, show_alert=True)
+        return
+    except HallOfFameSeasonNotFoundError:
+        await callback.answer(text.HALL_OF_FAME_SEASON_NOT_FOUND, show_alert=True)
+        return
+    await state.clear()
+    await callback.answer("Фото сохранено.")
+    if callback.message is not None:
+        await _delete_callback_message(callback)
+        await callback.message.answer(
+            hall_fmt.season_card(entry),
+            reply_markup=hall_kb.season_card_keyboard(entry=entry, page=0),
             parse_mode="Markdown",
         )
 

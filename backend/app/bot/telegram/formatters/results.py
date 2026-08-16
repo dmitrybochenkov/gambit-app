@@ -64,11 +64,11 @@ def close_tournament_list(page: object) -> str:
     return "\n".join(lines)
 
 
-def problematic_tournament_list(page: object) -> str:
-    lines = ["🛠 Проблемные турниры", ""]
+def correction_tournament_list(page: object) -> str:
+    lines = ["🛠 Корректировать турниры", ""]
     for readiness in page.items:
         lines.append(tournament_fmt.label(readiness.tournament))
-        lines.append(_readiness_warning(readiness))
+        lines.append("✅ Готов к закрытию" if readiness.is_ready else _readiness_warning(readiness))
         lines.append("")
     if lines[-1] == "":
         lines.pop()
@@ -77,10 +77,10 @@ def problematic_tournament_list(page: object) -> str:
     return "\n".join(lines)
 
 
-def problematic_tournament_card(readiness: object) -> str:
+def correction_tournament_card(readiness: object) -> str:
     return "\n".join(
         [
-            "🛠 Исправление турнира",
+            "🛠 Корректировка турнира",
             "",
             tournament_fmt.label(readiness.tournament),
             "",

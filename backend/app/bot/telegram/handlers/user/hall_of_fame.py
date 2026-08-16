@@ -1,12 +1,8 @@
 from aiogram import F, Router
-from aiogram.types import CallbackQuery, Message
+from aiogram.types import InputMediaPhoto, Message
 
 from app.bot.telegram.formatters.statistics import hall_of_fame as hall_of_fame_fmt
-from app.bot.telegram.handlers.user.shared import (
-    delete_message as _delete_message,
-)
 from app.bot.telegram.keyboards import labels
-from app.bot.telegram.keyboards.user import history as user_history_kb
 from app.bot.telegram.texts.user import hall_of_fame as text
 from app.services.user_statistics_service import (
     HallOfFameNotAllowedError,
@@ -29,13 +25,26 @@ async def show_hall_of_fame(message: Message) -> None:
 
     await message.answer(
         hall_of_fame_fmt.message(seasons),
-        reply_markup=user_history_kb.hall_of_fame_keyboard(),
         parse_mode="Markdown",
     )
+    for season in seasons:
+        await _send_hall_of_fame_season(message, season)
 
 
-@router.callback_query(user_history_kb.HallOfFameCallback.filter())
-async def close_hall_of_fame(callback: CallbackQuery) -> None:
-    await callback.answer(text.HALL_OF_FAME_CLOSED)
-    if callback.message is not None:
-        await _delete_message(callback.message)
+async def _send_hall_of_fame_season(message: Message, season: object) -> None:
+    caption = hall_of_fame_fmt.season_caption(season)
+    photos = [
+        photo for photo in (season.champion_photo_file_id, season.knockout_photo_file_id) if photo
+    ]
+    if not photos:
+        await message.answer(caption, parse_mode="Markdown")
+        return
+    if len(photos) == 1:
+        await message.answer_photo(photos[0], caption=caption, parse_mode="Markdown")
+        return
+    await message.answer_media_group(
+        [
+            InputMediaPhoto(media=photos[0], caption=caption, parse_mode="Markdown"),
+            InputMediaPhoto(media=photos[1]),
+        ]
+    )

@@ -912,7 +912,7 @@ async def test_close_tournament_rejects_future_tournament_without_mutation(
     await engine.dispose()
 
 
-async def test_result_rejects_duplicate_place_for_live_edit(
+async def test_result_reassigns_occupied_place_for_live_edit(
     tmp_path: Path,
 ) -> None:
     engine = create_async_engine(f"sqlite+aiosqlite:///{tmp_path / 'duplicates.db'}")
@@ -971,16 +971,23 @@ async def test_result_rejects_duplicate_place_for_live_edit(
     await service.update_player_result_field(
         100, tournament_id, player_ids[0], ResultField.PLACE, 1
     )
-    with pytest.raises(ResultInvalidPlayerDataError):
-        await service.update_player_result_field(
-            100, tournament_id, player_ids[1], ResultField.PLACE, 1
-        )
+    await service.update_player_result_field(
+        100, tournament_id, player_ids[1], ResultField.PLACE, 1
+    )
 
     results = await service.get_tournament_results(100, tournament_id)
 
     assert [(player.player_id, player.place) for player in results.players] == [
-        (player_ids[0], 1),
-        (player_ids[1], None),
+        (player_ids[0], None),
+        (player_ids[1], 1),
+    ]
+    await service.update_player_result_field(
+        100, tournament_id, player_ids[1], ResultField.PLACE, 1
+    )
+    results = await service.get_tournament_results(100, tournament_id)
+    assert [(player.player_id, player.place) for player in results.players] == [
+        (player_ids[0], None),
+        (player_ids[1], 1),
     ]
 
     try:

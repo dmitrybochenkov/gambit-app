@@ -34,6 +34,26 @@ def search_prompt(field: HallOfFameField) -> str:
     return "Введи имя нокаутера сезона."
 
 
+def photo_prompt(*, field: HallOfFameField, season_name: str) -> str:
+    title = (
+        "📸 Фото победителя сезона"
+        if field == HallOfFameField.CHAMPION
+        else "📸 Фото лучшего нокаутера сезона"
+    )
+    return "\n".join(
+        [
+            title,
+            "",
+            f"Пришли одну фотографию для сезона «{season_name}».",
+        ]
+    )
+
+
+def photo_confirmation(*, field: HallOfFameField, season_name: str) -> str:
+    role = "победителя" if field == HallOfFameField.CHAMPION else "лучшего нокаутера"
+    return f"Использовать это фото {role} для сезона «{season_name}»?"
+
+
 def search_results(candidates: list[object]) -> str:
     if not candidates:
         return "Игроки не найдены."

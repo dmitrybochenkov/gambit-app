@@ -130,6 +130,7 @@ class TournamentRegistrationRepository:
 
     async def list_active_tournament_registration_counts(
         self,
+        from_date: date,
     ) -> list[TournamentRegistrationCountRow]:
         result = await self.session.execute(
             select(
@@ -140,7 +141,10 @@ class TournamentRegistrationRepository:
             )
             .join(TournamentType, TournamentType.id == Tournament.tournament_type_id)
             .join(TournamentRegistration, TournamentRegistration.tournament_id == Tournament.id)
-            .where(Tournament.status == TournamentStatus.ACTIVE)
+            .where(
+                Tournament.status == TournamentStatus.ACTIVE,
+                Tournament.date >= from_date,
+            )
             .group_by(Tournament.id, Tournament.date, TournamentType.name)
             .order_by(Tournament.date, Tournament.id)
         )

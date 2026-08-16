@@ -1,12 +1,14 @@
-from datetime import date
+from datetime import date, datetime
 from pathlib import Path
 from typing import Any
+from zoneinfo import ZoneInfo
 
 import pytest
 from conftest import seed_tournament_types_async, tournament_type_id
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
+from app.common.clock import FixedClock
 from app.db.base import Base
 from app.db.factories import create_user
 from app.db.models import (
@@ -158,6 +160,126 @@ async def test_registrations_overview_counts_only_active_tournament_registration
         assert [
             (item.tournament_type_name, item.registrations_count) for item in overview.tournaments
         ] == [("Баунти турнир", 2)]
+    finally:
+        await engine.dispose()
+
+
+@pytest.mark.asyncio
+async def test_registrations_overview_uses_tournament_day_boundary(
+    tmp_path: Path,
+) -> None:
+    engine = create_async_engine(f"sqlite+aiosqlite:///{tmp_path / 'overview_day.db'}")
+    async with engine.begin() as connection:
+        await connection.run_sync(Base.metadata.create_all)
+
+    session_factory = async_sessionmaker(engine, expire_on_commit=False)
+    try:
+        async with session_factory() as session:
+            config = ScoringConfig()
+            session.add(config)
+            await session.flush()
+            await seed_tournament_types_async(session)
+            season = Season(
+                name="Лето 2026",
+                scoring_config_id=config.id,
+                starts_at=date(2026, 8, 1),
+                ends_at=None,
+            )
+            superadmin = create_user(
+                telegram_id=1,
+                display_name="Superadmin",
+                role=UserRole.SUPERADMIN,
+                status=UserStatus.ACTIVE,
+            )
+            players = [
+                create_user(display_name=f"Player {index}", status=UserStatus.ACTIVE)
+                for index in range(1, 6)
+            ]
+            session.add_all([season, superadmin, *players])
+            await session.flush()
+            past_active = Tournament(
+                season_id=season.id,
+                tournament_type_id=tournament_type_id("classic"),
+                date=date(2026, 8, 18),
+                status=TournamentStatus.ACTIVE,
+            )
+            previous_game_day = Tournament(
+                season_id=season.id,
+                tournament_type_id=tournament_type_id("bounty"),
+                date=date(2026, 8, 19),
+                status=TournamentStatus.ACTIVE,
+            )
+            future_active = Tournament(
+                season_id=season.id,
+                tournament_type_id=tournament_type_id("freezeout"),
+                date=date(2026, 8, 21),
+                status=TournamentStatus.ACTIVE,
+            )
+            closed_future = Tournament(
+                season_id=season.id,
+                tournament_type_id=tournament_type_id("classic"),
+                date=date(2026, 8, 22),
+                status=TournamentStatus.CLOSED,
+                tournament_fund=1000,
+            )
+            session.add_all([past_active, previous_game_day, future_active, closed_future])
+            await session.flush()
+            session.add_all(
+                [
+                    TournamentRegistration(tournament_id=past_active.id, player_id=players[0].id),
+                    TournamentRegistration(
+                        tournament_id=previous_game_day.id,
+                        player_id=players[1].id,
+                    ),
+                    TournamentRegistration(
+                        tournament_id=future_active.id,
+                        player_id=players[2].id,
+                    ),
+                    TournamentRegistration(tournament_id=closed_future.id, player_id=players[3].id),
+                ]
+            )
+            await session.commit()
+
+        before_start = RegistrationReviewService(
+            session_factory,
+            clock=FixedClock(datetime(2026, 8, 20, 10, 59, tzinfo=ZoneInfo("Europe/Moscow"))),
+            tournament_day_start_hour=11,
+        )
+        at_start = RegistrationReviewService(
+            session_factory,
+            clock=FixedClock(datetime(2026, 8, 20, 11, 0, tzinfo=ZoneInfo("Europe/Moscow"))),
+            tournament_day_start_hour=11,
+        )
+        after_all = RegistrationReviewService(
+            session_factory,
+            clock=FixedClock(datetime(2026, 8, 23, 11, 0, tzinfo=ZoneInfo("Europe/Moscow"))),
+            tournament_day_start_hour=11,
+        )
+
+        before_overview = await before_start.get_registrations_overview_for_superadmin(1)
+        at_start_overview = await at_start.get_registrations_overview_for_superadmin(1)
+        empty_overview = await after_all.get_registrations_overview_for_superadmin(1)
+
+        assert [
+            (item.date, item.tournament_type_name, item.registrations_count)
+            for item in before_overview.tournaments
+        ] == [
+            (date(2026, 8, 19), "Баунти турнир", 1),
+            (date(2026, 8, 21), "Фризаут", 1),
+        ]
+        assert before_overview.active_tournament_registration_count == 2
+        assert before_overview.has_tournament_registrations is True
+
+        assert [
+            (item.date, item.tournament_type_name, item.registrations_count)
+            for item in at_start_overview.tournaments
+        ] == [(date(2026, 8, 21), "Фризаут", 1)]
+        assert at_start_overview.active_tournament_registration_count == 1
+        assert at_start_overview.has_tournament_registrations is True
+
+        assert empty_overview.tournaments == []
+        assert empty_overview.active_tournament_registration_count == 0
+        assert empty_overview.has_tournament_registrations is False
     finally:
         await engine.dispose()
 

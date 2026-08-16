@@ -134,6 +134,8 @@ class UserStatisticsService:
                     champion_display_name=row.champion_display_name,
                     knockout_leader_player_id=row.knockout_leader_player_id,
                     knockout_leader_display_name=row.knockout_leader_display_name,
+                    champion_photo_file_id=row.champion_photo_file_id,
+                    knockout_photo_file_id=row.knockout_photo_file_id,
                 )
                 for row in rows
             ]

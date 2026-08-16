@@ -6,21 +6,18 @@ def message(seasons: list) -> str:
     lines = [
         "🏆 Зал славы",
         "",
+        "💍 — победитель сезона",
+        "💥 — лучший нокаутер сезона",
     ]
     if not seasons:
-        lines.append(hall_texts.HALL_OF_FAME_EMPTY)
-        return "\n".join(lines)
+        lines.extend(["", hall_texts.HALL_OF_FAME_EMPTY])
+    return "\n".join(lines)
 
-    lines.extend(
-        [
-            "💍 — победитель сезона",
-            "💥 — лучший нокаутер сезона",
-        ]
-    )
-    for season in seasons:
-        lines.extend(["", fmt_common.markdown_escape(season.season_name)])
-        lines.extend(_optional_line("💍", season.champion_display_name))
-        lines.extend(_optional_line("💥", season.knockout_leader_display_name))
+
+def season_caption(season: object) -> str:
+    lines = [fmt_common.markdown_escape(season.season_name), ""]
+    lines.extend(_optional_line("💍", season.champion_display_name))
+    lines.extend(_optional_line("💥", season.knockout_leader_display_name))
     return "\n".join(lines)
 
 

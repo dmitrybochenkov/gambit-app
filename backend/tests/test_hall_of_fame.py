@@ -12,7 +12,10 @@ from app.db.base import Base
 from app.db.models import ScoringConfig, Season, SeasonHallOfFame
 from app.db.models.enums import UserRole, UserStatus
 from app.services.access_policy import AdminAccessDeniedError
-from app.services.hall_of_fame_management_service import HallOfFameManagementService
+from app.services.hall_of_fame_management_service import (
+    HallOfFameManagementService,
+    HallOfFamePhotoRole,
+)
 from app.services.user_statistics_service import UserStatisticsService
 
 
@@ -103,17 +106,11 @@ async def test_hall_of_fame_uses_manual_entries_from_completed_seasons(
         assert seasons[1].knockout_leader_display_name == "Петр"
         assert "Открытый сезон" not in hall_fmt.message(seasons)
         assert "Будущий финал" not in hall_fmt.message(seasons)
-        assert (
-            hall_fmt.message(seasons) == "🏆 Зал славы\n\n"
-            "💍 — победитель сезона\n"
-            "💥 — лучший нокаутер сезона\n\n"
-            "Сезон 2026\n"
-            "💍 Петр\n"
-            "\n"
-            "Сезон 2025\n"
-            "💍 Иван\n"
-            "💥 Петр"
+        assert hall_fmt.message(seasons) == (
+            "🏆 Зал славы\n\n💍 — победитель сезона\n💥 — лучший нокаутер сезона"
         )
+        assert hall_fmt.season_caption(seasons[0]) == "Сезон 2026\n\n💍 Петр"
+        assert hall_fmt.season_caption(seasons[1]) == "Сезон 2025\n\n💍 Иван\n💥 Петр"
     finally:
         await engine.dispose()
 
@@ -151,7 +148,12 @@ async def test_hall_of_fame_ignores_mathematical_winners_without_manual_entry(
 
 
 def test_hall_of_fame_empty_state() -> None:
-    assert hall_fmt.message([]) == ("🏆 Зал славы\n\nПока нет заполненных сезонов в Зале славы.")
+    assert hall_fmt.message([]) == (
+        "🏆 Зал славы\n\n"
+        "💍 — победитель сезона\n"
+        "💥 — лучший нокаутер сезона\n\n"
+        "Пока нет заполненных сезонов в Зале славы."
+    )
 
 
 async def test_hall_of_fame_management_upserts_and_overwrites(
@@ -232,9 +234,41 @@ async def test_hall_of_fame_management_upserts_and_overwrites(
         assert entry.knockout_leader is not None
         assert entry.champion.id == entry.knockout_leader.id == replacement_id
 
+        entry = await service.set_photo(
+            100,
+            completed_id,
+            role=HallOfFamePhotoRole.CHAMPION,
+            telegram_file_id="champion-file-1",
+            telegram_file_unique_id="champion-unique-1",
+        )
+        assert entry.champion_photo_file_id == "champion-file-1"
+        assert entry.champion_photo_file_unique_id == "champion-unique-1"
+        entry = await service.set_photo(
+            100,
+            completed_id,
+            role=HallOfFamePhotoRole.CHAMPION,
+            telegram_file_id="champion-file-2",
+            telegram_file_unique_id="champion-unique-2",
+        )
+        assert entry.champion_photo_file_id == "champion-file-2"
+        assert entry.champion_photo_file_unique_id == "champion-unique-2"
+        entry = await service.set_photo(
+            100,
+            completed_id,
+            role=HallOfFamePhotoRole.KNOCKOUT,
+            telegram_file_id="knockout-file",
+            telegram_file_unique_id="knockout-unique",
+        )
+        assert entry.knockout_photo_file_id == "knockout-file"
+        assert entry.knockout_photo_file_unique_id == "knockout-unique"
+
         async with session_factory() as session:
             stored = await session.get(SeasonHallOfFame, 1)
             assert stored is not None
             assert stored.updated_by_user_id == superadmin_id
+            assert stored.champion_photo_file_id == "champion-file-2"
+            assert stored.champion_photo_file_unique_id == "champion-unique-2"
+            assert stored.knockout_photo_file_id == "knockout-file"
+            assert stored.knockout_photo_file_unique_id == "knockout-unique"
     finally:
         await engine.dispose()

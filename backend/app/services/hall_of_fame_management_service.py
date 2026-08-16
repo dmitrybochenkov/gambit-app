@@ -1,3 +1,5 @@
+from enum import StrEnum
+
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from app.common.clock import Clock, club_clock
@@ -18,6 +20,11 @@ from app.services.user_common import UserNotFoundError, required_user_view
 
 class HallOfFameSeasonNotFoundError(ValueError):
     pass
+
+
+class HallOfFamePhotoRole(StrEnum):
+    CHAMPION = "champion"
+    KNOCKOUT = "knockout"
 
 
 class HallOfFameManagementService:
@@ -133,6 +140,35 @@ class HallOfFameManagementService:
             await session.commit()
             return await self._entry_view(session, season)
 
+    async def set_photo(
+        self,
+        superadmin_telegram_id: int,
+        season_id: int,
+        *,
+        role: HallOfFamePhotoRole,
+        telegram_file_id: str,
+        telegram_file_unique_id: str,
+    ) -> HallOfFameEntryView:
+        async with self.session_factory() as session:
+            actor = await access_policy.require_superadmin(session, superadmin_telegram_id)
+            season = await self._require_completed_season(session, season_id)
+            entry = await HallOfFameRepository(session).get_by_season_id(season.id)
+            if entry is None:
+                raise HallOfFameSeasonNotFoundError
+            if role == HallOfFamePhotoRole.CHAMPION:
+                if entry.champion_player_id is None:
+                    raise HallOfFameSeasonNotFoundError
+                entry.champion_photo_file_id = telegram_file_id
+                entry.champion_photo_file_unique_id = telegram_file_unique_id
+            else:
+                if entry.knockout_player_id is None:
+                    raise HallOfFameSeasonNotFoundError
+                entry.knockout_photo_file_id = telegram_file_id
+                entry.knockout_photo_file_unique_id = telegram_file_unique_id
+            entry.updated_by_user_id = actor.id
+            await session.commit()
+            return await self._entry_view(session, season)
+
     async def _require_completed_season(
         self,
         session: AsyncSession,
@@ -173,6 +209,14 @@ class HallOfFameManagementService:
             champion=required_user_view(champion) if champion is not None else None,
             knockout_leader=(
                 required_user_view(knockout_leader) if knockout_leader is not None else None
+            ),
+            champion_photo_file_id=entry.champion_photo_file_id if entry is not None else None,
+            champion_photo_file_unique_id=(
+                entry.champion_photo_file_unique_id if entry is not None else None
+            ),
+            knockout_photo_file_id=entry.knockout_photo_file_id if entry is not None else None,
+            knockout_photo_file_unique_id=(
+                entry.knockout_photo_file_unique_id if entry is not None else None
             ),
         )
 

@@ -19,6 +19,7 @@ class UserRenameStates(StatesGroup):
 
 class HallOfFameStates(StatesGroup):
     entering_player_name = State()
+    collecting_photo = State()
 
 
 class CalendarSeasonCreationStates(StatesGroup):

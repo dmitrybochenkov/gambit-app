@@ -65,10 +65,6 @@ class HistoryNavigationCallback(CallbackData, prefix="hist_nav"):
     page: int = 0
 
 
-class HallOfFameCallback(CallbackData, prefix="hof"):
-    action: str = "close"
-
-
 def history_years_keyboard(page: Page[HistoryYearView]) -> InlineKeyboardMarkup:
     builder = InlineKeyboardBuilder()
     for item in page.items:
@@ -220,12 +216,6 @@ def history_result_keyboard(
         callback_data=HistoryNavigationCallback(action=HistoryNavAction.CANCEL),
     )
     builder.adjust(_navigation_width(page), 1, 1)
-    return builder.as_markup()
-
-
-def hall_of_fame_keyboard() -> InlineKeyboardMarkup:
-    builder = InlineKeyboardBuilder()
-    builder.button(text="❌ Закрыть", callback_data=HallOfFameCallback())
     return builder.as_markup()
 
 

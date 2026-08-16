@@ -82,16 +82,6 @@ async def show_close_tournament_flow(message: Message, state: FSMContext) -> Non
             reply_markup=superadmin_panel_kb.superadmin_panel_keyboard(),
         )
         return
-    if len(ready) == 1 and not problematic:
-        await _send_close_tournament_card(
-            message=message,
-            state=state,
-            superadmin_telegram_id=message.from_user.id,
-            tournament_id=ready[0].tournament.id,
-            page=0,
-        )
-        return
-
     page = pagination_service.paginate(
         tournaments,
         page=0,
@@ -101,7 +91,7 @@ async def show_close_tournament_flow(message: Message, state: FSMContext) -> Non
         result_fmt.close_tournament_list(page),
         reply_markup=superadmin_tournament_close_kb.admin_close_tournament_list_keyboard(
             page,
-            has_problematic=bool(problematic),
+            has_correction_targets=bool(tournaments),
         ),
     )
 
@@ -128,7 +118,6 @@ async def select_close_tournament_action(
             tournaments = await result_service.list_unclosed_tournaments_for_superadmin(
                 callback.from_user.id
             )
-            problematic = [item for item in tournaments if not item.is_ready]
             page = pagination_service.paginate(
                 tournaments,
                 page=callback_data.page,
@@ -141,20 +130,20 @@ async def select_close_tournament_action(
                     text=result_fmt.close_tournament_list(page),
                     reply_markup=superadmin_tournament_close_kb.admin_close_tournament_list_keyboard(
                         page,
-                        has_problematic=bool(problematic),
+                        has_correction_targets=bool(tournaments),
                     ),
                 )
             return
 
         if (
             callback_data.action
-            == superadmin_tournament_close_kb.AdminCloseTournamentAction.PROBLEMATIC_LIST
+            == superadmin_tournament_close_kb.AdminCloseTournamentAction.CORRECTION_LIST
         ):
             tournaments = await result_service.list_unclosed_tournaments_for_superadmin(
                 callback.from_user.id
             )
             page = pagination_service.paginate(
-                [item for item in tournaments if not item.is_ready],
+                tournaments,
                 page=0,
                 page_size=admin_results_kb.ADMIN_RESULT_PAGE_SIZE,
             )
@@ -162,8 +151,8 @@ async def select_close_tournament_action(
             if callback.message is not None:
                 await edit_message_if_changed(
                     callback.message,
-                    text=result_fmt.problematic_tournament_list(page),
-                    reply_markup=superadmin_tournament_close_kb.admin_problematic_tournament_list_keyboard(
+                    text=result_fmt.correction_tournament_list(page),
+                    reply_markup=superadmin_tournament_close_kb.admin_correction_tournament_list_keyboard(
                         page
                     ),
                 )
@@ -789,8 +778,8 @@ async def _edit_repair_tournament_card(
     )
     await edit_message_if_changed(
         callback.message,
-        text=result_fmt.problematic_tournament_card(readiness),
-        reply_markup=superadmin_tournament_close_kb.admin_problematic_tournament_card_keyboard(
+        text=result_fmt.correction_tournament_card(readiness),
+        reply_markup=superadmin_tournament_close_kb.admin_correction_tournament_card_keyboard(
             readiness
         ),
     )

@@ -20,6 +20,10 @@ class HallOfFameEntryView:
     ends_at: date
     champion: UserView | None
     knockout_leader: UserView | None
+    champion_photo_file_id: str | None = None
+    champion_photo_file_unique_id: str | None = None
+    knockout_photo_file_id: str | None = None
+    knockout_photo_file_unique_id: str | None = None
 
 
 @dataclass(frozen=True)

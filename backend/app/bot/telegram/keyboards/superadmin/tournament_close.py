@@ -13,7 +13,7 @@ from app.services.pagination import Page
 class AdminCloseTournamentAction(StrEnum):
     OPEN = "open"
     PAGE = "page"
-    PROBLEMATIC_LIST = "problematic"
+    CORRECTION_LIST = "correction"
     VIEW_PHOTOS = "view_photos"
     CONFIRM = "confirm"
     CHANGE_FUND = "change_fund"
@@ -54,7 +54,7 @@ class AdminTournamentRepairCallback(CallbackData, prefix="repair_tour"):
 def admin_close_tournament_list_keyboard(
     page: Page[object],
     *,
-    has_problematic: bool = False,
+    has_correction_targets: bool = False,
 ) -> InlineKeyboardMarkup:
     builder = InlineKeyboardBuilder()
     for readiness in page.items:
@@ -70,11 +70,11 @@ def admin_close_tournament_list_keyboard(
                 tournament_id=tournament.id,
             ),
         )
-    if has_problematic:
+    if has_correction_targets:
         builder.button(
-            text="🛠 Проблемные турниры",
+            text="🛠 Корректировать турниры",
             callback_data=AdminCloseTournamentCallback(
-                action=AdminCloseTournamentAction.PROBLEMATIC_LIST,
+                action=AdminCloseTournamentAction.CORRECTION_LIST,
                 page=0,
             ),
         )
@@ -113,18 +113,19 @@ def admin_close_tournament_list_keyboard(
         ),
     )
     item_rows = [1] * len([item for item in page.items if item.is_ready])
-    if has_problematic:
+    if has_correction_targets:
         item_rows.append(1)
     _adjust_paged_keyboard(builder, page, item_rows=item_rows)
     return builder.as_markup()
 
 
-def admin_problematic_tournament_list_keyboard(page: Page[object]) -> InlineKeyboardMarkup:
+def admin_correction_tournament_list_keyboard(page: Page[object]) -> InlineKeyboardMarkup:
     builder = InlineKeyboardBuilder()
     for readiness in page.items:
         tournament: TournamentView = readiness.tournament
         builder.button(
-            text=f"🛠 {tournament.date.day:02d}.{tournament.date.month:02d} — "
+            text=f"{'✅' if readiness.is_ready else '⚠️'} "
+            f"{tournament.date.day:02d}.{tournament.date.month:02d} — "
             f"{tournament.tournament_type_name or 'Неопределённый турнир'}",
             callback_data=AdminTournamentRepairCallback(
                 action=AdminTournamentRepairAction.OPEN,
@@ -142,7 +143,7 @@ def admin_problematic_tournament_list_keyboard(page: Page[object]) -> InlineKeyb
     return builder.as_markup()
 
 
-def admin_problematic_tournament_card_keyboard(readiness: object) -> InlineKeyboardMarkup:
+def admin_correction_tournament_card_keyboard(readiness: object) -> InlineKeyboardMarkup:
     tournament: TournamentView = readiness.tournament
     builder = InlineKeyboardBuilder()
     builder.button(

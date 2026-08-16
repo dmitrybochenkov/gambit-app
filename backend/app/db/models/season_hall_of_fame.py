@@ -31,6 +31,10 @@ class SeasonHallOfFame(TimestampMixin, Base):
         nullable=True,
         index=True,
     )
+    champion_photo_file_id: Mapped[str | None] = mapped_column(nullable=True)
+    champion_photo_file_unique_id: Mapped[str | None] = mapped_column(nullable=True)
+    knockout_photo_file_id: Mapped[str | None] = mapped_column(nullable=True)
+    knockout_photo_file_unique_id: Mapped[str | None] = mapped_column(nullable=True)
     updated_by_user_id: Mapped[int] = mapped_column(
         ForeignKey("users.id", ondelete="RESTRICT"),
         nullable=False,

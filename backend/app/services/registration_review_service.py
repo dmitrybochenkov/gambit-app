@@ -2,6 +2,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from app.common.clock import Clock, club_clock
+from app.config import settings
 from app.db.factories import create_user
 from app.db.models import RegistrationRequest, User
 from app.db.models.enums import RegistrationRequestStatus, RegistrationRequestType, UserStatus
@@ -9,6 +10,7 @@ from app.db.repositories.registration_request_repository import RegistrationRequ
 from app.db.repositories.tournament_registration_repository import TournamentRegistrationRepository
 from app.db.repositories.user_repository import UserRepository
 from app.db.session import SessionFactory
+from app.domain.tournament_day import resolve_tournament_day
 from app.services.access_policy import access_policy
 from app.services.dto.registrations import (
     RegistrationCandidateView,
@@ -35,9 +37,11 @@ class RegistrationReviewService:
         self,
         session_factory: async_sessionmaker[AsyncSession],
         clock: Clock = club_clock,
+        tournament_day_start_hour: int = settings.tournament_day_start_hour,
     ) -> None:
         self.session_factory = session_factory
         self.clock = clock
+        self.tournament_day_start_hour = tournament_day_start_hour
 
     async def get_registration_notification(
         self,
@@ -109,8 +113,11 @@ class RegistrationReviewService:
             await access_policy.require_superadmin(session, superadmin_telegram_id)
             request_repository = RegistrationRequestRepository(session)
             tournament_registrations = TournamentRegistrationRepository(session)
-            tournaments = (
-                await tournament_registrations.list_active_tournament_registration_counts()
+            tournaments = await tournament_registrations.list_active_tournament_registration_counts(
+                from_date=resolve_tournament_day(
+                    self.clock,
+                    self.tournament_day_start_hour,
+                ),
             )
             return RegistrationsOverviewView(
                 pending_user_registration_count=await request_repository.count_pending(),

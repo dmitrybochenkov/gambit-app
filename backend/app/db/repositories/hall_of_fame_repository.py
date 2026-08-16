@@ -17,6 +17,8 @@ class HallOfFameSeasonRow:
     champion_display_name: str | None
     knockout_leader_player_id: int | None
     knockout_leader_display_name: str | None
+    champion_photo_file_id: str | None
+    knockout_photo_file_id: str | None
 
 
 @dataclass(frozen=True)
@@ -66,6 +68,8 @@ class HallOfFameRepository:
                 champion.display_name.label("champion_display_name"),
                 SeasonHallOfFame.knockout_player_id.label("knockout_leader_player_id"),
                 knockout.display_name.label("knockout_leader_display_name"),
+                SeasonHallOfFame.champion_photo_file_id,
+                SeasonHallOfFame.knockout_photo_file_id,
             )
             .join(SeasonHallOfFame, SeasonHallOfFame.season_id == Season.id)
             .outerjoin(champion, champion.id == SeasonHallOfFame.champion_player_id)
@@ -82,6 +86,8 @@ class HallOfFameRepository:
                 champion_display_name=row.champion_display_name,
                 knockout_leader_player_id=row.knockout_leader_player_id,
                 knockout_leader_display_name=row.knockout_leader_display_name,
+                champion_photo_file_id=row.champion_photo_file_id,
+                knockout_photo_file_id=row.knockout_photo_file_id,
             )
             for row in result
         ]

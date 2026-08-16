@@ -198,8 +198,8 @@ class ResultService:
                     value,
                     exclude_result_id=result.id,
                 )
-                if occupied:
-                    raise ResultInvalidPlayerDataError
+                for occupied_result in occupied:
+                    occupied_result.place = None
                 result.place = value
             elif field == ResultField.KNOCKOUTS:
                 result.knockouts_count = value
