@@ -24,6 +24,7 @@ class HistoricalTournamentRow:
     id: int
     date: date
     tournament_name: str
+    tournament_short_name: str
     tournament_type_code: str
     has_knockouts: bool
 
@@ -302,6 +303,7 @@ class TournamentRepository:
                 Tournament.id,
                 Tournament.date,
                 TournamentType.name.label("tournament_name"),
+                TournamentType.short_name.label("tournament_short_name"),
                 TournamentType.code.label("tournament_type_code"),
                 tournament_knockouts.label("tournament_knockouts"),
             )
@@ -312,7 +314,13 @@ class TournamentRepository:
                 func.strftime("%Y", Tournament.date) == str(year),
                 func.strftime("%m", Tournament.date) == f"{month:02d}",
             )
-            .group_by(Tournament.id, Tournament.date, TournamentType.name, TournamentType.code)
+            .group_by(
+                Tournament.id,
+                Tournament.date,
+                TournamentType.name,
+                TournamentType.short_name,
+                TournamentType.code,
+            )
             .order_by(Tournament.date, Tournament.id)
         )
         return [
@@ -320,6 +328,7 @@ class TournamentRepository:
                 id=row.id,
                 date=row.date,
                 tournament_name=row.tournament_name,
+                tournament_short_name=row.tournament_short_name,
                 tournament_type_code=row.tournament_type_code,
                 has_knockouts=int(row.tournament_knockouts) > 0,
             )

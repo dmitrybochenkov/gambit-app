@@ -64,8 +64,10 @@ def create_database(path: Path) -> None:
               (1, 'Сезон 1', 1, '2025-10-16', '2026-01-25'),
               (2, 'Сезон 2', 1, '2026-01-27', '2026-05-31'),
               (3, 'Лето 2026', 1, '2026-06-01', NULL);
-            INSERT INTO tournament_types (id, code, name, status, created_at, updated_at)
-            VALUES (7, 'legacy_unknown', 'Неопределенный турнир', 'active',
+            INSERT INTO tournament_types (
+                id, code, name, short_name, status, created_at, updated_at
+            )
+            VALUES (7, 'legacy_unknown', 'Неопределенный турнир', 'Турнир', 'active',
                     CURRENT_TIMESTAMP, CURRENT_TIMESTAMP);
             """
         )
@@ -585,8 +587,11 @@ def test_existing_tournament_conflict_blocks_import(tmp_path: Path) -> None:
     try:
         connection.execute(
             """
-            INSERT INTO tournament_types (id, code, name, status, created_at, updated_at)
-            VALUES (8, 'classic', 'Классика', 'active', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+            INSERT INTO tournament_types (
+                id, code, name, short_name, status, created_at, updated_at
+            )
+            VALUES (8, 'classic', 'Классика', 'Classic', 'active',
+                    CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
             """
         )
         connection.execute(

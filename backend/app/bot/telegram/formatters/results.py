@@ -190,8 +190,9 @@ def player_detail(
     player: object,
 ) -> str:
     lines = [
-        "Результат игрока",
-        player.display_name,
+        f"Игрок: {player.display_name}",
+        "",
+        f"Место: {_place_label(player.place) if player.place is not None else '—'}",
     ]
     if results.knockout_mode in {"small", "small_big"}:
         label = "🥊"
@@ -200,8 +201,6 @@ def player_detail(
         lines.append(f"👑🥊: {player.big_knockouts_count}")
     if results.supports_bonus_points:
         lines.append(f"{results.bonus_points_label}: {player.bonus_points}")
-    if player.place is not None:
-        lines.append(f"Место: {_place_label(player.place)}")
     return "\n".join(lines)
 
 

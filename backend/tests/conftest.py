@@ -28,6 +28,15 @@ TOURNAMENT_TYPE_NAMES = {
     "mystery_bounty": "Mystery Bounty",
     "boss_bounty": "Boss Bounty",
 }
+
+TOURNAMENT_TYPE_SHORT_NAMES = {
+    "bounty": "Bounty",
+    "classic": "Classic",
+    "freezeout": "Freezeout",
+    "double_double": "Double",
+    "mystery_bounty": "Mystery",
+    "boss_bounty": "Boss",
+}
 STANDARD_REBUYS = [
     (1, 600, 30_000),
     (2, 800, 50_000),
@@ -68,6 +77,7 @@ def build_tournament_types() -> list[TournamentType]:
             id=tournament_type_id(code),
             code=code,
             name=name,
+            short_name=TOURNAMENT_TYPE_SHORT_NAMES[code],
             status=TournamentTypeStatus.ACTIVE,
         )
         for code, name in TOURNAMENT_TYPE_NAMES.items()

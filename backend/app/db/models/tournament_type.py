@@ -27,6 +27,7 @@ class TournamentType(TimestampMixin, Base):
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     code: Mapped[str] = mapped_column(String(50), unique=True, nullable=False)
     name: Mapped[str] = mapped_column(String(100), nullable=False)
+    short_name: Mapped[str] = mapped_column(String(32), nullable=False)
     description: Mapped[str | None] = mapped_column(Text, nullable=True)
     status: Mapped[TournamentTypeStatus] = mapped_column(
         database_enum(TournamentTypeStatus, "tournament_type_status"),

@@ -36,7 +36,6 @@ from app.bot.telegram.texts.admin import results as result_text
 from app.services.access_policy import AdminAccessDeniedError
 from app.services.pagination import pagination_service
 from app.services.result_service import (
-    ResultField,
     ResultInvalidPlayerDataError,
     ResultService,
     ResultTodayTournamentInvariantViolationError,
@@ -242,43 +241,16 @@ async def select_result_player(
     await _clear_result_state_preserving_return_context(state)
     await callback.answer()
     if callback.message is not None:
-        editable_fields = ResultService.editable_result_fields(results)
-        if editable_fields == [ResultField.PLACE]:
-            await edit_message_if_changed(
-                callback.message,
-                text=result_fmt.field_prompt(
-                    player,
-                    result_field_name(admin_results_kb.AdminResultField.PLACE, results),
-                ),
-                reply_markup=admin_results_kb.admin_result_value_keyboard(
-                    tournament_id=callback_data.tournament_id,
-                    page=callback_data.page,
-                    player_id=callback_data.player_id,
-                    field=admin_results_kb.AdminResultField.PLACE,
-                    occupied_places=ResultService.occupied_result_places(results),
-                    current_place=player.place,
-                ),
-            )
-        else:
-            await _delete_callback_message(callback)
-            await callback.message.answer(
-                result_fmt.player_detail(results, player),
-                reply_markup=admin_results_kb.admin_result_player_fields_keyboard(
-                    results,
-                    player,
-                    callback_data.page,
-                    back_callback=admin_results_kb.AdminResultPlayerCallback(
-                        action=admin_results_kb.AdminResultPlayerAction.PAGE,
-                        tournament_id=callback_data.tournament_id,
-                        page=callback_data.page,
-                        player_id=0,
-                    ),
-                    cancel_callback=await _result_cancel_callback(
-                        callback_data.tournament_id,
-                        state,
-                    ),
-                ),
-            )
+        await _delete_callback_message(callback)
+        await callback.message.answer(
+            result_fmt.player_detail(results, player),
+            reply_markup=await _admin_result_player_fields_keyboard(
+                results,
+                player,
+                callback_data.page,
+                state,
+            ),
+        )
 
 
 @router.callback_query(admin_results_kb.AdminResultFieldCallback.filter())
@@ -365,16 +337,15 @@ async def select_result_value(
             await _clear_result_state_preserving_return_context(state)
             await callback.answer(result_text.ADMIN_RESULTS_SAVED)
             if callback.message is not None:
-                page = pagination_service.paginate(
-                    results.players,
-                    page=callback_data.page,
-                    page_size=admin_results_kb.ADMIN_RESULT_PAGE_SIZE,
-                )
                 await edit_message_if_changed(
                     callback.message,
-                    text=result_fmt.players_table(results, page),
-                    reply_markup=await _admin_result_players_keyboard(results, page, state),
-                    parse_mode=RESULT_SUMMARY_PARSE_MODE,
+                    text=result_fmt.player_detail(results, player),
+                    reply_markup=await _admin_result_player_fields_keyboard(
+                        results,
+                        player,
+                        callback_data.page,
+                        state,
+                    ),
                 )
             return
 
@@ -391,39 +362,16 @@ async def select_result_value(
             await _clear_result_state_preserving_return_context(state)
             await callback.answer()
             if callback.message is not None:
-                editable_fields = ResultService.editable_result_fields(results)
-                if editable_fields == [ResultField.PLACE]:
-                    page = pagination_service.paginate(
-                        results.players,
-                        page=callback_data.page,
-                        page_size=admin_results_kb.ADMIN_RESULT_PAGE_SIZE,
-                    )
-                    await edit_message_if_changed(
-                        callback.message,
-                        text=result_fmt.players_table(results, page),
-                        reply_markup=await _admin_result_players_keyboard(results, page, state),
-                        parse_mode=RESULT_SUMMARY_PARSE_MODE,
-                    )
-                else:
-                    await edit_message_if_changed(
-                        callback.message,
-                        text=result_fmt.player_detail(results, player),
-                        reply_markup=admin_results_kb.admin_result_player_fields_keyboard(
-                            results,
-                            player,
-                            callback_data.page,
-                            back_callback=admin_results_kb.AdminResultPlayerCallback(
-                                action=admin_results_kb.AdminResultPlayerAction.PAGE,
-                                tournament_id=callback_data.tournament_id,
-                                page=callback_data.page,
-                                player_id=0,
-                            ),
-                            cancel_callback=await _result_cancel_callback(
-                                callback_data.tournament_id,
-                                state,
-                            ),
-                        ),
-                    )
+                await edit_message_if_changed(
+                    callback.message,
+                    text=result_fmt.player_detail(results, player),
+                    reply_markup=await _admin_result_player_fields_keyboard(
+                        results,
+                        player,
+                        callback_data.page,
+                        state,
+                    ),
+                )
             return
 
         if not ResultService.result_field_is_allowed(
@@ -708,6 +656,26 @@ async def _admin_result_players_keyboard(
     )
 
 
+async def _admin_result_player_fields_keyboard(
+    results: object,
+    player: object,
+    page: int,
+    state: FSMContext,
+) -> object:
+    return admin_results_kb.admin_result_player_fields_keyboard(
+        results,
+        player,
+        page,
+        back_callback=admin_results_kb.AdminResultPlayerCallback(
+            action=admin_results_kb.AdminResultPlayerAction.PAGE,
+            tournament_id=results.tournament.id,
+            page=page,
+            player_id=0,
+        ),
+        cancel_callback=await _result_cancel_callback(results.tournament.id, state),
+    )
+
+
 async def _superadmin_repair_tournament_id(state: FSMContext) -> int | None:
     if not hasattr(state, "get_data"):
         return None
@@ -845,12 +813,7 @@ async def enter_result_manual_value(message: Message, state: FSMContext) -> None
         await state.clear()
         await message.answer(result_text.PLAYER_NOT_FOUND)
         return
-    page = pagination_service.paginate(
-        results.players,
-        page=page_number,
-        page_size=admin_results_kb.ADMIN_RESULT_PAGE_SIZE,
-    )
-    reply_markup = await _admin_result_players_keyboard(results, page, state)
+    reply_markup = await _admin_result_player_fields_keyboard(results, player, page_number, state)
     await _clear_result_state_preserving_return_context(state)
     await _delete_message_by_id(
         message,
@@ -858,7 +821,6 @@ async def enter_result_manual_value(message: Message, state: FSMContext) -> None
     )
     await message.answer(result_text.ADMIN_RESULTS_SAVED)
     await message.answer(
-        result_fmt.players_table(results, page),
+        result_fmt.player_detail(results, player),
         reply_markup=reply_markup,
-        parse_mode=RESULT_SUMMARY_PARSE_MODE,
     )

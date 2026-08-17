@@ -1394,15 +1394,21 @@ async def test_place_only_result_player_opens_place_keyboard(
 
     state.clear.assert_awaited_once()
     callback.answer.assert_awaited_once()
-    message.delete.assert_not_awaited()
-    message.answer.assert_not_awaited()
-    message.edit_text.assert_awaited_once()
-    assert message.edit_text.await_args.args[0] == "Илларионов Александр\n\nВыбери место:"
+    message.delete.assert_awaited_once()
+    message.edit_text.assert_not_awaited()
+    message.answer.assert_awaited_once()
+    assert message.answer.await_args.args[0] == "\n".join(
+        [
+            "Игрок: Илларионов Александр",
+            "",
+            "Место: —",
+        ]
+    )
     assert [
         button.text
-        for row in message.edit_text.await_args.kwargs["reply_markup"].inline_keyboard
+        for row in message.answer.await_args.kwargs["reply_markup"].inline_keyboard
         for button in row
-    ] == ["1", "✔️ 2", "3", "4", "5", "⬅️ Назад", "❌ Отмена"]
+    ] == ["🏁 Место", "⬅️ Назад", "❌ Отмена"]
 
 
 def admin_player(
@@ -2271,9 +2277,10 @@ async def test_admin_result_dispatcher_flow_reassigns_occupied_place(
         assert "Четверг, 9 июля — Классика" in sent_texts[0]
         assert "Выбери турнир для внесения " + "результатов" not in sent_texts[0]
         assert "В " + "работе" not in sent_texts[0]
-        assert any("Игроки турнира" in text for text in edited_texts)
-        assert any("Игрок Результатов\n\nВыбери место:" in text for text in edited_texts)
-        assert any("1      Игрок Результатов" in text for text in edited_texts)
+        all_rendered_texts = [*sent_texts, *edited_texts]
+        assert any("Игроки турнира" in text for text in all_rendered_texts)
+        assert any("Игрок: Игрок Результатов\n\nМесто: —" in text for text in all_rendered_texts)
+        assert any("Игрок: Игрок Результатов\n\nМесто: 1" in text for text in all_rendered_texts)
         async with session_factory() as session:
             reassigned = (
                 await session.execute(

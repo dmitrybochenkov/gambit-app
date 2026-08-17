@@ -3,7 +3,12 @@ from decimal import Decimal
 from pathlib import Path
 
 import pytest
-from conftest import build_player, seed_tournament_types_async, tournament_type_id
+from conftest import (
+    TOURNAMENT_TYPE_SHORT_NAMES,
+    build_player,
+    seed_tournament_types_async,
+    tournament_type_id,
+)
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
 from app.bot.telegram.formatters.statistics import history as history_fmt
@@ -154,7 +159,7 @@ async def test_history_lists_only_periods_and_tournaments_with_results(
             (7, "Июль"),
             (8, "Август"),
         ]
-        assert [(item.date.day, item.display_name) for item in tournaments] == [(17, "Классика")]
+        assert [(item.date.day, item.display_name) for item in tournaments] == [(17, "Classic")]
     finally:
         await engine.dispose()
 
@@ -358,8 +363,18 @@ async def test_history_chronological_order_and_legacy_display_names(tmp_path: Pa
         config = ScoringConfig()
         session.add(config)
         await session.flush()
-        legacy_type = TournamentType(id=100, code="legacy_unknown", name="Неопределенный турнир")
-        classic_type = TournamentType(id=101, code="classic", name="Классика")
+        legacy_type = TournamentType(
+            id=100,
+            code="legacy_unknown",
+            name="Неопределенный турнир",
+            short_name="Турнир",
+        )
+        classic_type = TournamentType(
+            id=101,
+            code="classic",
+            name="Классика",
+            short_name="Classic",
+        )
         season = Season(
             name="История",
             scoring_config_id=config.id,
@@ -427,9 +442,69 @@ async def test_history_chronological_order_and_legacy_display_names(tmp_path: Pa
         assert [(item.month, item.label) for item in months] == [(1, "Январь")]
         assert [(item.date.day, item.display_name) for item in tournaments] == [
             (2, "Bounty"),
-            (5, "Классика"),
+            (5, "Classic"),
         ]
         assert first_result.tournament.display_name == "Турнир"
         assert second_result.tournament.display_name == "Bounty"
+    finally:
+        await engine.dispose()
+
+
+async def test_history_tournament_list_uses_short_names_for_real_types(
+    tmp_path: Path,
+) -> None:
+    engine = create_async_engine(f"sqlite+aiosqlite:///{tmp_path / 'history_short_names.db'}")
+    async with engine.begin() as connection:
+        await connection.run_sync(Base.metadata.create_all)
+
+    session_factory = async_sessionmaker(engine, expire_on_commit=False)
+    async with session_factory() as session:
+        config = ScoringConfig()
+        session.add(config)
+        await session.flush()
+        await seed_tournament_types_async(session)
+        season = Season(
+            name="История",
+            scoring_config_id=config.id,
+            starts_at=date(2026, 1, 1),
+            ends_at=None,
+        )
+        viewer = build_player(telegram_id=100, display_name="Viewer")
+        player = build_player(telegram_id=101, display_name="Player")
+        session.add_all([season, viewer, player])
+        await session.flush()
+
+        type_codes = tuple(TOURNAMENT_TYPE_SHORT_NAMES)
+        tournaments = [
+            Tournament(
+                season_id=season.id,
+                tournament_type_id=tournament_type_id(code),
+                date=date(2026, 1, day),
+                status=TournamentStatus.CLOSED,
+                tournament_fund=1000,
+            )
+            for day, code in enumerate(type_codes, start=1)
+        ]
+        session.add_all(tournaments)
+        await session.flush()
+        session.add_all(
+            [
+                TournamentResult(
+                    tournament_id=tournament.id,
+                    player_id=player.id,
+                    tournament_points=Decimal("10"),
+                )
+                for tournament in tournaments
+            ]
+        )
+        await session.commit()
+
+    service = UserStatisticsService(session_factory)
+    try:
+        history_tournaments = await service.list_history_tournaments(100, 2026, 1)
+
+        assert [item.display_name for item in history_tournaments] == [
+            TOURNAMENT_TYPE_SHORT_NAMES[code] for code in type_codes
+        ]
     finally:
         await engine.dispose()
