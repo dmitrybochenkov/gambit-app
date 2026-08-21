@@ -388,6 +388,159 @@ async def test_approve_new_player_registration_creates_active_player(tmp_path: P
 
 
 @pytest.mark.asyncio
+async def test_registration_notification_recipients_are_active_superadmins_with_telegram(
+    tmp_path: Path,
+) -> None:
+    service, engine = await create_user_service(tmp_path / "users.db")
+    try:
+        request = await service.submit_new_player_registration(telegram_id=1001, display_name="Ace")
+        async with async_sessionmaker(engine, expire_on_commit=False)() as session:
+            session.add_all(
+                [
+                    create_user(
+                        display_name="Actor Superadmin",
+                        telegram_id=1,
+                        role=UserRole.SUPERADMIN,
+                    ),
+                    create_user(
+                        display_name="Other Superadmin",
+                        telegram_id=2,
+                        role=UserRole.SUPERADMIN,
+                    ),
+                    create_user(
+                        display_name="Regular Admin",
+                        telegram_id=3,
+                        role=UserRole.ADMIN,
+                    ),
+                    create_user(
+                        display_name="Blocked Superadmin",
+                        telegram_id=4,
+                        role=UserRole.SUPERADMIN,
+                        status=UserStatus.BLOCKED,
+                    ),
+                    create_user(
+                        display_name="No Telegram Superadmin",
+                        role=UserRole.SUPERADMIN,
+                    ),
+                ]
+            )
+            await session.commit()
+
+        notification = await service.get_registration_notification(request.id)
+
+        assert [(admin.telegram_id, admin.role, admin.status) for admin in notification.admins] == [
+            (1, UserRole.SUPERADMIN, UserStatus.ACTIVE),
+            (2, UserRole.SUPERADMIN, UserStatus.ACTIVE),
+        ]
+    finally:
+        await engine.dispose()
+
+
+@pytest.mark.asyncio
+async def test_approve_registration_review_recipients_are_active_superadmins_with_telegram(
+    tmp_path: Path,
+) -> None:
+    service, engine = await create_user_service(tmp_path / "users.db")
+    try:
+        async with async_sessionmaker(engine, expire_on_commit=False)() as session:
+            session.add_all(
+                [
+                    create_user(
+                        display_name="Actor Superadmin",
+                        telegram_id=1,
+                        role=UserRole.SUPERADMIN,
+                    ),
+                    create_user(
+                        display_name="Other Superadmin",
+                        telegram_id=2,
+                        role=UserRole.SUPERADMIN,
+                    ),
+                    create_user(
+                        display_name="Regular Admin",
+                        telegram_id=3,
+                        role=UserRole.ADMIN,
+                    ),
+                    create_user(
+                        display_name="Blocked Superadmin",
+                        telegram_id=4,
+                        role=UserRole.SUPERADMIN,
+                        status=UserStatus.BLOCKED,
+                    ),
+                    create_user(
+                        display_name="No Telegram Superadmin",
+                        role=UserRole.SUPERADMIN,
+                    ),
+                ]
+            )
+            await session.commit()
+
+        request = await service.submit_new_player_registration(telegram_id=1001, display_name="Ace")
+        result = await service.approve_registration(
+            superadmin_telegram_id=1,
+            request_id=request.id,
+        )
+
+        assert [(admin.telegram_id, admin.role, admin.status) for admin in result.admins] == [
+            (1, UserRole.SUPERADMIN, UserStatus.ACTIVE),
+            (2, UserRole.SUPERADMIN, UserStatus.ACTIVE),
+        ]
+    finally:
+        await engine.dispose()
+
+
+@pytest.mark.asyncio
+async def test_reject_registration_review_recipients_are_active_superadmins_with_telegram(
+    tmp_path: Path,
+) -> None:
+    service, engine = await create_user_service(tmp_path / "users.db")
+    try:
+        async with async_sessionmaker(engine, expire_on_commit=False)() as session:
+            session.add_all(
+                [
+                    create_user(
+                        display_name="Actor Superadmin",
+                        telegram_id=1,
+                        role=UserRole.SUPERADMIN,
+                    ),
+                    create_user(
+                        display_name="Other Superadmin",
+                        telegram_id=2,
+                        role=UserRole.SUPERADMIN,
+                    ),
+                    create_user(
+                        display_name="Regular Admin",
+                        telegram_id=3,
+                        role=UserRole.ADMIN,
+                    ),
+                    create_user(
+                        display_name="Blocked Superadmin",
+                        telegram_id=4,
+                        role=UserRole.SUPERADMIN,
+                        status=UserStatus.BLOCKED,
+                    ),
+                    create_user(
+                        display_name="No Telegram Superadmin",
+                        role=UserRole.SUPERADMIN,
+                    ),
+                ]
+            )
+            await session.commit()
+
+        request = await service.submit_new_player_registration(telegram_id=1001, display_name="Ace")
+        result = await service.reject_registration(
+            superadmin_telegram_id=1,
+            request_id=request.id,
+        )
+
+        assert [(admin.telegram_id, admin.role, admin.status) for admin in result.admins] == [
+            (1, UserRole.SUPERADMIN, UserStatus.ACTIVE),
+            (2, UserRole.SUPERADMIN, UserStatus.ACTIVE),
+        ]
+    finally:
+        await engine.dispose()
+
+
+@pytest.mark.asyncio
 async def test_approve_new_player_registration_rechecks_display_name_conflict(
     tmp_path: Path,
 ) -> None:

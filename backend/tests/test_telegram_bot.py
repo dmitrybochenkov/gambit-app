@@ -6669,7 +6669,7 @@ async def test_registration_review_cancel_deletes_message_without_review(
     service.reject_registration.assert_not_awaited()
 
 
-async def test_registration_review_reject_deletes_pending_and_notifies(
+async def test_registration_review_reject_deletes_pending_and_notifies_superadmins(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     request = RegistrationRequestView(
@@ -6683,13 +6683,13 @@ async def test_registration_review_reject_deletes_pending_and_notifies(
         created_at="27.07.2026 12:00",
     )
     reviewer = admin_player(1, 100, UserRole.SUPERADMIN)
-    other_admin = admin_player(2, 101)
+    other_superadmin = admin_player(2, 101, UserRole.SUPERADMIN)
     service = SimpleNamespace(
         reject_registration=AsyncMock(
             return_value=RegistrationReviewResultView(
                 user=None,
                 request=request,
-                admins=[reviewer, other_admin],
+                admins=[reviewer, other_superadmin],
             )
         ),
         list_pending_reviews_page_for_superadmin=AsyncMock(
@@ -6734,6 +6734,7 @@ async def test_registration_review_reject_deletes_pending_and_notifies(
     assert admin_call.kwargs["chat_id"] == 101
     assert "Заявка отклонена: Админ 1" in admin_call.kwargs["text"]
     assert player_call.kwargs["chat_id"] == 200
+    assert player_call.kwargs["text"] == registration_text.REGISTRATION_REJECTED
 
 
 async def test_registration_review_result_moves_empty_last_page_to_previous_page(
@@ -7015,7 +7016,7 @@ async def test_registration_candidate_confirmation_back_returns_to_candidate_lis
     ]
 
 
-async def test_registration_review_result_is_sent_to_other_admins(
+async def test_registration_review_result_is_sent_to_other_superadmins(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     player = UserView(
@@ -7026,7 +7027,7 @@ async def test_registration_review_result_is_sent_to_other_admins(
         role=UserRole.ADMIN,
     )
     reviewer = admin_player(1, 100, UserRole.SUPERADMIN)
-    other_admin = admin_player(2, 101)
+    other_superadmin = admin_player(2, 101, UserRole.SUPERADMIN)
     service = SimpleNamespace(
         approve_registration=AsyncMock(
             return_value=RegistrationReviewResultView(
@@ -7041,7 +7042,7 @@ async def test_registration_review_result_is_sent_to_other_admins(
                     candidate_user_id=None,
                     created_at="27.07.2026 12:00",
                 ),
-                admins=[reviewer, other_admin],
+                admins=[reviewer, other_superadmin],
             )
         ),
         list_pending_reviews_page_for_superadmin=AsyncMock(

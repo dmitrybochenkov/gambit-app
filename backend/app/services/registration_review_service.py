@@ -177,7 +177,7 @@ class RegistrationReviewService:
             request_repository = RegistrationRequestRepository(session)
             await access_policy.require_superadmin(session, superadmin_telegram_id)
             request = await self._require_pending_request(request_repository, request_id)
-            admins = await user_repository.list_active_admins()
+            admins = await user_repository.list_active_superadmins_with_telegram()
             if await user_repository.get_by_telegram_id(request.telegram_id) is not None:
                 raise RegistrationNotAllowedError
 
@@ -237,7 +237,7 @@ class RegistrationReviewService:
             request_repository = RegistrationRequestRepository(session)
             await access_policy.require_superadmin(session, superadmin_telegram_id)
             request = await self._require_pending_request(request_repository, request_id)
-            admins = await user_repository.list_active_admins()
+            admins = await user_repository.list_active_superadmins_with_telegram()
             request.status = RegistrationRequestStatus.REJECTED
             request.reviewed_at = self.clock.now()
             await session.commit()
