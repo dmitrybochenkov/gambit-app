@@ -10,7 +10,8 @@ PLACE_EMOJIS = {
     5: "5️⃣",
 }
 
-GAME_TABLE_TOTAL_WIDTH = 38
+MAX_TABLE_WIDTH = 35
+MAX_PLAYER_NAME_WIDTH = 21
 _PLACE_WIDTH = 1
 _KNOCKOUT_WIDTH = 2
 _BIG_KNOCKOUT_WIDTH = 3
@@ -344,9 +345,8 @@ def _game_table_lines(
         show_big_knockouts=show_big_knockouts,
         show_bonus=show_bonus,
         include_points=include_points,
-        bonus_label=str(results.bonus_points_label),
     )
-    name_width = _game_table_name_width(columns)
+    name_width = _game_table_name_width(sorted_players, columns)
     header = " ".join(["№", f"{'Игрок':<{name_width}}", *[column[0] for column in columns]])
     rows.append(header.rstrip())
     for player in sorted_players:
@@ -376,7 +376,6 @@ def _game_table_columns(
     show_big_knockouts: bool,
     show_bonus: bool,
     include_points: bool,
-    bonus_label: str,
 ) -> list[tuple[str, int]]:
     columns: list[tuple[str, int]] = []
     if show_knockouts:
@@ -384,16 +383,18 @@ def _game_table_columns(
     if show_big_knockouts:
         columns.append((f"{'БКО':>{_BIG_KNOCKOUT_WIDTH}}", _BIG_KNOCKOUT_WIDTH))
     if show_bonus:
-        columns.append((f"{bonus_label:>{_BONUS_WIDTH}}", _BONUS_WIDTH))
+        columns.append((f"{'Бонус':>{_BONUS_WIDTH}}", _BONUS_WIDTH))
     if include_points:
         columns.append((f"{'Очки':>{_POINTS_WIDTH}}", _POINTS_WIDTH))
     return columns
 
 
-def _game_table_name_width(columns: list[tuple[str, int]]) -> int:
+def _game_table_name_width(rows: list[object], columns: list[tuple[str, int]]) -> int:
     separators_width = 1 + len(columns)
     technical_width = _PLACE_WIDTH + separators_width + sum(width for _label, width in columns)
-    return max(8, GAME_TABLE_TOTAL_WIDTH - technical_width)
+    available_width = MAX_TABLE_WIDTH - technical_width
+    longest_name = max([len("Игрок"), *[len(str(row.display_name)) for row in rows]])
+    return min(longest_name, MAX_PLAYER_NAME_WIDTH, available_width)
 
 
 def _show_close_points(results: object) -> bool:

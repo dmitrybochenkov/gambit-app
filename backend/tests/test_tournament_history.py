@@ -11,6 +11,7 @@ from conftest import (
 )
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
+from app.bot.telegram.formatters import results as result_fmt
 from app.bot.telegram.formatters.statistics import history as history_fmt
 from app.db.base import Base
 from app.db.models import ScoringConfig, Season, Tournament, TournamentResult, TournamentType
@@ -49,7 +50,7 @@ def test_history_formats_points_as_rounded_integer() -> None:
 
     text = history_fmt.tournament_result(result, page)
 
-    assert "    89" in text
+    assert "   89" in text
     assert "88.5" not in text
 
 
@@ -245,6 +246,65 @@ def test_history_result_table_uses_dynamic_columns(
         assert absent_header not in header
 
 
+def test_history_table_uses_35_character_budget_and_21_character_name_cap() -> None:
+    result = HistoricalTournamentResultView(
+        tournament=HistoricalTournamentView(
+            id=1,
+            date=date(2026, 7, 17),
+            display_name="Классика",
+        ),
+        rows=[
+            HistoricalTournamentResultRowView(
+                player_id=1,
+                display_name="ABCDEFGHIJKLMNOPQRSTU",
+                place=1,
+                knockouts_count=4,
+                big_knockouts_count=1,
+                total_points=Decimal("795"),
+            )
+        ],
+    )
+    page = pagination_service.paginate(result.rows, page=0, page_size=20)
+
+    text = history_fmt.tournament_result(result, page)
+    table_lines = text.split("```", maxsplit=2)[1].strip("\n").splitlines()
+
+    assert history_fmt.MAX_TABLE_WIDTH == 35
+    assert history_fmt.MAX_PLAYER_NAME_WIDTH == 21
+    assert table_lines[0] == "№ Игрок                 КО БКО Очки"
+    assert "ABCDEFGHIJKLMNOPQRSTU" in table_lines[1]
+    assert all(len(line) <= history_fmt.MAX_TABLE_WIDTH for line in table_lines)
+
+
+def test_history_table_shrinks_and_stays_separate_from_results_table() -> None:
+    result = HistoricalTournamentResultView(
+        tournament=HistoricalTournamentView(
+            id=1,
+            date=date(2026, 7, 17),
+            display_name="Классика",
+        ),
+        rows=[
+            HistoricalTournamentResultRowView(
+                player_id=1,
+                display_name="Сос",
+                place=None,
+                knockouts_count=2,
+                big_knockouts_count=0,
+                total_points=Decimal("30"),
+            )
+        ],
+    )
+    page = pagination_service.paginate(result.rows, page=0, page_size=20)
+
+    text = history_fmt.tournament_result(result, page)
+    table_lines = text.split("```", maxsplit=2)[1].strip("\n").splitlines()
+
+    assert result_fmt._game_table_lines is not history_fmt._table_lines
+    assert table_lines[0] == "№ Игрок КО Очки"
+    assert table_lines[1] == "— Сос    2   30"
+    assert all(len(line) <= history_fmt.MAX_TABLE_WIDTH for line in table_lines)
+
+
 async def test_history_result_sorting_and_formatter(tmp_path: Path) -> None:
     engine = create_async_engine(f"sqlite+aiosqlite:///{tmp_path / 'history_result.db'}")
     async with engine.begin() as connection:
@@ -343,13 +403,13 @@ async def test_history_result_sorting_and_formatter(tmp_path: Path) -> None:
         page = pagination_service.paginate(result.rows, page=0, page_size=20)
         text = history_fmt.tournament_result(result, page)
         table_lines = text.split("```", maxsplit=2)[1].strip("\n").splitlines()
-        assert table_lines[0] == "№ Игрок              КО БКО Бонус Очки"
+        assert table_lines[0] == "№ Игрок           КО БКО Бонус Очки"
         assert "Борис" in text
-        assert "Александр Очень Д…" in text
-        assert "— Виктор              9   0     0    0" in text
-        assert "Борис               2   2     0   12" in text
-        assert "Глеб                1   0     6   10" in text
-        assert all(len(line) <= history_fmt.HISTORY_TABLE_TOTAL_WIDTH for line in table_lines)
+        assert "Александр Очен…" in text
+        assert "— Виктор           9   0     0    0" in text
+        assert "Борис            2   2     0   12" in text
+        assert "Глеб             1   0     6   10" in text
+        assert all(len(line) <= history_fmt.MAX_TABLE_WIDTH for line in table_lines)
         assert text.startswith("⏳ История\n\n17 июля 2026\nКлассика\n\n```")
     finally:
         await engine.dispose()

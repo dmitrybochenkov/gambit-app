@@ -743,7 +743,7 @@ def test_admin_result_players_show_place_only_table_for_classic() -> None:
     assert "4 Дима Боченков" in text
     assert "5 Тест Игрок 7" in text
     assert "Илларионов Александр" not in text
-    assert all(len(line) <= result_fmt.GAME_TABLE_TOTAL_WIDTH for line in table_lines)
+    assert all(len(line) <= result_fmt.MAX_TABLE_WIDTH for line in table_lines)
 
 
 def test_admin_result_players_show_required_place_slots() -> None:
@@ -845,7 +845,7 @@ def test_admin_result_players_add_knockout_columns_for_bounty() -> None:
     text = result_fmt.players_table(results, page)
 
     table_lines = first_code_block_lines(text)
-    assert table_lines[0] == "№ Игрок                         КО БКО"
+    assert table_lines[0] == "№ Игрок          КО БКО"
     assert "🥊" not in table_lines[0]
     assert "👑" not in table_lines[0]
     assert "Бонус" not in text
@@ -853,7 +853,7 @@ def test_admin_result_players_add_knockout_columns_for_bounty() -> None:
     assert "— Игрок БКО" in text
     assert "Игрок КО" in text
     assert "Игрок Много КО" in text
-    assert all(len(line) <= result_fmt.GAME_TABLE_TOTAL_WIDTH for line in table_lines)
+    assert all(len(line) <= result_fmt.MAX_TABLE_WIDTH for line in table_lines)
 
 
 def test_admin_result_players_add_bonus_only_when_supported() -> None:
@@ -876,11 +876,92 @@ def test_admin_result_players_add_bonus_only_when_supported() -> None:
     page = Page(items=results.players, page=0, page_size=6, total_items=1)
 
     text = result_fmt.players_table(results, page)
-    assert first_code_block_lines(text)[0] == "№ Игрок                       КО Бонус"
+    assert first_code_block_lines(text)[0] == "№ Игрок      КО Бонус"
     assert "КО" in text
     assert "Бонус" in text
     assert "БКО" not in text
     assert "Илларионов Александр" not in text
+
+
+def test_result_table_uses_35_character_budget_and_21_character_name_cap() -> None:
+    tournament = tournament_view(125, date(2026, 7, 19), 6, "Boss Bounty")
+    exact_cap_name = "ABCDEFGHIJKLMNOPQRSTU"
+    results = TournamentResultsView(
+        tournament=tournament,
+        tournament_fund=2200,
+        players=[
+            TournamentResultPlayerView(
+                player_id=108,
+                display_name=exact_cap_name,
+                place=1,
+                knockouts_count=4,
+                big_knockouts_count=1,
+                tournament_points=Decimal("735"),
+                knockout_points=Decimal("60"),
+            )
+        ],
+        knockout_mode="small_big",
+    )
+
+    lines = first_code_block_lines(result_fmt.closed_tournament(results))
+
+    assert result_fmt.MAX_TABLE_WIDTH == 35
+    assert result_fmt.MAX_PLAYER_NAME_WIDTH == 21
+    assert lines[0] == "№ Игрок                 КО БКО Очки"
+    assert exact_cap_name in lines[1]
+    assert all(len(line) <= result_fmt.MAX_TABLE_WIDTH for line in lines)
+
+
+def test_result_table_shrinks_name_width_for_bonus_columns() -> None:
+    tournament = tournament_view(125, date(2026, 7, 19), 2, "Mystery Bounty", "mystery_bounty")
+    results = TournamentResultsView(
+        tournament=tournament,
+        tournament_fund=2200,
+        players=[
+            TournamentResultPlayerView(
+                player_id=108,
+                display_name="Александр Очень Длинное Имя",
+                place=1,
+                knockouts_count=4,
+                big_knockouts_count=0,
+                bonus_points=7,
+                tournament_points=Decimal("100"),
+            )
+        ],
+        knockout_mode="small",
+        supports_bonus_points=True,
+    )
+
+    lines = first_code_block_lines(result_fmt.closed_tournament(results))
+
+    assert lines[0] == "№ Игрок               КО Бонус Очки"
+    assert "Александр Очень Дл…" in lines[1]
+    assert all(len(line) <= result_fmt.MAX_TABLE_WIDTH for line in lines)
+
+
+def test_result_table_does_not_stretch_short_names_to_full_budget() -> None:
+    tournament = tournament_view(125, date(2026, 7, 19), 6, "Boss Bounty")
+    results = TournamentResultsView(
+        tournament=tournament,
+        tournament_fund=2200,
+        players=[
+            TournamentResultPlayerView(
+                player_id=108,
+                display_name="Сос",
+                place=None,
+                knockouts_count=2,
+                big_knockouts_count=0,
+                tournament_points=Decimal("30"),
+            )
+        ],
+        knockout_mode="small_big",
+    )
+
+    lines = first_code_block_lines(result_fmt.closed_tournament(results))
+
+    assert lines[0] == "№ Игрок КО БКО Очки"
+    assert lines[1] == "— Сос    2   0   30"
+    assert all(len(line) <= result_fmt.MAX_TABLE_WIDTH for line in lines)
 
 
 def test_mystery_bounty_result_ui_uses_bonus_without_knockouts() -> None:
@@ -929,13 +1010,13 @@ def test_mystery_bounty_result_ui_uses_bonus_without_knockouts() -> None:
 
     assert "КО" not in text
     assert "БКО" not in text
-    assert "Доп. очки" in text
+    assert "Бонус" in text
     assert "1 Илларионов" in text
     assert "2 НЕ ВВЕДЕНО" in text
     assert field_buttons == ["➕ Доп. очки", "🏁 Место", "❌ Отмена"]
     assert "КО" not in close_preview
     assert "БКО" not in close_preview
-    assert "Доп. очки" in close_preview
+    assert "Бонус" in close_preview
     assert "Очки" in close_preview
 
 
@@ -976,13 +1057,13 @@ def test_admin_close_tournament_formatters_show_fund_and_game_tables() -> None:
         "Фонд турнира должен быть положительным целым числом, кратным 10.\n\nВведите фонд турнира."
     )
     assert "Введите фонд турнира?" in card
-    assert "№ Игрок                   КО БКО Бонус" in card
+    assert "№ Игрок                КО БКО Бонус" in card
     assert "Бонус" in card
     assert "🥊" not in first_code_block_lines(card)[0]
     assert "Фонд турнира: 1800" in confirmation
     assert "После подтверждения будут рассчитаны рейтинговые очки" in confirmation
     assert "✅ Турнир закрыт" in closed
-    assert "№ Игрок              КО БКО Бонус Очки" in closed
+    assert "№ Игрок           КО БКО Бонус Очки" in closed
     assert "Бонус" in closed
     assert "Очки" in closed
     assert "1111" in closed
@@ -990,12 +1071,8 @@ def test_admin_close_tournament_formatters_show_fund_and_game_tables() -> None:
     assert "Тест Игрок" not in card
     assert "Тест Игрок" not in confirmation
     assert "Тест Игрок" not in closed
-    assert all(
-        len(line) <= result_fmt.GAME_TABLE_TOTAL_WIDTH for line in first_code_block_lines(card)
-    )
-    assert all(
-        len(line) <= result_fmt.GAME_TABLE_TOTAL_WIDTH for line in first_code_block_lines(closed)
-    )
+    assert all(len(line) <= result_fmt.MAX_TABLE_WIDTH for line in first_code_block_lines(card))
+    assert all(len(line) <= result_fmt.MAX_TABLE_WIDTH for line in first_code_block_lines(closed))
 
 
 def test_admin_close_tournament_fund_input_keyboard_has_back_and_cancel() -> None:

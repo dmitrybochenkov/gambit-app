@@ -1,7 +1,8 @@
 from app.bot.telegram.formatters import common as fmt_common
 from app.bot.telegram.texts.user import history as history_texts
 
-HISTORY_TABLE_TOTAL_WIDTH = 38
+MAX_TABLE_WIDTH = 35
+MAX_PLAYER_NAME_WIDTH = 21
 _PLACE_WIDTH = 1
 _KNOCKOUT_WIDTH = 2
 _BIG_KNOCKOUT_WIDTH = 3
@@ -79,7 +80,7 @@ def _table_lines(
         show_big_knockouts=show_big_knockouts,
         show_bonus=show_bonus,
     )
-    name_width = _history_table_name_width(columns)
+    name_width = _history_table_name_width(rows, columns)
     header = " ".join(["№", f"{'Игрок':<{name_width}}", *[column[0] for column in columns]])
     lines = [header.rstrip()]
     for row in rows:
@@ -116,7 +117,9 @@ def _history_table_columns(
     return columns
 
 
-def _history_table_name_width(columns: list[tuple[str, int]]) -> int:
+def _history_table_name_width(rows: list[object], columns: list[tuple[str, int]]) -> int:
     separators_width = 1 + len(columns)
     technical_width = _PLACE_WIDTH + separators_width + sum(width for _label, width in columns)
-    return max(8, HISTORY_TABLE_TOTAL_WIDTH - technical_width)
+    available_width = MAX_TABLE_WIDTH - technical_width
+    longest_name = max([len("Игрок"), *[len(str(row.display_name)) for row in rows]])
+    return min(longest_name, MAX_PLAYER_NAME_WIDTH, available_width)
