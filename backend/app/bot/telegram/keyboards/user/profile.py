@@ -4,10 +4,12 @@ from aiogram.utils.keyboard import InlineKeyboardBuilder
 
 from app.bot.telegram.keyboards import labels
 from app.services.dto.seasons import SeasonOptionView
+from app.services.dto.statistics.profile import PlayerPrizeTournamentView
 from app.services.pagination import Page
 from app.services.profile_service import ProfileKind
 
 PROFILE_SEASON_PAGE_SIZE = 5
+PROFILE_PRIZE_TOURNAMENT_PAGE_SIZE = 5
 
 
 class ProfileCallback(CallbackData, prefix="profile"):
@@ -27,6 +29,22 @@ class ProfileSeasonCallback(CallbackData, prefix="profile_s"):
 
 class ProfileCancelCallback(CallbackData, prefix="profile_cancel"):
     action: str = "cancel"
+
+
+class ProfileDetailsPageCallback(CallbackData, prefix="profile_dp"):
+    kind: ProfileKind
+    season_id: int = 0
+    season_page: int = 0
+    page: int = 0
+
+
+class ProfilePrizeTournamentCallback(CallbackData, prefix="profile_pt"):
+    tournament_id: int
+    kind: ProfileKind
+    season_id: int = 0
+    season_page: int = 0
+    list_page: int = 0
+    result_page: int = 0
 
 
 def profile_keyboard() -> InlineKeyboardMarkup:
@@ -54,9 +72,21 @@ def profile_keyboard() -> InlineKeyboardMarkup:
 def profile_result_keyboard(
     *,
     kind: ProfileKind,
+    show_details: bool = False,
+    season_id: int = 0,
     season_page: int = 0,
 ) -> InlineKeyboardMarkup:
     builder = InlineKeyboardBuilder()
+    if show_details:
+        builder.button(
+            text="Подробнее",
+            callback_data=ProfileDetailsPageCallback(
+                kind=kind,
+                season_id=season_id,
+                season_page=season_page,
+                page=0,
+            ),
+        )
     if kind == ProfileKind.SELECTED_SEASON:
         builder.button(
             text=labels.ADMIN_PANEL_BACK,
@@ -69,6 +99,107 @@ def profile_result_keyboard(
         )
     builder.button(text="❌ Закрыть", callback_data=ProfileCancelCallback(action="close"))
     builder.adjust(1)
+    return builder.as_markup()
+
+
+def profile_prize_tournaments_keyboard(
+    page: Page[PlayerPrizeTournamentView],
+    *,
+    kind: ProfileKind,
+    season_id: int = 0,
+    season_page: int = 0,
+) -> InlineKeyboardMarkup:
+    builder = InlineKeyboardBuilder()
+    for item in page.items:
+        builder.button(
+            text=_prize_tournament_button_text(item),
+            callback_data=ProfilePrizeTournamentCallback(
+                tournament_id=item.tournament_id,
+                kind=kind,
+                season_id=season_id,
+                season_page=season_page,
+                list_page=page.page,
+                result_page=0,
+            ),
+        )
+    if page.total_pages > 1:
+        _add_prize_navigation(
+            builder,
+            page,
+            kind=kind,
+            season_id=season_id,
+            season_page=season_page,
+        )
+    builder.button(
+        text=labels.ADMIN_PANEL_BACK,
+        callback_data=ProfileCallback(
+            kind=kind,
+            season_id=season_id,
+            season_page=season_page,
+        ),
+    )
+    builder.button(text="❌ Закрыть", callback_data=ProfileCancelCallback(action="close"))
+    builder.adjust(*([1] * len(page.items)), _prize_navigation_width(page), 1, 1)
+    return builder.as_markup()
+
+
+def profile_history_result_keyboard(
+    page: Page,
+    *,
+    tournament_id: int,
+    kind: ProfileKind,
+    season_id: int = 0,
+    season_page: int = 0,
+    list_page: int = 0,
+) -> InlineKeyboardMarkup:
+    builder = InlineKeyboardBuilder()
+    if page.total_pages > 1:
+        if page.has_previous:
+            builder.button(
+                text="⬅️",
+                callback_data=ProfilePrizeTournamentCallback(
+                    tournament_id=tournament_id,
+                    kind=kind,
+                    season_id=season_id,
+                    season_page=season_page,
+                    list_page=list_page,
+                    result_page=page.previous_page,
+                ),
+            )
+        builder.button(
+            text=f"{page.page + 1} из {page.total_pages}",
+            callback_data=ProfilePrizeTournamentCallback(
+                tournament_id=tournament_id,
+                kind=kind,
+                season_id=season_id,
+                season_page=season_page,
+                list_page=list_page,
+                result_page=page.page,
+            ),
+        )
+        if page.has_next:
+            builder.button(
+                text="➡️",
+                callback_data=ProfilePrizeTournamentCallback(
+                    tournament_id=tournament_id,
+                    kind=kind,
+                    season_id=season_id,
+                    season_page=season_page,
+                    list_page=list_page,
+                    result_page=page.next_page,
+                ),
+            )
+    builder.button(
+        text=labels.ADMIN_PANEL_BACK,
+        callback_data=ProfileDetailsPageCallback(
+            kind=kind,
+            season_id=season_id,
+            season_page=season_page,
+            page=list_page,
+        ),
+    )
+    builder.button(text="❌ Закрыть", callback_data=ProfileCancelCallback(action="close"))
+    builder.adjust(_prize_navigation_width(page), 1, 1)
     return builder.as_markup()
 
 
@@ -111,3 +242,62 @@ def profile_seasons_keyboard(page: Page[SeasonOptionView]) -> InlineKeyboardMark
 
 def _season_navigation_width(page: Page) -> int:
     return 1 + int(page.has_previous) + int(page.has_next) if page.total_pages > 1 else 1
+
+
+def _add_prize_navigation(
+    builder: InlineKeyboardBuilder,
+    page: Page[PlayerPrizeTournamentView],
+    *,
+    kind: ProfileKind,
+    season_id: int,
+    season_page: int,
+) -> None:
+    if page.has_previous:
+        builder.button(
+            text="⬅️",
+            callback_data=ProfileDetailsPageCallback(
+                kind=kind,
+                season_id=season_id,
+                season_page=season_page,
+                page=page.previous_page,
+            ),
+        )
+    builder.button(
+        text=f"{page.page + 1} из {page.total_pages}",
+        callback_data=ProfileDetailsPageCallback(
+            kind=kind,
+            season_id=season_id,
+            season_page=season_page,
+            page=page.page,
+        ),
+    )
+    if page.has_next:
+        builder.button(
+            text="➡️",
+            callback_data=ProfileDetailsPageCallback(
+                kind=kind,
+                season_id=season_id,
+                season_page=season_page,
+                page=page.next_page,
+            ),
+        )
+
+
+def _prize_navigation_width(page: Page) -> int:
+    return 1 + int(page.has_previous) + int(page.has_next) if page.total_pages > 1 else 1
+
+
+def _prize_tournament_button_text(tournament: PlayerPrizeTournamentView) -> str:
+    return (
+        f"{_place_label(tournament.place)} {tournament.date:%d.%m.%y} — {tournament.display_name}"
+    )
+
+
+def _place_label(place: int) -> str:
+    return {
+        1: "🥇",
+        2: "🥈",
+        3: "🥉",
+        4: "4️⃣",
+        5: "5️⃣",
+    }[place]

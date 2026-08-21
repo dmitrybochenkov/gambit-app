@@ -1,10 +1,12 @@
 from dataclasses import dataclass
+from datetime import date
 from decimal import Decimal
 
 from sqlalchemy import case, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import aliased
 
-from app.db.models import Tournament, TournamentResult, User
+from app.db.models import Tournament, TournamentResult, TournamentType, User
 from app.db.repositories.result_scopes import closed_tournament_filter
 
 
@@ -24,6 +26,17 @@ class PlayerProfileStats:
     @property
     def total_knockouts_count(self) -> int:
         return self.knockouts_count + self.big_knockouts_count
+
+
+@dataclass(frozen=True)
+class PlayerPrizeTournamentRow:
+    tournament_id: int
+    date: date
+    tournament_name: str
+    tournament_short_name: str
+    tournament_type_code: str
+    has_knockouts: bool
+    place: int
 
 
 class ProfileRepository:
@@ -100,6 +113,62 @@ class ProfileRepository:
             fourth_places_count=row.fourth_places_count,
             fifth_places_count=row.fifth_places_count,
         )
+
+    async def list_prize_tournaments(
+        self,
+        player_id: int,
+        *,
+        season_id: int | None,
+    ) -> list[PlayerPrizeTournamentRow]:
+        tournament_result = aliased(TournamentResult)
+        tournament_knockouts = (
+            select(
+                func.coalesce(
+                    func.sum(
+                        tournament_result.knockouts_count + tournament_result.big_knockouts_count
+                    ),
+                    0,
+                )
+            )
+            .where(tournament_result.tournament_id == Tournament.id)
+            .correlate(Tournament)
+            .scalar_subquery()
+        )
+        statement = (
+            select(
+                Tournament.id.label("tournament_id"),
+                Tournament.date,
+                TournamentType.name.label("tournament_name"),
+                TournamentType.short_name.label("tournament_short_name"),
+                TournamentType.code.label("tournament_type_code"),
+                tournament_knockouts.label("tournament_knockouts"),
+                TournamentResult.place,
+            )
+            .join(Tournament, Tournament.id == TournamentResult.tournament_id)
+            .join(TournamentType, TournamentType.id == Tournament.tournament_type_id)
+            .where(
+                TournamentResult.player_id == player_id,
+                TournamentResult.place.between(1, 5),
+                closed_tournament_filter(),
+            )
+            .order_by(Tournament.date.desc(), Tournament.id.desc())
+        )
+        if season_id is not None:
+            statement = statement.where(Tournament.season_id == season_id)
+
+        result = await self.session.execute(statement)
+        return [
+            PlayerPrizeTournamentRow(
+                tournament_id=row.tournament_id,
+                date=row.date,
+                tournament_name=row.tournament_name,
+                tournament_short_name=row.tournament_short_name,
+                tournament_type_code=row.tournament_type_code,
+                has_knockouts=int(row.tournament_knockouts) > 0,
+                place=row.place,
+            )
+            for row in result
+        ]
 
     @staticmethod
     def _place_count(place: int) -> object:

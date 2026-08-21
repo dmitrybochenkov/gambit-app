@@ -19,19 +19,33 @@ from app.services.dto.statistics.profile import PlayerProfileHonourView, PlayerP
 from app.services.profile_service import ProfileFutureSeasonError, ProfileKind, ProfileService
 
 
+def profile_view(**overrides: object) -> PlayerProfileView:
+    data = {
+        "display_name": "Дима Боченков",
+        "total_points": Decimal("0"),
+        "knockouts_count": 0,
+        "big_knockouts_count": 0,
+        "tournaments_count": 0,
+        "first_places_count": 0,
+        "second_places_count": 0,
+        "third_places_count": 0,
+        "fourth_places_count": 0,
+        "fifth_places_count": 0,
+        "rating_position": None,
+        "rating_participants_count": 0,
+        "prize_percent": None,
+        "honours": (),
+    }
+    data.update(overrides)
+    return PlayerProfileView(**data)
+
+
 def test_profile_formats_only_non_zero_prize_places() -> None:
     message = profile_fmt.message(
         "Твой профиль — за всё время",
-        PlayerProfileView(
-            display_name="Дима Боченков",
-            total_points=Decimal("0"),
-            knockouts_count=0,
-            big_knockouts_count=0,
-            tournaments_count=0,
+        profile_view(
             first_places_count=3,
-            second_places_count=0,
             third_places_count=5,
-            fourth_places_count=0,
             fifth_places_count=4,
         ),
     )
@@ -39,10 +53,12 @@ def test_profile_formats_only_non_zero_prize_places() -> None:
     assert message == (
         "Твой профиль — за всё время\n"
         "⭐ - количество очков\n"
+        "🎯 - процент попадания в пятерку лидеров\n"
         "🥊 - количество нокаутов\n"
         "🎲 - количество турниров\n\n"
         "Дима Боченков\n"
-        "⭐ 0 | 🥊 0 | 🎲 0\n\n"
+        "⭐ 0 | 🎯 — | 🥊 0 | 🎲 0\n\n"
+        "Под кнопкой «Подробнее» можно посмотреть историю своих достижений\n\n"
         "Количество призовых мест:\n"
         "🥇 x3\n"
         "🥉 x5\n"
@@ -53,17 +69,8 @@ def test_profile_formats_only_non_zero_prize_places() -> None:
 def test_profile_formats_season_honours() -> None:
     message = profile_fmt.message(
         "Твой профиль — за всё время",
-        PlayerProfileView(
+        profile_view(
             display_name="Дима",
-            total_points=Decimal("0"),
-            knockouts_count=0,
-            big_knockouts_count=0,
-            tournaments_count=0,
-            first_places_count=0,
-            second_places_count=0,
-            third_places_count=0,
-            fourth_places_count=0,
-            fifth_places_count=0,
             honours=(
                 PlayerProfileHonourView(
                     season_name="Весна 2026",
@@ -86,21 +93,14 @@ def test_profile_formats_season_honours() -> None:
 def test_profile_formats_points_as_rounded_integer() -> None:
     message = profile_fmt.message(
         "Твой профиль — за всё время",
-        PlayerProfileView(
+        profile_view(
             display_name="Дима",
             total_points=Decimal("1347.5"),
-            knockouts_count=0,
-            big_knockouts_count=0,
             tournaments_count=1,
-            first_places_count=0,
-            second_places_count=0,
-            third_places_count=0,
-            fourth_places_count=0,
-            fifth_places_count=0,
         ),
     )
 
-    assert "⭐ 1348 | 🥊 0 | 🎲 1" in message
+    assert "⭐ 1348 | 🎯 — | 🥊 0 | 🎲 1" in message
     assert "1347.5" not in message
 
 
@@ -258,6 +258,193 @@ async def test_profile_filters_current_season_and_all_time(tmp_path: Path) -> No
         assert "4️⃣" not in all_time_message
         assert "5️⃣" not in all_time_message
         assert "Количество призовых мест:" not in empty_message
+    finally:
+        await engine.dispose()
+
+
+async def test_profile_rating_position_and_prize_percent_use_scope(
+    tmp_path: Path,
+) -> None:
+    engine = create_async_engine(f"sqlite+aiosqlite:///{tmp_path / 'profile_position.db'}")
+    async with engine.begin() as connection:
+        await connection.run_sync(Base.metadata.create_all)
+
+    session_factory = async_sessionmaker(engine, expire_on_commit=False)
+    async with session_factory() as session:
+        config = ScoringConfig()
+        session.add(config)
+        await session.flush()
+        await seed_tournament_types_async(session)
+        season = Season(
+            name="Лето 2026",
+            scoring_config_id=config.id,
+            starts_at=date(2026, 7, 1),
+            ends_at=None,
+        )
+        target = build_player(telegram_id=100, display_name="Target", status=UserStatus.ACTIVE)
+        leader = build_player(telegram_id=101, display_name="Leader", status=UserStatus.ACTIVE)
+        zero = build_player(telegram_id=102, display_name="Zero", status=UserStatus.ACTIVE)
+        session.add_all([season, target, leader, zero])
+        await session.flush()
+        tournaments = [
+            Tournament(
+                season_id=season.id,
+                tournament_type_id=tournament_type_id("classic"),
+                date=date(2026, 7, day),
+                status=TournamentStatus.CLOSED,
+                tournament_fund=1000,
+            )
+            for day in range(1, 9)
+        ]
+        session.add_all(tournaments)
+        await session.flush()
+        session.add(
+            TournamentResult(
+                tournament_id=tournaments[0].id,
+                player_id=leader.id,
+                tournament_points=Decimal("200"),
+            )
+        )
+        session.add_all(
+            [
+                TournamentResult(
+                    tournament_id=tournament.id,
+                    player_id=target.id,
+                    place=1 if index == 0 else None,
+                    tournament_points=Decimal("10"),
+                )
+                for index, tournament in enumerate(tournaments)
+            ]
+        )
+        await session.commit()
+
+    service = ProfileService(session_factory)
+    try:
+        _title, stats = await service.get_profile_for_player(
+            telegram_id=100,
+            kind=ProfileKind.CURRENT_SEASON,
+            today=date(2026, 7, 10),
+        )
+        _zero_title, zero_stats = await service.get_profile_for_player(
+            telegram_id=102,
+            kind=ProfileKind.CURRENT_SEASON,
+            today=date(2026, 7, 10),
+        )
+
+        assert stats is not None
+        assert stats.rating_position == 2
+        assert stats.rating_participants_count == 2
+        assert stats.prize_percent == 13
+        assert zero_stats is not None
+        assert zero_stats.rating_position is None
+        assert zero_stats.rating_participants_count == 2
+        assert zero_stats.prize_percent is None
+    finally:
+        await engine.dispose()
+
+
+async def test_profile_prize_tournaments_scope_order_and_labels(
+    tmp_path: Path,
+) -> None:
+    engine = create_async_engine(f"sqlite+aiosqlite:///{tmp_path / 'profile_prizes.db'}")
+    async with engine.begin() as connection:
+        await connection.run_sync(Base.metadata.create_all)
+
+    session_factory = async_sessionmaker(engine, expire_on_commit=False)
+    async with session_factory() as session:
+        config = ScoringConfig()
+        session.add(config)
+        await session.flush()
+        await seed_tournament_types_async(session)
+        current = Season(
+            name="Лето 2026",
+            scoring_config_id=config.id,
+            starts_at=date(2026, 7, 1),
+            ends_at=None,
+        )
+        previous = Season(
+            name="Весна 2026",
+            scoring_config_id=config.id,
+            starts_at=date(2026, 4, 1),
+            ends_at=date(2026, 6, 30),
+        )
+        player = build_player(telegram_id=100, display_name="Player", status=UserStatus.ACTIVE)
+        other = build_player(telegram_id=101, display_name="Other", status=UserStatus.ACTIVE)
+        session.add_all([current, previous, player, other])
+        await session.flush()
+        current_old = Tournament(
+            season_id=current.id,
+            tournament_type_id=tournament_type_id("classic"),
+            date=date(2026, 7, 3),
+            status=TournamentStatus.CLOSED,
+            tournament_fund=1000,
+        )
+        current_new = Tournament(
+            season_id=current.id,
+            tournament_type_id=tournament_type_id("double_double"),
+            date=date(2026, 7, 10),
+            status=TournamentStatus.CLOSED,
+            tournament_fund=1000,
+        )
+        active_prize = Tournament(
+            season_id=current.id,
+            tournament_type_id=tournament_type_id("bounty"),
+            date=date(2026, 7, 11),
+            status=TournamentStatus.ACTIVE,
+        )
+        previous_prize = Tournament(
+            season_id=previous.id,
+            tournament_type_id=tournament_type_id("bounty"),
+            date=date(2026, 6, 20),
+            status=TournamentStatus.CLOSED,
+            tournament_fund=1000,
+        )
+        session.add_all([current_old, current_new, active_prize, previous_prize])
+        await session.flush()
+        session.add_all(
+            [
+                TournamentResult(tournament_id=current_old.id, player_id=player.id, place=5),
+                TournamentResult(tournament_id=current_new.id, player_id=player.id, place=1),
+                TournamentResult(tournament_id=active_prize.id, player_id=player.id, place=2),
+                TournamentResult(tournament_id=previous_prize.id, player_id=player.id, place=3),
+                TournamentResult(tournament_id=current_new.id, player_id=other.id, place=2),
+                TournamentResult(tournament_id=previous_prize.id, player_id=other.id),
+            ]
+        )
+        await session.commit()
+        previous_id = previous.id
+
+    service = ProfileService(session_factory)
+    try:
+        current_prizes = await service.list_prize_tournaments_for_player(
+            100,
+            ProfileKind.CURRENT_SEASON,
+            today=date(2026, 7, 15),
+        )
+        previous_prizes = await service.list_prize_tournaments_for_player(
+            100,
+            ProfileKind.SELECTED_SEASON,
+            season_id=previous_id,
+            today=date(2026, 7, 15),
+        )
+        all_time_prizes = await service.list_prize_tournaments_for_player(
+            100,
+            ProfileKind.ALL_TIME,
+            today=date(2026, 7, 15),
+        )
+
+        assert [(item.date, item.display_name, item.place) for item in current_prizes] == [
+            (date(2026, 7, 10), "Double", 1),
+            (date(2026, 7, 3), "Classic", 5),
+        ]
+        assert [(item.date, item.display_name, item.place) for item in previous_prizes] == [
+            (date(2026, 6, 20), "Bounty", 3)
+        ]
+        assert [item.date for item in all_time_prizes] == [
+            date(2026, 7, 10),
+            date(2026, 7, 3),
+            date(2026, 6, 20),
+        ]
     finally:
         await engine.dispose()
 

@@ -129,6 +129,7 @@ from app.services.dto.statistics.history import (
     HistoryMonthView,
     HistoryYearView,
 )
+from app.services.dto.statistics.profile import PlayerPrizeTournamentView, PlayerProfileView
 from app.services.dto.statistics.rating import PointsRatingView, RatingResultView
 from app.services.dto.tournaments import TournamentView
 from app.services.dto.users import UserStartStatusView, UserStartView, UserView
@@ -4298,7 +4299,8 @@ async def test_profile_callback_sends_selected_profile(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     profile_service = SimpleNamespace(
-        get_profile_for_player=AsyncMock(return_value=("Твой профиль — текущий сезон", None))
+        get_profile_for_player=AsyncMock(return_value=("Твой профиль — текущий сезон", None)),
+        list_prize_tournaments_for_player=AsyncMock(return_value=[]),
     )
     monkeypatch.setattr(user_profile_handlers, "profile_service", profile_service)
     message = SimpleNamespace(edit_text=AsyncMock())
@@ -4324,6 +4326,59 @@ async def test_profile_callback_sends_selected_profile(
         "⬅️ Назад",
         "❌ Закрыть",
     ]
+    profile_service.list_prize_tournaments_for_player.assert_not_awaited()
+
+
+async def test_profile_callback_shows_details_button_when_prizes_exist(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    stats = PlayerProfileView(
+        display_name="Дима",
+        total_points=Decimal("3250"),
+        knockouts_count=14,
+        big_knockouts_count=0,
+        tournaments_count=27,
+        first_places_count=1,
+        second_places_count=0,
+        third_places_count=0,
+        fourth_places_count=0,
+        fifth_places_count=0,
+        rating_position=7,
+        rating_participants_count=44,
+        prize_percent=41,
+    )
+    prize = PlayerPrizeTournamentView(
+        tournament_id=10,
+        date=date(2026, 8, 15),
+        display_name="Double",
+        place=1,
+    )
+    profile_service = SimpleNamespace(
+        get_profile_for_player=AsyncMock(return_value=("Твой профиль — текущий сезон", stats)),
+        list_prize_tournaments_for_player=AsyncMock(return_value=[prize]),
+    )
+    monkeypatch.setattr(user_profile_handlers, "profile_service", profile_service)
+    message = SimpleNamespace(edit_text=AsyncMock())
+    callback = SimpleNamespace(
+        from_user=SimpleNamespace(id=123),
+        message=message,
+        answer=AsyncMock(),
+    )
+
+    await user_profile_handlers.show_profile(
+        callback,
+        user_profile_kb.ProfileCallback(kind=ProfileKind.CURRENT_SEASON),
+    )
+
+    assert (
+        "⭐ 3250 (7 место из 44) | 🎯 41% | 🥊 14 | 🎲 27" in (message.edit_text.await_args.args[0])
+    )
+    assert "Под кнопкой «Подробнее»" in message.edit_text.await_args.args[0]
+    assert inline_keyboard_texts(message.edit_text.await_args.kwargs["reply_markup"]) == [
+        "Подробнее",
+        "⬅️ Назад",
+        "❌ Закрыть",
+    ]
 
 
 async def test_profile_selected_season_picker_and_result(
@@ -4341,6 +4396,7 @@ async def test_profile_selected_season_picker_and_result(
     profile_service = SimpleNamespace(
         list_profile_seasons=AsyncMock(return_value=seasons),
         get_profile_for_player=AsyncMock(return_value=("Твой профиль — Весна 2026", None)),
+        list_prize_tournaments_for_player=AsyncMock(return_value=[]),
     )
     monkeypatch.setattr(user_profile_handlers, "profile_service", profile_service)
     message = SimpleNamespace(edit_text=AsyncMock())
@@ -4377,6 +4433,95 @@ async def test_profile_selected_season_picker_and_result(
     assert message.edit_text.await_args.args[0] == (
         "Твой профиль — Весна 2026\n\nПрофиль не найден. Нажми /start."
     )
+
+
+async def test_profile_details_list_and_tournament_card(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    prizes = [
+        PlayerPrizeTournamentView(
+            tournament_id=index,
+            date=date(2026, 8, 20 - index),
+            display_name=f"Type {index}",
+            place=(index % 5) + 1,
+        )
+        for index in range(1, 7)
+    ]
+    profile_service = SimpleNamespace(
+        list_prize_tournaments_for_player=AsyncMock(return_value=prizes),
+    )
+    history_result = HistoricalTournamentResultView(
+        tournament=HistoricalTournamentView(
+            id=2,
+            date=date(2026, 8, 18),
+            display_name="Type 2",
+        ),
+        rows=[
+            HistoricalTournamentResultRowView(
+                player_id=1,
+                display_name="Дима",
+                place=1,
+                knockouts_count=0,
+                big_knockouts_count=0,
+                bonus_points=0,
+                total_points=Decimal("42"),
+            )
+        ],
+    )
+    statistics_service = SimpleNamespace(
+        get_historical_tournament_result=AsyncMock(return_value=history_result),
+    )
+    monkeypatch.setattr(user_profile_handlers, "profile_service", profile_service)
+    monkeypatch.setattr(user_profile_handlers, "user_statistics_service", statistics_service)
+    message = SimpleNamespace(edit_text=AsyncMock())
+    callback = SimpleNamespace(
+        from_user=SimpleNamespace(id=123),
+        message=message,
+        answer=AsyncMock(),
+    )
+
+    await user_profile_handlers.show_profile_prize_tournaments(
+        callback,
+        user_profile_kb.ProfileDetailsPageCallback(
+            kind=ProfileKind.ALL_TIME,
+            page=0,
+        ),
+    )
+
+    assert message.edit_text.await_args.args[0].startswith("История достижений")
+    buttons = inline_keyboard_texts(message.edit_text.await_args.kwargs["reply_markup"])
+    assert buttons[:5] == [
+        "🥈 19.08.26 — Type 1",
+        "🥉 18.08.26 — Type 2",
+        "4️⃣ 17.08.26 — Type 3",
+        "5️⃣ 16.08.26 — Type 4",
+        "🥇 15.08.26 — Type 5",
+    ]
+    assert "1 из 2" in buttons
+    assert "➡️" in buttons
+    assert "⬅️ Назад" in buttons
+    assert "❌ Закрыть" in buttons
+
+    await user_profile_handlers.show_profile_prize_tournament_result(
+        callback,
+        user_profile_kb.ProfilePrizeTournamentCallback(
+            tournament_id=2,
+            kind=ProfileKind.ALL_TIME,
+            list_page=0,
+        ),
+    )
+
+    statistics_service.get_historical_tournament_result.assert_awaited_once_with(
+        telegram_id=123,
+        tournament_id=2,
+    )
+    assert "⏳ История" in message.edit_text.await_args.args[0]
+    assert "Type 2" in message.edit_text.await_args.args[0]
+    assert "Очки" in message.edit_text.await_args.args[0]
+    assert inline_keyboard_texts(message.edit_text.await_args.kwargs["reply_markup"]) == [
+        "⬅️ Назад",
+        "❌ Закрыть",
+    ]
 
 
 async def test_profile_cancel_deletes_message_and_sends_confirmation() -> None:

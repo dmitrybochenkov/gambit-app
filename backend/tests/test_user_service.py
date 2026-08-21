@@ -153,7 +153,12 @@ async def test_registrations_overview_counts_only_active_tournament_registration
             )
             await session.commit()
 
-        overview = await service.get_registrations_overview_for_superadmin(1)
+        review_service = RegistrationReviewService(
+            async_sessionmaker(engine, expire_on_commit=False),
+            clock=FixedClock(datetime(2026, 8, 19, 12, tzinfo=ZoneInfo("Europe/Moscow"))),
+            tournament_day_start_hour=11,
+        )
+        overview = await review_service.get_registrations_overview_for_superadmin(1)
 
         assert overview.pending_user_registration_count == 0
         assert overview.active_tournament_registration_count == 2

@@ -30,3 +30,11 @@ class PlayerProfileView:
     @property
     def total_knockouts_count(self) -> int:
         return self.knockouts_count + self.big_knockouts_count
+
+
+@dataclass(frozen=True)
+class PlayerPrizeTournamentView:
+    tournament_id: int
+    date: date
+    display_name: str
+    place: int

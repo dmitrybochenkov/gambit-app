@@ -5,6 +5,9 @@ PROFILE_MENU_PROMPT = "За какой период ты хочешь посмо
 PROFILE_ACTIVE_ONLY = "Профиль доступен только активным игрокам."
 PROFILE_NOT_FOUND = "Профиль не найден. Нажми /start."
 PROFILE_PRIZE_PLACES_LABEL = "Количество призовых мест:"
+PROFILE_DETAILS_HINT = "Под кнопкой «Подробнее» можно посмотреть историю своих достижений"
+PROFILE_PRIZE_TOURNAMENTS_TITLE = "История достижений"
+PROFILE_PRIZE_TOURNAMENTS_EMPTY = "Призовых турниров пока нет."
 
 
 def message(title: str, stats: object | None) -> str:
@@ -20,11 +23,14 @@ def message(title: str, stats: object | None) -> str:
         "🎲 - количество турниров",
         "",
         stats.display_name,
-        f"⭐ {points}{_rating_position(stats)} | 🎯 {_prize_percent(stats)} | 🥊 {stats.total_knockouts_count} | 🎲 {stats.tournaments_count}" 
+        (
+            f"⭐ {points}{_rating_position(stats)} | 🎯 {_prize_percent(stats)} | "
+            f"🥊 {stats.total_knockouts_count} | 🎲 {stats.tournaments_count}"
+        ),
     ]
     prize_place_lines = _prize_place_lines(stats)
     if prize_place_lines:
-        lines.extend(["", PROFILE_PRIZE_PLACES_LABEL, *prize_place_lines])
+        lines.extend(["", PROFILE_DETAILS_HINT, "", PROFILE_PRIZE_PLACES_LABEL, *prize_place_lines])
     honour_lines = _honour_lines(stats)
     if honour_lines:
         lines.extend(["", *honour_lines])
@@ -69,3 +75,30 @@ def _honour_lines(stats: object) -> list[str]:
         elif honour.kind == "knockout":
             lines.append(f"💥 Лучший нокаутер сезона «{honour.season_name}»")
     return lines
+
+
+def prize_tournaments(page: object) -> str:
+    lines = [PROFILE_PRIZE_TOURNAMENTS_TITLE]
+    if not page.items:
+        lines.extend(["", PROFILE_PRIZE_TOURNAMENTS_EMPTY])
+    else:
+        lines.extend(["", *[_prize_tournament_line(item) for item in page.items]])
+    if page.total_pages > 1:
+        lines.extend(["", fmt_common.page_line(page)])
+    return "\n".join(lines)
+
+
+def _prize_tournament_line(tournament: object) -> str:
+    return (
+        f"{_place_label(tournament.place)} {tournament.date:%d.%m.%y} — {tournament.display_name}"
+    )
+
+
+def _place_label(place: int) -> str:
+    return {
+        1: "🥇",
+        2: "🥈",
+        3: "🥉",
+        4: "4️⃣",
+        5: "5️⃣",
+    }[place]

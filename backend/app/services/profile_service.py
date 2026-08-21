@@ -1,5 +1,5 @@
 from datetime import date
-from decimal import Decimal
+from decimal import ROUND_HALF_UP, Decimal
 from enum import StrEnum
 
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
@@ -16,8 +16,13 @@ from app.db.repositories.season_repository import SeasonRepository
 from app.db.session import SessionFactory
 from app.services.access_policy import ActiveUserRequiredError, access_policy
 from app.services.dto.seasons import SeasonOptionView
-from app.services.dto.statistics.profile import PlayerProfileHonourView, PlayerProfileView
+from app.services.dto.statistics.profile import (
+    PlayerPrizeTournamentView,
+    PlayerProfileHonourView,
+    PlayerProfileView,
+)
 from app.services.season_options import list_started_season_options
+from app.services.user_statistics_service import historical_tournament_display_name
 
 
 class ProfileKind(StrEnum):
@@ -85,6 +90,47 @@ class ProfileService:
                 raise ProfileNotAllowedError from exc
             return await list_started_season_options(SeasonRepository(session), business_date)
 
+    async def list_prize_tournaments_for_player(
+        self,
+        telegram_id: int,
+        kind: ProfileKind,
+        season_id: int | None = None,
+        today: date | None = None,
+    ) -> list[PlayerPrizeTournamentView]:
+        business_date = today or self.clock.today()
+        async with self.session_factory() as session:
+            try:
+                user = await access_policy.require_active_user(session, telegram_id)
+            except ActiveUserRequiredError as exc:
+                raise ProfileNotAllowedError from exc
+            profile_repository = ProfileRepository(session)
+            season_scope_id = await _profile_season_scope(
+                SeasonRepository(session),
+                kind=kind,
+                season_id=season_id,
+                today=business_date,
+            )
+            if kind != ProfileKind.ALL_TIME and season_scope_id is None:
+                return []
+            rows = await profile_repository.list_prize_tournaments(
+                user.id,
+                season_id=season_scope_id,
+            )
+            return [
+                PlayerPrizeTournamentView(
+                    tournament_id=row.tournament_id,
+                    date=row.date,
+                    display_name=historical_tournament_display_name(
+                        tournament_name=row.tournament_name,
+                        tournament_short_name=row.tournament_short_name,
+                        tournament_type_code=row.tournament_type_code,
+                        has_knockouts=row.has_knockouts,
+                    ),
+                    place=row.place,
+                )
+                for row in rows
+            ]
+
     @staticmethod
     async def _get_profile(
         profile_repository: ProfileRepository,
@@ -117,11 +163,13 @@ class ProfileService:
             return (
                 "Твой профиль — текущий сезон",
                 player_profile_view(
-                    stats, 
+                    stats,
                     rating_position=rating_position,
                     rating_participants_count=rating_participants_count,
                     honours=honours,
-                ) if stats else None,
+                )
+                if stats
+                else None,
             )
         if kind == ProfileKind.SELECTED_SEASON:
             season = await _require_started_season(season_repository, season_id, today)
@@ -138,11 +186,13 @@ class ProfileService:
             return (
                 f"Твой профиль — {season.name}",
                 player_profile_view(
-                    stats, 
+                    stats,
                     rating_position=rating_position,
                     rating_participants_count=rating_participants_count,
                     honours=honours,
-                ) if stats else None,
+                )
+                if stats
+                else None,
             )
         stats = await profile_repository.get_player_stats(player_id=player_id)
         honours = await _player_honours(hall_of_fame_repository, player_id)
@@ -153,11 +203,13 @@ class ProfileService:
         return (
             "Твой профиль — за всё время",
             player_profile_view(
-                stats, 
+                stats,
                 rating_position=rating_position,
                 rating_participants_count=rating_participants_count,
-                honours=honours
-            ) if stats else None,
+                honours=honours,
+            )
+            if stats
+            else None,
         )
 
 
@@ -173,7 +225,11 @@ def prize_percent(stats: PlayerProfileStats) -> int | None:
         + stats.fifth_places_count
     )
 
-    return round(prize_places_count / stats.tournaments_count * 100)
+    return int(
+        (Decimal(prize_places_count) * Decimal(100) / Decimal(stats.tournaments_count)).quantize(
+            Decimal("1"), rounding=ROUND_HALF_UP
+        )
+    )
 
 
 def player_profile_view(
@@ -233,6 +289,7 @@ async def _player_honours(
         for row in rows
     )
 
+
 async def _points_rating_position(
     repository: RatingRepository,
     player_id: int,
@@ -240,14 +297,26 @@ async def _points_rating_position(
 ) -> tuple[int | None, int]:
     rows = await repository.get_points_rating(season_id=season_id)
     position = next(
-        (
-            index
-            for index, row in enumerate(rows, start=1)
-            if row.player_id == player_id
-        ),
+        (index for index, row in enumerate(rows, start=1) if row.player_id == player_id),
         None,
     )
     return position, len(rows)
+
+
+async def _profile_season_scope(
+    season_repository: SeasonRepository,
+    *,
+    kind: ProfileKind,
+    season_id: int | None,
+    today: date,
+) -> int | None:
+    if kind == ProfileKind.ALL_TIME:
+        return None
+    if kind == ProfileKind.SELECTED_SEASON:
+        return (await _require_started_season(season_repository, season_id, today)).id
+    season = await season_repository.get_for_date(today)
+    return season.id if season is not None else None
+
 
 async def _require_started_season(
     season_repository: SeasonRepository,
