@@ -1,6 +1,13 @@
 from app.bot.telegram.formatters import common as fmt_common
 from app.bot.telegram.texts.user import history as history_texts
 
+HISTORY_TABLE_TOTAL_WIDTH = 38
+_PLACE_WIDTH = 1
+_KNOCKOUT_WIDTH = 2
+_BIG_KNOCKOUT_WIDTH = 3
+_BONUS_WIDTH = 5
+_POINTS_WIDTH = 4
+
 
 def years(page: object) -> str:
     lines = [history_texts.HISTORY_YEARS_PROMPT]
@@ -67,25 +74,49 @@ def _table_lines(
     show_big_knockouts: bool,
     show_bonus: bool,
 ) -> list[str]:
-    name_width = 20
-    header = f"{'Место':<5}  {'Игрок':<{name_width}}"
-    if show_knockouts:
-        header += f" {'КО':>3}"
-    if show_big_knockouts:
-        header += f" {'БКО':>4}"
-    if show_bonus:
-        header += f" {'Бонус':>6}"
-    header += f" {'Очки':>6}"
-    lines = [header]
+    columns = _history_table_columns(
+        show_knockouts=show_knockouts,
+        show_big_knockouts=show_big_knockouts,
+        show_bonus=show_bonus,
+    )
+    name_width = _history_table_name_width(columns)
+    header = " ".join(["№", f"{'Игрок':<{name_width}}", *[column[0] for column in columns]])
+    lines = [header.rstrip()]
     for row in rows:
         place = str(row.place) if row.place is not None else "—"
-        line = f"{place:<5}  {fmt_common.code_cell(row.display_name, name_width):<{name_width}}"
+        cells = [
+            f"{place:>{_PLACE_WIDTH}}",
+            f"{fmt_common.code_cell(row.display_name, name_width):<{name_width}}",
+        ]
         if show_knockouts:
-            line += f" {row.knockouts_count:>3}"
+            cells.append(f"{row.knockouts_count:>{_KNOCKOUT_WIDTH}}")
         if show_big_knockouts:
-            line += f" {row.big_knockouts_count:>4}"
+            cells.append(f"{row.big_knockouts_count:>{_BIG_KNOCKOUT_WIDTH}}")
         if show_bonus:
-            line += f" {row.bonus_points:>6}"
-        line += f" {fmt_common.points(row.total_points):>6}"
-        lines.append(line)
+            cells.append(f"{row.bonus_points:>{_BONUS_WIDTH}}")
+        cells.append(f"{fmt_common.points(row.total_points):>{_POINTS_WIDTH}}")
+        lines.append(" ".join(cells).rstrip())
     return lines
+
+
+def _history_table_columns(
+    *,
+    show_knockouts: bool,
+    show_big_knockouts: bool,
+    show_bonus: bool,
+) -> list[tuple[str, int]]:
+    columns: list[tuple[str, int]] = []
+    if show_knockouts:
+        columns.append((f"{'КО':>{_KNOCKOUT_WIDTH}}", _KNOCKOUT_WIDTH))
+    if show_big_knockouts:
+        columns.append((f"{'БКО':>{_BIG_KNOCKOUT_WIDTH}}", _BIG_KNOCKOUT_WIDTH))
+    if show_bonus:
+        columns.append((f"{'Бонус':>{_BONUS_WIDTH}}", _BONUS_WIDTH))
+    columns.append((f"{'Очки':>{_POINTS_WIDTH}}", _POINTS_WIDTH))
+    return columns
+
+
+def _history_table_name_width(columns: list[tuple[str, int]]) -> int:
+    separators_width = 1 + len(columns)
+    technical_width = _PLACE_WIDTH + separators_width + sum(width for _label, width in columns)
+    return max(8, HISTORY_TABLE_TOTAL_WIDTH - technical_width)

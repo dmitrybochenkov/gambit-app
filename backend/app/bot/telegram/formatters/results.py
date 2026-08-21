@@ -10,6 +10,13 @@ PLACE_EMOJIS = {
     5: "5️⃣",
 }
 
+GAME_TABLE_TOTAL_WIDTH = 38
+_PLACE_WIDTH = 1
+_KNOCKOUT_WIDTH = 2
+_BIG_KNOCKOUT_WIDTH = 3
+_BONUS_WIDTH = 5
+_POINTS_WIDTH = 4
+
 
 def players_table(
     results: object,
@@ -332,30 +339,61 @@ def _game_table_lines(
     show_knockouts = force_all_columns or results.knockout_mode in {"small", "small_big"}
     show_big_knockouts = force_all_columns or results.knockout_mode == "small_big"
     show_bonus = force_all_columns or results.supports_bonus_points
-    header = f"{'Место':<5}  {'Игрок':<18}"
-    if show_knockouts:
-        header += f" {'КО':>3}"
-    if show_big_knockouts:
-        header += f" {'БКО':>4}"
-    if show_bonus:
-        header += f" {results.bonus_points_label:>9}"
-    if include_points:
-        header += f" {'Очки':>6}"
-    rows.append(header)
+    columns = _game_table_columns(
+        show_knockouts=show_knockouts,
+        show_big_knockouts=show_big_knockouts,
+        show_bonus=show_bonus,
+        include_points=include_points,
+        bonus_label=str(results.bonus_points_label),
+    )
+    name_width = _game_table_name_width(columns)
+    header = " ".join(["№", f"{'Игрок':<{name_width}}", *[column[0] for column in columns]])
+    rows.append(header.rstrip())
     for player in sorted_players:
         place = str(player.place) if player.place is not None else "—"
-        base = f"{place:<5}  {fmt_common.code_cell(player.display_name, 18):<18}"
+        cells = [
+            f"{place:>{_PLACE_WIDTH}}",
+            f"{fmt_common.code_cell(player.display_name, name_width):<{name_width}}",
+        ]
         if show_knockouts:
-            base += _table_number_cell(player, player.knockouts_count, width=3)
+            cells.append(_table_number_cell(player, player.knockouts_count, width=_KNOCKOUT_WIDTH))
         if show_big_knockouts:
-            base += _table_number_cell(player, player.big_knockouts_count, width=4)
+            cells.append(
+                _table_number_cell(player, player.big_knockouts_count, width=_BIG_KNOCKOUT_WIDTH)
+            )
         if show_bonus:
-            base += _table_number_cell(player, player.bonus_points, width=9)
+            cells.append(_table_number_cell(player, player.bonus_points, width=_BONUS_WIDTH))
         if include_points:
             value = "" if _is_missing_place_row(player) else fmt_common.points(player.total_points)
-            base += f" {value:>6}"
-        rows.append(base)
+            cells.append(f"{value:>{_POINTS_WIDTH}}")
+        rows.append(" ".join(cells).rstrip())
     return ["```", *rows, "```"]
+
+
+def _game_table_columns(
+    *,
+    show_knockouts: bool,
+    show_big_knockouts: bool,
+    show_bonus: bool,
+    include_points: bool,
+    bonus_label: str,
+) -> list[tuple[str, int]]:
+    columns: list[tuple[str, int]] = []
+    if show_knockouts:
+        columns.append((f"{'КО':>{_KNOCKOUT_WIDTH}}", _KNOCKOUT_WIDTH))
+    if show_big_knockouts:
+        columns.append((f"{'БКО':>{_BIG_KNOCKOUT_WIDTH}}", _BIG_KNOCKOUT_WIDTH))
+    if show_bonus:
+        columns.append((f"{bonus_label:>{_BONUS_WIDTH}}", _BONUS_WIDTH))
+    if include_points:
+        columns.append((f"{'Очки':>{_POINTS_WIDTH}}", _POINTS_WIDTH))
+    return columns
+
+
+def _game_table_name_width(columns: list[tuple[str, int]]) -> int:
+    separators_width = 1 + len(columns)
+    technical_width = _PLACE_WIDTH + separators_width + sum(width for _label, width in columns)
+    return max(8, GAME_TABLE_TOTAL_WIDTH - technical_width)
 
 
 def _show_close_points(results: object) -> bool:
@@ -373,8 +411,8 @@ def _photo_status_lines(results: object) -> list[str]:
 
 def _table_number_cell(player: object, value: int, *, width: int) -> str:
     if _is_missing_place_row(player):
-        return f" {'':>{width}}"
-    return f" {value:>{width}}"
+        return f"{'':>{width}}"
+    return f"{value:>{width}}"
 
 
 def _is_missing_place_row(player: object) -> bool:

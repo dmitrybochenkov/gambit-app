@@ -177,7 +177,7 @@ async def test_history_lists_only_periods_and_tournaments_with_results(
                 bonus_points=0,
                 total_points=Decimal("10"),
             ),
-            ["Место", "Игрок", "Очки"],
+            ["№", "Игрок", "Очки"],
             [" КО", "БКО", "Бонус"],
         ),
         (
@@ -190,7 +190,7 @@ async def test_history_lists_only_periods_and_tournaments_with_results(
                 bonus_points=0,
                 total_points=Decimal("10"),
             ),
-            ["Место", "Игрок", "КО", "Очки"],
+            ["№", "Игрок", "КО", "Очки"],
             ["БКО", "Бонус"],
         ),
         (
@@ -203,7 +203,7 @@ async def test_history_lists_only_periods_and_tournaments_with_results(
                 bonus_points=0,
                 total_points=Decimal("10"),
             ),
-            ["Место", "Игрок", "БКО", "Очки"],
+            ["№", "Игрок", "БКО", "Очки"],
             [" КО", "Бонус"],
         ),
         (
@@ -216,7 +216,7 @@ async def test_history_lists_only_periods_and_tournaments_with_results(
                 bonus_points=3,
                 total_points=Decimal("10"),
             ),
-            ["Место", "Игрок", "Бонус", "Очки"],
+            ["№", "Игрок", "Бонус", "Очки"],
             [" КО", "БКО"],
         ),
     ],
@@ -342,12 +342,14 @@ async def test_history_result_sorting_and_formatter(tmp_path: Path) -> None:
         ]
         page = pagination_service.paginate(result.rows, page=0, page_size=20)
         text = history_fmt.tournament_result(result, page)
-        assert "Место  Игрок                 КО  БКО  Бонус   Очки" in text
+        table_lines = text.split("```", maxsplit=2)[1].strip("\n").splitlines()
+        assert table_lines[0] == "№ Игрок              КО БКО Бонус Очки"
         assert "Борис" in text
-        assert "Александр Очень Дли…" in text
-        assert "—      Виктор                 9    0      0      0" in text
-        assert "Борис                  2    2      0     12" in text
-        assert "Глеб                   1    0      6     10" in text
+        assert "Александр Очень Д…" in text
+        assert "— Виктор              9   0     0    0" in text
+        assert "Борис               2   2     0   12" in text
+        assert "Глеб                1   0     6   10" in text
+        assert all(len(line) <= history_fmt.HISTORY_TABLE_TOTAL_WIDTH for line in table_lines)
         assert text.startswith("⏳ История\n\n17 июля 2026\nКлассика\n\n```")
     finally:
         await engine.dispose()

@@ -455,6 +455,10 @@ def test_parse_result_manual_value_rejects_place_outside_top_five() -> None:
         )
 
 
+def first_code_block_lines(text: str) -> list[str]:
+    return text.split("```", maxsplit=2)[1].strip("\n").splitlines()
+
+
 def test_admin_result_players_hide_ids_and_empty_places() -> None:
     tournament = tournament_view(125, date(2026, 7, 19), 2, "Классика")
     players = [
@@ -484,11 +488,12 @@ def test_admin_result_players_hide_ids_and_empty_places() -> None:
     text = result_fmt.players_table(results, page)
     assert text.startswith("Игроки турнира\nВоскресенье, 19 июля — Классика\n\nИгроки: 2")
     assert "В " + "работе" not in text
-    assert "Место  Игрок" in text
+    table_lines = first_code_block_lines(text)
+    assert table_lines[0] == "№ Игрок"
     assert "КО" not in text
     assert "БКО" not in text
     assert "Бонус" not in text
-    assert "2      Илларионов" in text
+    assert "2 Илларионов" in text
     assert "Тест Игрок" not in text
     buttons = [
         button.text
@@ -545,7 +550,7 @@ def test_admin_result_players_show_empty_state_without_entered_results() -> None
     text = result_fmt.players_table(results, page)
     assert "Игроки: 1" in text
     assert "В " + "работе" not in text
-    assert "Место  Игрок" in text
+    assert first_code_block_lines(text)[0] == "№ Игрок"
     assert "Тест Игрок" not in text
 
 
@@ -728,15 +733,17 @@ def test_admin_result_players_show_place_only_table_for_classic() -> None:
     page = Page(items=results.players, page=0, page_size=6, total_items=5)
     text = result_fmt.players_table(results, page)
 
-    assert "Место  Игрок" in text
+    table_lines = first_code_block_lines(text)
+    assert table_lines[0] == "№ Игрок"
     assert "КО" not in text
     assert "БКО" not in text
     assert "Бонус" not in text
-    assert "1      Тест Игрок 1" in text
-    assert "2      Тест Игрок 4" in text
-    assert "4      Дима Боченков" in text
-    assert "5      Тест Игрок 7" in text
+    assert "1 Тест Игрок 1" in text
+    assert "2 Тест Игрок 4" in text
+    assert "4 Дима Боченков" in text
+    assert "5 Тест Игрок 7" in text
     assert "Илларионов Александр" not in text
+    assert all(len(line) <= result_fmt.GAME_TABLE_TOTAL_WIDTH for line in table_lines)
 
 
 def test_admin_result_players_show_required_place_slots() -> None:
@@ -787,12 +794,12 @@ def test_admin_result_players_show_required_place_slots() -> None:
 
     text = result_fmt.players_table(results, page)
 
-    assert "1      Первый" in text
-    assert "2      НЕ ВВЕДЕНО" in text
-    assert "3      НЕ ВВЕДЕНО" in text
-    assert "4      Четвертый" in text
-    assert "5      Пятый" in text
-    assert "—      КО без места" in text
+    assert "1 Первый" in text
+    assert "2 НЕ ВВЕДЕНО" in text
+    assert "3 НЕ ВВЕДЕНО" in text
+    assert "4 Четвертый" in text
+    assert "5 Пятый" in text
+    assert "— КО без места" in text
     assert "Без результата" not in text
 
 
@@ -837,15 +844,16 @@ def test_admin_result_players_add_knockout_columns_for_bounty() -> None:
     page = Page(items=results.players, page=0, page_size=6, total_items=4)
     text = result_fmt.players_table(results, page)
 
-    assert "Место  Игрок" in text
-    assert "КО  БКО" in text
-    assert "🥊" not in text.split("```")[1].splitlines()[0]
-    assert "👑" not in text.split("```")[1].splitlines()[0]
+    table_lines = first_code_block_lines(text)
+    assert table_lines[0] == "№ Игрок                         КО БКО"
+    assert "🥊" not in table_lines[0]
+    assert "👑" not in table_lines[0]
     assert "Бонус" not in text
-    assert "3      Игрок Место" in text
-    assert "—      Игрок БКО" in text
+    assert "3 Игрок Место" in text
+    assert "— Игрок БКО" in text
     assert "Игрок КО" in text
     assert "Игрок Много КО" in text
+    assert all(len(line) <= result_fmt.GAME_TABLE_TOTAL_WIDTH for line in table_lines)
 
 
 def test_admin_result_players_add_bonus_only_when_supported() -> None:
@@ -868,7 +876,7 @@ def test_admin_result_players_add_bonus_only_when_supported() -> None:
     page = Page(items=results.players, page=0, page_size=6, total_items=1)
 
     text = result_fmt.players_table(results, page)
-    assert "Место  Игрок" in text
+    assert first_code_block_lines(text)[0] == "№ Игрок                       КО Бонус"
     assert "КО" in text
     assert "Бонус" in text
     assert "БКО" not in text
@@ -922,8 +930,8 @@ def test_mystery_bounty_result_ui_uses_bonus_without_knockouts() -> None:
     assert "КО" not in text
     assert "БКО" not in text
     assert "Доп. очки" in text
-    assert "1      Илларионов" in text
-    assert "2      НЕ ВВЕДЕНО" in text
+    assert "1 Илларионов" in text
+    assert "2 НЕ ВВЕДЕНО" in text
     assert field_buttons == ["➕ Доп. очки", "🏁 Место", "❌ Отмена"]
     assert "КО" not in close_preview
     assert "БКО" not in close_preview
@@ -968,13 +976,13 @@ def test_admin_close_tournament_formatters_show_fund_and_game_tables() -> None:
         "Фонд турнира должен быть положительным целым числом, кратным 10.\n\nВведите фонд турнира."
     )
     assert "Введите фонд турнира?" in card
-    assert "Место  Игрок               КО  БКО" in card
+    assert "№ Игрок                   КО БКО Бонус" in card
     assert "Бонус" in card
-    assert "🥊" not in card.split("```")[1].splitlines()[0]
+    assert "🥊" not in first_code_block_lines(card)[0]
     assert "Фонд турнира: 1800" in confirmation
     assert "После подтверждения будут рассчитаны рейтинговые очки" in confirmation
     assert "✅ Турнир закрыт" in closed
-    assert "Место  Игрок               КО  БКО" in closed
+    assert "№ Игрок              КО БКО Бонус Очки" in closed
     assert "Бонус" in closed
     assert "Очки" in closed
     assert "1111" in closed
@@ -982,6 +990,12 @@ def test_admin_close_tournament_formatters_show_fund_and_game_tables() -> None:
     assert "Тест Игрок" not in card
     assert "Тест Игрок" not in confirmation
     assert "Тест Игрок" not in closed
+    assert all(
+        len(line) <= result_fmt.GAME_TABLE_TOTAL_WIDTH for line in first_code_block_lines(card)
+    )
+    assert all(
+        len(line) <= result_fmt.GAME_TABLE_TOTAL_WIDTH for line in first_code_block_lines(closed)
+    )
 
 
 def test_admin_close_tournament_fund_input_keyboard_has_back_and_cancel() -> None:
@@ -1090,12 +1104,12 @@ def test_close_tournament_tables_hide_disabled_columns_for_classic() -> None:
     card = result_fmt.close_tournament_card(results)
     closed = result_fmt.closed_tournament(results)
 
-    assert "Место  Игрок" in card
+    assert first_code_block_lines(card)[0] == "№ Игрок"
     assert "КО" not in card
     assert "БКО" not in card
     assert "Бонус" not in card
     closed_header = closed.split("```")[1].splitlines()[1]
-    assert "Место" in closed_header
+    assert "№" in closed_header
     assert "Игрок" in closed_header
     assert "Очки" in closed_header
     assert "КО" not in closed
@@ -3637,7 +3651,7 @@ async def test_history_tournament_result_callback_formats_table(
     )
 
     message.edit_text.assert_awaited_once()
-    assert "Место  Игрок" in message.edit_text.await_args.args[0]
+    assert "№ Игрок" in message.edit_text.await_args.args[0]
     assert "Очки" in message.edit_text.await_args.args[0]
     assert "42" in message.edit_text.await_args.args[0]
     assert "Игрок Первый" in message.edit_text.await_args.args[0]
