@@ -22,6 +22,9 @@ class PlayerProfileView:
     third_places_count: int
     fourth_places_count: int
     fifth_places_count: int
+    rating_position: int | None
+    rating_participants_count: int
+    prize_percent: int | None
     honours: tuple[PlayerProfileHonourView, ...] = ()
 
     @property

@@ -11,6 +11,7 @@ from app.db.repositories.profile_repository import (
     PlayerProfileStats,
     ProfileRepository,
 )
+from app.db.repositories.rating_repository import RatingRepository
 from app.db.repositories.season_repository import SeasonRepository
 from app.db.session import SessionFactory
 from app.services.access_policy import ActiveUserRequiredError, access_policy
@@ -62,6 +63,7 @@ class ProfileService:
             return await self._get_profile(
                 profile_repository=ProfileRepository(session),
                 hall_of_fame_repository=HallOfFameRepository(session),
+                rating_repository=RatingRepository(session),
                 season_repository=SeasonRepository(session),
                 player_id=user.id,
                 display_name=user.display_name,
@@ -87,6 +89,7 @@ class ProfileService:
     async def _get_profile(
         profile_repository: ProfileRepository,
         hall_of_fame_repository: HallOfFameRepository,
+        rating_repository: RatingRepository,
         season_repository: SeasonRepository,
         player_id: int,
         display_name: str,
@@ -105,10 +108,20 @@ class ProfileService:
                 player_id=player_id,
                 season_id=season.id,
             )
+            rating_position, rating_participants_count = await _points_rating_position(
+                rating_repository,
+                player_id,
+                season_id=season.id,
+            )
             honours = await _player_honours(hall_of_fame_repository, player_id)
             return (
                 "Твой профиль — текущий сезон",
-                player_profile_view(stats, honours=honours) if stats else None,
+                player_profile_view(
+                    stats, 
+                    rating_position=rating_position,
+                    rating_participants_count=rating_participants_count,
+                    honours=honours,
+                ) if stats else None,
             )
         if kind == ProfileKind.SELECTED_SEASON:
             season = await _require_started_season(season_repository, season_id, today)
@@ -116,22 +129,58 @@ class ProfileService:
                 player_id=player_id,
                 season_id=season.id,
             )
+            rating_position, rating_participants_count = await _points_rating_position(
+                rating_repository,
+                player_id,
+                season_id=season.id,
+            )
             honours = await _player_honours(hall_of_fame_repository, player_id)
             return (
                 f"Твой профиль — {season.name}",
-                player_profile_view(stats, honours=honours) if stats else None,
+                player_profile_view(
+                    stats, 
+                    rating_position=rating_position,
+                    rating_participants_count=rating_participants_count,
+                    honours=honours,
+                ) if stats else None,
             )
         stats = await profile_repository.get_player_stats(player_id=player_id)
         honours = await _player_honours(hall_of_fame_repository, player_id)
+        rating_position, rating_participants_count = await _points_rating_position(
+            rating_repository,
+            player_id,
+        )
         return (
             "Твой профиль — за всё время",
-            player_profile_view(stats, honours=honours) if stats else None,
+            player_profile_view(
+                stats, 
+                rating_position=rating_position,
+                rating_participants_count=rating_participants_count,
+                honours=honours
+            ) if stats else None,
         )
+
+
+def prize_percent(stats: PlayerProfileStats) -> int | None:
+    if stats.tournaments_count == 0:
+        return None
+
+    prize_places_count = (
+        stats.first_places_count
+        + stats.second_places_count
+        + stats.third_places_count
+        + stats.fourth_places_count
+        + stats.fifth_places_count
+    )
+
+    return round(prize_places_count / stats.tournaments_count * 100)
 
 
 def player_profile_view(
     stats: PlayerProfileStats,
     *,
+    rating_position: int | None,
+    rating_participants_count: int,
     honours: tuple[PlayerProfileHonourView, ...] = (),
 ) -> PlayerProfileView:
     return PlayerProfileView(
@@ -145,6 +194,9 @@ def player_profile_view(
         third_places_count=stats.third_places_count,
         fourth_places_count=stats.fourth_places_count,
         fifth_places_count=stats.fifth_places_count,
+        rating_position=rating_position,
+        rating_participants_count=rating_participants_count,
+        prize_percent=prize_percent(stats),
         honours=honours,
     )
 
@@ -161,6 +213,9 @@ def empty_profile(display_name: str) -> PlayerProfileView:
         third_places_count=0,
         fourth_places_count=0,
         fifth_places_count=0,
+        rating_position=None,
+        rating_participants_count=0,
+        prize_percent=None,
     )
 
 
@@ -178,6 +233,21 @@ async def _player_honours(
         for row in rows
     )
 
+async def _points_rating_position(
+    repository: RatingRepository,
+    player_id: int,
+    season_id: int | None = None,
+) -> tuple[int | None, int]:
+    rows = await repository.get_points_rating(season_id=season_id)
+    position = next(
+        (
+            index
+            for index, row in enumerate(rows, start=1)
+            if row.player_id == player_id
+        ),
+        None,
+    )
+    return position, len(rows)
 
 async def _require_started_season(
     season_repository: SeasonRepository,

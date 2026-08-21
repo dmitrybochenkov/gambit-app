@@ -15,11 +15,12 @@ def message(title: str, stats: object | None) -> str:
     lines = [
         title,
         "⭐ - количество очков",
+        "🎯 — процент попадания в пятерку лидеров",
         "🥊 - количество нокаутов",
         "🎲 - количество турниров",
         "",
         stats.display_name,
-        f"⭐ {points} | 🥊 {stats.total_knockouts_count} | 🎲 {stats.tournaments_count}",
+        f"⭐ {points}{_rating_position(stats)} | 🎯 {_prize_percent(stats)} | 🥊 {stats.total_knockouts_count} | 🎲 {stats.tournaments_count}" 
     ]
     prize_place_lines = _prize_place_lines(stats)
     if prize_place_lines:
@@ -28,6 +29,25 @@ def message(title: str, stats: object | None) -> str:
     if honour_lines:
         lines.extend(["", *honour_lines])
     return "\n".join(lines)
+
+
+def _rating_position(stats: object) -> str:
+    position = getattr(stats, "rating_position", None)
+    participants_count = getattr(stats, "rating_participants_count", 0)
+
+    if position is None or participants_count == 0:
+        return ""
+
+    return f" ({position} место из {participants_count})"
+
+
+def _prize_percent(stats: object) -> str:
+    value = getattr(stats, "prize_percent", None)
+
+    if value is None:
+        return "—"
+
+    return f"{value}%"
 
 
 def _prize_place_lines(stats: object) -> list[str]:
