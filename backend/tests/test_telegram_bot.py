@@ -95,6 +95,8 @@ from app.services.dto.registrations import (
     RegistrationReviewView,
     RegistrationsOverviewView,
     TournamentRegistrationCountView,
+    TournamentRegistrationPlayerView,
+    TournamentRegistrationsDetailView,
 )
 from app.services.dto.results import (
     TournamentCloseReadinessView,
@@ -1622,6 +1624,21 @@ def registrations_overview(
         pending_user_registration_count=pending_count,
         active_tournament_registration_count=tournament_count,
         tournaments=tournaments,
+    )
+
+
+def tournament_registrations_detail(
+    *,
+    tournament_id: int = 1,
+) -> TournamentRegistrationsDetailView:
+    return TournamentRegistrationsDetailView(
+        tournament_id=tournament_id,
+        date=date(2026, 8, 22),
+        tournament_type_name="Double Double",
+        players=[
+            TournamentRegistrationPlayerView(user_id=2, display_name="Иван Иванов"),
+            TournamentRegistrationPlayerView(user_id=3, display_name="Пётр Петров"),
+        ],
     )
 
 
@@ -6457,10 +6474,13 @@ async def test_registrations_button_opens_tournament_counts_without_back_when_us
 
     await superadmin_registration_handlers.show_pending_registrations(message)
 
-    assert message.answer.await_args.args[0] == (
-        "🎲 Регистрации на турниры\n\nСреда, 19 августа — Баунти\nЗарегистрировано: 14"
-    )
-    assert inline_keyboard_texts(message.answer.await_args.kwargs["reply_markup"]) == ["❌ Отмена"]
+    assert message.answer.await_args.args[0] == "🎲 Регистрации на турниры"
+    reply_markup = message.answer.await_args.kwargs["reply_markup"]
+    assert inline_keyboard_texts(reply_markup) == [
+        "Среда, 19 августа — Баунти (14)",
+        "❌ Отмена",
+    ]
+    assert "tournament_registrations:open:1:0" in reply_markup.inline_keyboard[0][0].callback_data
 
 
 async def test_registrations_hub_opens_tournament_counts_with_back(
@@ -6487,11 +6507,125 @@ async def test_registrations_hub_opens_tournament_counts_with_back(
     )
 
     callback.answer.assert_awaited_once_with()
+    assert message.edit_text.await_args.args[0] == "🎲 Регистрации на турниры"
+    reply_markup = message.edit_text.await_args.kwargs["reply_markup"]
+    assert inline_keyboard_texts(reply_markup) == [
+        "Среда, 19 августа — Баунти (9)",
+        "⬅️ Назад",
+        "❌ Отмена",
+    ]
+    assert "tournament_registrations:open:1:1" in reply_markup.inline_keyboard[0][0].callback_data
+
+
+async def test_tournament_registrations_detail_shows_players_and_back(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    service = SimpleNamespace(
+        get_tournament_registrations_detail_for_superadmin=AsyncMock(
+            return_value=tournament_registrations_detail(),
+        ),
+    )
+    monkeypatch.setattr(superadmin_registration_handlers, "registration_review_service", service)
+    message = SimpleNamespace(edit_text=AsyncMock())
+    callback = SimpleNamespace(
+        from_user=SimpleNamespace(id=100),
+        message=message,
+        answer=AsyncMock(),
+    )
+
+    await superadmin_registration_handlers.tournament_registrations(
+        callback,
+        superadmin_registrations_kb.TournamentRegistrationsCallback(
+            action=superadmin_registrations_kb.TournamentRegistrationsAction.OPEN,
+            tournament_id=1,
+            can_go_back=1,
+        ),
+    )
+
+    callback.answer.assert_awaited_once_with()
+    service.get_tournament_registrations_detail_for_superadmin.assert_awaited_once_with(100, 1)
     assert message.edit_text.await_args.args[0] == (
-        "🎲 Регистрации на турниры\n\nСреда, 19 августа — Баунти\nЗарегистрировано: 9"
+        "🎲 Регистрации на турнир\n\n"
+        "Суббота, 22 августа — Double Double\n\n"
+        "Зарегистрировано: 2\n\n"
+        "1. Иван Иванов\n"
+        "2. Пётр Петров"
     )
     assert inline_keyboard_texts(message.edit_text.await_args.kwargs["reply_markup"]) == [
         "⬅️ Назад",
+        "❌ Выход",
+    ]
+
+
+async def test_tournament_registrations_detail_back_rereads_root(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    service = SimpleNamespace(
+        get_registrations_overview_for_superadmin=AsyncMock(
+            return_value=registrations_overview(pending_count=2, tournament_count=9),
+        ),
+    )
+    monkeypatch.setattr(superadmin_registration_handlers, "registration_review_service", service)
+    message = SimpleNamespace(edit_text=AsyncMock())
+    callback = SimpleNamespace(
+        from_user=SimpleNamespace(id=100),
+        message=message,
+        answer=AsyncMock(),
+    )
+
+    await superadmin_registration_handlers.tournament_registrations(
+        callback,
+        superadmin_registrations_kb.TournamentRegistrationsCallback(
+            action=superadmin_registrations_kb.TournamentRegistrationsAction.BACK,
+            tournament_id=0,
+            can_go_back=1,
+        ),
+    )
+
+    callback.answer.assert_awaited_once_with()
+    service.get_registrations_overview_for_superadmin.assert_awaited_once_with(100)
+    assert message.edit_text.await_args.args[0] == "🎲 Регистрации на турниры"
+    assert inline_keyboard_texts(message.edit_text.await_args.kwargs["reply_markup"]) == [
+        "Среда, 19 августа — Баунти (9)",
+        "⬅️ Назад",
+        "❌ Отмена",
+    ]
+
+
+async def test_tournament_registrations_stale_callback_alerts_and_refreshes_root(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    service = SimpleNamespace(
+        get_tournament_registrations_detail_for_superadmin=AsyncMock(
+            side_effect=superadmin_registration_handlers.TournamentRegistrationsUnavailableError,
+        ),
+        get_registrations_overview_for_superadmin=AsyncMock(
+            return_value=registrations_overview(),
+        ),
+    )
+    monkeypatch.setattr(superadmin_registration_handlers, "registration_review_service", service)
+    message = SimpleNamespace(edit_text=AsyncMock())
+    callback = SimpleNamespace(
+        from_user=SimpleNamespace(id=100),
+        message=message,
+        answer=AsyncMock(),
+    )
+
+    await superadmin_registration_handlers.tournament_registrations(
+        callback,
+        superadmin_registrations_kb.TournamentRegistrationsCallback(
+            action=superadmin_registrations_kb.TournamentRegistrationsAction.OPEN,
+            tournament_id=1,
+            can_go_back=0,
+        ),
+    )
+
+    callback.answer.assert_awaited_once_with(
+        "Регистрации на этот турнир больше недоступны.",
+        show_alert=True,
+    )
+    assert message.edit_text.await_args.args[0] == ("🎲 Регистрации на турниры\n\nРегистраций нет.")
+    assert inline_keyboard_texts(message.edit_text.await_args.kwargs["reply_markup"]) == [
         "❌ Отмена",
     ]
 

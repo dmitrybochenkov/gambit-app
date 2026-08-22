@@ -3,6 +3,8 @@ PENDING_REGISTRATIONS_COUNT = "Заявок на проверке: {count}"
 REGISTRATION_LIST_TITLE = "Регистрации"
 REGISTRATIONS_EMPTY = "Регистраций нет."
 TOURNAMENT_REGISTRATIONS_TITLE = "🎲 Регистрации на турниры"
+TOURNAMENT_REGISTRATIONS_DETAIL_TITLE = "🎲 Регистрации на турнир"
+TOURNAMENT_REGISTRATIONS_UNAVAILABLE = "Регистрации на этот турнир больше недоступны."
 
 REGISTRATION_REVIEW_TITLE = "Новая заявка на регистрацию"
 DISPLAY_NAME_LABEL = "Имя игрока"
@@ -27,16 +29,31 @@ def registration_list(page: object) -> str:
 
 
 def tournament_registrations_overview(tournaments: list[object]) -> str:
-    lines = [TOURNAMENT_REGISTRATIONS_TITLE]
-    for tournament in tournaments:
-        lines.extend(
-            [
-                "",
-                _tournament_line(tournament),
-                f"Зарегистрировано: {tournament.registrations_count}",
-            ]
-        )
+    del tournaments
+    return TOURNAMENT_REGISTRATIONS_TITLE
+
+
+def empty_tournament_registrations_overview() -> str:
+    return f"{TOURNAMENT_REGISTRATIONS_TITLE}\n\nРегистраций нет."
+
+
+def tournament_registrations_detail(detail: object) -> str:
+    lines = [
+        TOURNAMENT_REGISTRATIONS_DETAIL_TITLE,
+        "",
+        _tournament_line(detail),
+        "",
+        f"Зарегистрировано: {len(detail.players)}",
+        "",
+    ]
+    lines.extend(
+        f"{index}. {player.display_name}" for index, player in enumerate(detail.players, start=1)
+    )
     return "\n".join(lines)
+
+
+def tournament_registration_button(tournament: object) -> str:
+    return f"{_tournament_line(tournament)} ({tournament.registrations_count})"
 
 
 def registration_review(review: object) -> str:

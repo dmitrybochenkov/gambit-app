@@ -19,6 +19,8 @@ from app.services.dto.registrations import (
     RegistrationReviewView,
     RegistrationsOverviewView,
     TournamentRegistrationCountView,
+    TournamentRegistrationPlayerView,
+    TournamentRegistrationsDetailView,
 )
 from app.services.pagination import Page
 from app.services.registration_service import RegistrationService, find_link_candidates
@@ -30,6 +32,10 @@ from app.services.user_common import (
     required_registration_request_view,
     required_user_view,
 )
+
+
+class TournamentRegistrationsUnavailableError(Exception):
+    pass
 
 
 class RegistrationReviewService:
@@ -132,6 +138,37 @@ class RegistrationReviewService:
                         registrations_count=row.registrations_count,
                     )
                     for row in tournaments
+                ],
+            )
+
+    async def get_tournament_registrations_detail_for_superadmin(
+        self,
+        superadmin_telegram_id: int,
+        tournament_id: int,
+    ) -> TournamentRegistrationsDetailView:
+        async with self.session_factory() as session:
+            await access_policy.require_superadmin(session, superadmin_telegram_id)
+            detail = await TournamentRegistrationRepository(
+                session
+            ).get_active_tournament_registration_detail(
+                tournament_id=tournament_id,
+                from_date=resolve_tournament_day(
+                    self.clock,
+                    self.tournament_day_start_hour,
+                ),
+            )
+            if detail is None or not detail.players:
+                raise TournamentRegistrationsUnavailableError
+            return TournamentRegistrationsDetailView(
+                tournament_id=detail.tournament_id,
+                date=detail.tournament_date,
+                tournament_type_name=detail.tournament_type_name,
+                players=[
+                    TournamentRegistrationPlayerView(
+                        user_id=player.player_id,
+                        display_name=player.display_name,
+                    )
+                    for player in detail.players
                 ],
             )
 

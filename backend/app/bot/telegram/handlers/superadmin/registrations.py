@@ -19,7 +19,10 @@ from app.bot.telegram.texts.user import registration as user_registration_text
 from app.services.access_policy import AdminAccessDeniedError
 from app.services.dto.registrations import RegistrationReviewResultView
 from app.services.pagination import Page
-from app.services.registration_review_service import registration_review_service
+from app.services.registration_review_service import (
+    TournamentRegistrationsUnavailableError,
+    registration_review_service,
+)
 from app.services.user_common import (
     IdentityAlreadyExistsError,
     RegistrationAlreadyReviewedError,
@@ -61,6 +64,7 @@ async def show_pending_registrations(message: Message) -> None:
         await message.answer(
             text.tournament_registrations_overview(overview.tournaments),
             reply_markup=superadmin_registrations_kb.tournament_registrations_keyboard(
+                overview.tournaments,
                 can_go_back=False,
             ),
         )
@@ -101,6 +105,57 @@ async def registrations_hub(
         )
     except AdminAccessDeniedError:
         await callback.answer(panel_text.INSUFFICIENT_RIGHTS, show_alert=True)
+
+
+@router.callback_query(superadmin_registrations_kb.TournamentRegistrationsCallback.filter())
+async def tournament_registrations(
+    callback: CallbackQuery,
+    callback_data: superadmin_registrations_kb.TournamentRegistrationsCallback,
+) -> None:
+    can_go_back = bool(callback_data.can_go_back)
+    try:
+        if callback_data.action == superadmin_registrations_kb.TournamentRegistrationsAction.BACK:
+            overview = await registration_review_service.get_registrations_overview_for_superadmin(
+                callback.from_user.id,
+            )
+            await callback.answer()
+            await _edit_tournament_registrations_overview(
+                callback,
+                overview.tournaments,
+                can_go_back=can_go_back,
+            )
+            return
+
+        detail = (
+            await registration_review_service.get_tournament_registrations_detail_for_superadmin(
+                callback.from_user.id,
+                callback_data.tournament_id,
+            )
+        )
+    except AdminAccessDeniedError:
+        await callback.answer(panel_text.INSUFFICIENT_RIGHTS, show_alert=True)
+        return
+    except TournamentRegistrationsUnavailableError:
+        await callback.answer(text.TOURNAMENT_REGISTRATIONS_UNAVAILABLE, show_alert=True)
+        overview = await registration_review_service.get_registrations_overview_for_superadmin(
+            callback.from_user.id,
+        )
+        await _edit_tournament_registrations_overview(
+            callback,
+            overview.tournaments,
+            can_go_back=can_go_back,
+        )
+        return
+
+    await callback.answer()
+    if callback.message is not None:
+        await edit_message_if_changed(
+            callback.message,
+            text=text.tournament_registrations_detail(detail),
+            reply_markup=superadmin_registrations_kb.tournament_registrations_detail_keyboard(
+                can_go_back=can_go_back,
+            ),
+        )
 
 
 @router.callback_query(superadmin_registrations_kb.RegistrationListCallback.filter())
@@ -444,6 +499,7 @@ async def _edit_registrations_hub(callback: CallbackQuery, overview: object) -> 
         callback.message,
         text=text.REGISTRATIONS_EMPTY,
         reply_markup=superadmin_registrations_kb.tournament_registrations_keyboard(
+            [],
             can_go_back=False,
         ),
     )
@@ -457,10 +513,16 @@ async def _edit_tournament_registrations_overview(
 ) -> None:
     if callback.message is None:
         return
+    overview_text = (
+        text.tournament_registrations_overview(tournaments)
+        if tournaments
+        else text.empty_tournament_registrations_overview()
+    )
     await edit_message_if_changed(
         callback.message,
-        text=text.tournament_registrations_overview(tournaments),
+        text=overview_text,
         reply_markup=superadmin_registrations_kb.tournament_registrations_keyboard(
+            tournaments,
             can_go_back=can_go_back,
         ),
     )

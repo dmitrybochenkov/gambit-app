@@ -59,6 +59,20 @@ class TournamentRegistrationCountView:
 
 
 @dataclass(frozen=True)
+class TournamentRegistrationPlayerView:
+    user_id: int
+    display_name: str
+
+
+@dataclass(frozen=True)
+class TournamentRegistrationsDetailView:
+    tournament_id: int
+    date: date
+    tournament_type_name: str
+    players: list[TournamentRegistrationPlayerView]
+
+
+@dataclass(frozen=True)
 class RegistrationsOverviewView:
     pending_user_registration_count: int
     active_tournament_registration_count: int

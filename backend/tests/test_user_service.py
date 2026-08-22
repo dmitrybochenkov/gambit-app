@@ -28,7 +28,10 @@ from app.db.models.enums import (
 )
 from app.services.admin_management_service import AdminManagementService
 from app.services.dto.users import UserStartStatusView
-from app.services.registration_review_service import RegistrationReviewService
+from app.services.registration_review_service import (
+    RegistrationReviewService,
+    TournamentRegistrationsUnavailableError,
+)
 from app.services.registration_service import RegistrationService
 from app.services.user_access_service import UserAccessService
 from app.services.user_common import (
@@ -165,6 +168,126 @@ async def test_registrations_overview_counts_only_active_tournament_registration
         assert [
             (item.tournament_type_name, item.registrations_count) for item in overview.tournaments
         ] == [("Баунти турнир", 2)]
+    finally:
+        await engine.dispose()
+
+
+@pytest.mark.asyncio
+async def test_tournament_registrations_detail_uses_registration_rows_and_player_order(
+    tmp_path: Path,
+) -> None:
+    _, engine = await create_user_service(tmp_path / "registrations_detail.db")
+    try:
+        async with async_sessionmaker(engine, expire_on_commit=False)() as session:
+            config = ScoringConfig()
+            session.add(config)
+            await session.flush()
+            await seed_tournament_types_async(session)
+            season = Season(
+                name="Лето 2026",
+                scoring_config_id=config.id,
+                starts_at=date(2026, 7, 1),
+                ends_at=None,
+            )
+            superadmin = create_user(
+                telegram_id=1,
+                display_name="Superadmin",
+                role=UserRole.SUPERADMIN,
+                status=UserStatus.ACTIVE,
+            )
+            alpha = create_user(display_name="Алексей", status=UserStatus.ACTIVE)
+            beta = create_user(display_name="Борис", status=UserStatus.ACTIVE)
+            session.add_all([season, superadmin, beta, alpha])
+            await session.flush()
+            tournament = Tournament(
+                season_id=season.id,
+                tournament_type_id=tournament_type_id("double_double"),
+                date=date(2026, 8, 22),
+                status=TournamentStatus.ACTIVE,
+            )
+            session.add(tournament)
+            await session.flush()
+            session.add_all(
+                [
+                    TournamentRegistration(tournament_id=tournament.id, player_id=beta.id),
+                    TournamentRegistration(tournament_id=tournament.id, player_id=alpha.id),
+                ]
+            )
+            tournament_id = tournament.id
+            await session.commit()
+
+        review_service = RegistrationReviewService(
+            async_sessionmaker(engine, expire_on_commit=False),
+            clock=FixedClock(datetime(2026, 8, 22, 12, tzinfo=ZoneInfo("Europe/Moscow"))),
+            tournament_day_start_hour=11,
+        )
+        detail = await review_service.get_tournament_registrations_detail_for_superadmin(
+            1,
+            tournament_id,
+        )
+
+        assert detail.date == date(2026, 8, 22)
+        assert detail.tournament_type_name == "Double Double"
+        assert [player.display_name for player in detail.players] == ["Алексей", "Борис"]
+    finally:
+        await engine.dispose()
+
+
+@pytest.mark.asyncio
+async def test_tournament_registrations_detail_rejects_unavailable_tournament(
+    tmp_path: Path,
+) -> None:
+    _, engine = await create_user_service(tmp_path / "registrations_detail_stale.db")
+    try:
+        async with async_sessionmaker(engine, expire_on_commit=False)() as session:
+            config = ScoringConfig()
+            session.add(config)
+            await session.flush()
+            await seed_tournament_types_async(session)
+            season = Season(
+                name="Лето 2026",
+                scoring_config_id=config.id,
+                starts_at=date(2026, 7, 1),
+                ends_at=None,
+            )
+            superadmin = create_user(
+                telegram_id=1,
+                display_name="Superadmin",
+                role=UserRole.SUPERADMIN,
+                status=UserStatus.ACTIVE,
+            )
+            player = create_user(display_name="Игрок", status=UserStatus.ACTIVE)
+            session.add_all([season, superadmin, player])
+            await session.flush()
+            closed = Tournament(
+                season_id=season.id,
+                tournament_type_id=tournament_type_id("classic"),
+                date=date(2026, 8, 22),
+                status=TournamentStatus.CLOSED,
+                tournament_fund=1000,
+            )
+            empty = Tournament(
+                season_id=season.id,
+                tournament_type_id=tournament_type_id("bounty"),
+                date=date(2026, 8, 23),
+                status=TournamentStatus.ACTIVE,
+            )
+            session.add_all([closed, empty])
+            await session.flush()
+            session.add(TournamentRegistration(tournament_id=closed.id, player_id=player.id))
+            closed_id = closed.id
+            empty_id = empty.id
+            await session.commit()
+
+        review_service = RegistrationReviewService(
+            async_sessionmaker(engine, expire_on_commit=False),
+            clock=FixedClock(datetime(2026, 8, 22, 12, tzinfo=ZoneInfo("Europe/Moscow"))),
+            tournament_day_start_hour=11,
+        )
+        with pytest.raises(TournamentRegistrationsUnavailableError):
+            await review_service.get_tournament_registrations_detail_for_superadmin(1, closed_id)
+        with pytest.raises(TournamentRegistrationsUnavailableError):
+            await review_service.get_tournament_registrations_detail_for_superadmin(1, empty_id)
     finally:
         await engine.dispose()
 

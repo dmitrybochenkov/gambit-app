@@ -16,6 +16,18 @@ class TournamentRegistrationCountRow(NamedTuple):
     registrations_count: int
 
 
+class TournamentRegistrationPlayerRow(NamedTuple):
+    player_id: int
+    display_name: str
+
+
+class TournamentRegistrationsDetailRow(NamedTuple):
+    tournament_id: int
+    tournament_date: date
+    tournament_type_name: str
+    players: list[TournamentRegistrationPlayerRow]
+
+
 class TournamentRegistrationRepository:
     def __init__(self, session: AsyncSession) -> None:
         self.session = session
@@ -157,3 +169,40 @@ class TournamentRegistrationRepository:
             )
             for row in result.all()
         ]
+
+    async def get_active_tournament_registration_detail(
+        self,
+        tournament_id: int,
+        from_date: date,
+    ) -> TournamentRegistrationsDetailRow | None:
+        tournament_result = await self.session.execute(
+            select(Tournament.id, Tournament.date, TournamentType.name)
+            .join(TournamentType, TournamentType.id == Tournament.tournament_type_id)
+            .where(
+                Tournament.id == tournament_id,
+                Tournament.status == TournamentStatus.ACTIVE,
+                Tournament.date >= from_date,
+            )
+        )
+        tournament = tournament_result.one_or_none()
+        if tournament is None:
+            return None
+
+        players_result = await self.session.execute(
+            select(User.id, User.display_name)
+            .join(TournamentRegistration, TournamentRegistration.player_id == User.id)
+            .where(TournamentRegistration.tournament_id == tournament_id)
+            .order_by(User.display_name_normalized, User.display_name, User.id)
+        )
+        return TournamentRegistrationsDetailRow(
+            tournament_id=int(tournament[0]),
+            tournament_date=tournament[1],
+            tournament_type_name=str(tournament[2]),
+            players=[
+                TournamentRegistrationPlayerRow(
+                    player_id=int(row[0]),
+                    display_name=str(row[1]),
+                )
+                for row in players_result.all()
+            ],
+        )

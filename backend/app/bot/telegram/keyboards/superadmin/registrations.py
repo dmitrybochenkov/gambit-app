@@ -5,7 +5,12 @@ from aiogram.types import InlineKeyboardMarkup
 from aiogram.utils.keyboard import InlineKeyboardBuilder
 
 from app.bot.telegram.keyboards import labels
-from app.services.dto.registrations import RegistrationCandidateView, RegistrationReviewView
+from app.bot.telegram.texts.superadmin import registrations as registration_text
+from app.services.dto.registrations import (
+    RegistrationCandidateView,
+    RegistrationReviewView,
+    TournamentRegistrationCountView,
+)
 from app.services.pagination import Page
 
 REGISTRATION_LIST_PAGE_SIZE = 5
@@ -20,6 +25,17 @@ class RegistrationsHubAction(StrEnum):
 
 class RegistrationsHubCallback(CallbackData, prefix="registrations_hub"):
     action: RegistrationsHubAction
+
+
+class TournamentRegistrationsAction(StrEnum):
+    OPEN = "open"
+    BACK = "back"
+
+
+class TournamentRegistrationsCallback(CallbackData, prefix="tournament_registrations"):
+    action: TournamentRegistrationsAction
+    tournament_id: int
+    can_go_back: int
 
 
 class RegistrationReviewAction(StrEnum):
@@ -85,8 +101,21 @@ def registrations_hub_keyboard() -> InlineKeyboardMarkup:
     return builder.as_markup()
 
 
-def tournament_registrations_keyboard(*, can_go_back: bool) -> InlineKeyboardMarkup:
+def tournament_registrations_keyboard(
+    tournaments: list[TournamentRegistrationCountView],
+    *,
+    can_go_back: bool,
+) -> InlineKeyboardMarkup:
     builder = InlineKeyboardBuilder()
+    for tournament in tournaments:
+        builder.button(
+            text=registration_text.tournament_registration_button(tournament),
+            callback_data=TournamentRegistrationsCallback(
+                action=TournamentRegistrationsAction.OPEN,
+                tournament_id=tournament.tournament_id,
+                can_go_back=int(can_go_back),
+            ),
+        )
     if can_go_back:
         builder.button(
             text="⬅️ Назад",
@@ -94,6 +123,24 @@ def tournament_registrations_keyboard(*, can_go_back: bool) -> InlineKeyboardMar
         )
     builder.button(
         text=labels.ADMIN_CANCEL,
+        callback_data=RegistrationsHubCallback(action=RegistrationsHubAction.CANCEL),
+    )
+    builder.adjust(1)
+    return builder.as_markup()
+
+
+def tournament_registrations_detail_keyboard(*, can_go_back: bool) -> InlineKeyboardMarkup:
+    builder = InlineKeyboardBuilder()
+    builder.button(
+        text="⬅️ Назад",
+        callback_data=TournamentRegistrationsCallback(
+            action=TournamentRegistrationsAction.BACK,
+            tournament_id=0,
+            can_go_back=int(can_go_back),
+        ),
+    )
+    builder.button(
+        text="❌ Выход",
         callback_data=RegistrationsHubCallback(action=RegistrationsHubAction.CANCEL),
     )
     builder.adjust(1)
