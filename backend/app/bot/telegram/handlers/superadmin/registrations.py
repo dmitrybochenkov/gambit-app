@@ -50,27 +50,13 @@ async def show_pending_registrations(message: Message) -> None:
         await message.answer(panel_text.INSUFFICIENT_RIGHTS)
         return
 
-    if overview.has_user_registrations and overview.has_tournament_registrations:
-        await message.answer(
-            text.REGISTRATION_LIST_TITLE,
-            reply_markup=superadmin_registrations_kb.registrations_hub_keyboard(),
-        )
-        return
-    if overview.has_user_registrations:
-        page = await _get_pending_reviews_page(message.from_user.id, page=0)
-        await _answer_pending_reviews(message, page)
-        return
-    if overview.has_tournament_registrations:
-        await message.answer(
-            text.tournament_registrations_overview(overview.tournaments),
-            reply_markup=superadmin_registrations_kb.tournament_registrations_keyboard(
-                overview.tournaments,
-                can_go_back=False,
-            ),
-        )
-        return
-
-    await message.answer(text.REGISTRATIONS_EMPTY)
+    await message.answer(
+        text.REGISTRATION_LIST_TITLE,
+        reply_markup=superadmin_registrations_kb.registrations_hub_keyboard(
+            user_registration_count=overview.pending_user_registration_count,
+            tournament_registration_count=overview.active_tournament_registration_count,
+        ),
+    )
 
 
 @router.callback_query(superadmin_registrations_kb.RegistrationsHubCallback.filter())
@@ -87,7 +73,10 @@ async def registrations_hub(
         if callback_data.action == superadmin_registrations_kb.RegistrationsHubAction.USER_REQUESTS:
             page = await _get_pending_reviews_page(callback.from_user.id, page=0)
             await callback.answer()
-            await _edit_pending_reviews(callback, page)
+            if page.total_items:
+                await _edit_pending_reviews(callback, page)
+            else:
+                await _edit_empty_user_registrations(callback)
             return
 
         overview = await registration_review_service.get_registrations_overview_for_superadmin(
@@ -101,7 +90,6 @@ async def registrations_hub(
         await _edit_tournament_registrations_overview(
             callback,
             overview.tournaments,
-            can_go_back=True,
         )
     except AdminAccessDeniedError:
         await callback.answer(panel_text.INSUFFICIENT_RIGHTS, show_alert=True)
@@ -112,7 +100,6 @@ async def tournament_registrations(
     callback: CallbackQuery,
     callback_data: superadmin_registrations_kb.TournamentRegistrationsCallback,
 ) -> None:
-    can_go_back = bool(callback_data.can_go_back)
     try:
         if callback_data.action == superadmin_registrations_kb.TournamentRegistrationsAction.BACK:
             overview = await registration_review_service.get_registrations_overview_for_superadmin(
@@ -122,7 +109,6 @@ async def tournament_registrations(
             await _edit_tournament_registrations_overview(
                 callback,
                 overview.tournaments,
-                can_go_back=can_go_back,
             )
             return
 
@@ -143,7 +129,6 @@ async def tournament_registrations(
         await _edit_tournament_registrations_overview(
             callback,
             overview.tournaments,
-            can_go_back=can_go_back,
         )
         return
 
@@ -152,9 +137,7 @@ async def tournament_registrations(
         await edit_message_if_changed(
             callback.message,
             text=text.tournament_registrations_detail(detail),
-            reply_markup=superadmin_registrations_kb.tournament_registrations_detail_keyboard(
-                can_go_back=can_go_back,
-            ),
+            reply_markup=superadmin_registrations_kb.tournament_registrations_detail_keyboard(),
         )
 
 
@@ -477,30 +460,12 @@ async def _edit_pending_reviews(callback: CallbackQuery, page: Page) -> None:
 async def _edit_registrations_hub(callback: CallbackQuery, overview: object) -> None:
     if callback.message is None:
         return
-    if overview.has_user_registrations and overview.has_tournament_registrations:
-        await edit_message_if_changed(
-            callback.message,
-            text=text.REGISTRATION_LIST_TITLE,
-            reply_markup=superadmin_registrations_kb.registrations_hub_keyboard(),
-        )
-        return
-    if overview.has_user_registrations:
-        page = await _get_pending_reviews_page(callback.from_user.id, page=0)
-        await _edit_pending_reviews(callback, page)
-        return
-    if overview.has_tournament_registrations:
-        await _edit_tournament_registrations_overview(
-            callback,
-            overview.tournaments,
-            can_go_back=False,
-        )
-        return
     await edit_message_if_changed(
         callback.message,
-        text=text.REGISTRATIONS_EMPTY,
-        reply_markup=superadmin_registrations_kb.tournament_registrations_keyboard(
-            [],
-            can_go_back=False,
+        text=text.REGISTRATION_LIST_TITLE,
+        reply_markup=superadmin_registrations_kb.registrations_hub_keyboard(
+            user_registration_count=overview.pending_user_registration_count,
+            tournament_registration_count=overview.active_tournament_registration_count,
         ),
     )
 
@@ -508,8 +473,6 @@ async def _edit_registrations_hub(callback: CallbackQuery, overview: object) -> 
 async def _edit_tournament_registrations_overview(
     callback: CallbackQuery,
     tournaments: list[object],
-    *,
-    can_go_back: bool,
 ) -> None:
     if callback.message is None:
         return
@@ -523,8 +486,17 @@ async def _edit_tournament_registrations_overview(
         text=overview_text,
         reply_markup=superadmin_registrations_kb.tournament_registrations_keyboard(
             tournaments,
-            can_go_back=can_go_back,
         ),
+    )
+
+
+async def _edit_empty_user_registrations(callback: CallbackQuery) -> None:
+    if callback.message is None:
+        return
+    await edit_message_if_changed(
+        callback.message,
+        text=text.empty_user_registrations(),
+        reply_markup=superadmin_registrations_kb.registration_branch_empty_keyboard(),
     )
 
 

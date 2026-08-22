@@ -35,7 +35,6 @@ class TournamentRegistrationsAction(StrEnum):
 class TournamentRegistrationsCallback(CallbackData, prefix="tournament_registrations"):
     action: TournamentRegistrationsAction
     tournament_id: int
-    can_go_back: int
 
 
 class RegistrationReviewAction(StrEnum):
@@ -83,14 +82,20 @@ class RegistrationListCallback(CallbackData, prefix="registration_list"):
     request_id: int
 
 
-def registrations_hub_keyboard() -> InlineKeyboardMarkup:
+def registrations_hub_keyboard(
+    *,
+    user_registration_count: int,
+    tournament_registration_count: int,
+) -> InlineKeyboardMarkup:
     builder = InlineKeyboardBuilder()
     builder.button(
-        text=labels.REGISTRATIONS_USER_REQUESTS,
+        text=registration_text.user_registrations_button(user_registration_count),
         callback_data=RegistrationsHubCallback(action=RegistrationsHubAction.USER_REQUESTS),
     )
     builder.button(
-        text=labels.REGISTRATIONS_TOURNAMENTS,
+        text=registration_text.tournament_registrations_button(
+            tournament_registration_count,
+        ),
         callback_data=RegistrationsHubCallback(action=RegistrationsHubAction.TOURNAMENTS),
     )
     builder.button(
@@ -103,8 +108,6 @@ def registrations_hub_keyboard() -> InlineKeyboardMarkup:
 
 def tournament_registrations_keyboard(
     tournaments: list[TournamentRegistrationCountView],
-    *,
-    can_go_back: bool,
 ) -> InlineKeyboardMarkup:
     builder = InlineKeyboardBuilder()
     for tournament in tournaments:
@@ -113,14 +116,12 @@ def tournament_registrations_keyboard(
             callback_data=TournamentRegistrationsCallback(
                 action=TournamentRegistrationsAction.OPEN,
                 tournament_id=tournament.tournament_id,
-                can_go_back=int(can_go_back),
             ),
         )
-    if can_go_back:
-        builder.button(
-            text="⬅️ Назад",
-            callback_data=RegistrationsHubCallback(action=RegistrationsHubAction.BACK),
-        )
+    builder.button(
+        text="⬅️ Назад",
+        callback_data=RegistrationsHubCallback(action=RegistrationsHubAction.BACK),
+    )
     builder.button(
         text=labels.ADMIN_CANCEL,
         callback_data=RegistrationsHubCallback(action=RegistrationsHubAction.CANCEL),
@@ -129,14 +130,13 @@ def tournament_registrations_keyboard(
     return builder.as_markup()
 
 
-def tournament_registrations_detail_keyboard(*, can_go_back: bool) -> InlineKeyboardMarkup:
+def tournament_registrations_detail_keyboard() -> InlineKeyboardMarkup:
     builder = InlineKeyboardBuilder()
     builder.button(
         text="⬅️ Назад",
         callback_data=TournamentRegistrationsCallback(
             action=TournamentRegistrationsAction.BACK,
             tournament_id=0,
-            can_go_back=int(can_go_back),
         ),
     )
     builder.button(
@@ -269,6 +269,10 @@ def registration_list_keyboard(page: Page[RegistrationReviewView]) -> InlineKeyb
             )
 
     builder.button(
+        text="⬅️ Назад",
+        callback_data=RegistrationsHubCallback(action=RegistrationsHubAction.BACK),
+    )
+    builder.button(
         text=labels.ADMIN_CANCEL,
         callback_data=RegistrationListCallback(
             action=RegistrationListAction.CANCEL,
@@ -280,9 +284,23 @@ def registration_list_keyboard(page: Page[RegistrationReviewView]) -> InlineKeyb
     item_rows = [1] * len(page.items)
     if page.total_pages > 1:
         navigation_buttons = 1 + int(page.has_previous) + int(page.has_next)
-        builder.adjust(*item_rows, navigation_buttons, 1)
+        builder.adjust(*item_rows, navigation_buttons, 1, 1)
     else:
-        builder.adjust(*item_rows, 1)
+        builder.adjust(*item_rows, 1, 1)
+    return builder.as_markup()
+
+
+def registration_branch_empty_keyboard() -> InlineKeyboardMarkup:
+    builder = InlineKeyboardBuilder()
+    builder.button(
+        text="⬅️ Назад",
+        callback_data=RegistrationsHubCallback(action=RegistrationsHubAction.BACK),
+    )
+    builder.button(
+        text=labels.ADMIN_CANCEL,
+        callback_data=RegistrationsHubCallback(action=RegistrationsHubAction.CANCEL),
+    )
+    builder.adjust(1)
     return builder.as_markup()
 
 

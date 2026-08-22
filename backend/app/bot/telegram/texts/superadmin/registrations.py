@@ -1,7 +1,7 @@
 NO_PENDING_REGISTRATIONS = "Заявок на регистрацию нет."
 PENDING_REGISTRATIONS_COUNT = "Заявок на проверке: {count}"
 REGISTRATION_LIST_TITLE = "Регистрации"
-REGISTRATIONS_EMPTY = "Регистраций нет."
+USER_REGISTRATIONS_TITLE = "📝 Регистрации пользователей"
 TOURNAMENT_REGISTRATIONS_TITLE = "🎲 Регистрации на турниры"
 TOURNAMENT_REGISTRATIONS_DETAIL_TITLE = "🎲 Регистрации на турнир"
 TOURNAMENT_REGISTRATIONS_UNAVAILABLE = "Регистрации на этот турнир больше недоступны."
@@ -26,6 +26,18 @@ REGISTRATION_MATCH_KNOCKOUTS_LABEL = "🥊"
 def registration_list(page: object) -> str:
     del page
     return REGISTRATION_LIST_TITLE
+
+
+def user_registrations_button(count: int) -> str:
+    return f"{USER_REGISTRATIONS_TITLE} ({count})"
+
+
+def tournament_registrations_button(count: int) -> str:
+    return f"{TOURNAMENT_REGISTRATIONS_TITLE} ({count})"
+
+
+def empty_user_registrations() -> str:
+    return f"{USER_REGISTRATIONS_TITLE}\n\nРегистраций нет."
 
 
 def tournament_registrations_overview(tournaments: list[object]) -> str:
