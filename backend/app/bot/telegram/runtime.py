@@ -90,8 +90,12 @@ async def setup_telegram_webhook() -> None:
         url=f"{public_base_url}/webhooks/tg",
         secret_token=settings.telegram_webhook_secret,
         drop_pending_updates=True,
-        allowed_updates=telegram_dispatcher.resolve_used_update_types(),
+        allowed_updates=telegram_allowed_updates(),
     )
+
+
+def telegram_allowed_updates() -> list[str]:
+    return sorted({*telegram_dispatcher.resolve_used_update_types(), "channel_post"})
 
 
 async def shutdown_telegram_bot() -> None:

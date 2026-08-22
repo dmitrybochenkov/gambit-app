@@ -7728,8 +7728,20 @@ async def test_setup_webhook_uses_public_url(monkeypatch: pytest.MonkeyPatch) ->
         url="https://gambit.example/webhooks/tg",
         secret_token="secret",
         drop_pending_updates=True,
-        allowed_updates=["callback_query", "message"],
+        allowed_updates=["callback_query", "channel_post", "message"],
     )
+
+
+def test_telegram_allowed_updates_always_include_channel_post(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        runtime.telegram_dispatcher,
+        "resolve_used_update_types",
+        Mock(return_value=["message", "callback_query"]),
+    )
+
+    assert runtime.telegram_allowed_updates() == ["callback_query", "channel_post", "message"]
 
 
 def test_telegram_runtime_uses_role_router_facades() -> None:
