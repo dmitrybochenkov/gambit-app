@@ -5,12 +5,14 @@ from aiogram.filters.callback_data import CallbackData
 from aiogram.types import InlineKeyboardMarkup
 from aiogram.utils.keyboard import InlineKeyboardBuilder
 
+from app.bot.telegram.formatters import publications as publication_fmt
 from app.bot.telegram.keyboards import labels
 from app.bot.telegram.keyboards.admin.common import (
     PLACE_EMOJIS,
     _adjust_paged_keyboard,
     _admin_candidate_page_label,
 )
+from app.db.models.enums import TournamentCombinationType
 from app.services.dto.results import TournamentResultPlayerView, TournamentResultsView
 from app.services.dto.tournaments import TournamentView
 from app.services.pagination import Page
@@ -106,12 +108,31 @@ class AdminResultMenuAction(StrEnum):
     ROOT = "root"
     DATA = "data"
     PHOTOS = "photos"
+    COMBINATIONS = "combinations"
     CANCEL = "cancel"
 
 
 class AdminResultMenuCallback(CallbackData, prefix="res_menu"):
     action: AdminResultMenuAction
     tournament_id: int
+
+
+class AdminCombinationAction(StrEnum):
+    ADD = "add"
+    DELETE_MENU = "delete_menu"
+    SELECT_PLAYER = "player"
+    SAVE = "save"
+    DELETE = "delete"
+    BACK = "back"
+    CANCEL = "cancel"
+
+
+class AdminCombinationCallback(CallbackData, prefix="res_combo"):
+    action: AdminCombinationAction
+    tournament_id: int
+    player_id: int = 0
+    combination_id: int = 0
+    combination_type: str = ""
 
 
 def admin_result_tournament_list_keyboard(
@@ -200,6 +221,13 @@ def admin_result_root_keyboard(results: TournamentResultsView) -> InlineKeyboard
         ),
     )
     builder.button(
+        text="🃏 Комбинации вечера",
+        callback_data=AdminResultMenuCallback(
+            action=AdminResultMenuAction.COMBINATIONS,
+            tournament_id=results.tournament.id,
+        ),
+    )
+    builder.button(
         text=labels.ADMIN_CANCEL,
         callback_data=AdminResultMenuCallback(
             action=AdminResultMenuAction.CANCEL,
@@ -207,6 +235,136 @@ def admin_result_root_keyboard(results: TournamentResultsView) -> InlineKeyboard
         ),
     )
     builder.adjust(1)
+    return builder.as_markup()
+
+
+def admin_combination_root_keyboard(view: object) -> InlineKeyboardMarkup:
+    builder = InlineKeyboardBuilder()
+    builder.button(
+        text="➕ Добавить",
+        callback_data=AdminCombinationCallback(
+            action=AdminCombinationAction.ADD,
+            tournament_id=view.tournament.id,
+        ),
+    )
+    if view.combinations:
+        builder.button(
+            text="🗑 Удалить",
+            callback_data=AdminCombinationCallback(
+                action=AdminCombinationAction.DELETE_MENU,
+                tournament_id=view.tournament.id,
+            ),
+        )
+    builder.button(
+        text="⬅️ Назад",
+        callback_data=AdminResultMenuCallback(
+            action=AdminResultMenuAction.ROOT,
+            tournament_id=view.tournament.id,
+        ),
+    )
+    builder.button(
+        text=labels.ADMIN_CANCEL,
+        callback_data=AdminCombinationCallback(
+            action=AdminCombinationAction.CANCEL,
+            tournament_id=view.tournament.id,
+        ),
+    )
+    builder.adjust(1)
+    return builder.as_markup()
+
+
+def admin_combination_players_keyboard(view: object) -> InlineKeyboardMarkup:
+    builder = InlineKeyboardBuilder()
+    for player in view.players:
+        builder.button(
+            text=player.display_name,
+            callback_data=AdminCombinationCallback(
+                action=AdminCombinationAction.SELECT_PLAYER,
+                tournament_id=view.tournament.id,
+                player_id=player.player_id,
+            ),
+        )
+    builder.button(
+        text="⬅️ Назад",
+        callback_data=AdminCombinationCallback(
+            action=AdminCombinationAction.BACK,
+            tournament_id=view.tournament.id,
+        ),
+    )
+    builder.button(
+        text=labels.ADMIN_CANCEL,
+        callback_data=AdminCombinationCallback(
+            action=AdminCombinationAction.CANCEL,
+            tournament_id=view.tournament.id,
+        ),
+    )
+    builder.adjust(*([1] * len(view.players)), 1, 1)
+    return builder.as_markup()
+
+
+def admin_combination_types_keyboard(*, tournament_id: int, player_id: int) -> InlineKeyboardMarkup:
+    builder = InlineKeyboardBuilder()
+    for combination_type, text in [
+        (TournamentCombinationType.FOUR_OF_A_KIND, "Каре"),
+        (TournamentCombinationType.STRAIGHT_FLUSH, "Стрит-флеш"),
+        (TournamentCombinationType.ROYAL_FLUSH, "Роял-флеш"),
+    ]:
+        builder.button(
+            text=text,
+            callback_data=AdminCombinationCallback(
+                action=AdminCombinationAction.SAVE,
+                tournament_id=tournament_id,
+                player_id=player_id,
+                combination_type=combination_type.value,
+            ),
+        )
+    builder.button(
+        text="⬅️ Назад",
+        callback_data=AdminCombinationCallback(
+            action=AdminCombinationAction.ADD,
+            tournament_id=tournament_id,
+        ),
+    )
+    builder.button(
+        text=labels.ADMIN_CANCEL,
+        callback_data=AdminCombinationCallback(
+            action=AdminCombinationAction.CANCEL,
+            tournament_id=tournament_id,
+        ),
+    )
+    builder.adjust(1)
+    return builder.as_markup()
+
+
+def admin_combination_delete_keyboard(view: object) -> InlineKeyboardMarkup:
+    builder = InlineKeyboardBuilder()
+    for combination in view.combinations:
+        builder.button(
+            text=(
+                f"{combination.display_name} — "
+                f"{publication_fmt.combination_label(combination.combination_type)}"
+            ),
+            callback_data=AdminCombinationCallback(
+                action=AdminCombinationAction.DELETE,
+                tournament_id=view.tournament.id,
+                combination_id=combination.id,
+            ),
+        )
+    builder.button(
+        text="⬅️ Назад",
+        callback_data=AdminCombinationCallback(
+            action=AdminCombinationAction.BACK,
+            tournament_id=view.tournament.id,
+        ),
+    )
+    builder.button(
+        text=labels.ADMIN_CANCEL,
+        callback_data=AdminCombinationCallback(
+            action=AdminCombinationAction.CANCEL,
+            tournament_id=view.tournament.id,
+        ),
+    )
+    builder.adjust(*([1] * len(view.combinations)), 1, 1)
     return builder.as_markup()
 
 

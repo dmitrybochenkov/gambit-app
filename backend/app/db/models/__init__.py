@@ -3,7 +3,9 @@ from app.db.models.scoring_config import ScoringConfig
 from app.db.models.season import Season
 from app.db.models.season_hall_of_fame import SeasonHallOfFame
 from app.db.models.tournament import Tournament
+from app.db.models.tournament_combination import TournamentCombination
 from app.db.models.tournament_photo import TournamentPhoto
+from app.db.models.tournament_publication import TournamentPublication
 from app.db.models.tournament_registration import TournamentRegistration
 from app.db.models.tournament_result import TournamentResult
 from app.db.models.tournament_type import (
@@ -21,6 +23,7 @@ __all__ = [
     "Season",
     "SeasonHallOfFame",
     "Tournament",
+    "TournamentCombination",
     "TournamentEconomyConfig",
     "TournamentRebuyConfig",
     "TournamentType",
@@ -28,6 +31,7 @@ __all__ = [
     "WeeklyTournamentTemplate",
     "TournamentRegistration",
     "TournamentPhoto",
+    "TournamentPublication",
     "TournamentResult",
     "User",
 ]

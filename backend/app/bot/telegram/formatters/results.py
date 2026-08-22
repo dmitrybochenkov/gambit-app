@@ -1,4 +1,5 @@
 from app.bot.telegram.formatters import common as fmt_common
+from app.bot.telegram.formatters import publications as publication_fmt
 from app.bot.telegram.formatters import tournaments as tournament_fmt
 from app.bot.telegram.texts.admin import results as result_texts
 
@@ -57,6 +58,30 @@ def photo_menu(results: object) -> str:
             f"Фотографий: {results.photo_count}",
         ]
     )
+
+
+def combinations_root(view: object) -> str:
+    lines = ["🃏 Комбинации вечера", ""]
+    lines.extend(
+        f"{combination.display_name} — "
+        f"{publication_fmt.combination_label(combination.combination_type)}"
+        for combination in view.combinations
+    )
+    if lines[-1] == "":
+        lines.pop()
+    return "\n".join(lines)
+
+
+def combination_player_prompt(view: object) -> str:
+    return "\n".join(["🃏 Комбинации вечера", "", "Выбери игрока:"])
+
+
+def combination_type_prompt(player_name: str) -> str:
+    return "\n".join(["🃏 Комбинации вечера", "", player_name, "", "Выбери комбинацию:"])
+
+
+def combination_delete_prompt(view: object) -> str:
+    return "\n".join(["🃏 Комбинации вечера", "", "Что удалить?"])
 
 
 def close_tournament_list(page: object) -> str:

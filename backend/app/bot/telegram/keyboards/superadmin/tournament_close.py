@@ -4,8 +4,10 @@ from aiogram.filters.callback_data import CallbackData
 from aiogram.types import InlineKeyboardMarkup
 from aiogram.utils.keyboard import InlineKeyboardBuilder
 
+from app.bot.telegram.formatters import publications as publication_fmt
 from app.bot.telegram.keyboards import labels
 from app.bot.telegram.keyboards.admin.common import _adjust_paged_keyboard
+from app.db.models.enums import TournamentCombinationType
 from app.services.dto.tournaments import TournamentView
 from app.services.pagination import Page
 
@@ -18,6 +20,8 @@ class AdminCloseTournamentAction(StrEnum):
     VIEW_PHOTOS = "view_photos"
     CONFIRM = "confirm"
     CHANGE_FUND = "change_fund"
+    PUBLISH_PREVIEW = "publish_preview"
+    PUBLISH_CONFIRM = "publish_confirm"
     CANCEL = "cancel"
 
 
@@ -38,6 +42,12 @@ class AdminTournamentRepairAction(StrEnum):
     CREATE_NEW = "create_new"
     EDIT_RESULTS = "edit_results"
     PHOTOS = "photos"
+    COMBINATIONS = "combinations"
+    ADD_COMBINATION = "add_combination"
+    SELECT_COMBINATION_PLAYER = "combination_player"
+    SAVE_COMBINATION = "save_combination"
+    DELETE_COMBINATION_MENU = "delete_combination_menu"
+    DELETE_COMBINATION = "delete_combination"
     ADD_PHOTO = "add_photo"
     PHOTO_DONE = "photo_done"
     VIEW_PHOTOS = "view_photos"
@@ -50,6 +60,8 @@ class AdminTournamentRepairCallback(CallbackData, prefix="repair_tour"):
     action: AdminTournamentRepairAction
     tournament_id: int
     player_id: int = 0
+    combination_id: int = 0
+    combination_type: str = ""
 
 
 def admin_close_tournament_list_keyboard(
@@ -172,6 +184,13 @@ def admin_correction_tournament_card_keyboard(readiness: object) -> InlineKeyboa
         text="📸 Фотографии",
         callback_data=AdminTournamentRepairCallback(
             action=AdminTournamentRepairAction.PHOTOS,
+            tournament_id=tournament.id,
+        ),
+    )
+    builder.button(
+        text="🃏 Комбинации вечера",
+        callback_data=AdminTournamentRepairCallback(
+            action=AdminTournamentRepairAction.COMBINATIONS,
             tournament_id=tournament.id,
         ),
     )
@@ -339,6 +358,140 @@ def admin_repair_photo_collect_keyboard(tournament_id: int) -> InlineKeyboardMar
     return builder.as_markup()
 
 
+def admin_repair_combination_root_keyboard(view: object) -> InlineKeyboardMarkup:
+    builder = InlineKeyboardBuilder()
+    builder.button(
+        text="➕ Добавить",
+        callback_data=AdminTournamentRepairCallback(
+            action=AdminTournamentRepairAction.ADD_COMBINATION,
+            tournament_id=view.tournament.id,
+        ),
+    )
+    if view.combinations:
+        builder.button(
+            text="🗑 Удалить",
+            callback_data=AdminTournamentRepairCallback(
+                action=AdminTournamentRepairAction.DELETE_COMBINATION_MENU,
+                tournament_id=view.tournament.id,
+            ),
+        )
+    builder.button(
+        text="⬅️ Назад",
+        callback_data=AdminTournamentRepairCallback(
+            action=AdminTournamentRepairAction.OPEN,
+            tournament_id=view.tournament.id,
+        ),
+    )
+    builder.button(
+        text=labels.ADMIN_CANCEL,
+        callback_data=AdminTournamentRepairCallback(
+            action=AdminTournamentRepairAction.CANCEL,
+            tournament_id=view.tournament.id,
+        ),
+    )
+    builder.adjust(1)
+    return builder.as_markup()
+
+
+def admin_repair_combination_players_keyboard(view: object) -> InlineKeyboardMarkup:
+    builder = InlineKeyboardBuilder()
+    for player in view.players:
+        builder.button(
+            text=player.display_name,
+            callback_data=AdminTournamentRepairCallback(
+                action=AdminTournamentRepairAction.SELECT_COMBINATION_PLAYER,
+                tournament_id=view.tournament.id,
+                player_id=player.player_id,
+            ),
+        )
+    builder.button(
+        text="⬅️ Назад",
+        callback_data=AdminTournamentRepairCallback(
+            action=AdminTournamentRepairAction.COMBINATIONS,
+            tournament_id=view.tournament.id,
+        ),
+    )
+    builder.button(
+        text=labels.ADMIN_CANCEL,
+        callback_data=AdminTournamentRepairCallback(
+            action=AdminTournamentRepairAction.CANCEL,
+            tournament_id=view.tournament.id,
+        ),
+    )
+    builder.adjust(*([1] * len(view.players)), 1, 1)
+    return builder.as_markup()
+
+
+def admin_repair_combination_types_keyboard(
+    *,
+    tournament_id: int,
+    player_id: int,
+) -> InlineKeyboardMarkup:
+    builder = InlineKeyboardBuilder()
+    for combination_type, text in [
+        (TournamentCombinationType.FOUR_OF_A_KIND, "Каре"),
+        (TournamentCombinationType.STRAIGHT_FLUSH, "Стрит-флеш"),
+        (TournamentCombinationType.ROYAL_FLUSH, "Роял-флеш"),
+    ]:
+        builder.button(
+            text=text,
+            callback_data=AdminTournamentRepairCallback(
+                action=AdminTournamentRepairAction.SAVE_COMBINATION,
+                tournament_id=tournament_id,
+                player_id=player_id,
+                combination_type=combination_type.value,
+            ),
+        )
+    builder.button(
+        text="⬅️ Назад",
+        callback_data=AdminTournamentRepairCallback(
+            action=AdminTournamentRepairAction.ADD_COMBINATION,
+            tournament_id=tournament_id,
+        ),
+    )
+    builder.button(
+        text=labels.ADMIN_CANCEL,
+        callback_data=AdminTournamentRepairCallback(
+            action=AdminTournamentRepairAction.CANCEL,
+            tournament_id=tournament_id,
+        ),
+    )
+    builder.adjust(1)
+    return builder.as_markup()
+
+
+def admin_repair_combination_delete_keyboard(view: object) -> InlineKeyboardMarkup:
+    builder = InlineKeyboardBuilder()
+    for combination in view.combinations:
+        builder.button(
+            text=(
+                f"{combination.display_name} — "
+                f"{publication_fmt.combination_label(combination.combination_type)}"
+            ),
+            callback_data=AdminTournamentRepairCallback(
+                action=AdminTournamentRepairAction.DELETE_COMBINATION,
+                tournament_id=view.tournament.id,
+                combination_id=combination.id,
+            ),
+        )
+    builder.button(
+        text="⬅️ Назад",
+        callback_data=AdminTournamentRepairCallback(
+            action=AdminTournamentRepairAction.COMBINATIONS,
+            tournament_id=view.tournament.id,
+        ),
+    )
+    builder.button(
+        text=labels.ADMIN_CANCEL,
+        callback_data=AdminTournamentRepairCallback(
+            action=AdminTournamentRepairAction.CANCEL,
+            tournament_id=view.tournament.id,
+        ),
+    )
+    builder.adjust(*([1] * len(view.combinations)), 1, 1)
+    return builder.as_markup()
+
+
 def admin_close_tournament_card_keyboard(*, tournament_id: int, page: int) -> InlineKeyboardMarkup:
     builder = InlineKeyboardBuilder()
     builder.button(
@@ -440,6 +593,46 @@ def admin_close_tournament_confirmation_keyboard(
         callback_data=AdminCloseTournamentCallback(
             action=AdminCloseTournamentAction.CANCEL,
             page=page,
+            tournament_id=tournament_id,
+        ),
+    )
+    builder.adjust(1)
+    return builder.as_markup()
+
+
+def admin_publish_results_action_keyboard(tournament_id: int) -> InlineKeyboardMarkup:
+    builder = InlineKeyboardBuilder()
+    builder.button(
+        text="📣 Опубликовать результаты",
+        callback_data=AdminCloseTournamentCallback(
+            action=AdminCloseTournamentAction.PUBLISH_PREVIEW,
+            tournament_id=tournament_id,
+        ),
+    )
+    builder.adjust(1)
+    return builder.as_markup()
+
+
+def admin_publish_results_preview_keyboard(tournament_id: int) -> InlineKeyboardMarkup:
+    builder = InlineKeyboardBuilder()
+    builder.button(
+        text="✅ Опубликовать",
+        callback_data=AdminCloseTournamentCallback(
+            action=AdminCloseTournamentAction.PUBLISH_CONFIRM,
+            tournament_id=tournament_id,
+        ),
+    )
+    builder.button(
+        text="⬅️ Назад",
+        callback_data=AdminCloseTournamentCallback(
+            action=AdminCloseTournamentAction.PUBLISH_PREVIEW,
+            tournament_id=tournament_id,
+        ),
+    )
+    builder.button(
+        text=labels.ADMIN_CANCEL,
+        callback_data=AdminCloseTournamentCallback(
+            action=AdminCloseTournamentAction.CANCEL,
             tournament_id=tournament_id,
         ),
     )

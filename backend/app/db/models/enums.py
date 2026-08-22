@@ -25,6 +25,22 @@ class TournamentResultSource(StrEnum):
     WALK_IN_NEW = "walk_in_new"
 
 
+class TournamentCombinationType(StrEnum):
+    FOUR_OF_A_KIND = "four_of_a_kind"
+    STRAIGHT_FLUSH = "straight_flush"
+    ROYAL_FLUSH = "royal_flush"
+
+
+class TournamentPublicationType(StrEnum):
+    RESULTS = "results"
+    SCHEDULE = "schedule"
+
+
+class TournamentPublicationDestination(StrEnum):
+    GROUP = "group"
+    CHANNEL = "channel"
+
+
 class TournamentTypeStatus(StrEnum):
     ACTIVE = "active"
     ARCHIVED = "archived"

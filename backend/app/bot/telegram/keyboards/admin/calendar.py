@@ -12,6 +12,8 @@ class CalendarPlanAction(StrEnum):
     CANCEL = "cancel"
     EDIT = "edit"
     BACK = "back"
+    PUBLISH_PREVIEW = "publish_preview"
+    PUBLISH_CONFIRM = "publish_confirm"
 
 
 class CalendarPlanCallback(CallbackData, prefix="calendar_plan"):
@@ -55,6 +57,34 @@ def admin_calendar_keyboard() -> InlineKeyboardMarkup:
     builder.button(
         text=labels.ADMIN_CALENDAR_CANCEL,
         callback_data=AdminCalendarCallback(action=AdminCalendarAction.CANCEL),
+    )
+    builder.adjust(1)
+    return builder.as_markup()
+
+
+def schedule_publication_action_keyboard() -> InlineKeyboardMarkup:
+    builder = InlineKeyboardBuilder()
+    builder.button(
+        text="📣 Опубликовать расписание",
+        callback_data=CalendarPlanCallback(action=CalendarPlanAction.PUBLISH_PREVIEW),
+    )
+    builder.adjust(1)
+    return builder.as_markup()
+
+
+def schedule_publication_preview_keyboard() -> InlineKeyboardMarkup:
+    builder = InlineKeyboardBuilder()
+    builder.button(
+        text="✅ Опубликовать",
+        callback_data=CalendarPlanCallback(action=CalendarPlanAction.PUBLISH_CONFIRM),
+    )
+    builder.button(
+        text=labels.ADMIN_CALENDAR_BACK,
+        callback_data=CalendarPlanCallback(action=CalendarPlanAction.PUBLISH_PREVIEW),
+    )
+    builder.button(
+        text=labels.ADMIN_CALENDAR_CANCEL,
+        callback_data=CalendarPlanCallback(action=CalendarPlanAction.CANCEL),
     )
     builder.adjust(1)
     return builder.as_markup()

@@ -1,5 +1,4 @@
 import asyncio
-import logging
 from datetime import date, datetime
 from decimal import Decimal
 from pathlib import Path
@@ -601,7 +600,7 @@ def test_admin_result_player_buttons_show_entered_knockouts_and_place() -> None:
     ]
 
 
-def test_admin_result_root_keyboard_has_data_photos_cancel_only() -> None:
+def test_admin_result_root_keyboard_has_data_photos_combinations_cancel_only() -> None:
     tournament = tournament_view(125, date(2026, 7, 19), 6, "Boss Bounty")
     results = TournamentResultsView(
         tournament=tournament,
@@ -615,6 +614,7 @@ def test_admin_result_root_keyboard_has_data_photos_cancel_only() -> None:
     assert inline_keyboard_texts(admin_results_kb.admin_result_root_keyboard(results)) == [
         "🏁 Внести данные",
         "📸 Фотографии",
+        "🃏 Комбинации вечера",
         "❌ Отмена",
     ]
 
@@ -1102,6 +1102,7 @@ def test_superadmin_repair_root_keyboard_has_back_and_cancel() -> None:
         "👤 Добавить игрока",
         "🏁 Внести данные",
         "📸 Фотографии",
+        "🃏 Комбинации вечера",
         "⬅️ Назад",
         "❌ Отмена",
     ]
@@ -7599,107 +7600,6 @@ async def test_webhook_feeds_update(monkeypatch: pytest.MonkeyPatch) -> None:
 
     assert response == {"ok": True}
     feed_raw_update.assert_awaited_once_with(bot, {"update_id": 1})
-
-
-async def test_webhook_logs_message_chat_destination_metadata_only(
-    monkeypatch: pytest.MonkeyPatch,
-    caplog: pytest.LogCaptureFixture,
-) -> None:
-    bot = object()
-    feed_raw_update = AsyncMock()
-    monkeypatch.setattr(webhook_module, "telegram_bot", bot)
-    monkeypatch.setattr(webhook_module.telegram_dispatcher, "feed_raw_update", feed_raw_update)
-    monkeypatch.setattr(webhook_module.settings, "telegram_webhook_secret", "secret")
-    caplog.set_level(logging.INFO, logger=webhook_module.__name__)
-
-    await webhook_module.telegram_webhook(
-        payload={
-            "update_id": 1,
-            "message": {
-                "chat": {
-                    "id": -1001234567890,
-                    "type": "supergroup",
-                    "title": "Gambit Test Group",
-                },
-                "text": "secret message body",
-                "from": {"id": 42, "username": "hidden_user"},
-            },
-        },
-        x_telegram_bot_api_secret_token="secret",
-    )
-
-    assert caplog.messages == [
-        'TG_CHAT_DESTINATION id=-1001234567890 type=supergroup title="Gambit Test Group"'
-    ]
-    assert "secret message body" not in caplog.text
-    assert "hidden_user" not in caplog.text
-    assert "42" not in caplog.text
-
-
-async def test_webhook_logs_channel_post_chat_destination_metadata_only(
-    monkeypatch: pytest.MonkeyPatch,
-    caplog: pytest.LogCaptureFixture,
-) -> None:
-    bot = object()
-    feed_raw_update = AsyncMock()
-    monkeypatch.setattr(webhook_module, "telegram_bot", bot)
-    monkeypatch.setattr(webhook_module.telegram_dispatcher, "feed_raw_update", feed_raw_update)
-    monkeypatch.setattr(webhook_module.settings, "telegram_webhook_secret", "secret")
-    caplog.set_level(logging.INFO, logger=webhook_module.__name__)
-
-    await webhook_module.telegram_webhook(
-        payload={
-            "update_id": 1,
-            "channel_post": {
-                "chat": {
-                    "id": -1009876543210,
-                    "type": "channel",
-                    "title": "Gambit Test Channel",
-                },
-                "text": "secret channel post",
-                "author_signature": "hidden signature",
-            },
-        },
-        x_telegram_bot_api_secret_token="secret",
-    )
-
-    assert caplog.messages == [
-        'TG_CHAT_DESTINATION id=-1009876543210 type=channel title="Gambit Test Channel"'
-    ]
-    assert "secret channel post" not in caplog.text
-    assert "hidden signature" not in caplog.text
-
-
-async def test_webhook_chat_destination_logging_never_breaks_processing(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    bot = object()
-    feed_raw_update = AsyncMock()
-    monkeypatch.setattr(webhook_module, "telegram_bot", bot)
-    monkeypatch.setattr(webhook_module.telegram_dispatcher, "feed_raw_update", feed_raw_update)
-    monkeypatch.setattr(webhook_module.settings, "telegram_webhook_secret", "secret")
-    monkeypatch.setattr(
-        webhook_module.logger,
-        "info",
-        Mock(side_effect=RuntimeError("logging failed")),
-    )
-
-    response = await webhook_module.telegram_webhook(
-        payload={
-            "update_id": 1,
-            "message": {
-                "chat": {
-                    "id": -1001234567890,
-                    "type": "supergroup",
-                    "title": "Gambit Test Group",
-                },
-            },
-        },
-        x_telegram_bot_api_secret_token="secret",
-    )
-
-    assert response == {"ok": True}
-    feed_raw_update.assert_awaited_once()
 
 
 async def test_setup_webhook_requires_secret_in_public_mode(

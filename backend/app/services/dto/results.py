@@ -1,4 +1,5 @@
 from dataclasses import dataclass
+from datetime import date
 from decimal import Decimal
 
 from app.services.dto.tournaments import TournamentView
@@ -68,6 +69,96 @@ class TournamentPhotoAddView:
     photo_count: int
     created: bool
     limit_reached: bool = False
+
+
+@dataclass(frozen=True)
+class TournamentCombinationView:
+    id: int
+    tournament_id: int
+    player_id: int
+    display_name: str
+    combination_type: str
+
+
+@dataclass(frozen=True)
+class TournamentCombinationPlayerView:
+    player_id: int
+    display_name: str
+
+
+@dataclass(frozen=True)
+class TournamentCombinationsView:
+    tournament: TournamentView
+    combinations: list[TournamentCombinationView]
+    players: list[TournamentCombinationPlayerView]
+
+
+@dataclass(frozen=True)
+class TournamentPublicationDestinationView:
+    destination_type: str
+    chat_id: int
+    already_published: bool
+
+
+@dataclass(frozen=True)
+class TournamentPublicationPlaceView:
+    place: int
+    display_name: str
+    total_points: Decimal
+
+
+@dataclass(frozen=True)
+class TournamentPublicationKnockoutView:
+    display_name: str
+    knockouts_count: int
+    big_knockouts_count: int
+
+
+@dataclass(frozen=True)
+class TournamentResultPublicationView:
+    tournament: TournamentView
+    tournament_fund: int
+    places: list[TournamentPublicationPlaceView]
+    top_knockouters: list[TournamentPublicationKnockoutView]
+    combinations: list[TournamentCombinationView]
+    photos: list[TournamentPhotoView]
+    destinations: list[TournamentPublicationDestinationView]
+    content_hash: str
+
+
+@dataclass(frozen=True)
+class SchedulePublicationTournamentView:
+    id: int
+    date: date
+    tournament_type_name: str
+
+
+@dataclass(frozen=True)
+class SchedulePublicationView:
+    tournaments: list[SchedulePublicationTournamentView]
+    destinations: list[TournamentPublicationDestinationView]
+    content_hash: str
+
+
+@dataclass(frozen=True)
+class TournamentPublicationResultView:
+    destination_type: str
+    sent: bool
+    already_published: bool = False
+    failed: bool = False
+
+
+@dataclass(frozen=True)
+class TournamentPublicationSummaryView:
+    results: list[TournamentPublicationResultView]
+
+    @property
+    def has_failures(self) -> bool:
+        return any(item.failed for item in self.results)
+
+    @property
+    def has_sent(self) -> bool:
+        return any(item.sent for item in self.results)
 
 
 @dataclass(frozen=True)

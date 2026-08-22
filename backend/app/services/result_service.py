@@ -15,11 +15,13 @@ from app.db.models import (
 )
 from app.db.models.enums import (
     KnockoutMode,
+    TournamentCombinationType,
     TournamentResultSource,
     TournamentStatus,
 )
 from app.db.repositories.scoring_config_repository import ScoringConfigRepository
 from app.db.repositories.season_repository import SeasonRepository
+from app.db.repositories.tournament_combination_repository import TournamentCombinationRepository
 from app.db.repositories.tournament_photo_repository import TournamentPhotoRepository
 from app.db.repositories.tournament_repository import TournamentRepository
 from app.db.repositories.tournament_result_repository import TournamentResultRepository
@@ -36,6 +38,9 @@ from app.domain.tournament_result_edit_policy import is_tournament_result_editab
 from app.services.access_policy import access_policy
 from app.services.dto.results import (
     TournamentCloseReadinessView,
+    TournamentCombinationPlayerView,
+    TournamentCombinationsView,
+    TournamentCombinationView,
     TournamentPhotoAddView,
     TournamentPhotoView,
     TournamentResultPlayerView,
@@ -99,6 +104,14 @@ class ResultDuplicateNameError(ValueError):
 
 
 class ResultPlayerAlreadyAddedError(ValueError):
+    pass
+
+
+class ResultCombinationAlreadyExistsError(ValueError):
+    pass
+
+
+class ResultCombinationNotFoundError(ValueError):
     pass
 
 
@@ -482,6 +495,62 @@ class ResultService:
             await session.commit()
             return await self._results_view(session, tournament.id)
 
+    async def get_tournament_combinations(
+        self,
+        admin_telegram_id: int,
+        tournament_id: int,
+    ) -> TournamentCombinationsView:
+        async with self.session_factory() as session:
+            await access_policy.require_admin(session, admin_telegram_id)
+            tournament = await self._require_editable_tournament(session, tournament_id)
+            return await self._combinations_view(session, tournament)
+
+    async def add_tournament_combination(
+        self,
+        admin_telegram_id: int,
+        tournament_id: int,
+        player_id: int,
+        combination_type: TournamentCombinationType,
+    ) -> TournamentCombinationsView:
+        async with self.session_factory() as session:
+            await access_policy.require_admin(session, admin_telegram_id)
+            tournament = await self._require_editable_tournament(session, tournament_id)
+            result = await TournamentResultRepository(session).get_by_tournament_and_player(
+                tournament.id,
+                player_id,
+            )
+            if result is None:
+                raise ResultUserNotFoundError
+            try:
+                await TournamentCombinationRepository(session).add(
+                    tournament_id=tournament.id,
+                    player_id=player_id,
+                    combination_type=combination_type,
+                )
+                await session.commit()
+            except IntegrityError as exc:
+                await session.rollback()
+                raise ResultCombinationAlreadyExistsError from exc
+            return await self._combinations_view(session, tournament)
+
+    async def delete_tournament_combination(
+        self,
+        admin_telegram_id: int,
+        tournament_id: int,
+        combination_id: int,
+    ) -> TournamentCombinationsView:
+        async with self.session_factory() as session:
+            await access_policy.require_admin(session, admin_telegram_id)
+            tournament = await self._require_editable_tournament(session, tournament_id)
+            deleted = await TournamentCombinationRepository(session).delete_by_id(
+                tournament_id=tournament_id,
+                combination_id=combination_id,
+            )
+            if not deleted:
+                raise ResultCombinationNotFoundError
+            await session.commit()
+            return await self._combinations_view(session, tournament)
+
     async def _require_active_tournament(
         self,
         session: AsyncSession,
@@ -601,6 +670,35 @@ class ResultService:
             has_checkins=has_checkins,
             validation_errors=validation_errors,
             reasons=reasons,
+        )
+
+    async def _combinations_view(
+        self,
+        session: AsyncSession,
+        tournament: Tournament,
+    ) -> TournamentCombinationsView:
+        repository = TournamentCombinationRepository(session)
+        combinations = await repository.list_with_users(tournament.id)
+        players = await repository.list_player_candidates(tournament.id)
+        return TournamentCombinationsView(
+            tournament=tournament_view(tournament),
+            combinations=[
+                TournamentCombinationView(
+                    id=row.combination.id,
+                    tournament_id=row.combination.tournament_id,
+                    player_id=row.user.id,
+                    display_name=row.user.display_name,
+                    combination_type=row.combination.combination_type,
+                )
+                for row in combinations
+            ],
+            players=[
+                TournamentCombinationPlayerView(
+                    player_id=player.id,
+                    display_name=player.display_name,
+                )
+                for player in players
+            ],
         )
 
     async def _create_result(

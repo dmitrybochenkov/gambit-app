@@ -14,6 +14,7 @@ from app.db.models import (
     ScoringConfig,
     Season,
     Tournament,
+    TournamentCombination,
     TournamentPhoto,
     TournamentRegistration,
     TournamentResult,
@@ -21,6 +22,7 @@ from app.db.models import (
 )
 from app.db.models.enums import (
     KnockoutMode,
+    TournamentCombinationType,
     TournamentResultSource,
     TournamentStatus,
     UserRole,
@@ -29,6 +31,7 @@ from app.db.models.enums import (
 from app.services.result_fields import ResultField
 from app.services.result_service import (
     FutureTournamentCannotBeClosedError,
+    ResultCombinationAlreadyExistsError,
     ResultDuplicateNameError,
     ResultInvalidFundError,
     ResultInvalidPlayerDataError,
@@ -45,6 +48,99 @@ def test_live_close_fund_validation_rejects_invalid_values(fund: object) -> None
 
 def test_live_close_fund_validation_accepts_valid_value() -> None:
     assert ResultService.validate_tournament_fund(1000) == 1000
+
+
+async def test_tournament_combinations_can_be_added_deleted_and_deduplicated(
+    tmp_path: Path,
+) -> None:
+    engine = create_async_engine(f"sqlite+aiosqlite:///{tmp_path / 'combinations.db'}")
+    async with engine.begin() as connection:
+        await connection.run_sync(Base.metadata.create_all)
+
+    session_factory = async_sessionmaker(engine, expire_on_commit=False)
+    async with session_factory() as session:
+        config = ScoringConfig()
+        session.add(config)
+        await session.flush()
+        await seed_tournament_types_async(session)
+        season = Season(
+            name="Test season",
+            scoring_config_id=config.id,
+            starts_at=date(2026, 7, 1),
+            ends_at=None,
+        )
+        admin = build_player(
+            telegram_id=100,
+            display_name="Admin",
+            status=UserStatus.ACTIVE,
+            role=UserRole.ADMIN,
+        )
+        first = build_player(telegram_id=None, display_name="Борис", status=UserStatus.ACTIVE)
+        second = build_player(telegram_id=None, display_name="Алексей", status=UserStatus.ACTIVE)
+        session.add_all([season, admin, first, second])
+        await session.flush()
+        tournament = Tournament(
+            season_id=season.id,
+            tournament_type_id=tournament_type_id("classic"),
+            date=date(2026, 7, 19),
+            status=TournamentStatus.ACTIVE,
+        )
+        session.add(tournament)
+        await session.flush()
+        session.add_all(
+            [
+                TournamentResult(
+                    tournament_id=tournament.id,
+                    player_id=first.id,
+                    source=TournamentResultSource.WALK_IN_EXISTING,
+                    checked_in_by_user_id=admin.id,
+                ),
+                TournamentResult(
+                    tournament_id=tournament.id,
+                    player_id=second.id,
+                    source=TournamentResultSource.WALK_IN_EXISTING,
+                    checked_in_by_user_id=admin.id,
+                ),
+            ]
+        )
+        tournament_id = tournament.id
+        first_id = first.id
+        await session.commit()
+
+    service = ResultService(
+        session_factory,
+        clock=FixedClock(datetime(2026, 7, 19, 12, tzinfo=ZoneInfo("Europe/Moscow"))),
+    )
+    view = await service.add_tournament_combination(
+        admin_telegram_id=100,
+        tournament_id=tournament_id,
+        player_id=first_id,
+        combination_type=TournamentCombinationType.STRAIGHT_FLUSH,
+    )
+
+    assert [(item.display_name, item.combination_type) for item in view.combinations] == [
+        ("Борис", "straight_flush")
+    ]
+    assert [player.display_name for player in view.players] == ["Алексей", "Борис"]
+    with pytest.raises(ResultCombinationAlreadyExistsError):
+        await service.add_tournament_combination(
+            admin_telegram_id=100,
+            tournament_id=tournament_id,
+            player_id=first_id,
+            combination_type=TournamentCombinationType.STRAIGHT_FLUSH,
+        )
+    combination_id = view.combinations[0].id
+    empty = await service.delete_tournament_combination(
+        admin_telegram_id=100,
+        tournament_id=tournament_id,
+        combination_id=combination_id,
+    )
+
+    assert empty.combinations == []
+    async with session_factory() as session:
+        combinations = (await session.execute(select(TournamentCombination))).scalars().all()
+    assert combinations == []
+    await engine.dispose()
 
 
 async def test_today_result_entry_uses_only_today_active_tournament(

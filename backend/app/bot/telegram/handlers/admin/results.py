@@ -33,9 +33,12 @@ from app.bot.telegram.photo_collection import (
 from app.bot.telegram.states import AdminResultStates
 from app.bot.telegram.texts.admin import panel as panel_text
 from app.bot.telegram.texts.admin import results as result_text
+from app.db.models.enums import TournamentCombinationType
 from app.services.access_policy import AdminAccessDeniedError
 from app.services.pagination import pagination_service
 from app.services.result_service import (
+    ResultCombinationAlreadyExistsError,
+    ResultCombinationNotFoundError,
     ResultInvalidPlayerDataError,
     ResultService,
     ResultTodayTournamentInvariantViolationError,
@@ -131,10 +134,127 @@ async def select_result_menu_action(
         if callback_data.action == admin_results_kb.AdminResultMenuAction.PHOTOS:
             await _show_photo_menu_from_callback(callback, results)
             return
+        if callback_data.action == admin_results_kb.AdminResultMenuAction.COMBINATIONS:
+            combinations = await result_service.get_tournament_combinations(
+                admin_telegram_id=callback.from_user.id,
+                tournament_id=callback_data.tournament_id,
+            )
+            await _show_combinations_from_callback(callback, combinations)
+            return
     except AdminAccessDeniedError:
         await callback.answer(panel_text.ACCESS_DENIED, show_alert=True)
         return
     except ResultTournamentNotFoundError:
+        await callback.answer(result_text.ADMIN_RESULTS_NOT_FOUND, show_alert=True)
+        return
+    await callback.answer(result_text.ADMIN_RESULTS_NOT_FOUND, show_alert=True)
+
+
+@router.callback_query(admin_results_kb.AdminCombinationCallback.filter())
+async def select_combination_action(
+    callback: CallbackQuery,
+    callback_data: admin_results_kb.AdminCombinationCallback,
+    state: FSMContext,
+) -> None:
+    try:
+        if callback_data.action == admin_results_kb.AdminCombinationAction.CANCEL:
+            await state.clear()
+            await callback.answer(result_text.ADMIN_RESULTS_CANCELLED)
+            await _return_to_admin_menu(callback, result_text.ADMIN_RESULTS_CANCELLED)
+            return
+        if callback_data.action == admin_results_kb.AdminCombinationAction.BACK:
+            combinations = await result_service.get_tournament_combinations(
+                admin_telegram_id=callback.from_user.id,
+                tournament_id=callback_data.tournament_id,
+            )
+            await callback.answer()
+            await _show_combinations_from_callback(callback, combinations)
+            return
+        if callback_data.action == admin_results_kb.AdminCombinationAction.ADD:
+            combinations = await result_service.get_tournament_combinations(
+                admin_telegram_id=callback.from_user.id,
+                tournament_id=callback_data.tournament_id,
+            )
+            await callback.answer()
+            if callback.message is not None:
+                await edit_message_if_changed(
+                    callback.message,
+                    text=result_fmt.combination_player_prompt(combinations),
+                    reply_markup=admin_results_kb.admin_combination_players_keyboard(combinations),
+                )
+            return
+        if callback_data.action == admin_results_kb.AdminCombinationAction.SELECT_PLAYER:
+            combinations = await result_service.get_tournament_combinations(
+                admin_telegram_id=callback.from_user.id,
+                tournament_id=callback_data.tournament_id,
+            )
+            player = next(
+                (
+                    item
+                    for item in combinations.players
+                    if item.player_id == callback_data.player_id
+                ),
+                None,
+            )
+            if player is None:
+                await callback.answer(result_text.PLAYER_NOT_FOUND, show_alert=True)
+                return
+            await callback.answer()
+            if callback.message is not None:
+                await edit_message_if_changed(
+                    callback.message,
+                    text=result_fmt.combination_type_prompt(player.display_name),
+                    reply_markup=admin_results_kb.admin_combination_types_keyboard(
+                        tournament_id=callback_data.tournament_id,
+                        player_id=callback_data.player_id,
+                    ),
+                )
+            return
+        if callback_data.action == admin_results_kb.AdminCombinationAction.SAVE:
+            combinations = await result_service.add_tournament_combination(
+                admin_telegram_id=callback.from_user.id,
+                tournament_id=callback_data.tournament_id,
+                player_id=callback_data.player_id,
+                combination_type=TournamentCombinationType(callback_data.combination_type),
+            )
+            await callback.answer("Комбинация добавлена.")
+            await _show_combinations_from_callback(callback, combinations)
+            return
+        if callback_data.action == admin_results_kb.AdminCombinationAction.DELETE_MENU:
+            combinations = await result_service.get_tournament_combinations(
+                admin_telegram_id=callback.from_user.id,
+                tournament_id=callback_data.tournament_id,
+            )
+            await callback.answer()
+            if callback.message is not None:
+                await edit_message_if_changed(
+                    callback.message,
+                    text=result_fmt.combination_delete_prompt(combinations),
+                    reply_markup=admin_results_kb.admin_combination_delete_keyboard(combinations),
+                )
+            return
+        if callback_data.action == admin_results_kb.AdminCombinationAction.DELETE:
+            combinations = await result_service.delete_tournament_combination(
+                admin_telegram_id=callback.from_user.id,
+                tournament_id=callback_data.tournament_id,
+                combination_id=callback_data.combination_id,
+            )
+            await callback.answer("Комбинация удалена.")
+            await _show_combinations_from_callback(callback, combinations)
+            return
+    except AdminAccessDeniedError:
+        await callback.answer(panel_text.ACCESS_DENIED, show_alert=True)
+        return
+    except ResultCombinationAlreadyExistsError:
+        await callback.answer("Такая комбинация уже добавлена.", show_alert=True)
+        return
+    except ResultCombinationNotFoundError:
+        await callback.answer("Комбинация не найдена.", show_alert=True)
+        return
+    except TournamentResultsEditingUnavailableError:
+        await callback.answer(result_text.ADMIN_RESULTS_EDITING_UNAVAILABLE, show_alert=True)
+        return
+    except (ResultTournamentNotFoundError, ResultUserNotFoundError, ValueError):
         await callback.answer(result_text.ADMIN_RESULTS_NOT_FOUND, show_alert=True)
         return
     await callback.answer(result_text.ADMIN_RESULTS_NOT_FOUND, show_alert=True)
@@ -566,6 +686,19 @@ async def _show_photo_menu_from_callback(
         callback.message,
         text=result_fmt.photo_menu(results),
         reply_markup=_admin_result_photo_menu_keyboard(results),
+    )
+
+
+async def _show_combinations_from_callback(
+    callback: CallbackQuery,
+    combinations: object,
+) -> None:
+    if callback.message is None:
+        return
+    await edit_message_if_changed(
+        callback.message,
+        text=result_fmt.combinations_root(combinations),
+        reply_markup=admin_results_kb.admin_combination_root_keyboard(combinations),
     )
 
 
