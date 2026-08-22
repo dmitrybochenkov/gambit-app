@@ -8,7 +8,7 @@ from app.bot.telegram.handlers.user.shared import (
 )
 from app.bot.telegram.keyboards import labels
 from app.bot.telegram.keyboards.user import tournaments as user_tournaments_kb
-from app.bot.telegram.message_edit import edit_reply_markup_if_changed
+from app.bot.telegram.message_edit import edit_message_if_changed, edit_reply_markup_if_changed
 from app.bot.telegram.texts.user import tournaments as text
 from app.services.pagination import pagination_service
 from app.services.tournament_service import (
@@ -34,7 +34,48 @@ async def show_tournament_schedule(message: Message) -> None:
         await message.answer(text.SCHEDULE_UNAVAILABLE)
         return
 
-    await message.answer(tournament_fmt.schedule(tournaments))
+    await message.answer(
+        tournament_fmt.schedule_root(tournaments),
+        reply_markup=user_tournaments_kb.tournament_schedule_keyboard(tournaments),
+    )
+
+
+@router.callback_query(user_tournaments_kb.TournamentScheduleCallback.filter())
+async def navigate_tournament_schedule(
+    callback: CallbackQuery,
+    callback_data: user_tournaments_kb.TournamentScheduleCallback,
+) -> None:
+    if callback_data.action == user_tournaments_kb.TournamentScheduleAction.EXIT:
+        await callback.answer(text.SCHEDULE_CLOSED)
+        if callback.message is not None:
+            await _delete_message(callback.message)
+            await callback.message.answer(text.SCHEDULE_CLOSED)
+        return
+
+    if callback_data.action == user_tournaments_kb.TournamentScheduleAction.BACK:
+        await _edit_schedule_root(callback)
+        return
+
+    try:
+        details = await tournament_service.get_schedule_tournament_details_for_player(
+            callback.from_user.id,
+            callback_data.tournament_id,
+        )
+    except TournamentScheduleNotAllowedError:
+        await callback.answer(text.SCHEDULE_UNAVAILABLE, show_alert=True)
+        return
+    except TournamentUnavailableError:
+        await callback.answer(text.SCHEDULE_STALE, show_alert=True)
+        await _edit_schedule_root(callback)
+        return
+
+    await callback.answer()
+    if callback.message is not None:
+        await edit_message_if_changed(
+            callback.message,
+            text=tournament_fmt.schedule_detail(details),
+            reply_markup=user_tournaments_kb.tournament_schedule_detail_keyboard(),
+        )
 
 
 @router.message(F.text == labels.MAIN_REGISTER)
@@ -312,3 +353,19 @@ async def cancel_tournament_cancellation_selection(
     if callback.message is not None:
         await _delete_message(callback.message)
         await callback.message.answer(text.TOURNAMENT_CANCELLATION_CANCELLED)
+
+
+async def _edit_schedule_root(callback: CallbackQuery) -> None:
+    try:
+        tournaments = await tournament_service.get_schedule_for_player(callback.from_user.id)
+    except TournamentScheduleNotAllowedError:
+        await callback.answer(text.SCHEDULE_UNAVAILABLE, show_alert=True)
+        return
+
+    await callback.answer()
+    if callback.message is not None:
+        await edit_message_if_changed(
+            callback.message,
+            text=tournament_fmt.schedule_root(tournaments),
+            reply_markup=user_tournaments_kb.tournament_schedule_keyboard(tournaments),
+        )

@@ -131,7 +131,12 @@ from app.services.dto.statistics.history import (
 )
 from app.services.dto.statistics.profile import PlayerPrizeTournamentView, PlayerProfileView
 from app.services.dto.statistics.rating import PointsRatingView, RatingResultView
-from app.services.dto.tournaments import TournamentView
+from app.services.dto.tournaments import (
+    TournamentEconomyView,
+    TournamentRulesView,
+    TournamentScheduleDetailsView,
+    TournamentView,
+)
 from app.services.dto.users import UserStartStatusView, UserStartView, UserView
 from app.services.pagination import Page
 from app.services.profile_service import ProfileKind
@@ -3515,8 +3520,64 @@ async def test_historical_admin_can_open_schedule_after_start(
     tournament_service.get_schedule_for_player.assert_awaited_once_with(123)
     assert start_message.answer.await_args.args[0] == "Админ 1, добро пожаловать!"
     assert schedule_message.answer.await_args.args[0] == (
-        "Расписание турниров\n\nСреда, 8 июля — Баунти турнир"
+        "Расписание турниров\n\n"
+        "Нажми на кнопку турнира, про который хочешь узнать более подробную информацию."
     )
+    reply_markup = schedule_message.answer.await_args.kwargs["reply_markup"]
+    assert inline_keyboard_texts(reply_markup) == [
+        "Среда, 8 июля — Баунти турнир",
+        "❌ Выход",
+    ]
+    callback_data = user_tournaments_kb.TournamentScheduleCallback.unpack(
+        reply_markup.inline_keyboard[0][0].callback_data or ""
+    )
+    assert callback_data.action == user_tournaments_kb.TournamentScheduleAction.DETAIL
+    assert callback_data.tournament_id == 7
+
+
+async def test_schedule_root_uses_inline_buttons_and_hides_body_list(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    tournaments = [
+        tournament_view(8, date(2026, 7, 9), 2, "Классика"),
+        tournament_view(7, date(2026, 7, 8), 1, "Баунти турнир"),
+    ]
+    tournament_service = SimpleNamespace(
+        get_schedule_for_player=AsyncMock(
+            return_value=sorted(tournaments, key=lambda item: item.date)
+        )
+    )
+    monkeypatch.setattr(user_tournament_handlers, "tournament_service", tournament_service)
+    message = SimpleNamespace(from_user=SimpleNamespace(id=123), answer=AsyncMock())
+
+    await user_tournament_handlers.show_tournament_schedule(message)
+
+    body = message.answer.await_args.args[0]
+    reply_markup = message.answer.await_args.kwargs["reply_markup"]
+    assert body == (
+        "Расписание турниров\n\n"
+        "Нажми на кнопку турнира, про который хочешь узнать более подробную информацию."
+    )
+    assert "Среда, 8 июля" not in body
+    assert inline_keyboard_texts(reply_markup) == [
+        "Среда, 8 июля — Баунти турнир",
+        "Четверг, 9 июля — Классика",
+        "❌ Выход",
+    ]
+    assert "⬅️ Назад" not in inline_keyboard_texts(reply_markup)
+
+
+async def test_schedule_empty_root_has_exit_without_back(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    tournament_service = SimpleNamespace(get_schedule_for_player=AsyncMock(return_value=[]))
+    monkeypatch.setattr(user_tournament_handlers, "tournament_service", tournament_service)
+    message = SimpleNamespace(from_user=SimpleNamespace(id=123), answer=AsyncMock())
+
+    await user_tournament_handlers.show_tournament_schedule(message)
+
+    assert message.answer.await_args.args[0] == "Расписание турниров\n\nТурниров пока нет."
+    assert inline_keyboard_texts(message.answer.await_args.kwargs["reply_markup"]) == ["❌ Выход"]
 
 
 async def test_schedule_still_requires_registered_user(
@@ -3537,6 +3598,186 @@ async def test_schedule_still_requires_registered_user(
 
     tournament_service.get_schedule_for_player.assert_awaited_once_with(404)
     message.answer.assert_awaited_once_with(tournament_text.SCHEDULE_UNAVAILABLE)
+
+
+async def test_schedule_tournament_button_opens_db_driven_detail(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    details = TournamentScheduleDetailsView(
+        id=7,
+        date=date(2026, 8, 22),
+        tournament_type_name="Тестовый DB-турнир",
+        description="Уникальное описание из DTO",
+        economy=TournamentEconomyView(
+            entry_fee=1234,
+            entry_stack=56_789,
+            addon_fee=2345,
+            addon_stack=67_890,
+            rebuys=[TournamentRebuyView(fee=3456, stack=78_901)],
+        ),
+        rules=TournamentRulesView(
+            points_multiplier=Decimal("1.25"),
+            prize_place_multiplier=Decimal("1.50"),
+            prize_place_multiplier_places="[1, 3]",
+            knockout_mode="small_big",
+            supports_bonus_points=True,
+        ),
+    )
+    tournament_service = SimpleNamespace(
+        get_schedule_tournament_details_for_player=AsyncMock(return_value=details)
+    )
+    monkeypatch.setattr(user_tournament_handlers, "tournament_service", tournament_service)
+    message = SimpleNamespace(edit_text=AsyncMock())
+    callback = SimpleNamespace(
+        from_user=SimpleNamespace(id=123),
+        message=message,
+        answer=AsyncMock(),
+    )
+    callback_data = user_tournaments_kb.TournamentScheduleCallback(
+        action=user_tournaments_kb.TournamentScheduleAction.DETAIL,
+        tournament_id=7,
+    )
+
+    await user_tournament_handlers.navigate_tournament_schedule(callback, callback_data)
+
+    tournament_service.get_schedule_tournament_details_for_player.assert_awaited_once_with(123, 7)
+    text = message.edit_text.await_args.args[0]
+    assert "Суббота, 22 августа — Тестовый DB-турнир" in text
+    assert "Уникальное описание из DTO" in text
+    assert "Вход: 1 234 ₽ — 56 789 фишек" in text
+    assert "Ребай: 3 456 ₽ — 78 901 фишек" in text
+    assert "Аддон:\n2 345 ₽ — 67 890 фишек" in text
+    assert "Множитель рейтинга: ×1.25" in text
+    assert "Множитель призовых мест: ×1.5 (1, 3)" in text
+    assert inline_keyboard_texts(message.edit_text.await_args.kwargs["reply_markup"]) == [
+        "⬅️ Назад",
+        "❌ Выход",
+    ]
+
+
+async def test_schedule_detail_hides_optional_sections(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    details = TournamentScheduleDetailsView(
+        id=7,
+        date=date(2026, 8, 22),
+        tournament_type_name="Тихий турнир",
+        description=None,
+        economy=None,
+        rules=None,
+    )
+    tournament_service = SimpleNamespace(
+        get_schedule_tournament_details_for_player=AsyncMock(return_value=details)
+    )
+    monkeypatch.setattr(user_tournament_handlers, "tournament_service", tournament_service)
+    message = SimpleNamespace(edit_text=AsyncMock())
+    callback = SimpleNamespace(
+        from_user=SimpleNamespace(id=123),
+        message=message,
+        answer=AsyncMock(),
+    )
+
+    await user_tournament_handlers.navigate_tournament_schedule(
+        callback,
+        user_tournaments_kb.TournamentScheduleCallback(
+            action=user_tournaments_kb.TournamentScheduleAction.DETAIL,
+            tournament_id=7,
+        ),
+    )
+
+    detail_text = message.edit_text.await_args.args[0]
+    assert "Тихий турнир" in detail_text
+    assert "Условия участия" not in detail_text
+    assert "Ребаи" not in detail_text
+    assert "Аддон" not in detail_text
+    assert "Правила" not in detail_text
+
+
+async def test_schedule_detail_back_reloads_root(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    tournament = tournament_view(7, date(2026, 7, 8), 1, "Баунти турнир")
+    tournament_service = SimpleNamespace(
+        get_schedule_for_player=AsyncMock(return_value=[tournament])
+    )
+    monkeypatch.setattr(user_tournament_handlers, "tournament_service", tournament_service)
+    message = SimpleNamespace(edit_text=AsyncMock())
+    callback = SimpleNamespace(
+        from_user=SimpleNamespace(id=123),
+        message=message,
+        answer=AsyncMock(),
+    )
+
+    await user_tournament_handlers.navigate_tournament_schedule(
+        callback,
+        user_tournaments_kb.TournamentScheduleCallback(
+            action=user_tournaments_kb.TournamentScheduleAction.BACK,
+        ),
+    )
+
+    tournament_service.get_schedule_for_player.assert_awaited_once_with(123)
+    assert message.edit_text.await_args.args[0] == (
+        "Расписание турниров\n\n"
+        "Нажми на кнопку турнира, про который хочешь узнать более подробную информацию."
+    )
+    assert inline_keyboard_texts(message.edit_text.await_args.kwargs["reply_markup"]) == [
+        "Среда, 8 июля — Баунти турнир",
+        "❌ Выход",
+    ]
+
+
+async def test_schedule_stale_tournament_returns_root(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    tournament = tournament_view(8, date(2026, 7, 9), 2, "Классика")
+    tournament_service = SimpleNamespace(
+        get_schedule_tournament_details_for_player=AsyncMock(
+            side_effect=user_tournament_handlers.TournamentUnavailableError
+        ),
+        get_schedule_for_player=AsyncMock(return_value=[tournament]),
+    )
+    monkeypatch.setattr(user_tournament_handlers, "tournament_service", tournament_service)
+    message = SimpleNamespace(edit_text=AsyncMock())
+    callback = SimpleNamespace(
+        from_user=SimpleNamespace(id=123),
+        message=message,
+        answer=AsyncMock(),
+    )
+
+    await user_tournament_handlers.navigate_tournament_schedule(
+        callback,
+        user_tournaments_kb.TournamentScheduleCallback(
+            action=user_tournaments_kb.TournamentScheduleAction.DETAIL,
+            tournament_id=7,
+        ),
+    )
+
+    callback.answer.assert_any_await(tournament_text.SCHEDULE_STALE, show_alert=True)
+    assert message.edit_text.await_args.args[0].startswith("Расписание турниров")
+    assert inline_keyboard_texts(message.edit_text.await_args.kwargs["reply_markup"]) == [
+        "Четверг, 9 июля — Классика",
+        "❌ Выход",
+    ]
+
+
+async def test_schedule_exit_deletes_message_and_sends_close_notice() -> None:
+    message = SimpleNamespace(delete=AsyncMock(), answer=AsyncMock())
+    callback = SimpleNamespace(
+        from_user=SimpleNamespace(id=123),
+        message=message,
+        answer=AsyncMock(),
+    )
+
+    await user_tournament_handlers.navigate_tournament_schedule(
+        callback,
+        user_tournaments_kb.TournamentScheduleCallback(
+            action=user_tournaments_kb.TournamentScheduleAction.EXIT,
+        ),
+    )
+
+    callback.answer.assert_awaited_once_with(tournament_text.SCHEDULE_CLOSED)
+    message.delete.assert_awaited_once_with()
+    message.answer.assert_awaited_once_with(tournament_text.SCHEDULE_CLOSED)
 
 
 async def test_registration_input_messages_are_deleted() -> None:

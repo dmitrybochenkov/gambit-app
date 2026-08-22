@@ -29,10 +29,55 @@ class TournamentCancellationCallback(CallbackData, prefix="tournament_cancel"):
     tournament_id: int
 
 
+class TournamentScheduleAction(StrEnum):
+    DETAIL = "detail"
+    BACK = "back"
+    EXIT = "exit"
+
+
+class TournamentScheduleCallback(CallbackData, prefix="tournament_schedule"):
+    action: TournamentScheduleAction
+    tournament_id: int = 0
+
+
 CONFIRM_TOURNAMENT_REGISTRATION_CALLBACK = "tournament_registration:confirm"
 CANCEL_TOURNAMENT_REGISTRATION_CALLBACK = "tournament_registration:cancel"
 CONFIRM_TOURNAMENT_CANCELLATION_CALLBACK = "tournament_cancellation:confirm"
 CANCEL_TOURNAMENT_CANCELLATION_CALLBACK = "tournament_cancellation:cancel"
+
+
+def tournament_schedule_keyboard(
+    tournaments: list[TournamentView],
+) -> InlineKeyboardMarkup:
+    builder = InlineKeyboardBuilder()
+    for tournament in tournaments:
+        builder.button(
+            text=tournament_fmt.label(tournament),
+            callback_data=TournamentScheduleCallback(
+                action=TournamentScheduleAction.DETAIL,
+                tournament_id=tournament.id,
+            ),
+        )
+    builder.button(
+        text="❌ Выход",
+        callback_data=TournamentScheduleCallback(action=TournamentScheduleAction.EXIT),
+    )
+    builder.adjust(*([1] * len(tournaments)), 1)
+    return builder.as_markup()
+
+
+def tournament_schedule_detail_keyboard() -> InlineKeyboardMarkup:
+    builder = InlineKeyboardBuilder()
+    builder.button(
+        text=labels.ADMIN_PANEL_BACK,
+        callback_data=TournamentScheduleCallback(action=TournamentScheduleAction.BACK),
+    )
+    builder.button(
+        text="❌ Выход",
+        callback_data=TournamentScheduleCallback(action=TournamentScheduleAction.EXIT),
+    )
+    builder.adjust(1)
+    return builder.as_markup()
 
 
 def tournament_registration_keyboard(

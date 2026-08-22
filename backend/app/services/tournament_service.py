@@ -10,9 +10,16 @@ from app.db.repositories.tournament_registration_repository import (
 )
 from app.db.repositories.tournament_repository import TournamentRepository
 from app.db.repositories.tournament_result_repository import TournamentResultRepository
+from app.db.repositories.tournament_type_repository import TournamentTypeRepository
 from app.db.session import SessionFactory
 from app.services.access_policy import ActiveUserRequiredError, access_policy
-from app.services.dto.tournaments import TournamentView
+from app.services.dto.schedules import TournamentRebuyView
+from app.services.dto.tournaments import (
+    TournamentEconomyView,
+    TournamentRulesView,
+    TournamentScheduleDetailsView,
+    TournamentView,
+)
 
 
 class TournamentRegistrationNotAllowedError(ValueError):
@@ -68,6 +75,66 @@ class TournamentService:
                 from_date=from_date or self.clock.today()
             )
             return [tournament_view(tournament) for tournament in tournaments]
+
+    async def get_schedule_tournament_details_for_player(
+        self,
+        telegram_id: int,
+        tournament_id: int,
+        from_date: date | None = None,
+    ) -> TournamentScheduleDetailsView:
+        async with self.session_factory() as session:
+            try:
+                await access_policy.require_active_user(session, telegram_id)
+            except ActiveUserRequiredError as exc:
+                raise TournamentScheduleNotAllowedError from exc
+
+            today = from_date or self.clock.today()
+            tournament = await TournamentRepository(session).get_by_id(tournament_id)
+            if (
+                tournament is None
+                or tournament.status != TournamentStatus.ACTIVE
+                or tournament.date < today
+            ):
+                raise TournamentUnavailableError
+
+            config = await TournamentTypeRepository(session).get_config(
+                tournament.tournament_type_id
+            )
+            if config is None:
+                raise TournamentUnavailableError
+            economy = (
+                TournamentEconomyView(
+                    entry_fee=config.economy.entry_fee,
+                    entry_stack=config.economy.entry_stack,
+                    addon_fee=config.economy.addon_fee,
+                    addon_stack=config.economy.addon_stack,
+                    rebuys=[
+                        TournamentRebuyView(fee=rebuy.fee, stack=rebuy.stack)
+                        for rebuy in config.rebuys
+                    ],
+                )
+                if config.economy is not None
+                else None
+            )
+            rules = (
+                TournamentRulesView(
+                    points_multiplier=config.rule.points_multiplier,
+                    prize_place_multiplier=config.rule.prize_place_multiplier,
+                    prize_place_multiplier_places=config.rule.prize_place_multiplier_places,
+                    knockout_mode=config.rule.knockout_mode.value,
+                    supports_bonus_points=config.rule.supports_bonus_points,
+                )
+                if config.rule is not None
+                else None
+            )
+            return TournamentScheduleDetailsView(
+                id=tournament.id,
+                date=tournament.date,
+                tournament_type_name=config.tournament_type.name,
+                description=config.tournament_type.description,
+                economy=economy,
+                rules=rules,
+            )
 
     async def get_registration_options_for_player(
         self,

@@ -4,7 +4,11 @@ from pathlib import Path
 from zoneinfo import ZoneInfo
 
 import pytest
-from conftest import build_player, seed_tournament_types_async, tournament_type_id
+from conftest import (
+    build_player,
+    seed_tournament_types_async,
+    tournament_type_id,
+)
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
@@ -17,12 +21,18 @@ from app.db.models import (
     ScoringConfig,
     Season,
     Tournament,
+    TournamentEconomyConfig,
+    TournamentRebuyConfig,
     TournamentRegistration,
     TournamentResult,
+    TournamentType,
+    TournamentTypeRule,
 )
 from app.db.models.enums import (
+    KnockoutMode,
     TournamentResultSource,
     TournamentStatus,
+    TournamentTypeStatus,
     UserRole,
     UserStatus,
 )
@@ -91,15 +101,99 @@ async def test_upcoming_schedule_uses_active_tournaments(tmp_path: Path) -> None
     ]
     assert tournament_fmt.schedule(tournaments) == (
         "Расписание турниров\n\n"
-        "Среда, 8 июля — Баунти турнир\n"
-        "Четверг, 9 июля — Классика\n"
-        "Пятница, 10 июля — Фризаут"
+        "Нажми на кнопку турнира, про который хочешь узнать более подробную информацию."
     )
     await engine.dispose()
 
 
 def test_empty_schedule_message() -> None:
-    assert tournament_fmt.schedule([]) == "Ближайших турниров пока нет."
+    assert tournament_fmt.schedule([]) == "Расписание турниров\n\nТурниров пока нет."
+
+
+async def test_schedule_tournament_details_are_db_driven(tmp_path: Path) -> None:
+    engine = create_async_engine(f"sqlite+aiosqlite:///{tmp_path / 'schedule_detail.db'}")
+    async with engine.begin() as connection:
+        await connection.run_sync(Base.metadata.create_all)
+
+    session_factory = async_sessionmaker(engine, expire_on_commit=False)
+    async with session_factory() as session:
+        config = ScoringConfig()
+        session.add(config)
+        await session.flush()
+        tournament_type = TournamentType(
+            id=100,
+            code="test_db_driven",
+            name="Тестовый DB-турнир",
+            short_name="Test DB",
+            description="Уникальное описание из базы",
+            status=TournamentTypeStatus.ACTIVE,
+        )
+        season = Season(
+            name="Test season",
+            scoring_config_id=config.id,
+            starts_at=date(2026, 7, 1),
+            ends_at=None,
+        )
+        user = build_player(
+            telegram_id=123,
+            display_name="Игрок",
+            status=UserStatus.ACTIVE,
+        )
+        session.add_all([tournament_type, season, user])
+        await session.flush()
+        tournament = Tournament(
+            season_id=season.id,
+            tournament_type_id=tournament_type.id,
+            date=date(2026, 8, 22),
+            status=TournamentStatus.ACTIVE,
+        )
+        session.add_all(
+            [
+                tournament,
+                TournamentEconomyConfig(
+                    tournament_type_id=tournament_type.id,
+                    entry_fee=1234,
+                    entry_stack=56_789,
+                    addon_fee=2345,
+                    addon_stack=67_890,
+                ),
+                TournamentRebuyConfig(
+                    tournament_type_id=tournament_type.id,
+                    rebuy_order=1,
+                    fee=3456,
+                    stack=78_901,
+                ),
+                TournamentTypeRule(
+                    tournament_type_id=tournament_type.id,
+                    points_multiplier=Decimal("1.25"),
+                    prize_place_multiplier=Decimal("1.50"),
+                    prize_place_multiplier_places="[1, 3]",
+                    knockout_mode=KnockoutMode.SMALL_BIG,
+                    supports_bonus_points=True,
+                ),
+            ]
+        )
+        await session.commit()
+        tournament_id = tournament.id
+
+    service = TournamentService(session_factory, clock=FixedClock(datetime(2026, 8, 1)))
+    try:
+        details = await service.get_schedule_tournament_details_for_player(123, tournament_id)
+        text = tournament_fmt.schedule_detail(details)
+
+        assert details.tournament_type_name == "Тестовый DB-турнир"
+        assert details.description == "Уникальное описание из базы"
+        assert "Суббота, 22 августа — Тестовый DB-турнир" in text
+        assert "Уникальное описание из базы" in text
+        assert "Вход: 1 234 ₽ — 56 789 фишек" in text
+        assert "Ребай: 3 456 ₽ — 78 901 фишек" in text
+        assert "2 345 ₽ — 67 890 фишек" in text
+        assert "Множитель рейтинга: ×1.25" in text
+        assert "Множитель призовых мест: ×1.5 (1, 3)" in text
+        assert "Нокауты: КО и БКО" in text
+        assert "Бонусные очки" in text
+    finally:
+        await engine.dispose()
 
 
 def test_public_weekly_schedule_formats_full_economy_and_special_rules() -> None:

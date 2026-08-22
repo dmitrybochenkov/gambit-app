@@ -1,5 +1,7 @@
-TOURNAMENTS_EMPTY = "Ближайших турниров пока нет."
+TOURNAMENTS_EMPTY = "Турниров пока нет."
 SCHEDULE_UNAVAILABLE = "Расписание доступно зарегистрированным игрокам. Нажми /start."
+SCHEDULE_CLOSED = "Расписание закрыто."
+SCHEDULE_STALE = "Турнир недоступен. Расписание обновлено."
 TOURNAMENT_REGISTRATION_UNAVAILABLE = "Запись доступна зарегистрированным игрокам. Нажми /start."
 TOURNAMENT_REGISTRATION_ACTIVE_ONLY = "Запись доступна только активным игрокам."
 TOURNAMENT_REGISTRATION_EMPTY = "Ближайших турниров для записи пока нет."
@@ -31,6 +33,9 @@ TOURNAMENT_CANCELLATION_SINGLE_HEADING = "Ты отменил запись на 
 TOURNAMENT_CANCELLATION_MULTIPLE_HEADING = "Ты отменил запись на турниры:"
 
 TOURNAMENT_SCHEDULE_TITLE = "Расписание турниров"
+TOURNAMENT_SCHEDULE_INSTRUCTION = (
+    "Нажми на кнопку турнира, про который хочешь узнать более подробную информацию."
+)
 TOURNAMENT_TYPE_FALLBACK = "Неопределённый турнир"
 
 
