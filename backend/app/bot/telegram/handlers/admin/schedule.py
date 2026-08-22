@@ -287,7 +287,7 @@ async def delete_tournament_plan_day(
 
 
 async def _publish_schedule(callback: CallbackQuery, preview: object) -> object:
-    report = publication_fmt.schedule_publication_report(preview)
+    messages = publication_fmt.schedule_publication_messages(preview)
     sent: list[str] = []
     failed: list[str] = []
     already_published: list[str] = []
@@ -296,10 +296,14 @@ async def _publish_schedule(callback: CallbackQuery, preview: object) -> object:
             already_published.append(destination.destination_type)
             continue
         try:
-            message = await callback.bot.send_message(
-                chat_id=destination.chat_id,
-                text=report,
-            )
+            first_message_id: int | None = None
+            for text in messages:
+                message = await callback.bot.send_message(
+                    chat_id=destination.chat_id,
+                    text=text,
+                )
+                if first_message_id is None:
+                    first_message_id = message.message_id
         except TelegramAPIError:
             logger.exception("Failed to publish tournament schedule")
             failed.append(destination.destination_type)
@@ -311,7 +315,7 @@ async def _publish_schedule(callback: CallbackQuery, preview: object) -> object:
             destination_type=TournamentPublicationDestination(destination.destination_type),
             destination_chat_id=destination.chat_id,
             content_hash=preview.content_hash,
-            telegram_message_id=message.message_id,
+            telegram_message_id=first_message_id,
         )
         sent.append(destination.destination_type)
     return tournament_publication_service.delivery_summary(

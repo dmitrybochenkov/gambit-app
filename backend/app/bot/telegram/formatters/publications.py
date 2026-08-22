@@ -12,6 +12,9 @@ PLACE_EMOJIS = {1: "1️⃣", 2: "2️⃣", 3: "3️⃣", 4: "4️⃣", 5: "5️
 RESULTS_FOOTER = "Игра ведётся исключительно на рейтинг, без использования денежных средств ❗️18+"
 WINNER_CONGRATULATIONS = "Поздравляем победителей турнира!!! 🏆"
 CAPTION_LIMIT = 1024
+MESSAGE_LIMIT = 4096
+SCHEDULE_HEADER = "🔥 РАСПИСАНИЕ ТУРНИРОВ ПОКЕРНОГО КЛУБА «ГАМБИТ»\n\n🔥♠️♥️♣️♦️"
+SCHEDULE_SEPARATOR = "━━━━━━━━━━━━━━"
 
 
 def result_publication_preview(view: object) -> str:
@@ -51,14 +54,39 @@ def schedule_publication_preview(view: object) -> str:
 
 
 def schedule_publication_report(view: object) -> str:
-    lines = ["РАСПИСАНИЕ ТУРНИРОВ", ""]
-    for tournament in view.tournaments:
-        weekday = common_texts.WEEKDAYS[tournament.date.weekday()]
-        month = common_texts.MONTHS[tournament.date.month]
-        lines.append(
-            f"{weekday}, {tournament.date.day} {month} — {tournament.tournament_type_name}"
-        )
-    return "\n".join(lines)
+    blocks = _schedule_tournament_blocks(view.tournaments)
+    if not blocks:
+        return SCHEDULE_HEADER
+    return f"{SCHEDULE_HEADER}\n\n{_join_schedule_blocks(blocks)}"
+
+
+def schedule_publication_messages(
+    view: object,
+    *,
+    limit: int = MESSAGE_LIMIT,
+) -> list[str]:
+    blocks = _schedule_tournament_blocks(view.tournaments)
+    if not blocks:
+        return [SCHEDULE_HEADER]
+
+    messages: list[str] = []
+    current = SCHEDULE_HEADER
+    for index, block in enumerate(blocks):
+        next_block = block if index == 0 or not current else f"{SCHEDULE_SEPARATOR}\n\n{block}"
+        candidate = f"{current}\n\n{next_block}" if current else next_block
+        if len(candidate) <= limit:
+            current = candidate
+            continue
+        messages.append(current)
+        if len(next_block) <= limit:
+            current = next_block
+            continue
+        block_parts = _split_text_by_paragraphs(next_block, limit)
+        messages.extend(block_parts[:-1])
+        current = block_parts[-1]
+    if current:
+        messages.append(current)
+    return messages
 
 
 def publication_summary(summary: object) -> str:
@@ -100,3 +128,75 @@ def _knockout_line(player: object) -> str:
     if player.big_knockouts_count > 0:
         parts.append(f"{player.big_knockouts_count} BOSS")
     return f"{player.display_name} — {' + '.join(parts)}"
+
+
+def _schedule_tournament_blocks(tournaments: list[object]) -> list[str]:
+    return [_schedule_tournament_block(tournament) for tournament in tournaments]
+
+
+def _join_schedule_blocks(blocks: list[str]) -> str:
+    return f"\n\n{SCHEDULE_SEPARATOR}\n\n".join(blocks)
+
+
+def _schedule_tournament_block(tournament: object) -> str:
+    weekday = common_texts.WEEKDAYS[tournament.date.weekday()].upper()
+    lines = [f"🗓 {weekday} — {tournament.tournament_type_name.upper()}"]
+    if tournament.description:
+        lines.extend(["", str(tournament.description).strip()])
+    if tournament.economy is not None:
+        lines.extend(["", *_schedule_economy_lines(tournament.economy)])
+    return "\n".join(lines)
+
+
+def _schedule_economy_lines(economy: object) -> list[str]:
+    lines = [
+        "💰 Условия участия",
+        "",
+        f"Вход: {fmt_common.number(economy.entry_fee)} ₽ — "
+        f"{fmt_common.number(economy.entry_stack)} фишек",
+    ]
+    if economy.rebuys:
+        lines.extend(
+            [
+                "",
+                "Ребаи:",
+                "",
+                f"{' / '.join(fmt_common.number(rebuy.fee) for rebuy in economy.rebuys)} ₽",
+                "",
+                f"{' / '.join(fmt_common.number(rebuy.stack) for rebuy in economy.rebuys)} фишек",
+            ]
+        )
+    if economy.addon_fee > 0 and economy.addon_stack > 0:
+        lines.extend(
+            [
+                "",
+                "Аддон:",
+                "",
+                f"{fmt_common.number(economy.addon_fee)} ₽ — "
+                f"{fmt_common.number(economy.addon_stack)} фишек",
+            ]
+        )
+    return lines
+
+
+def _split_text_by_paragraphs(text: str, limit: int) -> list[str]:
+    paragraphs = text.split("\n\n")
+    messages: list[str] = []
+    current = ""
+    for paragraph in paragraphs:
+        candidate = f"{current}\n\n{paragraph}" if current else paragraph
+        if len(candidate) <= limit:
+            current = candidate
+            continue
+        if current:
+            messages.append(current)
+        if len(paragraph) <= limit:
+            current = paragraph
+            continue
+        messages.extend(
+            paragraph[index : index + limit] for index in range(0, len(paragraph), limit)
+        )
+        current = ""
+    if current:
+        messages.append(current)
+    return messages

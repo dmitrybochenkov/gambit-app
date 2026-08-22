@@ -97,44 +97,7 @@ class TournamentService:
             ):
                 raise TournamentUnavailableError
 
-            config = await TournamentTypeRepository(session).get_config(
-                tournament.tournament_type_id
-            )
-            if config is None:
-                raise TournamentUnavailableError
-            economy = (
-                TournamentEconomyView(
-                    entry_fee=config.economy.entry_fee,
-                    entry_stack=config.economy.entry_stack,
-                    addon_fee=config.economy.addon_fee,
-                    addon_stack=config.economy.addon_stack,
-                    rebuys=[
-                        TournamentRebuyView(fee=rebuy.fee, stack=rebuy.stack)
-                        for rebuy in config.rebuys
-                    ],
-                )
-                if config.economy is not None
-                else None
-            )
-            rules = (
-                TournamentRulesView(
-                    points_multiplier=config.rule.points_multiplier,
-                    prize_place_multiplier=config.rule.prize_place_multiplier,
-                    prize_place_multiplier_places=config.rule.prize_place_multiplier_places,
-                    knockout_mode=config.rule.knockout_mode.value,
-                    supports_bonus_points=config.rule.supports_bonus_points,
-                )
-                if config.rule is not None
-                else None
-            )
-            return TournamentScheduleDetailsView(
-                id=tournament.id,
-                date=tournament.date,
-                tournament_type_name=config.tournament_type.name,
-                description=config.tournament_type.description,
-                economy=economy,
-                rules=rules,
-            )
+            return await build_tournament_schedule_details(session, tournament)
 
     async def get_registration_options_for_player(
         self,
@@ -273,4 +236,45 @@ def tournament_view(tournament: Tournament) -> TournamentView:
         tournament_type_id=tournament.tournament_type_id,
         tournament_type_name=tournament.tournament_type.name,
         tournament_type_code=tournament.tournament_type.code,
+    )
+
+
+async def build_tournament_schedule_details(
+    session: AsyncSession,
+    tournament: Tournament,
+) -> TournamentScheduleDetailsView:
+    config = await TournamentTypeRepository(session).get_config(tournament.tournament_type_id)
+    if config is None:
+        raise TournamentUnavailableError
+    economy = (
+        TournamentEconomyView(
+            entry_fee=config.economy.entry_fee,
+            entry_stack=config.economy.entry_stack,
+            addon_fee=config.economy.addon_fee,
+            addon_stack=config.economy.addon_stack,
+            rebuys=[
+                TournamentRebuyView(fee=rebuy.fee, stack=rebuy.stack) for rebuy in config.rebuys
+            ],
+        )
+        if config.economy is not None
+        else None
+    )
+    rules = (
+        TournamentRulesView(
+            points_multiplier=config.rule.points_multiplier,
+            prize_place_multiplier=config.rule.prize_place_multiplier,
+            prize_place_multiplier_places=config.rule.prize_place_multiplier_places,
+            knockout_mode=config.rule.knockout_mode.value,
+            supports_bonus_points=config.rule.supports_bonus_points,
+        )
+        if config.rule is not None
+        else None
+    )
+    return TournamentScheduleDetailsView(
+        id=tournament.id,
+        date=tournament.date,
+        tournament_type_name=config.tournament_type.name,
+        description=config.tournament_type.description,
+        economy=economy,
+        rules=rules,
     )

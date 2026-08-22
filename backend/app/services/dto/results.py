@@ -1,8 +1,7 @@
 from dataclasses import dataclass
-from datetime import date
 from decimal import Decimal
 
-from app.services.dto.tournaments import TournamentView
+from app.services.dto.tournaments import TournamentScheduleDetailsView, TournamentView
 
 
 @dataclass(frozen=True)
@@ -127,15 +126,8 @@ class TournamentResultPublicationView:
 
 
 @dataclass(frozen=True)
-class SchedulePublicationTournamentView:
-    id: int
-    date: date
-    tournament_type_name: str
-
-
-@dataclass(frozen=True)
 class SchedulePublicationView:
-    tournaments: list[SchedulePublicationTournamentView]
+    tournaments: list[TournamentScheduleDetailsView]
     destinations: list[TournamentPublicationDestinationView]
     content_hash: str
 

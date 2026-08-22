@@ -22,7 +22,6 @@ from app.db.session import SessionFactory
 from app.domain.tournament_day import resolve_tournament_day
 from app.services.access_policy import access_policy
 from app.services.dto.results import (
-    SchedulePublicationTournamentView,
     SchedulePublicationView,
     TournamentCombinationView,
     TournamentPhotoView,
@@ -33,8 +32,9 @@ from app.services.dto.results import (
     TournamentPublicationSummaryView,
     TournamentResultPublicationView,
 )
+from app.services.dto.tournaments import TournamentScheduleDetailsView
 from app.services.result_service import ResultTournamentNotFoundError
-from app.services.tournament_service import tournament_view
+from app.services.tournament_service import build_tournament_schedule_details, tournament_view
 
 
 class TournamentPublicationNoDestinationsError(ValueError):
@@ -98,28 +98,13 @@ class TournamentPublicationService:
                 resolve_tournament_day(self.clock, self.tournament_day_start_hour),
             )
             items = [
-                SchedulePublicationTournamentView(
-                    id=tournament.id,
-                    date=tournament.date,
-                    tournament_type_name=(
-                        tournament.tournament_type.name
-                        if tournament.tournament_type is not None
-                        else "Неопределённый турнир"
-                    ),
-                )
+                await build_tournament_schedule_details(session, tournament)
                 for tournament in tournaments[:5]
             ]
             content_hash = self._content_hash(
                 {
                     "type": "schedule",
-                    "tournaments": [
-                        {
-                            "id": item.id,
-                            "date": item.date.isoformat(),
-                            "name": item.tournament_type_name,
-                        }
-                        for item in items
-                    ],
+                    "tournaments": [self._schedule_tournament_payload(item) for item in items],
                 }
             )
             destinations = await self._publication_destinations(
@@ -326,6 +311,31 @@ class TournamentPublicationService:
             )
             for destination, chat_id in destinations
         ]
+
+    def _schedule_tournament_payload(
+        self,
+        tournament: TournamentScheduleDetailsView,
+    ) -> dict[str, object]:
+        economy = tournament.economy
+        return {
+            "id": tournament.id,
+            "date": tournament.date.isoformat(),
+            "name": tournament.tournament_type_name,
+            "description": tournament.description,
+            "economy": (
+                {
+                    "entry_fee": economy.entry_fee,
+                    "entry_stack": economy.entry_stack,
+                    "addon_fee": economy.addon_fee,
+                    "addon_stack": economy.addon_stack,
+                    "rebuys": [
+                        {"fee": rebuy.fee, "stack": rebuy.stack} for rebuy in economy.rebuys
+                    ],
+                }
+                if economy is not None
+                else None
+            ),
+        }
 
     async def _knockout_mode(
         self,
