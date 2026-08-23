@@ -1,4 +1,4 @@
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.models import User
@@ -62,6 +62,18 @@ class UserRepository:
             .order_by(User.display_name, User.id)
         )
         return list(result.scalars())
+
+    async def count_active_telegram_users(self) -> int:
+        result = await self.session.execute(
+            select(func.count())
+            .select_from(User)
+            .where(
+                User.status == UserStatus.ACTIVE,
+                User.telegram_id.is_not(None),
+                User.telegram_id > 0,
+            )
+        )
+        return int(result.scalar_one())
 
     async def list_admin_candidates(self) -> list[User]:
         result = await self.session.execute(

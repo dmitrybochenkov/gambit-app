@@ -29,6 +29,9 @@ def message(title: str, stats: object | None) -> str:
         ),
     ]
     prize_place_lines = _prize_place_lines(stats)
+    reward_lines = _reward_lines(stats)
+    if reward_lines:
+        lines.extend(["", *reward_lines])
     if prize_place_lines:
         lines.extend(["", PROFILE_DETAILS_HINT, "", PROFILE_PRIZE_PLACES_LABEL, *prize_place_lines])
     honour_lines = _honour_lines(stats)
@@ -74,6 +77,25 @@ def _honour_lines(stats: object) -> list[str]:
             lines.append(f"💍 Победитель сезона «{honour.season_name}»")
         elif honour.kind == "knockout":
             lines.append(f"💥 Лучший нокаутер сезона «{honour.season_name}»")
+    return lines
+
+
+def _reward_lines(stats: object) -> list[str]:
+    lines = []
+    for reward in stats.active_rewards:
+        lines.extend(
+            [
+                f"🎁 +{fmt_common.number(reward.chips_amount)} фишек к первому стеку",
+                (
+                    f"За {reward.source_place} место — {reward.source_tournament_name}, "
+                    f"{fmt_common.date_long(reward.source_tournament_date)}"
+                ),
+                f"Действует до {fmt_common.date_long(reward.valid_through)}",
+                "",
+            ]
+        )
+    if lines:
+        lines.pop()
     return lines
 
 

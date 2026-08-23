@@ -57,3 +57,7 @@ PROFILE_SELECTED_SEASON = "🏆❓ За выбранный сезон"
 PROFILE_ALL_TIME = "⏳ За все время"
 
 SELECTED_PREFIX = "✔️ "
+
+
+def superadmin_registrations_label(active_telegram_users_count: int) -> str:
+    return f"{ADMIN_PANEL_REGISTRATIONS} · 👤 {active_telegram_users_count}"

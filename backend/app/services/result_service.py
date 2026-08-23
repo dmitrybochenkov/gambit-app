@@ -48,6 +48,7 @@ from app.services.dto.results import (
 )
 from app.services.dto.tournaments import TournamentView
 from app.services.dto.users import UserView
+from app.services.player_reward_service import PlayerRewardService
 from app.services.player_search import rank_player_candidates, validate_display_name
 from app.services.result_field_policy import is_result_field_allowed
 from app.services.result_fields import ResultField
@@ -256,6 +257,15 @@ class ResultService:
                     scoring_config=scoring_config,
                     rule=rule,
                 )
+            await PlayerRewardService(
+                self.session_factory,
+                clock=self.clock,
+                tournament_day_start_hour=self.tournament_day_start_hour,
+            ).issue_prize_stack_bonuses_for_closed_tournament(
+                session,
+                tournament,
+                issued_date=self.clock.today(),
+            )
             await session.commit()
             return await self._results_view(session, tournament.id)
 

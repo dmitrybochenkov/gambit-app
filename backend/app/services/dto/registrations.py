@@ -34,6 +34,7 @@ class RegistrationReviewView:
 class AdminPanelView:
     admin: UserView
     reviews: list[RegistrationReviewView]
+    active_telegram_users_count: int = 0
 
 
 @dataclass(frozen=True)

@@ -4,6 +4,7 @@ from aiogram.filters.callback_data import CallbackData
 from aiogram.types import InlineKeyboardMarkup
 from aiogram.utils.keyboard import InlineKeyboardBuilder
 
+from app.bot.telegram.formatters import common as fmt_common
 from app.bot.telegram.keyboards import labels
 from app.bot.telegram.keyboards.admin.common import _admin_candidate_page_label
 from app.services.dto.check_in import CheckInCandidateView, TournamentCheckInView
@@ -24,6 +25,10 @@ class AdminCheckInAction(StrEnum):
     NEW_PLAYER = "new_player"
     CONFIRM_NEW = "confirm_new"
     CREATE_NEW = "create_new"
+    SKIP_REWARD = "skip_reward"
+    SELECT_REWARD = "select_reward"
+    CONFIRM_REWARD = "confirm_reward"
+    REDEEM_REWARD = "redeem_reward"
     CHOOSE_OTHER_NEW = "choose_other_new"
     BACK = "back"
     BACK_TO_TOURNAMENT = "back_to_tournament"
@@ -35,6 +40,7 @@ class AdminCheckInCallback(CallbackData, prefix="check_in"):
     tournament_id: int
     page: int = 0
     player_id: int = 0
+    reward_id: int = 0
 
 
 def admin_check_in_keyboard(
@@ -232,6 +238,70 @@ def admin_check_in_confirmation_keyboard(
         callback_data=AdminCheckInCallback(
             action=AdminCheckInAction.BACK,
             tournament_id=tournament_id,
+        ),
+    )
+    builder.button(
+        text=labels.ADMIN_CANCEL,
+        callback_data=AdminCheckInCallback(
+            action=AdminCheckInAction.CANCEL,
+            tournament_id=tournament_id,
+        ),
+    )
+    builder.adjust(1)
+    return builder.as_markup()
+
+
+def admin_check_in_reward_selection_keyboard(
+    *,
+    tournament_id: int,
+    player_id: int,
+    rewards: tuple,
+) -> InlineKeyboardMarkup:
+    builder = InlineKeyboardBuilder()
+    for reward in rewards:
+        builder.button(
+            text=f"🎁 +{fmt_common.number(reward.chips_amount)} · до {reward.valid_through:%d.%m}",
+            callback_data=AdminCheckInCallback(
+                action=AdminCheckInAction.CONFIRM_REWARD,
+                tournament_id=tournament_id,
+                player_id=player_id,
+                reward_id=reward.reward_id,
+            ),
+        )
+    builder.button(
+        text="Не использовать",
+        callback_data=AdminCheckInCallback(
+            action=AdminCheckInAction.SKIP_REWARD,
+            tournament_id=tournament_id,
+            player_id=player_id,
+        ),
+    )
+    builder.adjust(1)
+    return builder.as_markup()
+
+
+def admin_check_in_reward_confirmation_keyboard(
+    *,
+    tournament_id: int,
+    player_id: int,
+    reward_id: int,
+) -> InlineKeyboardMarkup:
+    builder = InlineKeyboardBuilder()
+    builder.button(
+        text="✅ Выдать",
+        callback_data=AdminCheckInCallback(
+            action=AdminCheckInAction.REDEEM_REWARD,
+            tournament_id=tournament_id,
+            player_id=player_id,
+            reward_id=reward_id,
+        ),
+    )
+    builder.button(
+        text="⬅️ Назад",
+        callback_data=AdminCheckInCallback(
+            action=AdminCheckInAction.SELECT_REWARD,
+            tournament_id=tournament_id,
+            player_id=player_id,
         ),
     )
     builder.button(

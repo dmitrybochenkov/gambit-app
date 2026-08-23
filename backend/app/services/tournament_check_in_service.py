@@ -27,8 +27,10 @@ from app.services.dto.check_in import (
     CheckInCandidateView,
     TournamentCheckInView,
 )
+from app.services.dto.rewards import PlayerRewardView
 from app.services.dto.tournaments import TournamentView
 from app.services.dto.users import UserView
+from app.services.player_reward_service import PlayerRewardService
 from app.services.player_search import (
     rank_player_candidates,
     validate_display_name,
@@ -65,6 +67,7 @@ class CheckInResultView:
     tournament: TournamentView
     user: UserView
     created: bool
+    active_rewards: tuple[PlayerRewardView, ...] = ()
 
 
 class TournamentCheckInService:
@@ -232,8 +235,18 @@ class TournamentCheckInService:
                 source=TournamentResultSource.REGISTERED,
                 checked_in_by_user_id=admin.id,
             )
+            rewards = await PlayerRewardService(
+                self.session_factory,
+                clock=self.clock,
+                tournament_day_start_hour=self.tournament_day_start_hour,
+            )._list_active_reward_views(session, user.id, self._tournament_day())
             await session.commit()
-            return CheckInResultView(tournament_view(tournament), required_user_view(user), created)
+            return CheckInResultView(
+                tournament_view(tournament),
+                required_user_view(user),
+                created,
+                rewards,
+            )
 
     async def check_in_existing_user(
         self,
@@ -254,8 +267,18 @@ class TournamentCheckInService:
                 source=TournamentResultSource.WALK_IN_EXISTING,
                 checked_in_by_user_id=admin.id,
             )
+            rewards = await PlayerRewardService(
+                self.session_factory,
+                clock=self.clock,
+                tournament_day_start_hour=self.tournament_day_start_hour,
+            )._list_active_reward_views(session, user.id, self._tournament_day())
             await session.commit()
-            return CheckInResultView(tournament_view(tournament), required_user_view(user), created)
+            return CheckInResultView(
+                tournament_view(tournament),
+                required_user_view(user),
+                created,
+                rewards,
+            )
 
     async def create_user_and_check_in(
         self,
@@ -287,7 +310,17 @@ class TournamentCheckInService:
             except IntegrityError as exc:
                 await session.rollback()
                 raise IdentityAlreadyExistsError("display_name") from exc
-            return CheckInResultView(tournament_view(tournament), required_user_view(user), True)
+            rewards = await PlayerRewardService(
+                self.session_factory,
+                clock=self.clock,
+                tournament_day_start_hour=self.tournament_day_start_hour,
+            )._list_active_reward_views(session, user.id, self._tournament_day())
+            return CheckInResultView(
+                tournament_view(tournament),
+                required_user_view(user),
+                True,
+                rewards,
+            )
 
     async def _require_today_tournament(
         self,

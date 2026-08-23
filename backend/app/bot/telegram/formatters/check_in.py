@@ -91,3 +91,44 @@ def admin_success(tournament: object, user: object) -> str:
             tournament_fmt.label(tournament),
         ]
     )
+
+
+def reward_selection(result: object) -> str:
+    lines = [
+        f"✅ {result.user.display_name} отмечен",
+        "",
+    ]
+    if len(result.active_rewards) == 1:
+        reward = result.active_rewards[0]
+        lines.extend(
+            [
+                "🎁 У игрока есть бонус:",
+                f"+{fmt_common.number(reward.chips_amount)} фишек к первому стеку",
+                f"Действует до {fmt_common.date_long(reward.valid_through)}",
+                "",
+                "Использовать бонус сегодня?",
+            ]
+        )
+    else:
+        lines.extend(["🎁 Активные бонусы:", ""])
+        lines.extend(
+            f"+{fmt_common.number(reward.chips_amount)} — до "
+            f"{fmt_common.date_long(reward.valid_through)}"
+            for reward in result.active_rewards
+        )
+    return "\n".join(lines)
+
+
+def reward_confirmation(user: object, reward: object) -> str:
+    return "\n".join(
+        [
+            f"Выдать {user.display_name} +{fmt_common.number(reward.chips_amount)} "
+            "фишек к первому стеку?",
+            "",
+            "После подтверждения бонус будет использован.",
+        ]
+    )
+
+
+def reward_redeemed(reward: object) -> str:
+    return f"✅ Бонус +{fmt_common.number(reward.chips_amount)} фишек использован."

@@ -21,6 +21,7 @@ from app.services.dto.statistics.profile import (
     PlayerProfileHonourView,
     PlayerProfileView,
 )
+from app.services.player_reward_service import PlayerRewardService
 from app.services.season_options import list_started_season_options
 from app.services.user_statistics_service import historical_tournament_display_name
 
@@ -70,6 +71,8 @@ class ProfileService:
                 hall_of_fame_repository=HallOfFameRepository(session),
                 rating_repository=RatingRepository(session),
                 season_repository=SeasonRepository(session),
+                reward_service=PlayerRewardService(self.session_factory, clock=self.clock),
+                session=session,
                 player_id=user.id,
                 display_name=user.display_name,
                 kind=kind,
@@ -137,18 +140,25 @@ class ProfileService:
         hall_of_fame_repository: HallOfFameRepository,
         rating_repository: RatingRepository,
         season_repository: SeasonRepository,
+        reward_service: PlayerRewardService,
+        session: AsyncSession,
         player_id: int,
         display_name: str,
         kind: ProfileKind,
         season_id: int | None,
         today: date,
     ) -> tuple[str, PlayerProfileView | None]:
+        active_rewards = await reward_service._list_active_reward_views(
+            session,
+            player_id,
+            today,
+        )
         if kind == ProfileKind.CURRENT_SEASON:
             season = await season_repository.get_for_date(today)
             if season is None:
                 return (
                     "Твой профиль — текущий сезон",
-                    empty_profile(display_name),
+                    empty_profile(display_name, active_rewards=active_rewards),
                 )
             stats = await profile_repository.get_player_stats(
                 player_id=player_id,
@@ -167,9 +177,10 @@ class ProfileService:
                     rating_position=rating_position,
                     rating_participants_count=rating_participants_count,
                     honours=honours,
+                    active_rewards=active_rewards,
                 )
                 if stats
-                else None,
+                else empty_profile(display_name, active_rewards=active_rewards),
             )
         if kind == ProfileKind.SELECTED_SEASON:
             season = await _require_started_season(season_repository, season_id, today)
@@ -190,9 +201,10 @@ class ProfileService:
                     rating_position=rating_position,
                     rating_participants_count=rating_participants_count,
                     honours=honours,
+                    active_rewards=active_rewards,
                 )
                 if stats
-                else None,
+                else empty_profile(display_name, active_rewards=active_rewards),
             )
         stats = await profile_repository.get_player_stats(player_id=player_id)
         honours = await _player_honours(hall_of_fame_repository, player_id)
@@ -207,9 +219,10 @@ class ProfileService:
                 rating_position=rating_position,
                 rating_participants_count=rating_participants_count,
                 honours=honours,
+                active_rewards=active_rewards,
             )
             if stats
-            else None,
+            else empty_profile(display_name, active_rewards=active_rewards),
         )
 
 
@@ -238,6 +251,7 @@ def player_profile_view(
     rating_position: int | None,
     rating_participants_count: int,
     honours: tuple[PlayerProfileHonourView, ...] = (),
+    active_rewards: tuple = (),
 ) -> PlayerProfileView:
     return PlayerProfileView(
         display_name=stats.display_name,
@@ -254,10 +268,15 @@ def player_profile_view(
         rating_participants_count=rating_participants_count,
         prize_percent=prize_percent(stats),
         honours=honours,
+        active_rewards=active_rewards,
     )
 
 
-def empty_profile(display_name: str) -> PlayerProfileView:
+def empty_profile(
+    display_name: str,
+    *,
+    active_rewards: tuple = (),
+) -> PlayerProfileView:
     return PlayerProfileView(
         display_name=display_name,
         total_points=Decimal("0"),
@@ -272,6 +291,7 @@ def empty_profile(display_name: str) -> PlayerProfileView:
         rating_position=None,
         rating_participants_count=0,
         prize_percent=None,
+        active_rewards=active_rewards,
     )
 
 

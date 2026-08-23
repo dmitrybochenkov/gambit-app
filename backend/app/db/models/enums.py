@@ -41,6 +41,10 @@ class TournamentPublicationDestination(StrEnum):
     CHANNEL = "channel"
 
 
+class PlayerRewardType(StrEnum):
+    PRIZE_STACK_BONUS = "prize_stack_bonus"
+
+
 class TournamentTypeStatus(StrEnum):
     ACTIVE = "active"
     ARCHIVED = "archived"

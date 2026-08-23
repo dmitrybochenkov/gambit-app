@@ -5318,7 +5318,9 @@ async def test_admin_panel_entry_hides_superadmin_button_for_admin(
 async def test_superadmin_panel_denies_admin(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    service = SimpleNamespace(require_superadmin=AsyncMock(side_effect=AdminAccessDeniedError))
+    service = SimpleNamespace(
+        get_superadmin_panel_for_superadmin=AsyncMock(side_effect=AdminAccessDeniedError)
+    )
     monkeypatch.setattr(superadmin_panel_handlers, "user_access_service", service)
     message = SimpleNamespace(
         from_user=SimpleNamespace(id=100),
@@ -5327,7 +5329,7 @@ async def test_superadmin_panel_denies_admin(
 
     await superadmin_panel_handlers.open_superadmin_panel(message)
 
-    service.require_superadmin.assert_awaited_once_with(100)
+    service.get_superadmin_panel_for_superadmin.assert_awaited_once_with(100)
     message.answer.assert_awaited_once_with("Недостаточно прав.")
 
 
@@ -5335,7 +5337,15 @@ async def test_superadmin_panel_button_opens_superadmin_keyboard(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     admin = admin_player(1, 100, UserRole.SUPERADMIN)
-    service = SimpleNamespace(require_superadmin=AsyncMock(return_value=admin))
+    service = SimpleNamespace(
+        get_superadmin_panel_for_superadmin=AsyncMock(
+            return_value=AdminPanelView(
+                admin=admin,
+                reviews=[],
+                active_telegram_users_count=183,
+            )
+        )
+    )
     monkeypatch.setattr(superadmin_panel_handlers, "user_access_service", service)
     message = SimpleNamespace(
         from_user=SimpleNamespace(id=100),
@@ -5344,15 +5354,16 @@ async def test_superadmin_panel_button_opens_superadmin_keyboard(
 
     await superadmin_panel_handlers.open_superadmin_panel(message)
 
-    service.require_superadmin.assert_awaited_once_with(100)
+    service.get_superadmin_panel_for_superadmin.assert_awaited_once_with(100)
     assert message.answer.await_args.args[0] == "Суперадмин."
     reply_markup = message.answer.await_args.kwargs["reply_markup"]
     assert keyboard_rows(reply_markup) == [
-        ["📝 Регистрации", "✏️ Переименовать пользователя"],
+        ["📝 Регистрации · 👤 183", "✏️ Переименовать пользователя"],
         ["🔒 Закрыть турнир", "➕ Добавить администратора"],
         ["🗓 Календарь", "🔧 Наполнить зал славы"],
         ["⬅️ Админка"],
     ]
+    assert "📝 Регистрации" not in keyboard_texts(reply_markup)
     assert "📝 Заявки на регистрацию" not in keyboard_texts(reply_markup)
     assert "🛠 Админка" not in keyboard_texts(reply_markup)
     assert "⬅️ Выход" not in keyboard_texts(reply_markup)

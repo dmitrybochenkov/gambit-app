@@ -15,6 +15,7 @@ from app.db.models import (
     TournamentResult,
 )
 from app.db.models.enums import TournamentStatus, UserRole, UserStatus
+from app.services.dto.rewards import PlayerRewardView
 from app.services.dto.statistics.profile import PlayerProfileHonourView, PlayerProfileView
 from app.services.profile_service import ProfileFutureSeasonError, ProfileKind, ProfileService
 
@@ -102,6 +103,30 @@ def test_profile_formats_points_as_rounded_integer() -> None:
 
     assert "⭐ 1348 | 🎯 — | 🥊 0 | 🎲 1" in message
     assert "1347.5" not in message
+
+
+def test_profile_formats_active_prize_stack_rewards() -> None:
+    message = profile_fmt.message(
+        "Твой профиль — за всё время",
+        profile_view(
+            active_rewards=(
+                PlayerRewardView(
+                    reward_id=1,
+                    player_id=10,
+                    chips_amount=40_000,
+                    source_place=1,
+                    source_tournament_id=20,
+                    source_tournament_date=date(2026, 8, 22),
+                    source_tournament_name="Баунти турнир",
+                    valid_through=date(2026, 8, 29),
+                ),
+            ),
+        ),
+    )
+
+    assert "🎁 +40 000 фишек к первому стеку" in message
+    assert "За 1 место — Баунти турнир, 22 августа 2026" in message
+    assert "Действует до 29 августа 2026" in message
 
 
 async def test_profile_filters_current_season_and_all_time(tmp_path: Path) -> None:

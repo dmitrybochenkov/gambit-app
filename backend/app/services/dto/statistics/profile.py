@@ -2,6 +2,8 @@ from dataclasses import dataclass
 from datetime import date
 from decimal import Decimal
 
+from app.services.dto.rewards import PlayerRewardView
+
 
 @dataclass(frozen=True)
 class PlayerProfileHonourView:
@@ -26,6 +28,7 @@ class PlayerProfileView:
     rating_participants_count: int
     prize_percent: int | None
     honours: tuple[PlayerProfileHonourView, ...] = ()
+    active_rewards: tuple[PlayerRewardView, ...] = ()
 
     @property
     def total_knockouts_count(self) -> int:

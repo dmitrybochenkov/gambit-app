@@ -3,11 +3,13 @@ from aiogram.types import KeyboardButton, ReplyKeyboardMarkup
 from app.bot.telegram.keyboards import labels
 
 
-def superadmin_panel_keyboard() -> ReplyKeyboardMarkup:
+def superadmin_panel_keyboard(active_telegram_users_count: int = 0) -> ReplyKeyboardMarkup:
     return ReplyKeyboardMarkup(
         keyboard=[
             [
-                KeyboardButton(text=labels.ADMIN_PANEL_REGISTRATIONS),
+                KeyboardButton(
+                    text=labels.superadmin_registrations_label(active_telegram_users_count)
+                ),
                 KeyboardButton(text=labels.ADMIN_PANEL_RENAME_USER),
             ],
             [

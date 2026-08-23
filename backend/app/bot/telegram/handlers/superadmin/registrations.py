@@ -37,7 +37,7 @@ logger = logging.getLogger(__name__)
 router = Router(name="admin.registrations")
 
 
-@router.message(F.text == labels.ADMIN_PANEL_REGISTRATIONS)
+@router.message(F.text.startswith(labels.ADMIN_PANEL_REGISTRATIONS))
 async def show_pending_registrations(message: Message) -> None:
     if message.from_user is None:
         return
