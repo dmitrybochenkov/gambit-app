@@ -25,3 +25,17 @@ class PlayerRewardNotificationView:
     source_tournament_date: date
     source_tournament_name: str
     valid_through: date
+
+
+@dataclass(frozen=True)
+class PlayerRewardExpirationReminderItemView:
+    reward_id: int
+    chips_amount: int
+    valid_through: date
+
+
+@dataclass(frozen=True)
+class PlayerRewardExpirationReminderGroupView:
+    player_id: int
+    telegram_id: int
+    rewards: tuple[PlayerRewardExpirationReminderItemView, ...]

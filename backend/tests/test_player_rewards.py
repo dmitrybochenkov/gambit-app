@@ -401,6 +401,124 @@ async def test_superadmin_panel_counts_active_users_with_telegram_id(
     assert _reply_texts(keyboard)[0] == "📝 Регистрации · 👤 3"
 
 
+async def test_expiration_reminder_due_window_grouping_and_sent_mark(
+    tmp_path: Path,
+) -> None:
+    session_factory = await _reward_session_factory(tmp_path, "reminders.db")
+    async with session_factory() as session:
+        await seed_tournament_types_async(session)
+        config = ScoringConfig()
+        session.add(config)
+        await session.flush()
+        season = Season(
+            name="Season",
+            starts_at=date(2026, 8, 1),
+            ends_at=None,
+            scoring_config_id=config.id,
+        )
+        player = build_player(telegram_id=200, display_name="Player")
+        other = build_player(telegram_id=201, display_name="Other")
+        historical = build_player(telegram_id=None, display_name="Historical")
+        session.add_all([season, player, other, historical])
+        await session.flush()
+        sources = [
+            Tournament(
+                season_id=season.id,
+                tournament_type_id=tournament_type_id("classic"),
+                date=date(2026, 8, 1 + index),
+                status=TournamentStatus.CLOSED,
+                tournament_fund=1000,
+            )
+            for index in range(6)
+        ]
+        session.add_all(sources)
+        await session.flush()
+        rewards = [
+            PlayerReward(
+                player_id=player.id,
+                chips_amount=40_000,
+                source_tournament_id=sources[0].id,
+                source_place=1,
+                issued_at=datetime(2026, 8, 1, 12, tzinfo=ZoneInfo("Europe/Moscow")),
+                valid_through=date(2026, 8, 15),
+            ),
+            PlayerReward(
+                player_id=player.id,
+                chips_amount=20_000,
+                source_tournament_id=sources[1].id,
+                source_place=3,
+                issued_at=datetime(2026, 8, 2, 12, tzinfo=ZoneInfo("Europe/Moscow")),
+                valid_through=date(2026, 8, 14),
+            ),
+            PlayerReward(
+                player_id=other.id,
+                chips_amount=30_000,
+                source_tournament_id=sources[2].id,
+                source_place=2,
+                issued_at=datetime(2026, 8, 3, 12, tzinfo=ZoneInfo("Europe/Moscow")),
+                valid_through=date(2026, 8, 16),
+            ),
+            PlayerReward(
+                player_id=other.id,
+                chips_amount=40_000,
+                source_tournament_id=sources[3].id,
+                source_place=1,
+                issued_at=datetime(2026, 8, 4, 12, tzinfo=ZoneInfo("Europe/Moscow")),
+                valid_through=date(2026, 8, 17),
+            ),
+            PlayerReward(
+                player_id=historical.id,
+                chips_amount=40_000,
+                source_tournament_id=sources[4].id,
+                source_place=1,
+                issued_at=datetime(2026, 8, 5, 12, tzinfo=ZoneInfo("Europe/Moscow")),
+                valid_through=date(2026, 8, 15),
+            ),
+            PlayerReward(
+                player_id=player.id,
+                chips_amount=30_000,
+                source_tournament_id=sources[5].id,
+                source_place=2,
+                issued_at=datetime(2026, 8, 6, 12, tzinfo=ZoneInfo("Europe/Moscow")),
+                valid_through=date(2026, 8, 10),
+                redeemed_at=datetime(2026, 8, 7, 12, tzinfo=ZoneInfo("Europe/Moscow")),
+                redeemed_tournament_id=sources[5].id,
+                redeemed_by_user_id=player.id,
+                redeemed_tournament_day=date(2026, 8, 7),
+            ),
+        ]
+        session.add_all(rewards)
+        await session.flush()
+        player_id = player.id
+        player_due_ids = (rewards[1].id, rewards[0].id)
+        future_ids = (rewards[2].id, rewards[3].id)
+        await session.commit()
+
+    service = PlayerRewardService(
+        session_factory,
+        clock=FixedClock(datetime(2026, 8, 11, 12, tzinfo=ZoneInfo("Europe/Moscow"))),
+    )
+    groups = await service.list_due_expiration_reminder_groups(business_date=date(2026, 8, 11))
+
+    assert [(group.player_id, group.telegram_id) for group in groups] == [(player_id, 200)]
+    assert [reward.reward_id for reward in groups[0].rewards] == list(player_due_ids)
+
+    marked = await service.mark_expiration_reminders_sent(
+        reward_ids=player_due_ids,
+        business_date=date(2026, 8, 11),
+    )
+
+    assert marked == 2
+    assert (
+        await service.list_due_expiration_reminder_groups(business_date=date(2026, 8, 11))
+    ) == ()
+    catch_up = await service.list_due_expiration_reminder_groups(business_date=date(2026, 8, 13))
+    assert [reward.reward_id for reward in catch_up[0].rewards] == list(future_ids)
+    assert (
+        await service.list_due_expiration_reminder_groups(business_date=date(2026, 8, 18))
+    ) == ()
+
+
 async def _reward_session_factory(tmp_path: Path, filename: str):
     engine = create_async_engine(f"sqlite+aiosqlite:///{tmp_path / filename}")
     async with engine.begin() as connection:

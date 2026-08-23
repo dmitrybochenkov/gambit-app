@@ -59,6 +59,11 @@ class PlayerReward(TimestampMixin, Base):
         nullable=True,
         index=True,
     )
+    expiration_reminder_sent_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True),
+        nullable=True,
+        index=True,
+    )
 
     __table_args__ = (
         UniqueConstraint(

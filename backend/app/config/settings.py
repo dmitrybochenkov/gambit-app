@@ -15,6 +15,7 @@ class Settings(BaseSettings):
     public_base_url: str = ""
     club_timezone: str = "Europe/Moscow"
     tournament_day_start_hour: int = 11
+    reward_reminder_run_hour: int = 12
 
     data_dir: str = "../data"
     logs_dir: str = "../logs"
@@ -38,6 +39,13 @@ class Settings(BaseSettings):
     def _tournament_day_start_hour_is_valid(cls, value: int) -> int:
         if not 0 <= value <= 23:
             raise ValueError("tournament_day_start_hour must be between 0 and 23")
+        return value
+
+    @field_validator("reward_reminder_run_hour")
+    @classmethod
+    def _reward_reminder_run_hour_is_valid(cls, value: int) -> int:
+        if not 0 <= value <= 23:
+            raise ValueError("reward_reminder_run_hour must be between 0 and 23")
         return value
 
     model_config = SettingsConfigDict(

@@ -103,7 +103,11 @@ from app.services.dto.results import (
     TournamentResultPlayerView,
     TournamentResultsView,
 )
-from app.services.dto.rewards import PlayerRewardNotificationView
+from app.services.dto.rewards import (
+    PlayerRewardExpirationReminderGroupView,
+    PlayerRewardExpirationReminderItemView,
+    PlayerRewardNotificationView,
+)
 from app.services.dto.schedules import (
     TournamentPlanDayEditView,
     TournamentPlanItemView,
@@ -5302,6 +5306,168 @@ async def test_prize_stack_bonus_notification_failure_does_not_block_others() ->
 
     assert bot.send_message.await_count == 2
     assert [call.kwargs["chat_id"] for call in bot.send_message.await_args_list] == [100, 101]
+
+
+async def test_reward_expiration_reminder_singular_text_and_mark(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    group = PlayerRewardExpirationReminderGroupView(
+        player_id=10,
+        telegram_id=100,
+        rewards=(
+            PlayerRewardExpirationReminderItemView(
+                reward_id=1,
+                chips_amount=40_000,
+                valid_through=date(2026, 9, 2),
+            ),
+        ),
+    )
+    service = SimpleNamespace(
+        list_due_expiration_reminder_groups=AsyncMock(return_value=(group,)),
+        get_due_expiration_reminder_group=AsyncMock(return_value=group),
+        mark_expiration_reminders_sent=AsyncMock(return_value=1),
+    )
+    monkeypatch.setattr(notifications, "player_reward_service", service)
+    bot = SimpleNamespace(send_message=AsyncMock())
+
+    await notifications.process_due_reward_expiration_reminders(
+        bot,
+        business_date=date(2026, 8, 29),
+    )
+
+    bot.send_message.assert_awaited_once()
+    assert bot.send_message.await_args.kwargs["chat_id"] == 100
+    assert bot.send_message.await_args.kwargs["text"] == (
+        "🎁 Не забудь про бонус!\n\n"
+        "У тебя есть бонус +40 000 фишек к первому стеку.\n\n"
+        "До окончания действия осталось 4 дня.\n"
+        "Бонус можно использовать до среды, 2 сентября включительно.\n\n"
+        "Если не хочешь использовать его сразу — можешь сохранить на другой день."
+    )
+    service.mark_expiration_reminders_sent.assert_awaited_once_with(
+        reward_ids=(1,),
+        business_date=date(2026, 8, 29),
+    )
+
+
+@pytest.mark.parametrize(
+    ("business_date", "expected"),
+    [
+        (date(2026, 8, 30), "До окончания действия осталось 3 дня."),
+        (date(2026, 9, 1), "До окончания действия остался 1 день."),
+        (date(2026, 9, 2), "Сегодня последний день действия бонуса."),
+    ],
+)
+async def test_reward_expiration_reminder_days_left_text(
+    monkeypatch: pytest.MonkeyPatch,
+    business_date: date,
+    expected: str,
+) -> None:
+    group = PlayerRewardExpirationReminderGroupView(
+        player_id=10,
+        telegram_id=100,
+        rewards=(
+            PlayerRewardExpirationReminderItemView(
+                reward_id=1,
+                chips_amount=40_000,
+                valid_through=date(2026, 9, 2),
+            ),
+        ),
+    )
+    service = SimpleNamespace(
+        list_due_expiration_reminder_groups=AsyncMock(return_value=(group,)),
+        get_due_expiration_reminder_group=AsyncMock(return_value=group),
+        mark_expiration_reminders_sent=AsyncMock(return_value=1),
+    )
+    monkeypatch.setattr(notifications, "player_reward_service", service)
+    bot = SimpleNamespace(send_message=AsyncMock())
+
+    await notifications.process_due_reward_expiration_reminders(
+        bot,
+        business_date=business_date,
+    )
+
+    assert expected in bot.send_message.await_args.kwargs["text"]
+
+
+async def test_reward_expiration_reminder_groups_multiple_rewards(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    group = PlayerRewardExpirationReminderGroupView(
+        player_id=10,
+        telegram_id=100,
+        rewards=(
+            PlayerRewardExpirationReminderItemView(
+                reward_id=1,
+                chips_amount=40_000,
+                valid_through=date(2026, 9, 2),
+            ),
+            PlayerRewardExpirationReminderItemView(
+                reward_id=2,
+                chips_amount=20_000,
+                valid_through=date(2026, 9, 3),
+            ),
+        ),
+    )
+    service = SimpleNamespace(
+        list_due_expiration_reminder_groups=AsyncMock(return_value=(group,)),
+        get_due_expiration_reminder_group=AsyncMock(return_value=group),
+        mark_expiration_reminders_sent=AsyncMock(return_value=2),
+    )
+    monkeypatch.setattr(notifications, "player_reward_service", service)
+    bot = SimpleNamespace(send_message=AsyncMock())
+
+    await notifications.process_due_reward_expiration_reminders(
+        bot,
+        business_date=date(2026, 8, 30),
+    )
+
+    text = bot.send_message.await_args.kwargs["text"]
+    assert "🎁 Не забудь про бонусы!" in text
+    assert "• +40 000 фишек — до среды, 2 сентября включительно" in text
+    assert "• +20 000 фишек — до четверга, 3 сентября включительно" in text
+    assert "За один игровой день можно использовать только один бонус." in text
+    service.mark_expiration_reminders_sent.assert_awaited_once_with(
+        reward_ids=(1, 2),
+        business_date=date(2026, 8, 30),
+    )
+
+
+async def test_reward_expiration_reminder_failure_keeps_unsent(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    group = PlayerRewardExpirationReminderGroupView(
+        player_id=10,
+        telegram_id=100,
+        rewards=(
+            PlayerRewardExpirationReminderItemView(
+                reward_id=1,
+                chips_amount=40_000,
+                valid_through=date(2026, 9, 2),
+            ),
+        ),
+    )
+    service = SimpleNamespace(
+        list_due_expiration_reminder_groups=AsyncMock(return_value=(group,)),
+        get_due_expiration_reminder_group=AsyncMock(return_value=group),
+        mark_expiration_reminders_sent=AsyncMock(),
+    )
+    monkeypatch.setattr(notifications, "player_reward_service", service)
+    bot = SimpleNamespace(
+        send_message=AsyncMock(
+            side_effect=TelegramBadRequest(
+                method=SendMessage(chat_id=100, text="x"),
+                message="temporary failure",
+            )
+        )
+    )
+
+    await notifications.process_due_reward_expiration_reminders(
+        bot,
+        business_date=date(2026, 8, 29),
+    )
+
+    service.mark_expiration_reminders_sent.assert_not_awaited()
 
 
 async def test_new_player_name_input_shows_confirmation_without_request(

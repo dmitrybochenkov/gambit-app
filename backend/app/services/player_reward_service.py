@@ -8,6 +8,7 @@ from app.config import settings
 from app.db.models import PlayerReward, Tournament
 from app.db.models.enums import PlayerRewardType, TournamentStatus
 from app.db.repositories.player_reward_repository import (
+    PlayerRewardReminderRow,
     PlayerRewardRepository,
     PlayerRewardSourceRow,
 )
@@ -18,7 +19,12 @@ from app.db.repositories.user_repository import UserRepository
 from app.db.session import SessionFactory
 from app.domain.tournament_day import resolve_tournament_day
 from app.services.access_policy import access_policy
-from app.services.dto.rewards import PlayerRewardNotificationView, PlayerRewardView
+from app.services.dto.rewards import (
+    PlayerRewardExpirationReminderGroupView,
+    PlayerRewardExpirationReminderItemView,
+    PlayerRewardNotificationView,
+    PlayerRewardView,
+)
 
 PRIZE_STACK_BONUS_BY_PLACE = {
     1: 40_000,
@@ -26,6 +32,7 @@ PRIZE_STACK_BONUS_BY_PLACE = {
     3: 20_000,
 }
 REWARD_VALID_DAYS = 7
+EXPIRATION_REMINDER_DAYS_BEFORE = 4
 
 
 class PlayerRewardNotFoundError(ValueError):
@@ -59,6 +66,51 @@ class PlayerRewardService:
     ) -> tuple[PlayerRewardView, ...]:
         async with self.session_factory() as session:
             return await self._list_active_reward_views(session, player_id, business_date)
+
+    async def list_due_expiration_reminder_groups(
+        self,
+        *,
+        business_date: date,
+    ) -> tuple[PlayerRewardExpirationReminderGroupView, ...]:
+        async with self.session_factory() as session:
+            rows = await PlayerRewardRepository(session).list_due_expiration_reminder_candidates(
+                business_date=business_date,
+                due_until=business_date + timedelta(days=EXPIRATION_REMINDER_DAYS_BEFORE),
+            )
+            return _reminder_groups(rows)
+
+    async def get_due_expiration_reminder_group(
+        self,
+        *,
+        player_id: int,
+        reward_ids: tuple[int, ...],
+        business_date: date,
+    ) -> PlayerRewardExpirationReminderGroupView | None:
+        async with self.session_factory() as session:
+            rows = await PlayerRewardRepository(session).list_due_expiration_reminders_by_ids(
+                player_id=player_id,
+                reward_ids=reward_ids,
+                business_date=business_date,
+                due_until=business_date + timedelta(days=EXPIRATION_REMINDER_DAYS_BEFORE),
+            )
+            groups = _reminder_groups(rows)
+            return groups[0] if groups else None
+
+    async def mark_expiration_reminders_sent(
+        self,
+        *,
+        reward_ids: tuple[int, ...],
+        business_date: date,
+    ) -> int:
+        async with self.session_factory() as session:
+            count = await PlayerRewardRepository(session).mark_expiration_reminders_sent(
+                reward_ids=reward_ids,
+                business_date=business_date,
+                due_until=business_date + timedelta(days=EXPIRATION_REMINDER_DAYS_BEFORE),
+                sent_at=self.clock.now(),
+            )
+            await session.commit()
+            return count
 
     async def list_active_rewards_for_check_in(
         self,
@@ -245,6 +297,29 @@ def _reward_view(row: PlayerRewardSourceRow) -> PlayerRewardView:
         source_tournament_date=row.tournament.date,
         source_tournament_name=row.tournament_type.name,
         valid_through=row.reward.valid_through,
+    )
+
+
+def _reminder_groups(
+    rows: list[PlayerRewardReminderRow],
+) -> tuple[PlayerRewardExpirationReminderGroupView, ...]:
+    grouped: dict[tuple[int, int], list[PlayerRewardExpirationReminderItemView]] = {}
+    for row in rows:
+        key = (row.reward.player_id, row.telegram_id)
+        grouped.setdefault(key, []).append(
+            PlayerRewardExpirationReminderItemView(
+                reward_id=row.reward.id,
+                chips_amount=row.reward.chips_amount,
+                valid_through=row.reward.valid_through,
+            )
+        )
+    return tuple(
+        PlayerRewardExpirationReminderGroupView(
+            player_id=player_id,
+            telegram_id=telegram_id,
+            rewards=tuple(rewards),
+        )
+        for (player_id, telegram_id), rewards in grouped.items()
     )
 
 
