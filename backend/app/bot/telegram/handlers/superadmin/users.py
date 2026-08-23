@@ -8,9 +8,9 @@ from aiogram.types import CallbackQuery, Message
 from app.bot.telegram.handlers.admin.shared import (
     delete_callback_message as _delete_callback_message,
 )
+from app.bot.telegram.handlers.superadmin.navigation import send_superadmin_panel
 from app.bot.telegram.handlers.user.shared import clean_text as _clean_text
 from app.bot.telegram.keyboards import labels
-from app.bot.telegram.keyboards.superadmin import panel as superadmin_panel_kb
 from app.bot.telegram.keyboards.superadmin import users as superadmin_users_kb
 from app.bot.telegram.message_edit import edit_message_reply_markup_by_id_if_changed
 from app.bot.telegram.states import UserRenameStates
@@ -211,9 +211,10 @@ async def confirm_user_rename(
     await callback.answer(text.success(old_display_name, renamed.display_name))
     if callback.message is not None:
         await _delete_callback_message(callback)
-        await callback.message.answer(
-            text.success(old_display_name, renamed.display_name),
-            reply_markup=superadmin_panel_kb.superadmin_panel_keyboard(),
+        await send_superadmin_panel(
+            callback.message,
+            superadmin_telegram_id=callback.from_user.id,
+            text=text.success(old_display_name, renamed.display_name),
         )
     await state.clear()
 
@@ -243,9 +244,10 @@ async def _cancel_user_rename(callback: CallbackQuery, state: FSMContext) -> Non
     await callback.answer(calendar_text.ADMIN_CALENDAR_CANCELLED)
     if callback.message is not None:
         await _delete_callback_message(callback)
-        await callback.message.answer(
-            text.USER_RENAME_CANCELLED,
-            reply_markup=superadmin_panel_kb.superadmin_panel_keyboard(),
+        await send_superadmin_panel(
+            callback.message,
+            superadmin_telegram_id=callback.from_user.id,
+            text=text.USER_RENAME_CANCELLED,
         )
     await state.clear()
 

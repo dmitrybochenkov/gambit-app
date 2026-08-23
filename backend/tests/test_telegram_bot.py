@@ -37,6 +37,7 @@ from app.bot.telegram.handlers.admin import results as admin_result_handlers
 from app.bot.telegram.handlers.admin import schedule as admin_schedule_handlers
 from app.bot.telegram.handlers.superadmin import administrators as superadmin_administrator_handlers
 from app.bot.telegram.handlers.superadmin import hall_of_fame as superadmin_hall_of_fame_handlers
+from app.bot.telegram.handlers.superadmin import navigation as superadmin_navigation
 from app.bot.telegram.handlers.superadmin import panel as superadmin_panel_handlers
 from app.bot.telegram.handlers.superadmin import registrations as superadmin_registration_handlers
 from app.bot.telegram.handlers.superadmin import seasons as superadmin_season_handlers
@@ -7313,9 +7314,26 @@ async def test_admin_registration_list_page_callback_edits_list(
     assert buttons == ["Игрок 15", "⬅️", "2/2", "⬅️ Назад", "❌ Отмена"]
 
 
-async def test_admin_registration_list_cancel_deletes_message() -> None:
+async def test_admin_registration_list_cancel_returns_superadmin_panel_with_active_count(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    admin = admin_player(1, 100, UserRole.SUPERADMIN)
+    service = SimpleNamespace(
+        get_superadmin_panel_for_superadmin=AsyncMock(
+            return_value=AdminPanelView(
+                admin=admin,
+                reviews=[],
+                active_telegram_users_count=183,
+            )
+        )
+    )
+    monkeypatch.setattr(superadmin_navigation, "user_access_service", service)
     message = SimpleNamespace(delete=AsyncMock(), answer=AsyncMock())
-    callback = SimpleNamespace(message=message, answer=AsyncMock())
+    callback = SimpleNamespace(
+        from_user=SimpleNamespace(id=100),
+        message=message,
+        answer=AsyncMock(),
+    )
     callback_data = SimpleNamespace(
         action=superadmin_registrations_kb.RegistrationListAction.CANCEL,
         page=0,
@@ -7326,8 +7344,47 @@ async def test_admin_registration_list_cancel_deletes_message() -> None:
 
     callback.answer.assert_awaited_once_with("Заявка скрыта")
     message.delete.assert_awaited_once()
+    service.get_superadmin_panel_for_superadmin.assert_awaited_once_with(100)
     message.answer.assert_awaited_once()
     assert message.answer.await_args.args[0] == "Суперадмин."
+    assert keyboard_rows(message.answer.await_args.kwargs["reply_markup"])[0][0] == (
+        "📝 Регистрации · 👤 183"
+    )
+
+
+async def test_result_cancel_return_to_superadmin_panel_keeps_active_count(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    admin = admin_player(1, 100, UserRole.SUPERADMIN)
+    service = SimpleNamespace(
+        get_superadmin_panel_for_superadmin=AsyncMock(
+            return_value=AdminPanelView(
+                admin=admin,
+                reviews=[],
+                active_telegram_users_count=183,
+            )
+        )
+    )
+    monkeypatch.setattr(superadmin_navigation, "user_access_service", service)
+    message = SimpleNamespace(delete=AsyncMock(), answer=AsyncMock())
+    callback = SimpleNamespace(
+        from_user=SimpleNamespace(id=100),
+        message=message,
+    )
+
+    await admin_result_handlers._return_from_result_cancel(
+        callback,
+        "Отменено.",
+        return_to_superadmin=True,
+    )
+
+    message.delete.assert_awaited_once()
+    service.get_superadmin_panel_for_superadmin.assert_awaited_once_with(100)
+    message.answer.assert_awaited_once()
+    assert message.answer.await_args.args[0] == "Отменено."
+    assert keyboard_rows(message.answer.await_args.kwargs["reply_markup"])[0][0] == (
+        "📝 Регистрации · 👤 183"
+    )
 
 
 async def test_admin_registration_list_open_edits_message_to_review(

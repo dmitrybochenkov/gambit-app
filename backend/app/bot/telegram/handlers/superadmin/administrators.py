@@ -8,10 +8,10 @@ from aiogram.types import CallbackQuery, Message
 from app.bot.telegram.handlers.admin.shared import (
     delete_callback_message as _delete_callback_message,
 )
+from app.bot.telegram.handlers.superadmin.navigation import send_superadmin_panel
 from app.bot.telegram.handlers.user.shared import clean_text as _clean_text
 from app.bot.telegram.keyboards import labels
 from app.bot.telegram.keyboards.superadmin import administrators as superadmin_administrators_kb
-from app.bot.telegram.keyboards.superadmin import panel as superadmin_panel_kb
 from app.bot.telegram.keyboards.user import menu as user_menu_kb
 from app.bot.telegram.message_edit import edit_message_reply_markup_by_id_if_changed
 from app.bot.telegram.states import AdminAddStates
@@ -209,9 +209,10 @@ async def confirm_add_admin(
     await callback.answer(result_text)
     if callback.message is not None:
         await _delete_callback_message(callback)
-        await callback.message.answer(
-            result_text,
-            reply_markup=superadmin_panel_kb.superadmin_panel_keyboard(),
+        await send_superadmin_panel(
+            callback.message,
+            superadmin_telegram_id=callback.from_user.id,
+            text=result_text,
         )
     await state.clear()
 

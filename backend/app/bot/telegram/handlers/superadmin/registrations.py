@@ -7,8 +7,8 @@ from aiogram.types import CallbackQuery, Message, ReplyKeyboardRemove
 from app.bot.telegram.handlers.admin.shared import (
     delete_callback_message as _delete_callback_message,
 )
+from app.bot.telegram.handlers.superadmin.navigation import send_superadmin_panel
 from app.bot.telegram.keyboards import labels
-from app.bot.telegram.keyboards.superadmin import panel as superadmin_panel_kb
 from app.bot.telegram.keyboards.superadmin import registrations as superadmin_registrations_kb
 from app.bot.telegram.keyboards.user import menu as user_menu_kb
 from app.bot.telegram.message_edit import edit_message_if_changed
@@ -423,9 +423,12 @@ async def _get_review(superadmin_telegram_id: int, request_id: int):
 
 async def _answer_pending_reviews(message: Message, page: Page) -> None:
     if not page.items:
-        await message.answer(
-            text.NO_PENDING_REGISTRATIONS,
-            reply_markup=superadmin_panel_kb.superadmin_panel_keyboard(),
+        if message.from_user is None:
+            return
+        await send_superadmin_panel(
+            message,
+            superadmin_telegram_id=message.from_user.id,
+            text=text.NO_PENDING_REGISTRATIONS,
         )
         return
 
@@ -444,9 +447,10 @@ async def _edit_pending_reviews(callback: CallbackQuery, page: Page) -> None:
             text=text.NO_PENDING_REGISTRATIONS,
             reply_markup=None,
         )
-        await callback.message.answer(
-            panel_text.SUPERADMIN_PANEL_WELCOME,
-            reply_markup=superadmin_panel_kb.superadmin_panel_keyboard(),
+        await send_superadmin_panel(
+            callback.message,
+            superadmin_telegram_id=callback.from_user.id,
+            text=panel_text.SUPERADMIN_PANEL_WELCOME,
         )
         return
 
@@ -520,7 +524,8 @@ async def _edit_registration_review(
 async def _return_to_superadmin_menu(callback: CallbackQuery) -> None:
     if callback.message is not None:
         await _delete_callback_message(callback)
-        await callback.message.answer(
-            panel_text.SUPERADMIN_PANEL_WELCOME,
-            reply_markup=superadmin_panel_kb.superadmin_panel_keyboard(),
+        await send_superadmin_panel(
+            callback.message,
+            superadmin_telegram_id=callback.from_user.id,
+            text=panel_text.SUPERADMIN_PANEL_WELCOME,
         )

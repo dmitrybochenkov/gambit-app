@@ -16,10 +16,10 @@ from app.bot.telegram.handlers.admin.shared import (
 from app.bot.telegram.handlers.admin.shared import (
     delete_callback_message as _delete_callback_message,
 )
+from app.bot.telegram.handlers.superadmin.navigation import send_superadmin_panel
 from app.bot.telegram.keyboards import labels
 from app.bot.telegram.keyboards.admin import results as admin_results_kb
 from app.bot.telegram.keyboards.admin import schedule as admin_schedule_kb
-from app.bot.telegram.keyboards.superadmin import panel as superadmin_panel_kb
 from app.bot.telegram.keyboards.superadmin import tournament_close as superadmin_tournament_close_kb
 from app.bot.telegram.message_edit import (
     edit_message_if_changed,
@@ -117,9 +117,10 @@ async def show_close_tournament_flow(message: Message, state: FSMContext) -> Non
     ready = [item for item in tournaments if item.is_ready]
     problematic = [item for item in tournaments if not item.is_ready]
     if not ready and not problematic and not closed_tournaments:
-        await message.answer(
-            text.NO_READY_TOURNAMENTS,
-            reply_markup=superadmin_panel_kb.superadmin_panel_keyboard(),
+        await send_superadmin_panel(
+            message,
+            superadmin_telegram_id=message.from_user.id,
+            text=text.NO_READY_TOURNAMENTS,
         )
         return
     page = pagination_service.paginate(
@@ -149,9 +150,10 @@ async def select_close_tournament_action(
             await callback.answer(text.ADMIN_RESULTS_CANCELLED)
             if callback.message is not None:
                 await _delete_callback_message(callback)
-                await callback.message.answer(
-                    text.ADMIN_RESULTS_CANCELLED,
-                    reply_markup=superadmin_panel_kb.superadmin_panel_keyboard(),
+                await send_superadmin_panel(
+                    callback.message,
+                    superadmin_telegram_id=callback.from_user.id,
+                    text=text.ADMIN_RESULTS_CANCELLED,
                 )
             return
 
@@ -1718,9 +1720,10 @@ async def _return_to_superadmin_menu(callback: CallbackQuery, message_text: str)
     if callback.message is None:
         return
     await _delete_callback_message(callback)
-    await callback.message.answer(
-        message_text,
-        reply_markup=superadmin_panel_kb.superadmin_panel_keyboard(),
+    await send_superadmin_panel(
+        callback.message,
+        superadmin_telegram_id=callback.from_user.id,
+        text=message_text,
     )
 
 
@@ -1778,10 +1781,11 @@ async def _edit_close_tournament_root(
     if callback.message is None:
         return
     if not ready and not problematic and not closed_tournaments:
-        await edit_message_if_changed(
+        await _delete_callback_message(callback)
+        await send_superadmin_panel(
             callback.message,
+            superadmin_telegram_id=callback.from_user.id,
             text=text.NO_READY_TOURNAMENTS,
-            reply_markup=superadmin_panel_kb.superadmin_panel_keyboard(),
         )
         return
     page_view = pagination_service.paginate(

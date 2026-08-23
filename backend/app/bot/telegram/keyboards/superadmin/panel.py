@@ -3,7 +3,7 @@ from aiogram.types import KeyboardButton, ReplyKeyboardMarkup
 from app.bot.telegram.keyboards import labels
 
 
-def superadmin_panel_keyboard(active_telegram_users_count: int = 0) -> ReplyKeyboardMarkup:
+def superadmin_panel_keyboard(active_telegram_users_count: int) -> ReplyKeyboardMarkup:
     return ReplyKeyboardMarkup(
         keyboard=[
             [

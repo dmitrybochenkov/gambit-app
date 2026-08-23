@@ -12,10 +12,10 @@ from app.bot.telegram.handlers.admin.shared import (
 from app.bot.telegram.handlers.admin.shared import (
     delete_message_by_id as _delete_message_by_id,
 )
+from app.bot.telegram.handlers.superadmin.navigation import send_superadmin_panel
 from app.bot.telegram.handlers.user.shared import clean_text as _clean_text
 from app.bot.telegram.keyboards import labels
 from app.bot.telegram.keyboards.superadmin import hall_of_fame as hall_kb
-from app.bot.telegram.keyboards.superadmin import panel as superadmin_panel_kb
 from app.bot.telegram.message_edit import (
     edit_message_if_changed,
     edit_message_reply_markup_by_id_if_changed,
@@ -473,9 +473,10 @@ async def _cancel(callback: CallbackQuery, state: FSMContext) -> None:
     await callback.answer(text.HALL_OF_FAME_CANCELLED)
     if callback.message is not None:
         await _delete_callback_message(callback)
-        await callback.message.answer(
-            text.HALL_OF_FAME_CANCELLED,
-            reply_markup=superadmin_panel_kb.superadmin_panel_keyboard(),
+        await send_superadmin_panel(
+            callback.message,
+            superadmin_telegram_id=callback.from_user.id,
+            text=text.HALL_OF_FAME_CANCELLED,
         )
 
 

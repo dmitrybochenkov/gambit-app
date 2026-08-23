@@ -17,10 +17,10 @@ from app.bot.telegram.handlers.admin.shared import (
 from app.bot.telegram.handlers.admin.shared import (
     delete_message_by_id as _delete_message_by_id,
 )
+from app.bot.telegram.handlers.superadmin.navigation import send_superadmin_panel
 from app.bot.telegram.keyboards import labels
 from app.bot.telegram.keyboards.admin import panel as admin_panel_kb
 from app.bot.telegram.keyboards.admin import results as admin_results_kb
-from app.bot.telegram.keyboards.superadmin import panel as superadmin_panel_kb
 from app.bot.telegram.keyboards.superadmin import tournament_close as superadmin_tournament_close_kb
 from app.bot.telegram.message_edit import edit_message_if_changed
 from app.bot.telegram.photo_collection import (
@@ -882,18 +882,20 @@ async def _return_from_result_cancel(
         return
     if return_to_superadmin:
         await _delete_callback_message(callback)
-        await callback.message.answer(
-            message_text,
-            reply_markup=superadmin_panel_kb.superadmin_panel_keyboard(),
+        await send_superadmin_panel(
+            callback.message,
+            superadmin_telegram_id=callback.from_user.id,
+            text=message_text,
         )
         return
     try:
         await _return_to_admin_menu(callback, message_text)
     except AdminAccessDeniedError:
         await _delete_callback_message(callback)
-        await callback.message.answer(
-            message_text,
-            reply_markup=superadmin_panel_kb.superadmin_panel_keyboard(),
+        await send_superadmin_panel(
+            callback.message,
+            superadmin_telegram_id=callback.from_user.id,
+            text=message_text,
         )
 
 
