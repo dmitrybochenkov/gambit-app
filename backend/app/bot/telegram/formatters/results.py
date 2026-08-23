@@ -122,6 +122,68 @@ def correction_tournament_card(readiness: object) -> str:
     )
 
 
+def closed_correction_tournament_list(page: object) -> str:
+    lines = ["✏️ Править закрытый турнир", ""]
+    if not page.items:
+        lines.append("Закрытых турниров нет.")
+    else:
+        for tournament in page.items:
+            lines.append(tournament_fmt.label(tournament))
+    if page.total_pages > 1:
+        lines.extend(["", fmt_common.page_line(page)])
+    return "\n".join(lines)
+
+
+def closed_correction_tournament_card(results: object) -> str:
+    return "\n".join(
+        [
+            "✏️ Правка закрытого турнира",
+            "",
+            tournament_fmt.label(results.tournament),
+        ]
+    )
+
+
+def closed_correction_summary(result: object) -> str:
+    if not result.result_changes:
+        return "Изменений нет."
+    lines = [
+        f"Турнир {fmt_common.date_long(result.tournament_date)} изменён.",
+        "",
+    ]
+    for player in result.result_changes:
+        lines.append(player.display_name)
+        lines.extend(f"{field.label}: {field.before} → {field.after}" for field in player.fields)
+        lines.append("")
+    if result.reward_changes:
+        lines.append("Бонусы:")
+        for reward in result.reward_changes:
+            lines.append(_reward_change_line(reward))
+        lines.append("")
+    if result.used_reward_warnings:
+        lines.append("⚠️ Обрати внимание:")
+        lines.extend(_used_reward_warning(reward) for reward in result.used_reward_warnings)
+    if lines[-1] == "":
+        lines.pop()
+    return "\n".join(lines)
+
+
+def _reward_change_line(reward: object) -> str:
+    before = _chips(reward.old_chips_amount)
+    after = _chips(reward.new_chips_amount)
+    return f"{reward.display_name}: {before} → {after}"
+
+
+def _used_reward_warning(reward: object) -> str:
+    return f"бонус {_chips(reward.old_chips_amount)} {reward.display_name} уже был использован."
+
+
+def _chips(value: int | None) -> str:
+    if value is None:
+        return "—"
+    return f"+{fmt_common.number(value)}"
+
+
 def close_tournament_card(results: object) -> str:
     return "\n".join(
         [
@@ -250,6 +312,17 @@ def add_existing_player_prompt(tournament: object, user: object) -> str:
             "Добавить игрока в турнир?",
             "",
             user.display_name,
+            tournament_fmt.label(tournament),
+        ]
+    )
+
+
+def replace_result_player_prompt(tournament: object, current_player: object, user: object) -> str:
+    return "\n".join(
+        [
+            "Заменить игрока в результате?",
+            "",
+            f"{current_player.display_name} → {user.display_name}",
             tournament_fmt.label(tournament),
         ]
     )

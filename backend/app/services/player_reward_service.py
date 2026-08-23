@@ -1,4 +1,4 @@
-from datetime import date, timedelta
+from datetime import date, datetime, time, timedelta
 
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
@@ -20,10 +20,14 @@ from app.db.session import SessionFactory
 from app.domain.tournament_day import resolve_tournament_day
 from app.services.access_policy import access_policy
 from app.services.dto.rewards import (
+    PlayerRewardCorrectionChangeView,
+    PlayerRewardCorrectionNotificationView,
+    PlayerRewardCorrectionResultView,
     PlayerRewardExpirationReminderGroupView,
     PlayerRewardExpirationReminderItemView,
     PlayerRewardNotificationView,
     PlayerRewardView,
+    PrizeStackBonusSourceResultView,
 )
 
 PRIZE_STACK_BONUS_BY_PLACE = {
@@ -213,7 +217,7 @@ class PlayerRewardService:
             return ()
         results = await TournamentResultRepository(session).list_by_tournament(tournament.id)
         issued_at = self.clock.now()
-        valid_through = issued_date + timedelta(days=REWARD_VALID_DAYS)
+        valid_through = self._prize_stack_bonus_valid_through(issued_date)
         issued_rewards: list[tuple[PlayerReward, int]] = []
         for result in results:
             chips_amount = PRIZE_STACK_BONUS_BY_PLACE.get(result.place)
@@ -258,6 +262,144 @@ class PlayerRewardService:
             )
         return tuple(views)
 
+    async def reconcile_prize_stack_bonuses_for_closed_tournament(
+        self,
+        session: AsyncSession,
+        tournament: Tournament,
+        *,
+        source_results: tuple[PrizeStackBonusSourceResultView, ...],
+    ) -> PlayerRewardCorrectionResultView:
+        reward_repository = PlayerRewardRepository(session)
+        tournament_type = await TournamentTypeRepository(session).get_by_id(
+            tournament.tournament_type_id
+        )
+        if tournament_type is None:
+            return PlayerRewardCorrectionResultView(
+                reward_changes=(),
+                used_reward_warnings=(),
+                player_notifications=(),
+            )
+
+        desired = {
+            result.player_id: result
+            for result in source_results
+            if result.place in PRIZE_STACK_BONUS_BY_PLACE
+        }
+        existing_rows = await reward_repository.list_for_source(
+            source_tournament_id=tournament.id,
+            reward_type=PlayerRewardType.PRIZE_STACK_BONUS,
+        )
+        existing_by_player = {row.reward.player_id: row for row in existing_rows}
+        issued_at, valid_through = self._source_reward_lifecycle(tournament, existing_rows)
+        changes: list[PlayerRewardCorrectionChangeView] = []
+        warnings: list[PlayerRewardCorrectionChangeView] = []
+        notifications: list[PlayerRewardCorrectionNotificationView] = []
+
+        for player_id, row in existing_by_player.items():
+            reward = row.reward
+            wanted = desired.get(player_id)
+            user = await UserRepository(session).get_by_id(player_id)
+            display_name = user.display_name if user is not None else str(player_id)
+            telegram_id = user.telegram_id if user is not None else None
+            if wanted is None:
+                change = PlayerRewardCorrectionChangeView(
+                    player_id=player_id,
+                    display_name=display_name,
+                    old_chips_amount=reward.chips_amount,
+                    new_chips_amount=None,
+                    used=reward.redeemed_at is not None,
+                )
+                changes.append(change)
+                if change.used:
+                    warnings.append(change)
+                notifications.append(
+                    self._reward_correction_notification(
+                        tournament=tournament,
+                        tournament_name=tournament_type.name,
+                        player_id=player_id,
+                        telegram_id=telegram_id,
+                        valid_through=reward.valid_through,
+                        old_chips_amount=reward.chips_amount,
+                        new_chips_amount=None,
+                    )
+                )
+                await reward_repository.delete(reward)
+                continue
+
+            if wanted.place is None:
+                continue
+            chips_amount = PRIZE_STACK_BONUS_BY_PLACE[wanted.place]
+            if reward.chips_amount == chips_amount and reward.source_place == wanted.place:
+                continue
+            change = PlayerRewardCorrectionChangeView(
+                player_id=player_id,
+                display_name=display_name,
+                old_chips_amount=reward.chips_amount,
+                new_chips_amount=chips_amount,
+                used=reward.redeemed_at is not None,
+            )
+            changes.append(change)
+            if change.used:
+                warnings.append(change)
+            notifications.append(
+                self._reward_correction_notification(
+                    tournament=tournament,
+                    tournament_name=tournament_type.name,
+                    player_id=player_id,
+                    telegram_id=telegram_id,
+                    valid_through=reward.valid_through,
+                    old_chips_amount=reward.chips_amount,
+                    new_chips_amount=chips_amount,
+                )
+            )
+            reward.chips_amount = chips_amount
+            reward.source_place = wanted.place
+            reward.valid_through = valid_through
+
+        for player_id, result in desired.items():
+            if player_id in existing_by_player:
+                continue
+            if result.place is None:
+                continue
+            chips_amount = PRIZE_STACK_BONUS_BY_PLACE[result.place]
+            reward = PlayerReward(
+                player_id=player_id,
+                reward_type=PlayerRewardType.PRIZE_STACK_BONUS,
+                chips_amount=chips_amount,
+                source_tournament_id=tournament.id,
+                source_place=result.place,
+                issued_at=issued_at,
+                valid_through=valid_through,
+            )
+            reward_repository.add(reward)
+            changes.append(
+                PlayerRewardCorrectionChangeView(
+                    player_id=player_id,
+                    display_name=result.display_name,
+                    old_chips_amount=None,
+                    new_chips_amount=chips_amount,
+                )
+            )
+            notifications.append(
+                self._reward_correction_notification(
+                    tournament=tournament,
+                    tournament_name=tournament_type.name,
+                    player_id=player_id,
+                    telegram_id=result.telegram_id,
+                    valid_through=valid_through,
+                    old_chips_amount=None,
+                    new_chips_amount=chips_amount,
+                )
+            )
+
+        if changes:
+            await session.flush()
+        return PlayerRewardCorrectionResultView(
+            reward_changes=tuple(changes),
+            used_reward_warnings=tuple(warnings),
+            player_notifications=tuple(notifications),
+        )
+
     async def _list_active_reward_views(
         self,
         session: AsyncSession,
@@ -285,6 +427,51 @@ class PlayerRewardService:
 
     def _tournament_day(self) -> date:
         return resolve_tournament_day(self.clock, self.tournament_day_start_hour)
+
+    @staticmethod
+    def _prize_stack_bonus_valid_through(issued_date: date) -> date:
+        return issued_date + timedelta(days=REWARD_VALID_DAYS)
+
+    def _source_reward_lifecycle(
+        self,
+        tournament: Tournament,
+        existing_rows: list[PlayerRewardSourceRow],
+    ) -> tuple[datetime, date]:
+        if existing_rows:
+            return (
+                min(row.reward.issued_at for row in existing_rows),
+                min(row.reward.valid_through for row in existing_rows),
+            )
+        return (
+            self._source_reward_issued_at(tournament.date),
+            self._prize_stack_bonus_valid_through(tournament.date),
+        )
+
+    def _source_reward_issued_at(self, issued_date: date) -> datetime:
+        now = self.clock.now()
+        return datetime.combine(issued_date, time.min, tzinfo=now.tzinfo)
+
+    @staticmethod
+    def _reward_correction_notification(
+        *,
+        tournament: Tournament,
+        tournament_name: str,
+        player_id: int,
+        telegram_id: int | None,
+        valid_through: date,
+        old_chips_amount: int | None,
+        new_chips_amount: int | None,
+    ) -> PlayerRewardCorrectionNotificationView:
+        return PlayerRewardCorrectionNotificationView(
+            player_id=player_id,
+            telegram_id=telegram_id,
+            source_tournament_id=tournament.id,
+            source_tournament_date=tournament.date,
+            source_tournament_name=tournament_name,
+            valid_through=valid_through,
+            old_chips_amount=old_chips_amount,
+            new_chips_amount=new_chips_amount,
+        )
 
 
 def _reward_view(row: PlayerRewardSourceRow) -> PlayerRewardView:

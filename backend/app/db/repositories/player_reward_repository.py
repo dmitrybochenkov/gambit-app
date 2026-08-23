@@ -103,6 +103,31 @@ class PlayerRewardRepository:
             tournament_type=tournament_type,
         )
 
+    async def list_for_source(
+        self,
+        *,
+        source_tournament_id: int,
+        reward_type: PlayerRewardType,
+    ) -> list[PlayerRewardSourceRow]:
+        result = await self.session.execute(
+            select(PlayerReward, Tournament, TournamentType)
+            .join(Tournament, Tournament.id == PlayerReward.source_tournament_id)
+            .join(TournamentType, TournamentType.id == Tournament.tournament_type_id)
+            .where(
+                PlayerReward.source_tournament_id == source_tournament_id,
+                PlayerReward.reward_type == reward_type,
+            )
+            .order_by(PlayerReward.player_id)
+        )
+        return [
+            PlayerRewardSourceRow(
+                reward=reward,
+                tournament=tournament,
+                tournament_type=tournament_type,
+            )
+            for reward, tournament, tournament_type in result.all()
+        ]
+
     async def exists_for_source(
         self,
         *,
@@ -226,3 +251,6 @@ class PlayerRewardRepository:
 
     def add(self, reward: PlayerReward) -> None:
         self.session.add(reward)
+
+    async def delete(self, reward: PlayerReward) -> None:
+        await self.session.delete(reward)

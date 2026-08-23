@@ -25,7 +25,10 @@ from app.bot.telegram.message_edit import (
     edit_message_if_changed,
     edit_message_text_by_id_if_changed,
 )
-from app.bot.telegram.notifications import notify_players_about_prize_stack_bonuses
+from app.bot.telegram.notifications import (
+    notify_players_about_prize_stack_bonus_corrections,
+    notify_players_about_prize_stack_bonuses,
+)
 from app.bot.telegram.photo_collection import (
     PhotoControlContext,
     refresh_photo_control_message,
@@ -35,6 +38,7 @@ from app.bot.telegram.photo_collection import (
 )
 from app.bot.telegram.states import AdminResultStates
 from app.bot.telegram.texts.admin import calendar as calendar_text
+from app.bot.telegram.texts.admin import results as result_text
 from app.bot.telegram.texts.superadmin import panel as panel_text
 from app.bot.telegram.texts.superadmin import tournament_close as text
 from app.db.models.enums import (
@@ -44,12 +48,14 @@ from app.db.models.enums import (
 )
 from app.services.access_policy import AdminAccessDeniedError
 from app.services.pagination import pagination_service
+from app.services.result_fields import ResultField
 from app.services.result_service import (
     FutureTournamentCannotBeClosedError,
     ResultCombinationAlreadyExistsError,
     ResultCombinationNotFoundError,
     ResultDuplicateNameError,
     ResultInvalidFundError,
+    ResultInvalidPlayerDataError,
     ResultPlayerAlreadyAddedError,
     ResultService,
     ResultTournamentNotFoundError,
@@ -103,13 +109,14 @@ async def show_close_tournament_flow(message: Message, state: FSMContext) -> Non
         tournaments = await result_service.list_unclosed_tournaments_for_superadmin(
             message.from_user.id
         )
+        closed_tournaments = await _list_closed_tournaments_or_empty(message.from_user.id)
     except AdminAccessDeniedError:
         await message.answer(panel_text.INSUFFICIENT_RIGHTS)
         return
 
     ready = [item for item in tournaments if item.is_ready]
     problematic = [item for item in tournaments if not item.is_ready]
-    if not ready and not problematic:
+    if not ready and not problematic and not closed_tournaments:
         await message.answer(
             text.NO_READY_TOURNAMENTS,
             reply_markup=superadmin_panel_kb.superadmin_panel_keyboard(),
@@ -125,6 +132,7 @@ async def show_close_tournament_flow(message: Message, state: FSMContext) -> Non
         reply_markup=superadmin_tournament_close_kb.admin_close_tournament_list_keyboard(
             page,
             has_correction_targets=bool(tournaments),
+            has_closed_correction_targets=bool(closed_tournaments),
         ),
     )
 
@@ -151,6 +159,7 @@ async def select_close_tournament_action(
             tournaments = await result_service.list_unclosed_tournaments_for_superadmin(
                 callback.from_user.id
             )
+            closed_tournaments = await _list_closed_tournaments_or_empty(callback.from_user.id)
             page = pagination_service.paginate(
                 tournaments,
                 page=callback_data.page,
@@ -164,6 +173,7 @@ async def select_close_tournament_action(
                     reply_markup=superadmin_tournament_close_kb.admin_close_tournament_list_keyboard(
                         page,
                         has_correction_targets=bool(tournaments),
+                        has_closed_correction_targets=bool(closed_tournaments),
                     ),
                 )
             return
@@ -202,6 +212,13 @@ async def select_close_tournament_action(
                         page
                     ),
                 )
+            return
+
+        if (
+            callback_data.action
+            == superadmin_tournament_close_kb.AdminCloseTournamentAction.CLOSED_CORRECTION_LIST
+        ):
+            await _edit_closed_correction_list(callback, page=0)
             return
 
         if callback_data.action in {
@@ -338,6 +355,403 @@ async def select_close_tournament_action(
         return
 
     await callback.answer(text.ADMIN_RESULTS_NOT_FOUND, show_alert=True)
+
+
+@router.callback_query(superadmin_tournament_close_kb.AdminClosedCorrectionCallback.filter())
+async def select_closed_correction_action(
+    callback: CallbackQuery,
+    callback_data: superadmin_tournament_close_kb.AdminClosedCorrectionCallback,
+    state: FSMContext,
+) -> None:
+    try:
+        if (
+            callback_data.action
+            == superadmin_tournament_close_kb.AdminClosedCorrectionAction.CANCEL
+        ):
+            await state.clear()
+            await callback.answer(text.ADMIN_RESULTS_CANCELLED)
+            await _return_to_superadmin_menu(callback, text.ADMIN_RESULTS_CANCELLED)
+            return
+        if callback_data.action == superadmin_tournament_close_kb.AdminClosedCorrectionAction.PAGE:
+            await _edit_closed_correction_list(callback, page=callback_data.page)
+            return
+        if callback_data.action == superadmin_tournament_close_kb.AdminClosedCorrectionAction.OPEN:
+            await _edit_closed_correction_card(
+                callback,
+                state,
+                tournament_id=callback_data.tournament_id,
+                page=callback_data.page,
+            )
+            return
+        if callback_data.action == superadmin_tournament_close_kb.AdminClosedCorrectionAction.DATA:
+            results = await result_service.get_closed_tournament_results(
+                superadmin_telegram_id=callback.from_user.id,
+                tournament_id=callback_data.tournament_id,
+            )
+            page = pagination_service.paginate(
+                results.players,
+                page=0,
+                page_size=admin_results_kb.ADMIN_RESULT_PAGE_SIZE,
+            )
+            await callback.answer()
+            if callback.message is not None:
+                await edit_message_if_changed(
+                    callback.message,
+                    text=result_fmt.players_table(results, page),
+                    reply_markup=superadmin_tournament_close_kb.admin_closed_result_players_keyboard(
+                        results,
+                        page,
+                    ),
+                    parse_mode=RESULT_SUMMARY_PARSE_MODE,
+                )
+            return
+        if (
+            callback_data.action
+            == superadmin_tournament_close_kb.AdminClosedCorrectionAction.FINISH
+        ):
+            data = await state.get_data()
+            snapshot = ResultService.snapshot_from_payload(
+                data.get(f"closed_correction_snapshot_{callback_data.tournament_id}")
+            )
+            if not snapshot:
+                current = await result_service.get_closed_tournament_results(
+                    superadmin_telegram_id=callback.from_user.id,
+                    tournament_id=callback_data.tournament_id,
+                )
+                snapshot = ResultService.snapshot_from_results(current)
+            result = await result_service.finish_closed_tournament_correction(
+                superadmin_telegram_id=callback.from_user.id,
+                tournament_id=callback_data.tournament_id,
+                original_snapshot=snapshot,
+            )
+            if result.result_changes:
+                refreshed = await result_service.get_closed_tournament_results(
+                    superadmin_telegram_id=callback.from_user.id,
+                    tournament_id=callback_data.tournament_id,
+                )
+                await state.update_data(
+                    **{
+                        f"closed_correction_snapshot_{callback_data.tournament_id}": (
+                            ResultService.snapshot_to_payload(
+                                ResultService.snapshot_from_results(refreshed)
+                            )
+                        )
+                    }
+                )
+            await notify_players_about_prize_stack_bonus_corrections(
+                callback.bot,
+                result.player_notifications,
+            )
+            await callback.answer("Исправление завершено.")
+            if callback.message is not None:
+                await edit_message_if_changed(
+                    callback.message,
+                    text=result_fmt.closed_correction_summary(result),
+                    reply_markup=superadmin_tournament_close_kb.admin_closed_correction_card_keyboard(
+                        tournament_id=callback_data.tournament_id,
+                        page=callback_data.page,
+                    ),
+                )
+            return
+    except AdminAccessDeniedError:
+        await callback.answer(text.ACCESS_DENIED, show_alert=True)
+        return
+    except ResultValidationError as error:
+        await callback.answer()
+        if callback.message is not None:
+            await callback.message.answer(result_fmt.close_tournament_blocked(error.errors))
+        return
+    except ResultTournamentNotFoundError:
+        await callback.answer(text.ADMIN_RESULTS_NOT_FOUND, show_alert=True)
+        return
+    await callback.answer(text.ADMIN_RESULTS_NOT_FOUND, show_alert=True)
+
+
+@router.callback_query(superadmin_tournament_close_kb.AdminClosedResultPlayerCallback.filter())
+async def select_closed_result_player(
+    callback: CallbackQuery,
+    callback_data: superadmin_tournament_close_kb.AdminClosedResultPlayerCallback,
+    state: FSMContext,
+) -> None:
+    try:
+        if (
+            callback_data.action
+            == superadmin_tournament_close_kb.AdminClosedResultPlayerAction.CANCEL
+        ):
+            await state.clear()
+            await callback.answer(text.ADMIN_RESULTS_CANCELLED)
+            await _return_to_superadmin_menu(callback, text.ADMIN_RESULTS_CANCELLED)
+            return
+        results = await result_service.get_closed_tournament_results(
+            superadmin_telegram_id=callback.from_user.id,
+            tournament_id=callback_data.tournament_id,
+        )
+        page = pagination_service.paginate(
+            results.players,
+            page=callback_data.page,
+            page_size=admin_results_kb.ADMIN_RESULT_PAGE_SIZE,
+        )
+        if (
+            callback_data.action
+            == superadmin_tournament_close_kb.AdminClosedResultPlayerAction.PAGE
+        ):
+            await callback.answer()
+            if callback.message is not None:
+                await edit_message_if_changed(
+                    callback.message,
+                    text=result_fmt.players_table(results, page),
+                    reply_markup=superadmin_tournament_close_kb.admin_closed_result_players_keyboard(
+                        results,
+                        page,
+                    ),
+                    parse_mode=RESULT_SUMMARY_PARSE_MODE,
+                )
+            return
+        player = ResultService.find_result_player(results, callback_data.player_id)
+        if player is None:
+            await callback.answer(result_text.PLAYER_NOT_FOUND, show_alert=True)
+            return
+        if (
+            callback_data.action
+            == superadmin_tournament_close_kb.AdminClosedResultPlayerAction.REPLACE
+        ):
+            await state.set_state(AdminResultStates.entering_closed_result_replacement_search)
+            await state.update_data(
+                closed_replace_tournament_id=callback_data.tournament_id,
+                closed_replace_current_player_id=callback_data.player_id,
+                closed_replace_page=callback_data.page,
+            )
+            await callback.answer()
+            if callback.message is not None:
+                await edit_message_if_changed(
+                    callback.message,
+                    text=f"Кого поставить вместо {player.display_name}?\n\nВведи имя игрока.",
+                    reply_markup=superadmin_tournament_close_kb.admin_closed_replacement_input_keyboard(
+                        tournament_id=callback_data.tournament_id,
+                        page=callback_data.page,
+                        current_player_id=callback_data.player_id,
+                    ),
+                )
+            return
+        await callback.answer()
+        if callback.message is not None:
+            await edit_message_if_changed(
+                callback.message,
+                text=result_fmt.player_detail(results, player),
+                reply_markup=superadmin_tournament_close_kb.admin_closed_result_player_fields_keyboard(
+                    results,
+                    player,
+                    callback_data.page,
+                ),
+            )
+    except AdminAccessDeniedError:
+        await callback.answer(text.ACCESS_DENIED, show_alert=True)
+    except ResultTournamentNotFoundError:
+        await callback.answer(text.ADMIN_RESULTS_NOT_FOUND, show_alert=True)
+
+
+@router.callback_query(superadmin_tournament_close_kb.AdminClosedResultFieldCallback.filter())
+async def select_closed_result_field(
+    callback: CallbackQuery,
+    callback_data: superadmin_tournament_close_kb.AdminClosedResultFieldCallback,
+    state: FSMContext,
+) -> None:
+    try:
+        if (
+            callback_data.action
+            == superadmin_tournament_close_kb.AdminClosedResultFieldAction.CANCEL
+        ):
+            await state.clear()
+            await callback.answer(text.ADMIN_RESULTS_CANCELLED)
+            await _return_to_superadmin_menu(callback, text.ADMIN_RESULTS_CANCELLED)
+            return
+        results = await result_service.get_closed_tournament_results(
+            superadmin_telegram_id=callback.from_user.id,
+            tournament_id=callback_data.tournament_id,
+        )
+        player = ResultService.find_result_player(results, callback_data.player_id)
+        if player is None:
+            await callback.answer(result_text.PLAYER_NOT_FOUND, show_alert=True)
+            return
+        await callback.answer()
+        if callback.message is not None:
+            await edit_message_if_changed(
+                callback.message,
+                text=result_fmt.field_prompt(
+                    player,
+                    _closed_result_field_name(callback_data.field, results),
+                ),
+                reply_markup=superadmin_tournament_close_kb.admin_closed_result_value_keyboard(
+                    tournament_id=callback_data.tournament_id,
+                    page=callback_data.page,
+                    player_id=callback_data.player_id,
+                    field=callback_data.field,
+                    occupied_places=ResultService.occupied_result_places(results),
+                    current_place=player.place,
+                ),
+            )
+    except AdminAccessDeniedError:
+        await callback.answer(text.ACCESS_DENIED, show_alert=True)
+    except ResultTournamentNotFoundError:
+        await callback.answer(text.ADMIN_RESULTS_NOT_FOUND, show_alert=True)
+
+
+@router.callback_query(superadmin_tournament_close_kb.AdminClosedResultValueCallback.filter())
+async def select_closed_result_value(
+    callback: CallbackQuery,
+    callback_data: superadmin_tournament_close_kb.AdminClosedResultValueCallback,
+    state: FSMContext,
+) -> None:
+    try:
+        if (
+            callback_data.action
+            == superadmin_tournament_close_kb.AdminClosedResultValueAction.CANCEL
+        ):
+            await state.clear()
+            await callback.answer(text.ADMIN_RESULTS_CANCELLED)
+            await _return_to_superadmin_menu(callback, text.ADMIN_RESULTS_CANCELLED)
+            return
+        service_field = ResultField(callback_data.field.value)
+        if callback_data.action == superadmin_tournament_close_kb.AdminClosedResultValueAction.SET:
+            results = await result_service.update_closed_tournament_result_field(
+                superadmin_telegram_id=callback.from_user.id,
+                tournament_id=callback_data.tournament_id,
+                player_id=callback_data.player_id,
+                field=service_field,
+                value=callback_data.value,
+            )
+            player = ResultService.find_result_player(results, callback_data.player_id)
+            if player is None:
+                await callback.answer(result_text.PLAYER_NOT_FOUND, show_alert=True)
+                return
+            await callback.answer(result_text.ADMIN_RESULTS_SAVED)
+            if callback.message is not None:
+                await edit_message_if_changed(
+                    callback.message,
+                    text=result_fmt.player_detail(results, player),
+                    reply_markup=superadmin_tournament_close_kb.admin_closed_result_player_fields_keyboard(
+                        results,
+                        player,
+                        callback_data.page,
+                    ),
+                )
+            return
+        results = await result_service.get_closed_tournament_results(
+            superadmin_telegram_id=callback.from_user.id,
+            tournament_id=callback_data.tournament_id,
+        )
+        player = ResultService.find_result_player(results, callback_data.player_id)
+        if player is None:
+            await callback.answer(result_text.PLAYER_NOT_FOUND, show_alert=True)
+            return
+        await callback.answer()
+        if callback.message is not None:
+            await edit_message_if_changed(
+                callback.message,
+                text=result_fmt.player_detail(results, player),
+                reply_markup=superadmin_tournament_close_kb.admin_closed_result_player_fields_keyboard(
+                    results,
+                    player,
+                    callback_data.page,
+                ),
+            )
+    except AdminAccessDeniedError:
+        await callback.answer(text.ACCESS_DENIED, show_alert=True)
+    except ResultTournamentNotFoundError:
+        await callback.answer(text.ADMIN_RESULTS_NOT_FOUND, show_alert=True)
+    except (ResultInvalidPlayerDataError, ResultUserNotFoundError, ValueError):
+        await callback.answer("Некорректное значение.", show_alert=True)
+
+
+@router.callback_query(superadmin_tournament_close_kb.AdminClosedResultReplacementCallback.filter())
+async def select_closed_result_replacement(
+    callback: CallbackQuery,
+    callback_data: superadmin_tournament_close_kb.AdminClosedResultReplacementCallback,
+    state: FSMContext,
+) -> None:
+    try:
+        if (
+            callback_data.action
+            == superadmin_tournament_close_kb.AdminClosedResultReplacementAction.CANCEL
+        ):
+            await state.clear()
+            await callback.answer(text.ADMIN_RESULTS_CANCELLED)
+            await _return_to_superadmin_menu(callback, text.ADMIN_RESULTS_CANCELLED)
+            return
+        if (
+            callback_data.action
+            == superadmin_tournament_close_kb.AdminClosedResultReplacementAction.BACK
+        ):
+            await state.set_state(None)
+            await _edit_closed_result_player_detail(
+                callback=callback,
+                tournament_id=callback_data.tournament_id,
+                page=callback_data.page,
+                player_id=callback_data.current_player_id,
+            )
+            return
+        if (
+            callback_data.action
+            == superadmin_tournament_close_kb.AdminClosedResultReplacementAction.CONFIRM
+        ):
+            (
+                results,
+                current_player,
+                user,
+            ) = await result_service.get_closed_result_replacement_confirmation(
+                superadmin_telegram_id=callback.from_user.id,
+                tournament_id=callback_data.tournament_id,
+                current_player_id=callback_data.current_player_id,
+                new_player_id=callback_data.new_player_id,
+            )
+            await state.set_state(None)
+            await callback.answer()
+            if callback.message is not None:
+                await edit_message_if_changed(
+                    callback.message,
+                    text=result_fmt.replace_result_player_prompt(
+                        results.tournament,
+                        current_player,
+                        user,
+                    ),
+                    reply_markup=superadmin_tournament_close_kb.admin_closed_replacement_confirmation_keyboard(
+                        tournament_id=callback_data.tournament_id,
+                        page=callback_data.page,
+                        current_player_id=callback_data.current_player_id,
+                        new_player_id=callback_data.new_player_id,
+                    ),
+                )
+            return
+        if (
+            callback_data.action
+            == superadmin_tournament_close_kb.AdminClosedResultReplacementAction.APPLY
+        ):
+            results = await result_service.replace_closed_tournament_result_player(
+                superadmin_telegram_id=callback.from_user.id,
+                tournament_id=callback_data.tournament_id,
+                current_player_id=callback_data.current_player_id,
+                new_player_id=callback_data.new_player_id,
+            )
+            await state.set_state(None)
+            player = ResultService.find_result_player(results, callback_data.new_player_id)
+            await callback.answer(result_text.ADMIN_RESULTS_SAVED)
+            if callback.message is not None and player is not None:
+                await edit_message_if_changed(
+                    callback.message,
+                    text=result_fmt.player_detail(results, player),
+                    reply_markup=superadmin_tournament_close_kb.admin_closed_result_player_fields_keyboard(
+                        results,
+                        player,
+                        callback_data.page,
+                    ),
+                )
+            return
+    except AdminAccessDeniedError:
+        await callback.answer(text.ACCESS_DENIED, show_alert=True)
+    except ResultPlayerAlreadyAddedError:
+        await callback.answer("Этот игрок уже добавлен в турнир.", show_alert=True)
+    except (ResultTournamentNotFoundError, ResultUserNotFoundError):
+        await callback.answer(text.ADMIN_RESULTS_NOT_FOUND, show_alert=True)
 
 
 @router.callback_query(superadmin_tournament_close_kb.AdminTournamentRepairCallback.filter())
@@ -876,6 +1290,48 @@ async def _handle_repair_combination_action(
         )
 
 
+@router.message(AdminResultStates.entering_closed_result_replacement_search)
+async def enter_closed_result_replacement_search(message: Message, state: FSMContext) -> None:
+    if message.from_user is None:
+        return
+    data = await state.get_data()
+    tournament_id = int(data["closed_replace_tournament_id"])
+    current_player_id = int(data["closed_replace_current_player_id"])
+    page = int(data["closed_replace_page"])
+    try:
+        players = await result_service.search_closed_result_replacement_users(
+            superadmin_telegram_id=message.from_user.id,
+            tournament_id=tournament_id,
+            current_player_id=current_player_id,
+            query=message.text or "",
+        )
+    except AdminAccessDeniedError:
+        await state.clear()
+        await message.answer(text.ACCESS_DENIED)
+        return
+    except ResultTournamentNotFoundError:
+        await state.clear()
+        await message.answer(text.ADMIN_RESULTS_NOT_FOUND)
+        return
+    except TournamentResultsEditingUnavailableError:
+        await state.clear()
+        await message.answer("Турнир недоступен для редактирования.")
+        return
+
+    if not players:
+        await message.answer("Игроки не найдены.")
+        return
+    await message.answer(
+        "Нашел игроков в базе:",
+        reply_markup=superadmin_tournament_close_kb.admin_closed_replacement_search_results_keyboard(
+            tournament_id=tournament_id,
+            page=page,
+            current_player_id=current_player_id,
+            players=players,
+        ),
+    )
+
+
 @router.message(AdminResultStates.entering_repair_existing_player_search)
 async def enter_repair_existing_player_search(message: Message, state: FSMContext) -> None:
     if message.from_user is None:
@@ -1106,6 +1562,105 @@ async def _edit_repair_tournament_card(
     )
 
 
+async def _edit_closed_correction_list(callback: CallbackQuery, *, page: int) -> None:
+    tournaments = await result_service.list_closed_tournaments_for_superadmin(callback.from_user.id)
+    page_view = pagination_service.paginate(
+        tournaments,
+        page=page,
+        page_size=admin_results_kb.ADMIN_RESULT_PAGE_SIZE,
+    )
+    await callback.answer()
+    if callback.message is None:
+        return
+    await edit_message_if_changed(
+        callback.message,
+        text=result_fmt.closed_correction_tournament_list(page_view),
+        reply_markup=superadmin_tournament_close_kb.admin_closed_correction_tournament_list_keyboard(
+            page_view
+        ),
+    )
+
+
+async def _edit_closed_correction_card(
+    callback: CallbackQuery,
+    state: FSMContext,
+    *,
+    tournament_id: int,
+    page: int,
+) -> None:
+    results = await result_service.get_closed_tournament_results(
+        superadmin_telegram_id=callback.from_user.id,
+        tournament_id=tournament_id,
+    )
+    await state.update_data(
+        **{
+            f"closed_correction_snapshot_{tournament_id}": ResultService.snapshot_to_payload(
+                ResultService.snapshot_from_results(results)
+            )
+        }
+    )
+    await callback.answer()
+    if callback.message is None:
+        return
+    await edit_message_if_changed(
+        callback.message,
+        text=result_fmt.closed_correction_tournament_card(results),
+        reply_markup=superadmin_tournament_close_kb.admin_closed_correction_card_keyboard(
+            tournament_id=tournament_id,
+            page=page,
+        ),
+    )
+
+
+async def _edit_closed_result_player_detail(
+    *,
+    callback: CallbackQuery,
+    tournament_id: int,
+    page: int,
+    player_id: int,
+) -> None:
+    results = await result_service.get_closed_tournament_results(
+        superadmin_telegram_id=callback.from_user.id,
+        tournament_id=tournament_id,
+    )
+    player = ResultService.find_result_player(results, player_id)
+    if player is None:
+        await callback.answer(result_text.PLAYER_NOT_FOUND, show_alert=True)
+        return
+    await callback.answer()
+    if callback.message is None:
+        return
+    await edit_message_if_changed(
+        callback.message,
+        text=result_fmt.player_detail(results, player),
+        reply_markup=superadmin_tournament_close_kb.admin_closed_result_player_fields_keyboard(
+            results,
+            player,
+            page,
+        ),
+    )
+
+
+def _closed_result_field_name(
+    field: superadmin_tournament_close_kb.AdminClosedResultField,
+    results: object,
+) -> str:
+    if field == superadmin_tournament_close_kb.AdminClosedResultField.KNOCKOUTS:
+        return "🥊"
+    if field == superadmin_tournament_close_kb.AdminClosedResultField.BIG_KNOCKOUTS:
+        return "Босс КО"
+    if field == superadmin_tournament_close_kb.AdminClosedResultField.BONUS:
+        return str(getattr(results, "bonus_points_label", "бонус")).lower()
+    return "место"
+
+
+async def _list_closed_tournaments_or_empty(superadmin_telegram_id: int) -> list[object]:
+    list_closed = getattr(result_service, "list_closed_tournaments_for_superadmin", None)
+    if list_closed is None:
+        return []
+    return await list_closed(superadmin_telegram_id)
+
+
 def _repair_result_players_keyboard(results: object, page: object) -> object:
     tournament_id = results.tournament.id
     return admin_results_kb.admin_result_players_keyboard(
@@ -1215,13 +1770,14 @@ async def _edit_close_tournament_root(
     tournaments = await result_service.list_unclosed_tournaments_for_superadmin(
         callback.from_user.id
     )
+    closed_tournaments = await _list_closed_tournaments_or_empty(callback.from_user.id)
     ready = [item for item in tournaments if item.is_ready]
     problematic = [item for item in tournaments if not item.is_ready]
     await state.clear()
     await callback.answer()
     if callback.message is None:
         return
-    if not ready and not problematic:
+    if not ready and not problematic and not closed_tournaments:
         await edit_message_if_changed(
             callback.message,
             text=text.NO_READY_TOURNAMENTS,
@@ -1239,6 +1795,7 @@ async def _edit_close_tournament_root(
         reply_markup=superadmin_tournament_close_kb.admin_close_tournament_list_keyboard(
             page_view,
             has_correction_targets=bool(tournaments),
+            has_closed_correction_targets=bool(closed_tournaments),
         ),
     )
 

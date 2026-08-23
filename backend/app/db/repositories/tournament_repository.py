@@ -108,6 +108,32 @@ class TournamentRepository:
         )
         return list(result.scalars())
 
+    async def list_closed(
+        self,
+        *,
+        limit: int | None = None,
+        offset: int = 0,
+    ) -> list[Tournament]:
+        statement = (
+            select(Tournament)
+            .options(selectinload(Tournament.tournament_type))
+            .where(Tournament.status == TournamentStatus.CLOSED)
+            .order_by(Tournament.date.desc(), Tournament.id.desc())
+            .offset(offset)
+        )
+        if limit is not None:
+            statement = statement.limit(limit)
+        result = await self.session.execute(statement)
+        return list(result.scalars())
+
+    async def count_closed(self) -> int:
+        result = await self.session.execute(
+            select(func.count())
+            .select_from(Tournament)
+            .where(Tournament.status == TournamentStatus.CLOSED)
+        )
+        return int(result.scalar_one())
+
     async def get_by_id(self, tournament_id: int) -> Tournament | None:
         result = await self.session.execute(
             select(Tournament)

@@ -1,7 +1,12 @@
 from dataclasses import dataclass
+from datetime import date
 from decimal import Decimal
 
-from app.services.dto.rewards import PlayerRewardNotificationView
+from app.services.dto.rewards import (
+    PlayerRewardCorrectionChangeView,
+    PlayerRewardCorrectionNotificationView,
+    PlayerRewardNotificationView,
+)
 from app.services.dto.tournaments import TournamentScheduleDetailsView, TournamentView
 
 
@@ -19,6 +24,41 @@ class TournamentResultPlayerView:
     @property
     def total_points(self) -> Decimal:
         return self.tournament_points + self.knockout_points + Decimal(self.bonus_points)
+
+
+@dataclass(frozen=True)
+class TournamentResultSnapshotItemView:
+    player_id: int
+    display_name: str
+    place: int | None
+    knockouts_count: int
+    big_knockouts_count: int
+    bonus_points: int
+
+
+@dataclass(frozen=True)
+class TournamentResultFieldChangeView:
+    label: str
+    before: str
+    after: str
+
+
+@dataclass(frozen=True)
+class TournamentResultPlayerChangeView:
+    player_id: int
+    display_name: str
+    fields: tuple[TournamentResultFieldChangeView, ...]
+
+
+@dataclass(frozen=True)
+class ClosedTournamentCorrectionResultView:
+    tournament_id: int
+    tournament_date: date
+    tournament_name: str
+    result_changes: tuple[TournamentResultPlayerChangeView, ...]
+    reward_changes: tuple[PlayerRewardCorrectionChangeView, ...]
+    used_reward_warnings: tuple[PlayerRewardCorrectionChangeView, ...]
+    player_notifications: tuple[PlayerRewardCorrectionNotificationView, ...]
 
 
 @dataclass(frozen=True)

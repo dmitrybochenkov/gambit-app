@@ -1186,6 +1186,69 @@ def test_admin_close_tournament_nested_keyboards_show_back() -> None:
         assert "❌ Отмена" in inline_keyboard_texts(keyboard)
 
 
+def test_closed_correction_keyboards_are_separate_from_publish_flow() -> None:
+    tournament = tournament_view(125, date(2026, 8, 22), 1, "Double Double")
+    page = Page(items=[tournament], page=0, page_size=6, total_items=1)
+    root = superadmin_tournament_close_kb.admin_close_tournament_list_keyboard(
+        Page(items=[], page=0, page_size=6, total_items=0),
+        has_closed_correction_targets=True,
+    )
+    listing = superadmin_tournament_close_kb.admin_closed_correction_tournament_list_keyboard(page)
+    card = superadmin_tournament_close_kb.admin_closed_correction_card_keyboard(
+        tournament_id=125,
+        page=0,
+    )
+
+    assert "✏️ Править закрытый турнир" in inline_keyboard_texts(root)
+    assert inline_keyboard_texts(listing)[:1] == ["22.08 — Double Double"]
+    assert inline_keyboard_texts(card) == [
+        "🏁 Внести данные",
+        "✅ Завершить исправление",
+        "⬅️ Назад",
+        "❌ Отмена",
+    ]
+    assert "📣 Опубликовать результаты" not in inline_keyboard_texts(card)
+
+
+def test_closed_correction_player_replacement_keyboards() -> None:
+    tournament = tournament_view(125, date(2026, 8, 22), 1, "Double Double")
+    player = TournamentResultPlayerView(
+        player_id=10,
+        display_name="Старый игрок",
+        place=1,
+        knockouts_count=0,
+        big_knockouts_count=0,
+    )
+    candidate = SimpleNamespace(id=20, display_name="Новый игрок")
+    results = TournamentResultsView(
+        tournament=tournament,
+        tournament_fund=1000,
+        players=[player],
+    )
+
+    fields = superadmin_tournament_close_kb.admin_closed_result_player_fields_keyboard(
+        results,
+        player,
+        page=0,
+    )
+    search = superadmin_tournament_close_kb.admin_closed_replacement_search_results_keyboard(
+        tournament_id=125,
+        page=0,
+        current_player_id=10,
+        players=[candidate],
+    )
+    confirmation = superadmin_tournament_close_kb.admin_closed_replacement_confirmation_keyboard(
+        tournament_id=125,
+        page=0,
+        current_player_id=10,
+        new_player_id=20,
+    )
+
+    assert "🔁 Заменить игрока" in inline_keyboard_texts(fields)
+    assert inline_keyboard_texts(search) == ["Новый игрок", "⬅️ Назад", "❌ Отмена"]
+    assert inline_keyboard_texts(confirmation) == ["✅ Заменить", "⬅️ Назад", "❌ Отмена"]
+
+
 def test_close_tournament_tables_hide_disabled_columns_for_classic() -> None:
     tournament = tournament_view(125, date(2026, 7, 19), 2, "Классика")
     results = TournamentResultsView(

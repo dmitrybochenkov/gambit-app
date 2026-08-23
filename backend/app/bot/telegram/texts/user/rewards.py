@@ -80,6 +80,65 @@ def prize_stack_bonus_expiration_reminder(group: Any, business_date: date) -> st
     return "\n".join(lines)
 
 
+def prize_stack_bonus_correction_notification(reward: Any) -> str:
+    if reward.old_chips_amount is None and reward.new_chips_amount is not None:
+        return "\n".join(
+            [
+                "🎁 Ты получил бонус!",
+                "",
+                (
+                    "После исправления результатов турнира "
+                    f"{reward.source_tournament_name} от "
+                    f"{fmt_common.date_long(reward.source_tournament_date)}"
+                ),
+                (
+                    "тебе начислено "
+                    f"+{fmt_common.number(reward.new_chips_amount)} фишек к первому стеку."
+                ),
+                "",
+                (
+                    "Бонус можно использовать до "
+                    f"{fmt_common.date_long(reward.valid_through)} включительно."
+                ),
+            ]
+        )
+    if reward.old_chips_amount is not None and reward.new_chips_amount is None:
+        return "\n".join(
+            [
+                "🎁 Бонус скорректирован",
+                "",
+                (
+                    "После исправления результатов турнира "
+                    f"{reward.source_tournament_name} от "
+                    f"{fmt_common.date_long(reward.source_tournament_date)}"
+                ),
+                (f"твой бонус +{fmt_common.number(reward.old_chips_amount)} фишек аннулирован."),
+            ]
+        )
+    return "\n".join(
+        [
+            "🎁 Бонус скорректирован",
+            "",
+            (
+                "После исправления результатов турнира "
+                f"{reward.source_tournament_name} от "
+                f"{fmt_common.date_long(reward.source_tournament_date)}"
+            ),
+            "твой бонус изменён:",
+            "",
+            (
+                f"+{fmt_common.number(reward.old_chips_amount)} → "
+                f"+{fmt_common.number(reward.new_chips_amount)} фишек."
+            ),
+            "",
+            (
+                "Бонус можно использовать до "
+                f"{fmt_common.date_long(reward.valid_through)} включительно."
+            ),
+        ]
+    )
+
+
 def _days_left_line(days_left: int) -> str:
     if days_left <= 0:
         return "Сегодня последний день действия бонуса."

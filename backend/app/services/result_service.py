@@ -38,15 +38,20 @@ from app.domain.tournament_day import resolve_tournament_day
 from app.domain.tournament_result_edit_policy import is_tournament_result_editable
 from app.services.access_policy import access_policy
 from app.services.dto.results import (
+    ClosedTournamentCorrectionResultView,
     TournamentCloseReadinessView,
     TournamentCombinationPlayerView,
     TournamentCombinationsView,
     TournamentCombinationView,
     TournamentPhotoAddView,
     TournamentPhotoView,
+    TournamentResultFieldChangeView,
+    TournamentResultPlayerChangeView,
     TournamentResultPlayerView,
+    TournamentResultSnapshotItemView,
     TournamentResultsView,
 )
+from app.services.dto.rewards import PrizeStackBonusSourceResultView
 from app.services.dto.tournaments import TournamentView
 from app.services.dto.users import UserView
 from app.services.player_reward_service import PlayerRewardService
@@ -165,6 +170,33 @@ class ResultService:
             )
             return [await self._readiness_view(session, tournament) for tournament in tournaments]
 
+    async def list_closed_tournaments_for_superadmin(
+        self,
+        superadmin_telegram_id: int,
+    ) -> list[TournamentView]:
+        async with self.session_factory() as session:
+            await access_policy.require_superadmin(session, superadmin_telegram_id)
+            tournaments = await TournamentRepository(session).list_closed()
+            return [tournament_view(tournament) for tournament in tournaments]
+
+    async def get_closed_tournament_results(
+        self,
+        superadmin_telegram_id: int,
+        tournament_id: int,
+    ) -> TournamentResultsView:
+        async with self.session_factory() as session:
+            await access_policy.require_superadmin(session, superadmin_telegram_id)
+            tournament = await self._require_closed_tournament(session, tournament_id)
+            return await self._results_view(session, tournament.id)
+
+    async def get_closed_tournament_result_snapshot(
+        self,
+        superadmin_telegram_id: int,
+        tournament_id: int,
+    ) -> tuple[TournamentResultSnapshotItemView, ...]:
+        results = await self.get_closed_tournament_results(superadmin_telegram_id, tournament_id)
+        return self.snapshot_from_results(results)
+
     async def get_tournament_results(
         self,
         admin_telegram_id: int,
@@ -186,45 +218,179 @@ class ResultService:
         async with self.session_factory() as session:
             await access_policy.require_admin(session, admin_telegram_id)
             tournament = await self._require_editable_tournament(session, tournament_id)
-            result = await TournamentResultRepository(session).get_by_tournament_and_player(
-                tournament.id, player_id
+            await self._update_result_field(
+                session=session,
+                tournament=tournament,
+                player_id=player_id,
+                field=field,
+                value=value,
+            )
+            await session.commit()
+            return await self._results_view(session, tournament.id)
+
+    async def update_closed_tournament_result_field(
+        self,
+        superadmin_telegram_id: int,
+        tournament_id: int,
+        player_id: int,
+        field: ResultField,
+        value: int,
+    ) -> TournamentResultsView:
+        async with self.session_factory() as session:
+            await access_policy.require_superadmin(session, superadmin_telegram_id)
+            tournament = await self._require_closed_tournament(session, tournament_id)
+            await self._update_result_field(
+                session=session,
+                tournament=tournament,
+                player_id=player_id,
+                field=field,
+                value=value,
+            )
+            await self._recalculate_result_points(session, tournament)
+            await session.commit()
+            return await self._results_view(session, tournament.id)
+
+    async def search_closed_result_replacement_users(
+        self,
+        superadmin_telegram_id: int,
+        tournament_id: int,
+        current_player_id: int,
+        query: str,
+    ) -> list[UserView]:
+        async with self.session_factory() as session:
+            await access_policy.require_superadmin(session, superadmin_telegram_id)
+            tournament = await self._require_closed_tournament(session, tournament_id)
+            repository = TournamentResultRepository(session)
+            current = await repository.get_by_tournament_and_player(
+                tournament.id,
+                current_player_id,
+            )
+            if current is None:
+                raise ResultUserNotFoundError
+            existing_player_ids = await repository.list_checked_in_player_ids(tournament.id)
+            users = [
+                user
+                for user in await UserRepository(session).list_active_users_for_play()
+                if user.id not in existing_player_ids
+            ]
+            return [
+                required_user_view(candidate.user)
+                for candidate in rank_player_candidates(users, query, limit=10)
+            ]
+
+    async def get_closed_result_replacement_confirmation(
+        self,
+        superadmin_telegram_id: int,
+        tournament_id: int,
+        current_player_id: int,
+        new_player_id: int,
+    ) -> tuple[TournamentResultsView, TournamentResultPlayerView, UserView]:
+        async with self.session_factory() as session:
+            await access_policy.require_superadmin(session, superadmin_telegram_id)
+            tournament = await self._require_closed_tournament(session, tournament_id)
+            repository = TournamentResultRepository(session)
+            if (
+                await repository.get_by_tournament_and_player(tournament.id, current_player_id)
+                is None
+            ):
+                raise ResultUserNotFoundError
+            if await repository.exists_for_tournament_and_player(tournament.id, new_player_id):
+                raise ResultPlayerAlreadyAddedError
+            user = await UserRepository(session).get_active_by_id(new_player_id)
+            if user is None:
+                raise ResultUserNotFoundError
+            results = await self._results_view(session, tournament.id)
+            current_player = self.find_result_player(results, current_player_id)
+            if current_player is None:
+                raise ResultUserNotFoundError
+            return results, current_player, required_user_view(user)
+
+    async def replace_closed_tournament_result_player(
+        self,
+        superadmin_telegram_id: int,
+        tournament_id: int,
+        current_player_id: int,
+        new_player_id: int,
+    ) -> TournamentResultsView:
+        async with self.session_factory() as session:
+            await access_policy.require_superadmin(session, superadmin_telegram_id)
+            tournament = await self._require_closed_tournament(session, tournament_id)
+            repository = TournamentResultRepository(session)
+            result = await repository.get_by_tournament_and_player(
+                tournament.id,
+                current_player_id,
             )
             if result is None:
                 raise ResultUserNotFoundError
+            if await repository.exists_for_tournament_and_player(tournament.id, new_player_id):
+                raise ResultPlayerAlreadyAddedError
+            user = await UserRepository(session).get_active_by_id(new_player_id)
+            if user is None:
+                raise ResultUserNotFoundError
+            result.player_id = user.id
+            await self._recalculate_result_points(session, tournament)
+            try:
+                await session.commit()
+            except IntegrityError as exc:
+                await session.rollback()
+                raise ResultPlayerAlreadyAddedError from exc
+            return await self._results_view(session, tournament.id)
 
-            knockout_mode, supports_bonus_points = await self._result_capabilities(
+    async def finish_closed_tournament_correction(
+        self,
+        superadmin_telegram_id: int,
+        tournament_id: int,
+        original_snapshot: tuple[TournamentResultSnapshotItemView, ...],
+    ) -> ClosedTournamentCorrectionResultView:
+        async with self.session_factory() as session:
+            await access_policy.require_superadmin(session, superadmin_telegram_id)
+            tournament = await self._require_closed_tournament(session, tournament_id)
+            current_view = await self._results_view(session, tournament.id)
+            result_changes = self._result_changes(original_snapshot, current_view)
+            if not result_changes:
+                return ClosedTournamentCorrectionResultView(
+                    tournament_id=tournament.id,
+                    tournament_date=tournament.date,
+                    tournament_name=tournament_view(tournament).tournament_type_name,
+                    result_changes=(),
+                    reward_changes=(),
+                    used_reward_warnings=(),
+                    player_notifications=(),
+                )
+            validation_errors = self._validate_game_results(current_view)
+            if validation_errors:
+                raise ResultValidationError(validation_errors)
+
+            await self._recalculate_result_points(session, tournament)
+            source_results: list[PrizeStackBonusSourceResultView] = []
+            for player in current_view.players:
+                source_results.append(
+                    PrizeStackBonusSourceResultView(
+                        player_id=player.player_id,
+                        display_name=player.display_name,
+                        telegram_id=await self._telegram_id_for_user(session, player.player_id),
+                        place=player.place,
+                    )
+                )
+            reward_result = await PlayerRewardService(
+                self.session_factory,
+                clock=self.clock,
+                tournament_day_start_hour=self.tournament_day_start_hour,
+            ).reconcile_prize_stack_bonuses_for_closed_tournament(
                 session,
                 tournament,
+                source_results=tuple(source_results),
             )
-            if not is_result_field_allowed(
-                field=field,
-                knockout_mode=knockout_mode.value,
-                supports_bonus_points=supports_bonus_points,
-            ):
-                raise ResultInvalidPlayerDataError
-            if value < 0:
-                raise ResultInvalidPlayerDataError
-            if field == ResultField.PLACE and value not in {1, 2, 3, 4, 5}:
-                raise ResultInvalidPlayerDataError
-
-            if field == ResultField.PLACE:
-                occupied = await TournamentResultRepository(session).list_by_tournament_and_place(
-                    tournament.id,
-                    value,
-                    exclude_result_id=result.id,
-                )
-                for occupied_result in occupied:
-                    occupied_result.place = None
-                result.place = value
-            elif field == ResultField.KNOCKOUTS:
-                result.knockouts_count = value
-            elif field == ResultField.BIG_KNOCKOUTS:
-                result.big_knockouts_count = value
-            elif field == ResultField.BONUS:
-                result.bonus_points = value
-
             await session.commit()
-            return await self._results_view(session, tournament.id)
+            return ClosedTournamentCorrectionResultView(
+                tournament_id=tournament.id,
+                tournament_date=tournament.date,
+                tournament_name=tournament_view(tournament).tournament_type_name,
+                result_changes=result_changes,
+                reward_changes=reward_result.reward_changes,
+                used_reward_warnings=reward_result.used_reward_warnings,
+                player_notifications=reward_result.player_notifications,
+            )
 
     async def close_tournament(
         self,
@@ -595,6 +761,58 @@ class ResultService:
             raise FutureTournamentCannotBeClosedError
         return tournament
 
+    async def _require_closed_tournament(
+        self,
+        session: AsyncSession,
+        tournament_id: int,
+    ) -> Tournament:
+        tournament = await TournamentRepository(session).get_by_id(tournament_id)
+        if tournament is None or tournament.status != TournamentStatus.CLOSED:
+            raise ResultTournamentNotFoundError
+        return tournament
+
+    async def _update_result_field(
+        self,
+        *,
+        session: AsyncSession,
+        tournament: Tournament,
+        player_id: int,
+        field: ResultField,
+        value: int,
+    ) -> None:
+        repository = TournamentResultRepository(session)
+        result = await repository.get_by_tournament_and_player(tournament.id, player_id)
+        if result is None:
+            raise ResultUserNotFoundError
+
+        knockout_mode, supports_bonus_points = await self._result_capabilities(session, tournament)
+        if not is_result_field_allowed(
+            field=field,
+            knockout_mode=knockout_mode.value,
+            supports_bonus_points=supports_bonus_points,
+        ):
+            raise ResultInvalidPlayerDataError
+        if value < 0:
+            raise ResultInvalidPlayerDataError
+        if field == ResultField.PLACE and value not in {1, 2, 3, 4, 5}:
+            raise ResultInvalidPlayerDataError
+
+        if field == ResultField.PLACE:
+            occupied = await repository.list_by_tournament_and_place(
+                tournament.id,
+                value,
+                exclude_result_id=result.id,
+            )
+            for occupied_result in occupied:
+                occupied_result.place = None
+            result.place = value
+        elif field == ResultField.KNOCKOUTS:
+            result.knockouts_count = value
+        elif field == ResultField.BIG_KNOCKOUTS:
+            result.big_knockouts_count = value
+        elif field == ResultField.BONUS:
+            result.bonus_points = value
+
     def _tournament_day(self) -> date:
         return resolve_tournament_day(self.clock, self.tournament_day_start_hour)
 
@@ -738,6 +956,235 @@ class ResultService:
             checked_in_by_user_id=checked_in_by_user_id,
         )
         return True
+
+    async def _recalculate_result_points(
+        self,
+        session: AsyncSession,
+        tournament: Tournament,
+    ) -> None:
+        if tournament.tournament_fund is None:
+            raise ResultInvalidFundError
+        scoring_config, rule = await self._scoring(session, tournament)
+        results = await TournamentResultRepository(session).list_by_tournament(tournament.id)
+        for item in results:
+            item.tournament_points = self._tournament_points(
+                tournament_fund=Decimal(tournament.tournament_fund),
+                place=item.place,
+                scoring_config=scoring_config,
+                rule=rule,
+            )
+            item.knockout_points = self._knockout_points(
+                knockouts_count=item.knockouts_count,
+                big_knockouts_count=item.big_knockouts_count,
+                scoring_config=scoring_config,
+                rule=rule,
+            )
+
+    @staticmethod
+    async def _telegram_id_for_user(
+        session: AsyncSession,
+        player_id: int,
+    ) -> int | None:
+        user = await UserRepository(session).get_by_id(player_id)
+        return user.telegram_id if user is not None else None
+
+    @staticmethod
+    def snapshot_from_results(
+        results: TournamentResultsView,
+    ) -> tuple[TournamentResultSnapshotItemView, ...]:
+        return tuple(
+            TournamentResultSnapshotItemView(
+                player_id=player.player_id,
+                display_name=player.display_name,
+                place=player.place,
+                knockouts_count=player.knockouts_count,
+                big_knockouts_count=player.big_knockouts_count,
+                bonus_points=player.bonus_points,
+            )
+            for player in results.players
+        )
+
+    @staticmethod
+    def snapshot_from_payload(
+        payload: object,
+    ) -> tuple[TournamentResultSnapshotItemView, ...]:
+        if not isinstance(payload, list):
+            return ()
+        snapshot = []
+        for item in payload:
+            if not isinstance(item, dict):
+                continue
+            snapshot.append(
+                TournamentResultSnapshotItemView(
+                    player_id=int(item["player_id"]),
+                    display_name=str(item["display_name"]),
+                    place=item["place"] if item["place"] is None else int(item["place"]),
+                    knockouts_count=int(item["knockouts_count"]),
+                    big_knockouts_count=int(item["big_knockouts_count"]),
+                    bonus_points=int(item["bonus_points"]),
+                )
+            )
+        return tuple(snapshot)
+
+    @staticmethod
+    def snapshot_to_payload(
+        snapshot: tuple[TournamentResultSnapshotItemView, ...],
+    ) -> list[dict[str, object]]:
+        return [
+            {
+                "player_id": item.player_id,
+                "display_name": item.display_name,
+                "place": item.place,
+                "knockouts_count": item.knockouts_count,
+                "big_knockouts_count": item.big_knockouts_count,
+                "bonus_points": item.bonus_points,
+            }
+            for item in snapshot
+        ]
+
+    @staticmethod
+    def _result_changes(
+        snapshot: tuple[TournamentResultSnapshotItemView, ...],
+        current: TournamentResultsView,
+    ) -> tuple[TournamentResultPlayerChangeView, ...]:
+        before_by_player = {item.player_id: item for item in snapshot}
+        current_by_player = {player.player_id: player for player in current.players}
+        removed = [item for item in snapshot if item.player_id not in current_by_player]
+        added = [player for player in current.players if player.player_id not in before_by_player]
+        paired_added_player_ids: set[int] = set()
+        paired_removed_player_ids: set[int] = set()
+        changes: list[TournamentResultPlayerChangeView] = []
+        for before in removed:
+            replacement = next(
+                (
+                    player
+                    for player in added
+                    if player.player_id not in paired_added_player_ids
+                    and ResultService._snapshot_values(before)
+                    == ResultService._result_values(player)
+                ),
+                None,
+            )
+            if replacement is None:
+                continue
+            paired_removed_player_ids.add(before.player_id)
+            paired_added_player_ids.add(replacement.player_id)
+            changes.append(
+                TournamentResultPlayerChangeView(
+                    player_id=replacement.player_id,
+                    display_name=replacement.display_name,
+                    fields=(
+                        TournamentResultFieldChangeView(
+                            label="Игрок",
+                            before=before.display_name,
+                            after=replacement.display_name,
+                        ),
+                    ),
+                )
+            )
+        for player in current.players:
+            if player.player_id in paired_added_player_ids:
+                continue
+            before = before_by_player.get(player.player_id)
+            if before is None:
+                changes.append(
+                    TournamentResultPlayerChangeView(
+                        player_id=player.player_id,
+                        display_name=player.display_name,
+                        fields=(
+                            TournamentResultFieldChangeView(
+                                label="Игрок",
+                                before="—",
+                                after=player.display_name,
+                            ),
+                        ),
+                    )
+                )
+                continue
+            fields = tuple(
+                field
+                for field in (
+                    ResultService._field_change("Место", before.place, player.place),
+                    ResultService._field_change(
+                        "КО",
+                        before.knockouts_count,
+                        player.knockouts_count,
+                    ),
+                    ResultService._field_change(
+                        "БКО",
+                        before.big_knockouts_count,
+                        player.big_knockouts_count,
+                    ),
+                    ResultService._field_change(
+                        "Бонус",
+                        before.bonus_points,
+                        player.bonus_points,
+                    ),
+                )
+                if field is not None
+            )
+            if fields:
+                changes.append(
+                    TournamentResultPlayerChangeView(
+                        player_id=player.player_id,
+                        display_name=player.display_name,
+                        fields=fields,
+                    )
+                )
+        for before in snapshot:
+            if before.player_id in paired_removed_player_ids:
+                continue
+            if before.player_id not in current_by_player:
+                changes.append(
+                    TournamentResultPlayerChangeView(
+                        player_id=before.player_id,
+                        display_name=before.display_name,
+                        fields=(
+                            TournamentResultFieldChangeView(
+                                label="Игрок",
+                                before=before.display_name,
+                                after="—",
+                            ),
+                        ),
+                    )
+                )
+        return tuple(changes)
+
+    @staticmethod
+    def _snapshot_values(
+        item: TournamentResultSnapshotItemView,
+    ) -> tuple[int | None, int, int, int]:
+        return (
+            item.place,
+            item.knockouts_count,
+            item.big_knockouts_count,
+            item.bonus_points,
+        )
+
+    @staticmethod
+    def _result_values(
+        item: TournamentResultPlayerView,
+    ) -> tuple[int | None, int, int, int]:
+        return (
+            item.place,
+            item.knockouts_count,
+            item.big_knockouts_count,
+            item.bonus_points,
+        )
+
+    @staticmethod
+    def _field_change(
+        label: str,
+        before: int | None,
+        after: int | None,
+    ) -> TournamentResultFieldChangeView | None:
+        if before == after:
+            return None
+        return TournamentResultFieldChangeView(
+            label=label,
+            before="—" if before is None else str(before),
+            after="—" if after is None else str(after),
+        )
 
     @staticmethod
     def _validate_game_results(results: TournamentResultsView) -> list[str]:
