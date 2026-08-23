@@ -627,7 +627,7 @@ async def test_closeable_tournaments_use_business_date_and_status(
     await engine.dispose()
 
 
-async def test_mystery_bounty_uses_places_and_bonus_without_knockouts(
+async def test_mystery_bounty_uses_places_knockouts_and_bonus_without_big_knockouts(
     tmp_path: Path,
 ) -> None:
     engine = create_async_engine(f"sqlite+aiosqlite:///{tmp_path / 'mystery_results.db'}")
@@ -649,7 +649,7 @@ async def test_mystery_bounty_uses_places_and_bonus_without_knockouts(
         session.add(
             TournamentTypeRule(
                 tournament_type_id=tournament_type_id("mystery_bounty"),
-                knockout_mode=KnockoutMode.NONE,
+                knockout_mode=KnockoutMode.SMALL,
                 supports_bonus_points=True,
             )
         )
@@ -713,10 +713,18 @@ async def test_mystery_bounty_uses_places_and_bonus_without_knockouts(
     )
     results = await service.get_tournament_results(100, tournament_id)
 
-    assert results.knockout_mode == KnockoutMode.NONE.value
+    assert results.knockout_mode == KnockoutMode.SMALL.value
     assert results.supports_bonus_points is True
-    assert ResultService.editable_result_fields(results) == [ResultField.PLACE, ResultField.BONUS]
-    assert await service.validate_results(100, tournament_id) == ["Введи места: 1, 2, 3, 4, 5."]
+    assert ResultService.editable_result_fields(results) == [
+        ResultField.PLACE,
+        ResultField.KNOCKOUTS,
+        ResultField.BONUS,
+    ]
+    assert ResultField.BIG_KNOCKOUTS not in ResultService.editable_result_fields(results)
+    assert await service.validate_results(100, tournament_id) == [
+        "Введи места: 1, 2, 3, 4, 5.",
+        "Введи хотя бы один 🥊.",
+    ]
 
     for place, player_id in zip(range(1, 6), player_ids, strict=True):
         await service.update_player_result_field(
@@ -730,6 +738,13 @@ async def test_mystery_bounty_uses_places_and_bonus_without_knockouts(
         100,
         tournament_id,
         player_ids[0],
+        ResultField.KNOCKOUTS,
+        3,
+    )
+    await service.update_player_result_field(
+        100,
+        tournament_id,
+        player_ids[0],
         ResultField.BONUS,
         12,
     )
@@ -738,8 +753,127 @@ async def test_mystery_bounty_uses_places_and_bonus_without_knockouts(
     player = ResultService.find_result_player(closed, player_ids[0])
     assert player is not None
     assert player.tournament_points == Decimal("400.00")
-    assert player.knockout_points == Decimal("0.00")
-    assert player.total_points == Decimal("412.00")
+    assert player.knockout_points == Decimal("45.00")
+    assert player.total_points == Decimal("457.00")
+    await engine.dispose()
+
+
+async def test_closed_mystery_bounty_correction_updates_knockouts_without_big_knockouts(
+    tmp_path: Path,
+) -> None:
+    engine = create_async_engine(f"sqlite+aiosqlite:///{tmp_path / 'closed_mystery.db'}")
+    async with engine.begin() as connection:
+        await connection.run_sync(Base.metadata.create_all)
+
+    session_factory = async_sessionmaker(engine, expire_on_commit=False)
+    async with session_factory() as session:
+        config = ScoringConfig(
+            place_1_coefficient=Decimal("0.40"),
+            place_2_coefficient=Decimal("0.25"),
+            place_3_coefficient=Decimal("0.15"),
+            place_4_coefficient=Decimal("0.10"),
+            place_5_coefficient=Decimal("0.10"),
+        )
+        session.add(config)
+        await session.flush()
+        await seed_tournament_types_async(session)
+        session.add(
+            TournamentTypeRule(
+                tournament_type_id=tournament_type_id("mystery_bounty"),
+                knockout_mode=KnockoutMode.SMALL,
+                supports_bonus_points=True,
+            )
+        )
+        season = Season(
+            name="Test season",
+            scoring_config_id=config.id,
+            starts_at=date(2026, 7, 1),
+            ends_at=None,
+        )
+        superadmin = build_player(
+            telegram_id=100,
+            display_name="Superadmin",
+            status=UserStatus.ACTIVE,
+            role=UserRole.SUPERADMIN,
+        )
+        players = [
+            build_player(
+                telegram_id=101 + index,
+                display_name=f"Player {index + 1}",
+                status=UserStatus.ACTIVE,
+            )
+            for index in range(5)
+        ]
+        session.add_all([season, superadmin, *players])
+        await session.flush()
+        tournament = Tournament(
+            season_id=season.id,
+            tournament_type_id=tournament_type_id("mystery_bounty"),
+            date=date(2026, 7, 18),
+            status=TournamentStatus.ACTIVE,
+        )
+        session.add(tournament)
+        await session.flush()
+        session.add(
+            TournamentPhoto(
+                tournament_id=tournament.id,
+                telegram_file_id="mystery-file-1",
+                telegram_file_unique_id="mystery-unique-1",
+                uploaded_by_user_id=superadmin.id,
+                position=0,
+            )
+        )
+        session.add_all(
+            [
+                TournamentResult(
+                    tournament_id=tournament.id,
+                    player_id=player.id,
+                    source=TournamentResultSource.REGISTERED,
+                    checked_in_by_user_id=superadmin.id,
+                    place=place,
+                    knockouts_count=3 if place == 1 else 0,
+                )
+                for place, player in enumerate(players, start=1)
+            ]
+        )
+        await session.commit()
+        tournament_id = tournament.id
+        first_player_id = players[0].id
+
+    service = ResultService(
+        session_factory,
+        clock=FixedClock(datetime(2026, 7, 18, 12, tzinfo=ZoneInfo("Europe/Moscow"))),
+    )
+    await service.close_tournament(100, tournament_id, 1000)
+    snapshot = await service.get_closed_tournament_result_snapshot(100, tournament_id)
+    results = await service.get_closed_tournament_results(100, tournament_id)
+
+    assert results.knockout_mode == KnockoutMode.SMALL.value
+    assert ResultService.editable_result_fields(results) == [
+        ResultField.PLACE,
+        ResultField.KNOCKOUTS,
+        ResultField.BONUS,
+    ]
+    assert ResultField.BIG_KNOCKOUTS not in ResultService.editable_result_fields(results)
+
+    updated = await service.update_closed_tournament_result_field(
+        100,
+        tournament_id,
+        first_player_id,
+        ResultField.KNOCKOUTS,
+        5,
+    )
+    player = ResultService.find_result_player(updated, first_player_id)
+    assert player is not None
+    assert player.knockout_points == Decimal("75.00")
+
+    correction = await service.finish_closed_tournament_correction(100, tournament_id, snapshot)
+
+    assert [
+        (change.display_name, [(field.label, field.before, field.after) for field in change.fields])
+        for change in correction.result_changes
+    ] == [("Player 1", [("КО", "3", "5")])]
+    assert correction.reward_changes == ()
     await engine.dispose()
 
 

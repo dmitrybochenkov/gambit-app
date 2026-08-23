@@ -407,7 +407,7 @@ def tournament_plan_view(
             tournament_type=tournament_type_detail_view(
                 type_id=5,
                 name="Mystery Bounty",
-                knockout_mode="mystery",
+                knockout_mode="small",
             ),
         ),
     ]
@@ -990,7 +990,7 @@ def test_result_table_does_not_stretch_short_names_to_full_budget() -> None:
     assert all(len(line) <= result_fmt.MAX_TABLE_WIDTH for line in lines)
 
 
-def test_mystery_bounty_result_ui_uses_bonus_without_knockouts() -> None:
+def test_mystery_bounty_result_ui_uses_knockouts_and_bonus_without_big_knockouts() -> None:
     tournament = tournament_view(
         125,
         date(2026, 7, 19),
@@ -1019,7 +1019,7 @@ def test_mystery_bounty_result_ui_uses_bonus_without_knockouts() -> None:
                 big_knockouts_count=0,
             ),
         ],
-        knockout_mode="none",
+        knockout_mode="small",
         supports_bonus_points=True,
     )
     page = Page(items=results.players, page=0, page_size=6, total_items=2)
@@ -1034,13 +1034,13 @@ def test_mystery_bounty_result_ui_uses_bonus_without_knockouts() -> None:
     )
     close_preview = result_fmt.closed_tournament(results)
 
-    assert "КО" not in text
+    assert "КО" in text
     assert "БКО" not in text
     assert "Бонус" in text
     assert "1 Илларионов" in text
     assert "2 НЕ ВВЕДЕНО" in text
-    assert field_buttons == ["➕ Доп. очки", "🏁 Место", "❌ Отмена"]
-    assert "КО" not in close_preview
+    assert field_buttons == ["🥊 КО", "➕ Доп. очки", "🏁 Место", "❌ Отмена"]
+    assert "КО" in close_preview
     assert "БКО" not in close_preview
     assert "Бонус" in close_preview
     assert "Очки" in close_preview
