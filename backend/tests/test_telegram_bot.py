@@ -23,6 +23,7 @@ from app.api import telegram_webhook as webhook_module
 from app.bot.telegram import notifications, runtime
 from app.bot.telegram.formatters import check_in as check_in_fmt
 from app.bot.telegram.formatters import common as fmt_common
+from app.bot.telegram.formatters import publications as publication_fmt
 from app.bot.telegram.formatters import results as result_fmt
 from app.bot.telegram.formatters import seasons as season_fmt
 from app.bot.telegram.formatters import tournaments as tournament_fmt
@@ -74,6 +75,7 @@ from app.db.models import (
     Season,
     Tournament,
     TournamentPhoto,
+    TournamentPublication,
     TournamentRegistration,
     TournamentResult,
     User,
@@ -154,6 +156,7 @@ from app.services.tournament_planning_service import (
     WeeklyPlanningCheckView,
     WeeklyPlanningStatus,
 )
+from app.services.tournament_publication_service import TournamentPublicationService
 from app.services.tournament_service import TournamentRegistrationAlreadyCheckedInError
 from app.services.user_access_service import UserAccessService
 
@@ -165,13 +168,23 @@ class RecordingBot(Bot):
 
     async def __call__(self, method: object, request_timeout: int | None = None) -> object:
         self.calls.append(method)
-        if method.__class__.__name__ == "SendMessage":
+        if method.__class__.__name__ in {"SendMessage", "SendPhoto"}:
             return Message(
                 message_id=len(self.calls) + 100,
                 date=datetime(2026, 7, 29, 12, 0),
                 chat=Chat(id=method.chat_id, type="private"),
-                text=method.text,
+                text=getattr(method, "text", None),
+                caption=getattr(method, "caption", None),
             )
+        if method.__class__.__name__ == "SendMediaGroup":
+            return [
+                Message(
+                    message_id=len(self.calls) + 100 + index,
+                    date=datetime(2026, 7, 29, 12, 0),
+                    chat=Chat(id=method.chat_id, type="private"),
+                )
+                for index, _media in enumerate(method.media)
+            ]
         return True
 
 
@@ -2498,7 +2511,16 @@ async def test_superadmin_close_tournament_dispatcher_replaces_fund_preview(
         session_factory,
         clock=FixedClock(datetime(2026, 7, 9, 12, tzinfo=ZoneInfo("Europe/Moscow"))),
     )
+    publication_service = TournamentPublicationService(
+        session_factory,
+        clock=FixedClock(datetime(2026, 7, 9, 12, tzinfo=ZoneInfo("Europe/Moscow"))),
+    )
     monkeypatch.setattr(superadmin_close_handlers, "result_service", service)
+    monkeypatch.setattr(
+        superadmin_close_handlers,
+        "tournament_publication_service",
+        publication_service,
+    )
     monkeypatch.setattr(
         superadmin_close_handlers.tournament_planning_service,
         "inspect_after_tournament_close",
@@ -2592,11 +2614,17 @@ async def test_superadmin_close_tournament_dispatcher_replaces_fund_preview(
         method_names = [call.__class__.__name__ for call in bot.calls]
         assert method_names.count("DeleteMessage") >= 2
         sent_texts = [call.text for call in bot.calls if call.__class__.__name__ == "SendMessage"]
+        photo_calls = [call for call in bot.calls if call.__class__.__name__ == "SendPhoto"]
         reward_calls = [
             call
             for call in bot.calls
             if call.__class__.__name__ == "SendMessage"
             and call.text.startswith("🎁 Ты получил бонус!")
+        ]
+        control_calls = [
+            call
+            for call in bot.calls
+            if call.__class__.__name__ == "SendMessage" and call.text == "Турнир закрыт ✅"
         ]
         edited_texts = [
             call.text for call in bot.calls if call.__class__.__name__ == "EditMessageText"
@@ -2607,7 +2635,18 @@ async def test_superadmin_close_tournament_dispatcher_replaces_fund_preview(
         assert "Введите фонд турнира." in edited_texts
         assert any("Фонд турнира: 10000" in text for text in sent_texts)
         assert any("Фонд турнира: 15000" in text for text in sent_texts)
-        assert any("✅ Турнир закрыт" in text for text in sent_texts)
+        assert len(photo_calls) == 1
+        assert photo_calls[0].chat_id == 300
+        assert photo_calls[0].photo == "close-file-1"
+        assert photo_calls[0].caption == publication_fmt.result_publication_report(
+            await publication_service.get_result_publication_content_preview(300, tournament_id)
+        )
+        assert len(control_calls) == 1
+        assert inline_keyboard_texts(control_calls[0].reply_markup) == [
+            "📣 Опубликовать результаты",
+            "❌ Закрыть",
+        ]
+        assert bot.calls.index(photo_calls[0]) < bot.calls.index(control_calls[0])
         assert [call.chat_id for call in reward_calls] == [301, 302, 303]
         assert "+40 000 фишек к первому стеку." in reward_calls[0].text
         assert "+30 000 фишек к первому стеку." in reward_calls[1].text
@@ -2620,9 +2659,98 @@ async def test_superadmin_close_tournament_dispatcher_replaces_fund_preview(
             assert closed_tournament is not None
             assert closed_tournament.status == TournamentStatus.CLOSED
             assert closed_tournament.tournament_fund == 15000
+            publications = (await session.execute(select(TournamentPublication))).scalars().all()
+            assert publications == []
     finally:
         await bot.session.close()
         await engine.dispose()
+
+
+async def test_publication_media_album_uses_public_caption_contract() -> None:
+    bot = RecordingBot()
+    callback = SimpleNamespace(bot=bot)
+    photos = [
+        SimpleNamespace(telegram_file_id="album-file-1"),
+        SimpleNamespace(telegram_file_id="album-file-2"),
+    ]
+
+    try:
+        message_id = await superadmin_close_handlers._send_publication_media(
+            callback,
+            chat_id=300,
+            photos=photos,
+            report="ЕЖЕДНЕВНЫЙ ОТЧЁТ 🏆",
+        )
+
+        assert message_id == 101
+        assert [call.__class__.__name__ for call in bot.calls] == ["SendMediaGroup"]
+        assert bot.calls[0].chat_id == 300
+        assert bot.calls[0].media[0].caption == "ЕЖЕДНЕВНЫЙ ОТЧЁТ 🏆"
+        assert bot.calls[0].media[1].caption is None
+    finally:
+        await bot.session.close()
+
+
+async def test_publication_media_caption_overflow_sends_full_report_message() -> None:
+    bot = RecordingBot()
+    callback = SimpleNamespace(bot=bot)
+    photos = [SimpleNamespace(telegram_file_id="photo-file")]
+    report = "x" * (publication_fmt.CAPTION_LIMIT + 1)
+
+    try:
+        message_id = await superadmin_close_handlers._send_publication_media(
+            callback,
+            chat_id=300,
+            photos=photos,
+            report=report,
+        )
+
+        assert message_id == 102
+        assert [call.__class__.__name__ for call in bot.calls] == ["SendPhoto", "SendMessage"]
+        assert bot.calls[0].caption is None
+        assert bot.calls[1].text == report
+    finally:
+        await bot.session.close()
+
+
+async def test_publish_button_shows_confirmation_without_second_full_preview(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    preview = SimpleNamespace(
+        destinations=[
+            SimpleNamespace(destination_type="group", already_published=False),
+            SimpleNamespace(destination_type="channel", already_published=True),
+        ]
+    )
+    service = SimpleNamespace(
+        get_result_publication_preview=AsyncMock(return_value=preview),
+    )
+    monkeypatch.setattr(superadmin_close_handlers, "tournament_publication_service", service)
+    message = SimpleNamespace(edit_text=AsyncMock())
+    callback = SimpleNamespace(
+        from_user=SimpleNamespace(id=100),
+        message=message,
+        answer=AsyncMock(),
+    )
+    state = MutableState()
+
+    await superadmin_close_handlers.select_close_tournament_action(
+        callback,
+        superadmin_tournament_close_kb.AdminCloseTournamentCallback(
+            action=superadmin_tournament_close_kb.AdminCloseTournamentAction.PUBLISH_PREVIEW,
+            tournament_id=125,
+        ),
+        state,
+    )
+
+    service.get_result_publication_preview.assert_awaited_once_with(100, 125)
+    text = message.edit_text.await_args.args[0]
+    assert text == ("Опубликовать результаты?\n\nГруппа: будет отправлено\nКанал: уже опубликовано")
+    assert "ЕЖЕДНЕВНЫЙ ОТЧЁТ" not in text
+    assert inline_keyboard_texts(message.edit_text.await_args.kwargs["reply_markup"]) == [
+        "✅ Опубликовать",
+        "❌ Отмена",
+    ]
 
 
 async def test_future_tournament_close_callback_shows_domain_error(

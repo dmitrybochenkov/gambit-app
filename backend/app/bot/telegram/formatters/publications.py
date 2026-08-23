@@ -21,6 +21,17 @@ def result_publication_preview(view: object) -> str:
     return result_publication_report(view)
 
 
+def result_publication_confirmation(view: object) -> str:
+    lines = ["Опубликовать результаты?"]
+    if view.destinations:
+        lines.append("")
+        for destination in view.destinations:
+            name = "Группа" if destination.destination_type == "group" else "Канал"
+            status = "уже опубликовано" if destination.already_published else "будет отправлено"
+            lines.append(f"{name}: {status}")
+    return "\n".join(lines)
+
+
 def result_publication_report(view: object) -> str:
     lines = [
         "ЕЖЕДНЕВНЫЙ ОТЧЁТ 🏆",

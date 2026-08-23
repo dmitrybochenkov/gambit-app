@@ -609,6 +609,13 @@ def admin_publish_results_action_keyboard(tournament_id: int) -> InlineKeyboardM
             tournament_id=tournament_id,
         ),
     )
+    builder.button(
+        text="❌ Закрыть",
+        callback_data=AdminCloseTournamentCallback(
+            action=AdminCloseTournamentAction.CANCEL,
+            tournament_id=tournament_id,
+        ),
+    )
     builder.adjust(1)
     return builder.as_markup()
 
@@ -619,13 +626,6 @@ def admin_publish_results_preview_keyboard(tournament_id: int) -> InlineKeyboard
         text="✅ Опубликовать",
         callback_data=AdminCloseTournamentCallback(
             action=AdminCloseTournamentAction.PUBLISH_CONFIRM,
-            tournament_id=tournament_id,
-        ),
-    )
-    builder.button(
-        text="⬅️ Назад",
-        callback_data=AdminCloseTournamentCallback(
-            action=AdminCloseTournamentAction.PUBLISH_PREVIEW,
             tournament_id=tournament_id,
         ),
     )

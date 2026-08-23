@@ -85,6 +85,20 @@ class TournamentPublicationService:
                 raise TournamentPublicationAlreadyPublishedError
             return view
 
+    async def get_result_publication_content_preview(
+        self,
+        superadmin_telegram_id: int,
+        tournament_id: int,
+    ) -> TournamentResultPublicationView:
+        async with self.session_factory() as session:
+            await access_policy.require_superadmin(session, superadmin_telegram_id)
+            tournament = await TournamentRepository(session).get_by_id(tournament_id)
+            if tournament is None:
+                raise ResultTournamentNotFoundError
+            if tournament.status != TournamentStatus.CLOSED or tournament.tournament_fund is None:
+                raise TournamentPublicationUnavailableError
+            return await self._result_publication_view(session, tournament, self._destinations())
+
     async def get_schedule_publication_preview(
         self,
         superadmin_telegram_id: int,

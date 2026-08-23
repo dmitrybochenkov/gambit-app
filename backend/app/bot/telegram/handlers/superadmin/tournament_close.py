@@ -258,16 +258,13 @@ async def select_close_tournament_action(
             await callback.answer("Турнир закрыт.")
             if callback.message is not None:
                 await _delete_callback_message(callback)
-                await callback.message.answer(
-                    result_fmt.closed_tournament(results),
-                    reply_markup=superadmin_tournament_close_kb.admin_publish_results_action_keyboard(
-                        results.tournament.id
-                    ),
-                    parse_mode=RESULT_SUMMARY_PARSE_MODE,
-                )
                 await _send_calendar_planning_notification_after_close(
                     callback,
                     results.tournament.date,
+                )
+                await _send_post_close_publication_preview(
+                    callback,
+                    results.tournament.id,
                 )
             return
 
@@ -283,7 +280,7 @@ async def select_close_tournament_action(
             if callback.message is not None:
                 await edit_message_if_changed(
                     callback.message,
-                    text=publication_fmt.result_publication_preview(preview),
+                    text=publication_fmt.result_publication_confirmation(preview),
                     reply_markup=superadmin_tournament_close_kb.admin_publish_results_preview_keyboard(
                         callback_data.tournament_id
                     ),
@@ -576,6 +573,35 @@ async def _send_calendar_planning_notification_after_close(
             schedule_fmt.plan_preview(planning.plan),
             reply_markup=admin_schedule_kb.manual_tournaments_plan_keyboard(planning.plan),
         )
+
+
+async def _send_post_close_publication_preview(
+    callback: CallbackQuery,
+    tournament_id: int,
+) -> None:
+    if callback.message is None:
+        return
+    chat_id = callback.message.chat.id
+    preview = await tournament_publication_service.get_result_publication_content_preview(
+        callback.from_user.id,
+        tournament_id,
+    )
+    report = publication_fmt.result_publication_report(preview)
+    try:
+        await _send_publication_media(
+            callback,
+            chat_id=chat_id,
+            photos=preview.photos,
+            report=report,
+        )
+    except TelegramAPIError:
+        logger.exception("Failed to send post-close tournament result preview")
+    await callback.message.answer(
+        "Турнир закрыт ✅",
+        reply_markup=superadmin_tournament_close_kb.admin_publish_results_action_keyboard(
+            tournament_id
+        ),
+    )
 
 
 async def _publish_result_report(callback: CallbackQuery, preview: object) -> object:
