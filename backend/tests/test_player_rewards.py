@@ -53,7 +53,11 @@ async def test_close_tournament_issues_prize_stack_bonuses_once(
             role=UserRole.SUPERADMIN,
         )
         players = [
-            build_player(telegram_id=None, display_name=f"Игрок {place}") for place in range(1, 6)
+            build_player(
+                telegram_id=200 + place if place <= 3 else None,
+                display_name=f"Игрок {place}",
+            )
+            for place in range(1, 6)
         ]
         session.add_all([season, admin, *players])
         await session.flush()
@@ -94,7 +98,17 @@ async def test_close_tournament_issues_prize_stack_bonuses_once(
         clock=FixedClock(datetime(2026, 8, 22, 12, tzinfo=ZoneInfo("Europe/Moscow"))),
     )
 
-    await service.close_tournament(100, tournament_id, 1000)
+    closed = await service.close_tournament(100, tournament_id, 1000)
+
+    assert [
+        (reward.source_place, reward.chips_amount) for reward in closed.newly_issued_rewards
+    ] == [
+        (1, 40_000),
+        (2, 30_000),
+        (3, 20_000),
+    ]
+    assert [reward.telegram_id for reward in closed.newly_issued_rewards] == [201, 202, 203]
+    assert {reward.source_tournament_name for reward in closed.newly_issued_rewards} == {"Классика"}
 
     async with session_factory() as session:
         rewards = (
@@ -112,7 +126,7 @@ async def test_close_tournament_issues_prize_stack_bonuses_once(
     async with session_factory() as session:
         tournament = await session.get(Tournament, tournament_id)
         assert tournament is not None
-        await PlayerRewardService(
+        repeated = await PlayerRewardService(
             session_factory,
             clock=FixedClock(datetime(2026, 8, 22, 12, tzinfo=ZoneInfo("Europe/Moscow"))),
         ).issue_prize_stack_bonuses_for_closed_tournament(
@@ -124,6 +138,7 @@ async def test_close_tournament_issues_prize_stack_bonuses_once(
 
         reward_count = len((await session.execute(select(PlayerReward))).scalars().all())
 
+    assert repeated == ()
     assert reward_count == 3
 
 

@@ -1,4 +1,5 @@
 import logging
+from dataclasses import replace
 from datetime import date
 from decimal import ROUND_HALF_UP, Decimal
 
@@ -257,7 +258,7 @@ class ResultService:
                     scoring_config=scoring_config,
                     rule=rule,
                 )
-            await PlayerRewardService(
+            issued_rewards = await PlayerRewardService(
                 self.session_factory,
                 clock=self.clock,
                 tournament_day_start_hour=self.tournament_day_start_hour,
@@ -267,7 +268,10 @@ class ResultService:
                 issued_date=self.clock.today(),
             )
             await session.commit()
-            return await self._results_view(session, tournament.id)
+            return replace(
+                await self._results_view(session, tournament.id),
+                newly_issued_rewards=issued_rewards,
+            )
 
     async def get_closeable_tournament_results(
         self,

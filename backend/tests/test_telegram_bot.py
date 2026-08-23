@@ -103,6 +103,7 @@ from app.services.dto.results import (
     TournamentResultPlayerView,
     TournamentResultsView,
 )
+from app.services.dto.rewards import PlayerRewardNotificationView
 from app.services.dto.schedules import (
     TournamentPlanDayEditView,
     TournamentPlanItemView,
@@ -2587,6 +2588,12 @@ async def test_superadmin_close_tournament_dispatcher_replaces_fund_preview(
         method_names = [call.__class__.__name__ for call in bot.calls]
         assert method_names.count("DeleteMessage") >= 2
         sent_texts = [call.text for call in bot.calls if call.__class__.__name__ == "SendMessage"]
+        reward_calls = [
+            call
+            for call in bot.calls
+            if call.__class__.__name__ == "SendMessage"
+            and call.text.startswith("🎁 Ты получил бонус!")
+        ]
         edited_texts = [
             call.text for call in bot.calls if call.__class__.__name__ == "EditMessageText"
         ]
@@ -2597,6 +2604,12 @@ async def test_superadmin_close_tournament_dispatcher_replaces_fund_preview(
         assert any("Фонд турнира: 10000" in text for text in sent_texts)
         assert any("Фонд турнира: 15000" in text for text in sent_texts)
         assert any("✅ Турнир закрыт" in text for text in sent_texts)
+        assert [call.chat_id for call in reward_calls] == [301, 302, 303]
+        assert "+40 000 фишек к первому стеку." in reward_calls[0].text
+        assert "+30 000 фишек к первому стеку." in reward_calls[1].text
+        assert "+20 000 фишек к первому стеку." in reward_calls[2].text
+        assert "Классика" in reward_calls[0].text
+        assert "16 июля 2026 включительно" in reward_calls[0].text
 
         async with session_factory() as session:
             closed_tournament = await session.get(Tournament, tournament_id)
@@ -5195,6 +5208,100 @@ async def test_pending_registration_notifies_admins(monkeypatch: pytest.MonkeyPa
     assert bot.send_message.await_count == 1
     assert bot.send_message.await_args_list[0].kwargs["chat_id"] == 100
     assert "Telegram ID" not in bot.send_message.await_args_list[0].kwargs["text"]
+
+
+async def test_prize_stack_bonus_notification_filters_recipients_and_formats_text() -> None:
+    bot = SimpleNamespace(send_message=AsyncMock())
+    rewards = (
+        PlayerRewardNotificationView(
+            reward_id=1,
+            player_id=10,
+            telegram_id=100,
+            chips_amount=40_000,
+            source_place=1,
+            source_tournament_id=20,
+            source_tournament_date=date(2026, 8, 22),
+            source_tournament_name="Double Double",
+            valid_through=date(2026, 8, 30),
+        ),
+        PlayerRewardNotificationView(
+            reward_id=2,
+            player_id=11,
+            telegram_id=None,
+            chips_amount=30_000,
+            source_place=2,
+            source_tournament_id=20,
+            source_tournament_date=date(2026, 8, 22),
+            source_tournament_name="Double Double",
+            valid_through=date(2026, 8, 30),
+        ),
+        PlayerRewardNotificationView(
+            reward_id=3,
+            player_id=12,
+            telegram_id=-12,
+            chips_amount=20_000,
+            source_place=3,
+            source_tournament_id=20,
+            source_tournament_date=date(2026, 8, 22),
+            source_tournament_name="Double Double",
+            valid_through=date(2026, 8, 30),
+        ),
+    )
+
+    await notifications.notify_players_about_prize_stack_bonuses(bot, rewards)
+
+    bot.send_message.assert_awaited_once()
+    assert bot.send_message.await_args.kwargs["chat_id"] == 100
+    assert bot.send_message.await_args.kwargs["text"] == (
+        "🎁 Ты получил бонус!\n\n"
+        "За 1 место в турнире Double Double 22 августа 2026 тебе начислено\n"
+        "+40 000 фишек к первому стеку.\n\n"
+        "Бонус можно использовать на любом турнире до 30 августа 2026 включительно.\n\n"
+        "Если не хочешь использовать его сразу — можешь сохранить на другой день."
+    )
+
+
+async def test_prize_stack_bonus_notification_failure_does_not_block_others() -> None:
+    bot = SimpleNamespace(
+        send_message=AsyncMock(
+            side_effect=[
+                TelegramBadRequest(
+                    method=SendMessage(chat_id=100, text="x"),
+                    message="blocked",
+                ),
+                None,
+            ]
+        )
+    )
+    rewards = (
+        PlayerRewardNotificationView(
+            reward_id=1,
+            player_id=10,
+            telegram_id=100,
+            chips_amount=40_000,
+            source_place=1,
+            source_tournament_id=20,
+            source_tournament_date=date(2026, 8, 22),
+            source_tournament_name="Double Double",
+            valid_through=date(2026, 8, 30),
+        ),
+        PlayerRewardNotificationView(
+            reward_id=2,
+            player_id=11,
+            telegram_id=101,
+            chips_amount=30_000,
+            source_place=2,
+            source_tournament_id=20,
+            source_tournament_date=date(2026, 8, 22),
+            source_tournament_name="Double Double",
+            valid_through=date(2026, 8, 30),
+        ),
+    )
+
+    await notifications.notify_players_about_prize_stack_bonuses(bot, rewards)
+
+    assert bot.send_message.await_count == 2
+    assert [call.kwargs["chat_id"] for call in bot.send_message.await_args_list] == [100, 101]
 
 
 async def test_new_player_name_input_shows_confirmation_without_request(

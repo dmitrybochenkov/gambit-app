@@ -1,10 +1,16 @@
+import logging
+
 from aiogram import Bot
-from aiogram.exceptions import TelegramBadRequest, TelegramForbiddenError
+from aiogram.exceptions import TelegramAPIError, TelegramBadRequest, TelegramForbiddenError
 
 from app.bot.telegram.keyboards.superadmin import registrations as superadmin_registrations_kb
 from app.bot.telegram.texts.superadmin import registrations as registration_text
+from app.bot.telegram.texts.user import rewards as reward_text
 from app.services.dto.registrations import RegistrationReviewView
+from app.services.dto.rewards import PlayerRewardNotificationView
 from app.services.registration_review_service import registration_review_service
+
+logger = logging.getLogger(__name__)
 
 
 def format_registration_review(review: RegistrationReviewView) -> str:
@@ -30,4 +36,25 @@ async def notify_admins_about_registration(bot: Bot, request_id: int) -> None:
                 reply_markup=keyboard,
             )
         except (TelegramBadRequest, TelegramForbiddenError):
+            continue
+
+
+async def notify_players_about_prize_stack_bonuses(
+    bot: Bot,
+    rewards: tuple[PlayerRewardNotificationView, ...],
+) -> None:
+    for reward in rewards:
+        if reward.telegram_id is None or reward.telegram_id <= 0:
+            continue
+        try:
+            await bot.send_message(
+                chat_id=reward.telegram_id,
+                text=reward_text.prize_stack_bonus_notification(reward),
+            )
+        except TelegramAPIError:
+            logger.info(
+                "Failed to send prize stack bonus notification",
+                extra={"reward_id": reward.reward_id},
+                exc_info=True,
+            )
             continue

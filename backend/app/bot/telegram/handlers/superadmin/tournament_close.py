@@ -25,6 +25,7 @@ from app.bot.telegram.message_edit import (
     edit_message_if_changed,
     edit_message_text_by_id_if_changed,
 )
+from app.bot.telegram.notifications import notify_players_about_prize_stack_bonuses
 from app.bot.telegram.photo_collection import (
     PhotoControlContext,
     refresh_photo_control_message,
@@ -250,6 +251,10 @@ async def select_close_tournament_action(
                 tournament_fund=tournament_fund,
             )
             await state.clear()
+            await notify_players_about_prize_stack_bonuses(
+                callback.bot,
+                results.newly_issued_rewards,
+            )
             await callback.answer("Турнир закрыт.")
             if callback.message is not None:
                 await _delete_callback_message(callback)

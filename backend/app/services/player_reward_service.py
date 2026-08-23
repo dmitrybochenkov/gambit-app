@@ -13,11 +13,12 @@ from app.db.repositories.player_reward_repository import (
 )
 from app.db.repositories.tournament_repository import TournamentRepository
 from app.db.repositories.tournament_result_repository import TournamentResultRepository
+from app.db.repositories.tournament_type_repository import TournamentTypeRepository
 from app.db.repositories.user_repository import UserRepository
 from app.db.session import SessionFactory
 from app.domain.tournament_day import resolve_tournament_day
 from app.services.access_policy import access_policy
-from app.services.dto.rewards import PlayerRewardView
+from app.services.dto.rewards import PlayerRewardNotificationView, PlayerRewardView
 
 PRIZE_STACK_BONUS_BY_PLACE = {
     1: 40_000,
@@ -151,11 +152,17 @@ class PlayerRewardService:
         tournament: Tournament,
         *,
         issued_date: date,
-    ) -> None:
+    ) -> tuple[PlayerRewardNotificationView, ...]:
         repository = PlayerRewardRepository(session)
+        tournament_type = await TournamentTypeRepository(session).get_by_id(
+            tournament.tournament_type_id
+        )
+        if tournament_type is None:
+            return ()
         results = await TournamentResultRepository(session).list_by_tournament(tournament.id)
         issued_at = self.clock.now()
         valid_through = issued_date + timedelta(days=REWARD_VALID_DAYS)
+        issued_rewards: list[tuple[PlayerReward, int]] = []
         for result in results:
             chips_amount = PRIZE_STACK_BONUS_BY_PLACE.get(result.place)
             if chips_amount is None:
@@ -166,17 +173,38 @@ class PlayerRewardService:
                 reward_type=PlayerRewardType.PRIZE_STACK_BONUS,
             ):
                 continue
-            repository.add(
-                PlayerReward(
-                    player_id=result.player_id,
-                    reward_type=PlayerRewardType.PRIZE_STACK_BONUS,
-                    chips_amount=chips_amount,
+            reward = PlayerReward(
+                player_id=result.player_id,
+                reward_type=PlayerRewardType.PRIZE_STACK_BONUS,
+                chips_amount=chips_amount,
+                source_tournament_id=tournament.id,
+                source_place=result.place,
+                issued_at=issued_at,
+                valid_through=valid_through,
+            )
+            repository.add(reward)
+            issued_rewards.append((reward, result.player_id))
+        if not issued_rewards:
+            return ()
+
+        await session.flush()
+        views = []
+        for reward, player_id in issued_rewards:
+            user = await UserRepository(session).get_by_id(player_id)
+            views.append(
+                PlayerRewardNotificationView(
+                    reward_id=reward.id,
+                    player_id=player_id,
+                    telegram_id=user.telegram_id if user is not None else None,
+                    chips_amount=reward.chips_amount,
+                    source_place=reward.source_place,
                     source_tournament_id=tournament.id,
-                    source_place=result.place,
-                    issued_at=issued_at,
-                    valid_through=valid_through,
+                    source_tournament_date=tournament.date,
+                    source_tournament_name=tournament_type.name,
+                    valid_through=reward.valid_through,
                 )
             )
+        return tuple(views)
 
     async def _list_active_reward_views(
         self,

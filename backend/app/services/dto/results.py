@@ -1,6 +1,7 @@
 from dataclasses import dataclass
 from decimal import Decimal
 
+from app.services.dto.rewards import PlayerRewardNotificationView
 from app.services.dto.tournaments import TournamentScheduleDetailsView, TournamentView
 
 
@@ -28,6 +29,7 @@ class TournamentResultsView:
     knockout_mode: str = "none"
     supports_bonus_points: bool = False
     photo_count: int = 0
+    newly_issued_rewards: tuple[PlayerRewardNotificationView, ...] = ()
 
     @property
     def entered_players(self) -> list[TournamentResultPlayerView]:
