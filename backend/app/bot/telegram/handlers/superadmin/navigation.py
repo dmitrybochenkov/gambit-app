@@ -10,10 +10,8 @@ async def send_superadmin_panel(
     superadmin_telegram_id: int,
     text: str,
 ) -> None:
-    panel = await user_access_service.get_superadmin_panel_for_superadmin(superadmin_telegram_id)
+    await user_access_service.get_superadmin_panel_for_superadmin(superadmin_telegram_id)
     await message.answer(
         text,
-        reply_markup=superadmin_panel_kb.superadmin_panel_keyboard(
-            panel.active_telegram_users_count
-        ),
+        reply_markup=superadmin_panel_kb.superadmin_panel_keyboard(),
     )

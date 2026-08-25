@@ -34,7 +34,6 @@ class RegistrationReviewView:
 class AdminPanelView:
     admin: UserView
     reviews: list[RegistrationReviewView]
-    active_telegram_users_count: int = 0
 
 
 @dataclass(frozen=True)
@@ -75,6 +74,7 @@ class TournamentRegistrationsDetailView:
 
 @dataclass(frozen=True)
 class RegistrationsOverviewView:
+    registered_user_count: int
     pending_user_registration_count: int
     active_tournament_registration_count: int
     tournaments: list[TournamentRegistrationCountView]

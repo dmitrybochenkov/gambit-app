@@ -414,6 +414,13 @@ async def _get_pending_reviews_page(
     )
 
 
+async def _get_registered_user_count(superadmin_telegram_id: int) -> int:
+    overview = await registration_review_service.get_registrations_overview_for_superadmin(
+        superadmin_telegram_id
+    )
+    return overview.registered_user_count
+
+
 async def _get_review(superadmin_telegram_id: int, request_id: int):
     return await registration_review_service.get_registration_review_for_admin(
         admin_telegram_id=superadmin_telegram_id,
@@ -421,42 +428,18 @@ async def _get_review(superadmin_telegram_id: int, request_id: int):
     )
 
 
-async def _answer_pending_reviews(message: Message, page: Page) -> None:
-    if not page.items:
-        if message.from_user is None:
-            return
-        await send_superadmin_panel(
-            message,
-            superadmin_telegram_id=message.from_user.id,
-            text=text.NO_PENDING_REGISTRATIONS,
-        )
-        return
-
-    await message.answer(
-        text.registration_list(page),
-        reply_markup=superadmin_registrations_kb.registration_list_keyboard(page),
-    )
-
-
 async def _edit_pending_reviews(callback: CallbackQuery, page: Page) -> None:
     if callback.message is None:
         return
     if not page.items:
-        await edit_message_if_changed(
-            callback.message,
-            text=text.NO_PENDING_REGISTRATIONS,
-            reply_markup=None,
-        )
-        await send_superadmin_panel(
-            callback.message,
-            superadmin_telegram_id=callback.from_user.id,
-            text=panel_text.SUPERADMIN_PANEL_WELCOME,
-        )
+        await _edit_empty_user_registrations(callback)
         return
+
+    registered_user_count = await _get_registered_user_count(callback.from_user.id)
 
     await edit_message_if_changed(
         callback.message,
-        text=text.registration_list(page),
+        text=text.registration_list(page, registered_user_count),
         reply_markup=superadmin_registrations_kb.registration_list_keyboard(page),
     )
 
@@ -497,9 +480,12 @@ async def _edit_tournament_registrations_overview(
 async def _edit_empty_user_registrations(callback: CallbackQuery) -> None:
     if callback.message is None:
         return
+
+    registered_user_count = await _get_registered_user_count(callback.from_user.id)
+
     await edit_message_if_changed(
         callback.message,
-        text=text.empty_user_registrations(),
+        text=text.empty_user_registrations(registered_user_count),
         reply_markup=superadmin_registrations_kb.registration_branch_empty_keyboard(),
     )
 

@@ -23,9 +23,9 @@ REGISTRATION_MATCH_POINTS_LABEL = "очков"
 REGISTRATION_MATCH_KNOCKOUTS_LABEL = "🥊"
 
 
-def registration_list(page: object) -> str:
+def registration_list(page: object, registered_user_count: int) -> str:
     del page
-    return REGISTRATION_LIST_TITLE
+    return user_registrations_header(registered_user_count)
 
 
 def user_registrations_button(count: int) -> str:
@@ -34,10 +34,6 @@ def user_registrations_button(count: int) -> str:
 
 def tournament_registrations_button(count: int) -> str:
     return f"{TOURNAMENT_REGISTRATIONS_TITLE} ({count})"
-
-
-def empty_user_registrations() -> str:
-    return f"{USER_REGISTRATIONS_TITLE}\n\nРегистраций нет."
 
 
 def tournament_registrations_overview(tournaments: list[object]) -> str:
@@ -110,3 +106,13 @@ def _tournament_line(tournament: object) -> str:
     weekday = common.WEEKDAYS[tournament.date.weekday()]
     month = common.MONTHS[tournament.date.month]
     return f"{weekday}, {tournament.date.day} {month} — {tournament.tournament_type_name}"
+
+
+def user_registrations_header(registered_user_count: int) -> str:
+    return (
+        f"{USER_REGISTRATIONS_TITLE}\nВсего зарегистрировано {registered_user_count} пользователей."
+    )
+
+
+def empty_user_registrations(registered_user_count: int) -> str:
+    return f"{user_registrations_header(registered_user_count)}\n\nРегистраций нет."

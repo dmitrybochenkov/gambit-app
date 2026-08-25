@@ -53,13 +53,7 @@ class UserAccessService:
     ) -> AdminPanelView:
         async with self.session_factory() as session:
             superadmin = await access_policy.require_superadmin(session, superadmin_telegram_id)
-            return AdminPanelView(
-                admin=required_user_view(superadmin),
-                reviews=[],
-                active_telegram_users_count=await UserRepository(
-                    session
-                ).count_active_telegram_users(),
-            )
+            return AdminPanelView(admin=required_user_view(superadmin), reviews=[])
 
     async def get_admin_panel_for_admin(
         self,

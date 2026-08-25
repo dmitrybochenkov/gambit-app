@@ -117,6 +117,7 @@ class RegistrationReviewService:
     ) -> RegistrationsOverviewView:
         async with self.session_factory() as session:
             await access_policy.require_superadmin(session, superadmin_telegram_id)
+            user_repository = UserRepository(session)
             request_repository = RegistrationRequestRepository(session)
             tournament_registrations = TournamentRegistrationRepository(session)
             tournaments = await tournament_registrations.list_active_tournament_registration_counts(
@@ -126,6 +127,7 @@ class RegistrationReviewService:
                 ),
             )
             return RegistrationsOverviewView(
+                registered_user_count=await user_repository.count_active_telegram_users(),
                 pending_user_registration_count=await request_repository.count_pending(),
                 active_tournament_registration_count=sum(
                     row.registrations_count for row in tournaments
