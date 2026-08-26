@@ -195,7 +195,7 @@ def close_tournament_card(results: object) -> str:
             f"Игроков: {len(results.players)}",
             f"Фотографий: {results.photo_count}",
             "",
-            *_game_table_lines(results, include_points=_show_close_points(results)),
+            *_game_table_lines(results),
             "",
             "Введите фонд турнира?",
         ]
@@ -251,7 +251,7 @@ def close_tournament_confirmation(
             "После подтверждения будут рассчитаны рейтинговые очки,",
             "а турнир станет недоступен для редактирования.",
             "",
-            *_game_table_lines(results, include_points=_show_close_points(results)),
+            *_game_table_lines(results),
         ]
     )
 
@@ -493,10 +493,6 @@ def _game_table_name_width(rows: list[object], columns: list[tuple[str, int]]) -
     available_width = MAX_TABLE_WIDTH - technical_width
     longest_name = max([len("Игрок"), *[len(str(row.display_name)) for row in rows]])
     return min(longest_name, MAX_PLAYER_NAME_WIDTH, available_width)
-
-
-def _show_close_points(results: object) -> bool:
-    return getattr(results.tournament, "tournament_type_code", None) == "mystery_bounty"
 
 
 def _photo_status_lines(results: object) -> list[str]:
