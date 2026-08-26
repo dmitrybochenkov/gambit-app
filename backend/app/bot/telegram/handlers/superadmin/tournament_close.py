@@ -2,7 +2,7 @@ import logging
 from collections.abc import Awaitable, Callable
 from datetime import date
 
-from aiogram import F, Router
+from aiogram import Bot, F, Router
 from aiogram.exceptions import TelegramAPIError
 from aiogram.fsm.context import FSMContext
 from aiogram.types import CallbackQuery, InputMediaPhoto, Message
@@ -1005,7 +1005,7 @@ async def _send_post_close_publication_preview(
     report = publication_fmt.result_publication_report(preview)
     try:
         await _send_publication_media(
-            callback,
+            callback.bot,
             chat_id=chat_id,
             photos=preview.photos,
             report=report,
@@ -1031,7 +1031,7 @@ async def _publish_result_report(callback: CallbackQuery, preview: object) -> ob
             continue
         try:
             message_id = await _send_publication_media(
-                callback,
+                callback.bot,
                 chat_id=destination.chat_id,
                 photos=preview.photos,
                 report=report,
@@ -1058,25 +1058,25 @@ async def _publish_result_report(callback: CallbackQuery, preview: object) -> ob
 
 
 async def _send_publication_media(
-    callback: CallbackQuery,
+    bot: Bot,
     *,
     chat_id: int,
     photos: list[object],
     report: str,
 ) -> int | None:
     if not photos:
-        sent = await callback.bot.send_message(chat_id=chat_id, text=report)
+        sent = await bot.send_message(chat_id=chat_id, text=report)
         return sent.message_id
     if len(photos) == 1:
         if len(report) <= publication_fmt.CAPTION_LIMIT:
-            sent = await callback.bot.send_photo(
+            sent = await bot.send_photo(
                 chat_id=chat_id,
                 photo=photos[0].telegram_file_id,
                 caption=report,
             )
             return sent.message_id
-        await callback.bot.send_photo(chat_id=chat_id, photo=photos[0].telegram_file_id)
-        sent = await callback.bot.send_message(chat_id=chat_id, text=report)
+        await bot.send_photo(chat_id=chat_id, photo=photos[0].telegram_file_id)
+        sent = await bot.send_message(chat_id=chat_id, text=report)
         return sent.message_id
     media = [
         InputMediaPhoto(
@@ -1085,9 +1085,9 @@ async def _send_publication_media(
         )
         for index, photo in enumerate(photos[:10])
     ]
-    sent_group = await callback.bot.send_media_group(chat_id=chat_id, media=media)
+    sent_group = await bot.send_media_group(chat_id=chat_id, media=media)
     if len(report) > publication_fmt.CAPTION_LIMIT:
-        sent = await callback.bot.send_message(chat_id=chat_id, text=report)
+        sent = await bot.send_message(chat_id=chat_id, text=report)
         return sent.message_id
     first = sent_group[0] if sent_group else None
     return getattr(first, "message_id", None)
@@ -1846,9 +1846,10 @@ async def enter_tournament_fund(message: Message, state: FSMContext) -> None:
     page_number = int(data.get("close_tournament_page", 0))
     try:
         tournament_fund = ResultService.validate_tournament_fund(int(message.text or ""))
-        results = await result_service.get_closeable_tournament_results(
+        preview = await tournament_publication_service.get_pre_close_result_publication_preview(
             superadmin_telegram_id=message.from_user.id,
             tournament_id=tournament_id,
+            tournament_fund=tournament_fund,
         )
     except AdminAccessDeniedError:
         await state.clear()
@@ -1875,14 +1876,22 @@ async def enter_tournament_fund(message: Message, state: FSMContext) -> None:
     await state.update_data(tournament_fund=int(tournament_fund))
     await state.set_state(None)
     await _replace_close_preview_with_fund_prompt(message, data)
+
+    report = publication_fmt.result_publication_report(preview)
+
+    await _send_publication_media(
+        message.bot,
+        chat_id=message.chat.id,
+        photos=preview.photos,
+        report=report,
+    )
+
     await message.answer(
-        result_fmt.close_tournament_confirmation(results, tournament_fund),
+        text.CLOSE_TOURNAMENT_PREVIEW_CONFIRMATION,
         reply_markup=superadmin_tournament_close_kb.admin_close_tournament_confirmation_keyboard(
             tournament_id=tournament_id,
             page=page_number,
-            photo_count=results.photo_count,
         ),
-        parse_mode=RESULT_SUMMARY_PARSE_MODE,
     )
 
 

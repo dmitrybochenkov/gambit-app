@@ -392,6 +392,50 @@ class ResultService:
                 player_notifications=reward_result.player_notifications,
             )
 
+    async def preview_tournament_close(
+        self,
+        superadmin_telegram_id: int,
+        tournament_id: int,
+        tournament_fund: int | Decimal,
+    ) -> TournamentResultsView:
+        fund = self.validate_tournament_fund(tournament_fund)
+
+        async with self.session_factory() as session:
+            await access_policy.require_superadmin(session, superadmin_telegram_id)
+            tournament = await self._require_closeable_tournament(session, tournament_id)
+
+            view = await self._results_view(session, tournament.id)
+            readiness = await self._readiness_view(session, tournament, view=view)
+            if not readiness.is_ready:
+                raise ResultValidationError(readiness.reasons)
+
+            scoring_config, rule = await self._scoring(session, tournament)
+
+            players = [
+                replace(
+                    player,
+                    tournament_points=self._tournament_points(
+                        tournament_fund=Decimal(fund),
+                        place=player.place,
+                        scoring_config=scoring_config,
+                        rule=rule,
+                    ),
+                    knockout_points=self._knockout_points(
+                        knockouts_count=player.knockouts_count,
+                        big_knockouts_count=player.big_knockouts_count,
+                        scoring_config=scoring_config,
+                        rule=rule,
+                    ),
+                )
+                for player in view.players
+            ]
+
+            return replace(
+                view,
+                tournament_fund=fund,
+                players=players,
+            )
+
     async def close_tournament(
         self,
         superadmin_telegram_id: int,

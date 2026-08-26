@@ -1074,20 +1074,10 @@ def admin_close_tournament_confirmation_keyboard(
     *,
     tournament_id: int,
     page: int,
-    photo_count: int = 0,
 ) -> InlineKeyboardMarkup:
     builder = InlineKeyboardBuilder()
-    if photo_count > 0:
-        builder.button(
-            text=f"🖼 Посмотреть фото ({photo_count})",
-            callback_data=AdminCloseTournamentCallback(
-                action=AdminCloseTournamentAction.VIEW_PHOTOS,
-                page=page,
-                tournament_id=tournament_id,
-            ),
-        )
     builder.button(
-        text="✅ Рассчитать и закрыть",
+        text="✅ Закрыть турнир",
         callback_data=AdminCloseTournamentCallback(
             action=AdminCloseTournamentAction.CONFIRM,
             page=page,

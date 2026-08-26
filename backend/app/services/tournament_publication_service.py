@@ -31,9 +31,10 @@ from app.services.dto.results import (
     TournamentPublicationResultView,
     TournamentPublicationSummaryView,
     TournamentResultPublicationView,
+    TournamentResultsView,
 )
 from app.services.dto.tournaments import TournamentScheduleDetailsView
-from app.services.result_service import ResultTournamentNotFoundError
+from app.services.result_service import ResultService, ResultTournamentNotFoundError
 from app.services.tournament_service import build_tournament_schedule_details, tournament_view
 
 
@@ -98,6 +99,36 @@ class TournamentPublicationService:
             if tournament.status != TournamentStatus.CLOSED or tournament.tournament_fund is None:
                 raise TournamentPublicationUnavailableError
             return await self._result_publication_view(session, tournament, self._destinations())
+
+    async def get_pre_close_result_publication_preview(
+        self,
+        superadmin_telegram_id: int,
+        tournament_id: int,
+        tournament_fund: int,
+    ) -> TournamentResultPublicationView:
+        calculated_results = await ResultService(
+            self.session_factory,
+            clock=self.clock,
+            tournament_day_start_hour=self.tournament_day_start_hour,
+        ).preview_tournament_close(
+            superadmin_telegram_id=superadmin_telegram_id,
+            tournament_id=tournament_id,
+            tournament_fund=tournament_fund,
+        )
+
+        async with self.session_factory() as session:
+            await access_policy.require_superadmin(session, superadmin_telegram_id)
+            tournament = await TournamentRepository(session).get_by_id(tournament_id)
+            if tournament is None:
+                raise ResultTournamentNotFoundError
+
+            return await self._result_publication_view(
+                session,
+                tournament,
+                self._destinations(),
+                calculated_results=calculated_results,
+                tournament_fund=tournament_fund,
+            )
 
     async def get_schedule_publication_preview(
         self,
@@ -196,15 +227,32 @@ class TournamentPublicationService:
         session: AsyncSession,
         tournament: Tournament,
         destinations: list[tuple[TournamentPublicationDestination, int]],
+        *,
+        calculated_results: TournamentResultsView | None = None,
+        tournament_fund: int | None = None,
     ) -> TournamentResultPublicationView:
         result_rows = await TournamentResultRepository(session).list_with_users(tournament.id)
         combinations = await TournamentCombinationRepository(session).list_with_users(tournament.id)
         photos = await TournamentPhotoRepository(session).list_for_tournament(tournament.id)
+        calculated_players = (
+            {player.player_id: player for player in calculated_results.players}
+            if calculated_results is not None
+            else {}
+        )
+        effective_fund = (
+            tournament_fund
+            if tournament_fund is not None
+            else int(tournament.tournament_fund or 0)
+        )
         places = [
             TournamentPublicationPlaceView(
                 place=row.result.place,
                 display_name=row.user.display_name,
-                total_points=row.result.total_points,
+                total_points=(
+                    calculated_players[row.user.id].total_points
+                    if calculated_results is not None
+                    else row.result.total_points
+                ),
             )
             for row in result_rows
             if row.result.place is not None
@@ -258,7 +306,7 @@ class TournamentPublicationService:
             {
                 "type": "results",
                 "tournament_id": tournament.id,
-                "fund": tournament.tournament_fund,
+                "fund": effective_fund,
                 "places": [
                     {
                         "place": place.place,
@@ -294,7 +342,7 @@ class TournamentPublicationService:
         )
         return TournamentResultPublicationView(
             tournament=tournament_view(tournament),
-            tournament_fund=int(tournament.tournament_fund or 0),
+            tournament_fund=effective_fund,
             places=places,
             top_knockouters=top_knockouters,
             combinations=combination_views,
