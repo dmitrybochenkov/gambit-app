@@ -581,39 +581,28 @@ def admin_result_value_keyboard(
     builder = InlineKeyboardBuilder()
     max_value = 5 if field == AdminResultField.PLACE else 15
     occupied_places = occupied_places or set()
-    for value in range(1, max_value + 1):
-        text = _admin_result_value_button_text(
-            field=field,
-            value=value,
-            occupied_places=occupied_places,
-            current_place=current_place,
-        )
-        builder.button(
-            text=text,
-            callback_data=AdminResultValueCallback(
-                action=AdminResultValueAction.SET,
-                tournament_id=tournament_id,
-                page=page,
-                player_id=player_id,
+
+    if field != AdminResultField.BONUS:
+        for value in range(1, max_value + 1):
+            text = _admin_result_value_button_text(
                 field=field,
                 value=value,
-            ),
-        )
-    footer_rows = []
-    if field != AdminResultField.PLACE:
-        if field == AdminResultField.BONUS:
+                occupied_places=occupied_places,
+                current_place=current_place,
+            )
             builder.button(
-                text="🧹 Очистить",
+                text=text,
                 callback_data=AdminResultValueCallback(
                     action=AdminResultValueAction.SET,
                     tournament_id=tournament_id,
                     page=page,
                     player_id=player_id,
                     field=field,
-                    value=0,
+                    value=value,
                 ),
             )
-            footer_rows.append(1)
+    footer_rows = []
+    if field != AdminResultField.PLACE:
         builder.button(
             text="⌨️ Ввести руками",
             callback_data=AdminResultValueCallback(
@@ -650,7 +639,13 @@ def admin_result_value_keyboard(
         ),
     )
     footer_rows.append(1)
-    value_rows = [5] if field == AdminResultField.PLACE else [5, 5, 5]
+    if field == AdminResultField.PLACE:
+        value_rows = [5]
+    elif field == AdminResultField.BONUS:
+        value_rows = []
+    else:
+        value_rows = [5, 5, 5]
+
     builder.adjust(*value_rows, *footer_rows)
     return builder.as_markup()
 
