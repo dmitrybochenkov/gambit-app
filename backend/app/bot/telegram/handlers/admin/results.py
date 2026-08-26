@@ -360,35 +360,6 @@ async def select_result_player(
 
     await _clear_result_state_preserving_return_context(state)
 
-    if callback_data.field == admin_results_kb.AdminResultField.BONUS:
-        await state.set_state(AdminResultStates.entering_manual_value)
-        await state.update_data(
-            result_tournament_id=callback_data.tournament_id,
-            result_player_id=callback_data.player_id,
-            result_page=callback_data.page,
-            result_field=callback_data.field.value,
-            result_bonus_label=results.bonus_points_label,
-            result_prompt_message_id=callback.message.message_id
-            if callback.message is not None
-            else 0,
-        )
-        await callback.answer()
-        if callback.message is not None:
-            await edit_message_if_changed(
-                callback.message,
-                text=result_text.admin_results_manual_value_prompt(
-                    callback_data.field.value,
-                    bonus_label=results.bonus_points_label,
-                ),
-                reply_markup=admin_results_kb.admin_result_manual_value_keyboard(
-                    tournament_id=callback_data.tournament_id,
-                    page=callback_data.page,
-                    player_id=callback_data.player_id,
-                    field=callback_data.field,
-                ),
-            )
-        return
-
     await callback.answer()
     if callback.message is not None:
         await _delete_callback_message(callback)
@@ -426,7 +397,38 @@ async def select_result_field(
             return
 
         await _clear_result_state_preserving_return_context(state)
+
+        if callback_data.field == admin_results_kb.AdminResultField.BONUS:
+            await state.set_state(AdminResultStates.entering_manual_value)
+            await state.update_data(
+                result_tournament_id=callback_data.tournament_id,
+                result_player_id=callback_data.player_id,
+                result_page=callback_data.page,
+                result_field=callback_data.field.value,
+                result_bonus_label=results.bonus_points_label,
+                result_prompt_message_id=callback.message.message_id
+                if callback.message is not None
+                else 0,
+            )
+            await callback.answer()
+            if callback.message is not None:
+                await edit_message_if_changed(
+                    callback.message,
+                    text=result_text.admin_results_manual_value_prompt(
+                        callback_data.field.value,
+                        bonus_label=results.bonus_points_label,
+                    ),
+                    reply_markup=admin_results_kb.admin_result_manual_value_keyboard(
+                        tournament_id=callback_data.tournament_id,
+                        page=callback_data.page,
+                        player_id=callback_data.player_id,
+                        field=callback_data.field,
+                    ),
+                )
+            return
+
         await callback.answer()
+
         if callback.message is not None:
             await edit_message_if_changed(
                 callback.message,
