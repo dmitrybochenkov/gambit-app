@@ -16,6 +16,9 @@ from app.bot.telegram.handlers.admin.shared import (
 from app.bot.telegram.handlers.admin.shared import (
     delete_callback_message as _delete_callback_message,
 )
+from app.bot.telegram.handlers.admin.shared import (
+    delete_message_by_id as _delete_message_by_id,
+)
 from app.bot.telegram.handlers.superadmin.navigation import send_superadmin_panel
 from app.bot.telegram.keyboards import labels
 from app.bot.telegram.keyboards.admin import results as admin_results_kb
@@ -23,7 +26,7 @@ from app.bot.telegram.keyboards.admin import schedule as admin_schedule_kb
 from app.bot.telegram.keyboards.superadmin import tournament_close as superadmin_tournament_close_kb
 from app.bot.telegram.message_edit import (
     edit_message_if_changed,
-    edit_message_text_by_id_if_changed,
+    edit_message_reply_markup_by_id_if_changed,
 )
 from app.bot.telegram.notifications import (
     notify_players_about_prize_stack_bonus_corrections,
@@ -182,15 +185,15 @@ async def select_close_tournament_action(
 
         if callback_data.action == superadmin_tournament_close_kb.AdminCloseTournamentAction.BACK:
             data = await state.get_data()
-            if "tournament_fund" in data and callback_data.tournament_id:
-                await _return_to_fund_input(
-                    callback=callback,
-                    state=state,
-                    tournament_id=callback_data.tournament_id,
-                    page=callback_data.page,
-                )
-                return
-            await _edit_close_tournament_root(callback, state, page=callback_data.page)
+
+            if callback.message is not None:
+                await _delete_close_publication_preview(callback.message, data)
+
+            await _edit_close_tournament_root(
+                callback,
+                state,
+                page=callback_data.page,
+            )
             return
 
         if (
@@ -247,15 +250,38 @@ async def select_close_tournament_action(
             callback_data.action
             == superadmin_tournament_close_kb.AdminCloseTournamentAction.CHANGE_FUND
         ):
-            await _prepare_fund_input_state(
-                state=state,
+            data = await state.get_data()
+
+            errors = await result_service.validate_closeable_results(
                 superadmin_telegram_id=callback.from_user.id,
                 tournament_id=callback_data.tournament_id,
-                page=callback_data.page,
             )
+            if errors:
+                raise ResultValidationError(errors)
+
             await callback.answer()
-            if callback.message is not None:
-                await _delete_callback_message(callback)
+
+            if callback.message is None:
+                return
+
+            await _delete_close_publication_preview(callback.message, data)
+
+            prompt_message = await callback.message.answer(
+                result_fmt.tournament_fund_prompt(),
+                reply_markup=superadmin_tournament_close_kb.admin_close_tournament_card_keyboard(
+                    tournament_id=callback_data.tournament_id,
+                    page=callback_data.page,
+                ),
+            )
+
+            await _delete_callback_message(callback)
+
+            await _set_fund_input_state(
+                state,
+                tournament_id=callback_data.tournament_id,
+                page=callback_data.page,
+                prompt_message=prompt_message,
+            )
             return
 
         if (
@@ -1064,9 +1090,26 @@ async def _send_publication_media(
     photos: list[object],
     report: str,
 ) -> int | None:
+    primary_message_id, _message_ids = await _send_publication_media_with_ids(
+        bot,
+        chat_id=chat_id,
+        photos=photos,
+        report=report,
+    )
+    return primary_message_id
+
+
+async def _send_publication_media_with_ids(
+    bot: Bot,
+    *,
+    chat_id: int,
+    photos: list[object],
+    report: str,
+) -> tuple[int | None, list[int]]:
     if not photos:
         sent = await bot.send_message(chat_id=chat_id, text=report)
-        return sent.message_id
+        return sent.message_id, [sent.message_id]
+
     if len(photos) == 1:
         if len(report) <= publication_fmt.CAPTION_LIMIT:
             sent = await bot.send_photo(
@@ -1074,23 +1117,46 @@ async def _send_publication_media(
                 photo=photos[0].telegram_file_id,
                 caption=report,
             )
-            return sent.message_id
-        await bot.send_photo(chat_id=chat_id, photo=photos[0].telegram_file_id)
-        sent = await bot.send_message(chat_id=chat_id, text=report)
-        return sent.message_id
+            return sent.message_id, [sent.message_id]
+
+        photo_message = await bot.send_photo(
+            chat_id=chat_id,
+            photo=photos[0].telegram_file_id,
+        )
+        report_message = await bot.send_message(
+            chat_id=chat_id,
+            text=report,
+        )
+        return report_message.message_id, [
+            photo_message.message_id,
+            report_message.message_id,
+        ]
+
     media = [
         InputMediaPhoto(
             media=photo.telegram_file_id,
-            caption=report if index == 0 and len(report) <= publication_fmt.CAPTION_LIMIT else None,
+            caption=report
+            if index == 0 and len(report) <= publication_fmt.CAPTION_LIMIT
+            else None,
         )
         for index, photo in enumerate(photos[:10])
     ]
-    sent_group = await bot.send_media_group(chat_id=chat_id, media=media)
+    sent_group = await bot.send_media_group(
+        chat_id=chat_id,
+        media=media,
+    )
+    message_ids = [sent.message_id for sent in sent_group]
+
     if len(report) > publication_fmt.CAPTION_LIMIT:
-        sent = await bot.send_message(chat_id=chat_id, text=report)
-        return sent.message_id
+        report_message = await bot.send_message(
+            chat_id=chat_id,
+            text=report,
+        )
+        message_ids.append(report_message.message_id)
+        return report_message.message_id, message_ids
+
     first = sent_group[0] if sent_group else None
-    return getattr(first, "message_id", None)
+    return getattr(first, "message_id", None), message_ids
 
 
 async def _handle_repair_photo_action(
@@ -1509,10 +1575,6 @@ async def _edit_close_tournament_card(
     tournament_id: int,
     page: int,
 ) -> None:
-    results = await result_service.get_closeable_tournament_results(
-        superadmin_telegram_id=callback.from_user.id,
-        tournament_id=tournament_id,
-    )
     readiness = await result_service.get_close_readiness(
         superadmin_telegram_id=callback.from_user.id,
         tournament_id=tournament_id,
@@ -1530,12 +1592,11 @@ async def _edit_close_tournament_card(
         return
     await edit_message_if_changed(
         callback.message,
-        text=result_fmt.close_tournament_card(results),
+        text=result_fmt.tournament_fund_prompt(),
         reply_markup=superadmin_tournament_close_kb.admin_close_tournament_card_keyboard(
             tournament_id=tournament_id,
             page=page,
         ),
-        parse_mode=RESULT_SUMMARY_PARSE_MODE,
     )
     await _set_fund_input_state(
         state,
@@ -1804,38 +1865,6 @@ async def _edit_close_tournament_root(
     )
 
 
-async def _return_to_fund_input(
-    *,
-    callback: CallbackQuery,
-    state: FSMContext,
-    tournament_id: int,
-    page: int,
-) -> None:
-    await state.set_state(AdminResultStates.entering_tournament_fund)
-    await state.update_data(
-        close_tournament_id=tournament_id,
-        close_tournament_page=page,
-    )
-    await callback.answer()
-    if callback.message is None:
-        return
-    await edit_message_if_changed(
-        callback.message,
-        text=result_fmt.tournament_fund_prompt(),
-        reply_markup=superadmin_tournament_close_kb.admin_close_tournament_card_keyboard(
-            tournament_id=tournament_id,
-            page=page,
-        ),
-    )
-    identity = _message_identity(callback.message)
-    if identity is not None:
-        chat_id, message_id = identity
-        await state.update_data(
-            close_tournament_prompt_chat_id=chat_id,
-            close_tournament_prompt_message_id=message_id,
-        )
-
-
 @router.message(AdminResultStates.entering_tournament_fund)
 async def enter_tournament_fund(message: Message, state: FSMContext) -> None:
     if message.from_user is None:
@@ -1875,15 +1904,19 @@ async def enter_tournament_fund(message: Message, state: FSMContext) -> None:
 
     await state.update_data(tournament_fund=int(tournament_fund))
     await state.set_state(None)
-    await _replace_close_preview_with_fund_prompt(message, data)
+    await _disable_fund_prompt_keyboard(message, data)
 
     report = publication_fmt.result_publication_report(preview)
 
-    await _send_publication_media(
+    _, preview_message_ids = await _send_publication_media_with_ids(
         message.bot,
         chat_id=message.chat.id,
         photos=preview.photos,
         report=report,
+    )
+
+    await state.update_data(
+        close_publication_preview_message_ids=preview_message_ids,
     )
 
     await message.answer(
@@ -1967,7 +2000,7 @@ def _message_identity(message: Message | None) -> tuple[int, int] | None:
     return None
 
 
-async def _replace_close_preview_with_fund_prompt(
+async def _disable_fund_prompt_keyboard(
     message: Message,
     data: dict[str, object],
 ) -> None:
@@ -1975,13 +2008,23 @@ async def _replace_close_preview_with_fund_prompt(
     message_id = data.get("close_tournament_prompt_message_id")
     if not isinstance(chat_id, int) or not isinstance(message_id, int):
         return
-    await edit_message_text_by_id_if_changed(
+
+    await edit_message_reply_markup_by_id_if_changed(
         message.bot,
         chat_id=chat_id,
         message_id=message_id,
-        text=result_fmt.tournament_fund_prompt(),
-        reply_markup=superadmin_tournament_close_kb.admin_close_tournament_card_keyboard(
-            tournament_id=int(data["close_tournament_id"]),
-            page=int(data.get("close_tournament_page", 0)),
-        ),
+        reply_markup=None,
     )
+
+
+async def _delete_close_publication_preview(
+    message: Message,
+    data: dict[str, object],
+) -> None:
+    message_ids = data.get("close_publication_preview_message_ids")
+    if not isinstance(message_ids, list):
+        return
+
+    for message_id in message_ids:
+        if isinstance(message_id, int):
+            await _delete_message_by_id(message, message_id)
