@@ -202,8 +202,15 @@ def close_tournament_card(results: object) -> str:
     )
 
 
-def tournament_fund_prompt() -> str:
-    return "Введите фонд турнира."
+def tournament_fund_prompt(tournament: object | None = None) -> str:
+    if tournament is None:
+        return "Введите фонд турнира."
+
+    tournament_name = tournament.tournament_type_name or "Неопределённый турнир"
+    return (
+        f"Введите фонд турнира для "
+        f"{tournament.date.day:02d}.{tournament.date.month:02d} — {tournament_name}"
+    )
 
 
 def close_tournament_blocked(errors: list[str]) -> str:

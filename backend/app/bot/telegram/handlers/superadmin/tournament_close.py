@@ -252,12 +252,12 @@ async def select_close_tournament_action(
         ):
             data = await state.get_data()
 
-            errors = await result_service.validate_closeable_results(
+            readiness = await result_service.get_close_readiness(
                 superadmin_telegram_id=callback.from_user.id,
                 tournament_id=callback_data.tournament_id,
             )
-            if errors:
-                raise ResultValidationError(errors)
+            if not readiness.is_ready:
+                raise ResultValidationError(readiness.validation_errors)
 
             await callback.answer()
 
@@ -267,7 +267,7 @@ async def select_close_tournament_action(
             await _delete_close_publication_preview(callback.message, data)
 
             prompt_message = await callback.message.answer(
-                result_fmt.tournament_fund_prompt(),
+                result_fmt.tournament_fund_prompt(readiness.tournament),
                 reply_markup=superadmin_tournament_close_kb.admin_close_tournament_card_keyboard(
                     tournament_id=callback_data.tournament_id,
                     page=callback_data.page,
@@ -1592,7 +1592,7 @@ async def _edit_close_tournament_card(
         return
     await edit_message_if_changed(
         callback.message,
-        text=result_fmt.tournament_fund_prompt(),
+        text=result_fmt.tournament_fund_prompt(readiness.tournament),
         reply_markup=superadmin_tournament_close_kb.admin_close_tournament_card_keyboard(
             tournament_id=tournament_id,
             page=page,
