@@ -1880,6 +1880,10 @@ async def enter_tournament_fund(message: Message, state: FSMContext) -> None:
             tournament_id=tournament_id,
             tournament_fund=tournament_fund,
         )
+        results = await result_service.get_closeable_tournament_results(
+            superadmin_telegram_id=message.from_user.id,
+            tournament_id=tournament_id,
+        )
     except AdminAccessDeniedError:
         await state.clear()
         await message.answer(text.ACCESS_DENIED)
@@ -1920,11 +1924,12 @@ async def enter_tournament_fund(message: Message, state: FSMContext) -> None:
     )
 
     await message.answer(
-        text.CLOSE_TOURNAMENT_PREVIEW_CONFIRMATION,
+        result_fmt.close_tournament_preview_confirmation(results),
         reply_markup=superadmin_tournament_close_kb.admin_close_tournament_confirmation_keyboard(
             tournament_id=tournament_id,
             page=page_number,
         ),
+        parse_mode=RESULT_SUMMARY_PARSE_MODE,
     )
 
 

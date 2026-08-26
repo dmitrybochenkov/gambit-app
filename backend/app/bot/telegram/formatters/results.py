@@ -240,6 +240,19 @@ def tournament_fund_error_prompt() -> str:
     return f"{tournament_fund_error()}\n\n{tournament_fund_prompt()}"
 
 
+def close_tournament_preview_confirmation(results: object) -> str:
+    return "\n".join(
+        [
+            "Выше — сообщение для игроков. Ниже — результаты, которые пойдут в базу. Всё верно?",
+            "",
+            *_game_table_lines(
+                results,
+                include_all_players=True,
+            ),
+        ]
+    )
+
+
 def close_tournament_confirmation(
     results: object,
     tournament_fund: object,
@@ -431,10 +444,20 @@ def _game_table_lines(
     include_points: bool = False,
     force_all_columns: bool = False,
     include_required_place_slots: bool = False,
+    include_all_players: bool = False,
 ) -> list[str]:
     rows = []
+    table_players = (
+        results.players
+        if include_all_players
+        else _table_players(
+            results,
+            include_required_place_slots=include_required_place_slots,
+        )
+    )
+
     sorted_players = sorted(
-        _table_players(results, include_required_place_slots=include_required_place_slots),
+        table_players,
         key=lambda player: (
             player.place if player.place is not None else 99,
             -player.big_knockouts_count,
