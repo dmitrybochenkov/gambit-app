@@ -40,3 +40,8 @@ class TournamentScheduleDetailsView:
     description: str | None
     economy: TournamentEconomyView | None
     rules: TournamentRulesView | None
+
+
+@dataclass(frozen=True)
+class SuperadminTournamentHubView:
+    open_tournaments_count: int

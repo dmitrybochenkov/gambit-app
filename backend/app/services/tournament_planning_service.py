@@ -8,12 +8,14 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from app.common.clock import Clock, club_clock
+from app.config import settings
 from app.db.models import Tournament, WeeklyTournamentTemplate
 from app.db.models.enums import TournamentStatus
 from app.db.repositories.season_repository import SeasonRepository
 from app.db.repositories.tournament_repository import TournamentRepository
 from app.db.repositories.tournament_type_repository import TournamentTypeRepository
 from app.db.session import SessionFactory
+from app.domain.tournament_day import resolve_tournament_day
 from app.services.access_policy import access_policy
 from app.services.dto.schedules import (
     TournamentPlanDayEditView,
@@ -25,6 +27,7 @@ from app.services.dto.schedules import (
     WeeklyTournamentFactView,
     WeeklyTournamentPlanView,
 )
+from app.services.dto.tournaments import SuperadminTournamentHubView
 from app.services.sunday_tournament_rotation import (
     SundayTournamentRotation,
     sunday_tournament_rotation,
@@ -210,10 +213,23 @@ class TournamentPlanningService:
         session_factory: async_sessionmaker[AsyncSession],
         sunday_rotation: SundayTournamentRotation = sunday_tournament_rotation,
         clock: Clock = club_clock,
+        tournament_day_start_hour: int = settings.tournament_day_start_hour,
     ) -> None:
         self.session_factory = session_factory
         self.sunday_rotation = sunday_rotation
         self.clock = clock
+        self.tournament_day_start_hour = tournament_day_start_hour
+
+    async def get_superadmin_tournament_hub(
+        self,
+        actor_telegram_id: int,
+    ) -> SuperadminTournamentHubView:
+        async with self.session_factory() as session:
+            await access_policy.require_superadmin(session, actor_telegram_id)
+            open_count = await TournamentRepository(session).count_active_on_or_before(
+                resolve_tournament_day(self.clock, self.tournament_day_start_hour)
+            )
+            return SuperadminTournamentHubView(open_tournaments_count=open_count)
 
     async def build_next_week_plan(
         self,

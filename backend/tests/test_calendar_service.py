@@ -297,6 +297,42 @@ async def test_manual_planning_uses_db_progression_not_today(
             await engine.dispose()
 
 
+async def test_superadmin_tournament_hub_counts_active_on_or_before_tournament_day(
+    tmp_path: Path,
+) -> None:
+    _, session_factory, engine = await create_planning_service(tmp_path / "hub-count.db")
+    try:
+        await seed_calendar_data(session_factory)
+        await seed_week_tournaments(
+            session_factory,
+            dates=[date(2026, 8, 12), date(2026, 8, 13)],
+            status=TournamentStatus.ACTIVE,
+        )
+        await seed_week_tournaments(
+            session_factory,
+            dates=[date(2026, 8, 11)],
+            status=TournamentStatus.CLOSED,
+        )
+        before_day_start = TournamentPlanningService(
+            session_factory,
+            clock=FixedClock(datetime(2026, 8, 13, 10)),
+            tournament_day_start_hour=11,
+        )
+        after_day_start = TournamentPlanningService(
+            session_factory,
+            clock=FixedClock(datetime(2026, 8, 13, 11)),
+            tournament_day_start_hour=11,
+        )
+
+        before = await before_day_start.get_superadmin_tournament_hub(100)
+        after = await after_day_start.get_superadmin_tournament_hub(100)
+
+        assert before.open_tournaments_count == 1
+        assert after.open_tournaments_count == 2
+    finally:
+        await engine.dispose()
+
+
 async def test_finished_latest_week_with_missing_sunday_allows_next_week(
     tmp_path: Path,
 ) -> None:

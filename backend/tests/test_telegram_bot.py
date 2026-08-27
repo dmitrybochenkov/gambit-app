@@ -42,6 +42,7 @@ from app.bot.telegram.handlers.superadmin import panel as superadmin_panel_handl
 from app.bot.telegram.handlers.superadmin import registrations as superadmin_registration_handlers
 from app.bot.telegram.handlers.superadmin import seasons as superadmin_season_handlers
 from app.bot.telegram.handlers.superadmin import tournament_close as superadmin_close_handlers
+from app.bot.telegram.handlers.superadmin import tournaments as superadmin_tournament_handlers
 from app.bot.telegram.handlers.superadmin import users as superadmin_user_handlers
 from app.bot.telegram.handlers.user import hall_of_fame as user_hall_of_fame_handlers
 from app.bot.telegram.handlers.user import history as user_history_handlers
@@ -60,6 +61,7 @@ from app.bot.telegram.keyboards.superadmin import hall_of_fame as superadmin_hal
 from app.bot.telegram.keyboards.superadmin import registrations as superadmin_registrations_kb
 from app.bot.telegram.keyboards.superadmin import seasons as superadmin_seasons_kb
 from app.bot.telegram.keyboards.superadmin import tournament_close as superadmin_tournament_close_kb
+from app.bot.telegram.keyboards.superadmin import tournaments as superadmin_tournaments_kb
 from app.bot.telegram.keyboards.superadmin import users as superadmin_users_kb
 from app.bot.telegram.keyboards.user import profile as user_profile_kb
 from app.bot.telegram.keyboards.user import rating as user_rating_kb
@@ -145,6 +147,7 @@ from app.services.dto.statistics.history import (
 from app.services.dto.statistics.profile import PlayerPrizeTournamentView, PlayerProfileView
 from app.services.dto.statistics.rating import PointsRatingView, RatingResultView
 from app.services.dto.tournaments import (
+    SuperadminTournamentHubView,
     TournamentEconomyView,
     TournamentRulesView,
     TournamentScheduleDetailsView,
@@ -5924,14 +5927,180 @@ async def test_superadmin_panel_button_opens_superadmin_keyboard(
     reply_markup = message.answer.await_args.kwargs["reply_markup"]
     assert keyboard_rows(reply_markup) == [
         ["📝 Регистрации", "✏️ Переименовать пользователя"],
-        ["🔒 Закрыть турнир", "➕ Добавить администратора"],
-        ["🗓 Календарь", "🔧 Наполнить зал славы"],
+        ["🏆 Турниры", "➕ Добавить администратора"],
+        ["🍂 Сезоны", "🔧 Наполнить зал славы"],
         ["⬅️ Админка"],
     ]
     assert "📝 Регистрации" in keyboard_texts(reply_markup)
+    assert "🏆 Турниры" in keyboard_texts(reply_markup)
+    assert "🍂 Сезоны" in keyboard_texts(reply_markup)
+    assert "🗓 Календарь" not in keyboard_texts(reply_markup)
+    assert "🔒 Закрыть турнир" not in keyboard_texts(reply_markup)
     assert "📝 Заявки на регистрацию" not in keyboard_texts(reply_markup)
     assert "🛠 Админка" not in keyboard_texts(reply_markup)
     assert "⬅️ Выход" not in keyboard_texts(reply_markup)
+
+
+async def test_superadmin_tournaments_button_opens_tournament_hub(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    planning_service = SimpleNamespace(
+        get_superadmin_tournament_hub=AsyncMock(
+            return_value=SuperadminTournamentHubView(open_tournaments_count=3)
+        )
+    )
+    monkeypatch.setattr(
+        superadmin_tournament_handlers,
+        "tournament_planning_service",
+        planning_service,
+    )
+    message = SimpleNamespace(
+        from_user=SimpleNamespace(id=100),
+        answer=AsyncMock(),
+    )
+
+    await superadmin_tournament_handlers.open_tournament_hub(message)
+
+    planning_service.get_superadmin_tournament_hub.assert_awaited_once_with(100)
+    assert message.answer.await_args.args[0] == "🏆 Турниры"
+    assert inline_keyboard_texts(message.answer.await_args.kwargs["reply_markup"]) == [
+        "➕ Создать",
+        "🔓 Открытые (3)",
+        "🔒 Закрытые",
+        "⬅️ Назад",
+    ]
+
+
+async def test_superadmin_tournament_hub_back_returns_root(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    admin = admin_player(1, 100, UserRole.SUPERADMIN)
+    panel_service = SimpleNamespace(
+        get_superadmin_panel_for_superadmin=AsyncMock(
+            return_value=AdminPanelView(admin=admin, reviews=[])
+        )
+    )
+    monkeypatch.setattr(superadmin_navigation, "user_access_service", panel_service)
+    state = MutableState()
+    message = SimpleNamespace(answer=AsyncMock())
+    callback = SimpleNamespace(
+        from_user=SimpleNamespace(id=100),
+        message=message,
+        answer=AsyncMock(),
+    )
+
+    await superadmin_tournament_handlers.select_tournament_hub_action(
+        callback,
+        superadmin_tournaments_kb.SuperadminTournamentHubCallback(
+            action=superadmin_tournaments_kb.SuperadminTournamentHubAction.BACK
+        ),
+        state,
+    )
+
+    callback.answer.assert_awaited_once_with()
+    panel_service.get_superadmin_panel_for_superadmin.assert_awaited_once_with(100)
+    assert message.answer.await_args.args[0] == "Суперадмин."
+    assert "🏆 Турниры" in keyboard_texts(message.answer.await_args.kwargs["reply_markup"])
+
+
+async def test_superadmin_tournament_hub_create_routes_to_existing_calendar_flow(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    planning_service = SimpleNamespace(
+        get_superadmin_tournament_hub=AsyncMock(
+            return_value=SuperadminTournamentHubView(open_tournaments_count=0)
+        ),
+        inspect_next_week=AsyncMock(
+            return_value=WeeklyPlanningCheckView(
+                status=WeeklyPlanningStatus.READY,
+                plan=tournament_plan_view(),
+            )
+        ),
+    )
+    monkeypatch.setattr(
+        superadmin_tournament_handlers,
+        "tournament_planning_service",
+        planning_service,
+    )
+    state = MutableState()
+    message = SimpleNamespace(answer=AsyncMock())
+    callback = SimpleNamespace(
+        from_user=SimpleNamespace(id=100),
+        message=message,
+        answer=AsyncMock(),
+    )
+
+    await superadmin_tournament_handlers.select_tournament_hub_action(
+        callback,
+        superadmin_tournaments_kb.SuperadminTournamentHubCallback(
+            action=superadmin_tournaments_kb.SuperadminTournamentHubAction.CREATE
+        ),
+        state,
+    )
+
+    planning_service.get_superadmin_tournament_hub.assert_awaited_once_with(100)
+    planning_service.inspect_next_week.assert_awaited_once_with(100)
+    assert message.answer.await_args_list[0].args[0] == (
+        "Суперадмин. На будущую неделю нужно создать турниры!"
+    )
+    assert message.answer.await_args_list[1].args[0].startswith("Будет создано расписание:")
+    assert inline_keyboard_texts(message.answer.await_args_list[1].kwargs["reply_markup"]) == [
+        "Изменить",
+        "Создать",
+        "Отмена",
+    ]
+
+
+@pytest.mark.parametrize(
+    ("action", "expected_text"),
+    [
+        (
+            superadmin_tournaments_kb.SuperadminTournamentHubAction.OPEN,
+            "Раздел открытых турниров будет доступен следующим этапом.",
+        ),
+        (
+            superadmin_tournaments_kb.SuperadminTournamentHubAction.CLOSED,
+            "Раздел закрытых турниров будет доступен следующим этапом.",
+        ),
+    ],
+)
+async def test_superadmin_tournament_hub_placeholders(
+    monkeypatch: pytest.MonkeyPatch,
+    action: superadmin_tournaments_kb.SuperadminTournamentHubAction,
+    expected_text: str,
+) -> None:
+    planning_service = SimpleNamespace(
+        get_superadmin_tournament_hub=AsyncMock(
+            return_value=SuperadminTournamentHubView(open_tournaments_count=2)
+        )
+    )
+    monkeypatch.setattr(
+        superadmin_tournament_handlers,
+        "tournament_planning_service",
+        planning_service,
+    )
+    state = MutableState()
+    message = SimpleNamespace(edit_text=AsyncMock())
+    callback = SimpleNamespace(
+        from_user=SimpleNamespace(id=100),
+        message=message,
+        answer=AsyncMock(),
+    )
+
+    await superadmin_tournament_handlers.select_tournament_hub_action(
+        callback,
+        superadmin_tournaments_kb.SuperadminTournamentHubCallback(action=action),
+        state,
+    )
+
+    planning_service.get_superadmin_tournament_hub.assert_awaited_once_with(100)
+    assert message.edit_text.await_args.args[0] == expected_text
+    assert inline_keyboard_texts(message.edit_text.await_args.kwargs["reply_markup"]) == [
+        "➕ Создать",
+        "🔓 Открытые (2)",
+        "🔒 Закрытые",
+        "⬅️ Назад",
+    ]
 
 
 async def test_superadmin_panel_back_returns_admin_keyboard(

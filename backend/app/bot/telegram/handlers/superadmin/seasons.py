@@ -1,7 +1,7 @@
 import logging
 from datetime import date
 
-from aiogram import Router
+from aiogram import F, Router
 from aiogram.fsm.context import FSMContext
 from aiogram.types import CallbackQuery, Message
 
@@ -10,6 +10,7 @@ from app.bot.telegram.handlers.admin.shared import (
     delete_callback_message as _delete_callback_message,
 )
 from app.bot.telegram.handlers.admin.shared import parse_admin_date
+from app.bot.telegram.keyboards import labels
 from app.bot.telegram.keyboards.superadmin import seasons as superadmin_seasons_kb
 from app.bot.telegram.message_edit import edit_message_if_changed
 from app.bot.telegram.states import CalendarSeasonCreationStates
@@ -45,6 +46,26 @@ def _season_management_keyboard(timeline: SeasonTimelineView) -> object:
         can_create=not timeline.has_future_season,
         can_delete_future=timeline.has_future_season,
         future_season_id=timeline.future_season.id if timeline.future_season is not None else None,
+    )
+
+
+@router.message(F.text == labels.SUPERADMIN_PANEL_SEASONS)
+async def open_season_management(message: Message) -> None:
+    if message.from_user is None:
+        return
+
+    try:
+        timeline = await season_service.get_season_timeline(message.from_user.id)
+    except AdminAccessDeniedError:
+        await message.answer(panel_text.INSUFFICIENT_RIGHTS)
+        return
+    except (SeasonScoringConfigAmbiguousError, SeasonScoringConfigNotFoundError):
+        await message.answer(text.ADMIN_CALENDAR_SCORING_CONFIG_NOT_FOUND)
+        return
+
+    await message.answer(
+        season_fmt.management(timeline),
+        reply_markup=_season_management_keyboard(timeline),
     )
 
 

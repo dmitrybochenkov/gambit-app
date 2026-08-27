@@ -5,6 +5,7 @@ from app.bot.telegram.keyboards.superadmin import (
     registrations,
     seasons,
     tournament_close,
+    tournaments,
     users,
 )
 
@@ -15,5 +16,6 @@ __all__ = [
     "registrations",
     "seasons",
     "tournament_close",
+    "tournaments",
     "users",
 ]

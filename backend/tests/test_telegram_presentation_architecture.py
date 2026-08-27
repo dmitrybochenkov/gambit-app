@@ -32,6 +32,7 @@ def test_role_keyboard_inits_export_modules_only() -> None:
         "registrations",
         "seasons",
         "tournament_close",
+        "tournaments",
         "users",
     ]
 
@@ -160,6 +161,7 @@ def test_inline_navigation_uses_idempotent_edit_helpers() -> None:
         "handlers/admin/results.py": "edit_message_if_changed",
         "handlers/superadmin/registrations.py": "edit_message_if_changed",
         "handlers/superadmin/seasons.py": "edit_message_if_changed",
+        "handlers/superadmin/tournaments.py": "edit_message_if_changed",
         "handlers/superadmin/tournament_close.py": "edit_message_if_changed",
         "handlers/user/rating.py": "edit_message_if_changed",
         "handlers/user/shared.py": "edit_message_if_changed",

@@ -108,6 +108,17 @@ class TournamentRepository:
         )
         return list(result.scalars())
 
+    async def count_active_on_or_before(self, tournament_date: date) -> int:
+        result = await self.session.execute(
+            select(func.count())
+            .select_from(Tournament)
+            .where(
+                Tournament.status == TournamentStatus.ACTIVE,
+                Tournament.date <= tournament_date,
+            )
+        )
+        return int(result.scalar_one())
+
     async def list_closed(
         self,
         *,
