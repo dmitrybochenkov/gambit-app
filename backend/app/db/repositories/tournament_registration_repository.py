@@ -78,6 +78,25 @@ class TournamentRegistrationRepository:
         )
         return list(result.scalars())
 
+    async def count_by_tournament_ids(self, tournament_ids: tuple[int, ...]) -> dict[int, int]:
+        if not tournament_ids:
+            return {}
+        result = await self.session.execute(
+            select(TournamentRegistration.tournament_id, func.count(TournamentRegistration.id))
+            .where(TournamentRegistration.tournament_id.in_(tournament_ids))
+            .group_by(TournamentRegistration.tournament_id)
+        )
+        return {int(tournament_id): int(count) for tournament_id, count in result.all()}
+
+    async def delete_by_tournament(self, tournament_id: int) -> None:
+        registrations = await self.session.execute(
+            select(TournamentRegistration).where(
+                TournamentRegistration.tournament_id == tournament_id
+            )
+        )
+        for registration in registrations.scalars():
+            await self.delete(registration)
+
     async def list_active_unchecked_registered_users(
         self,
         tournament_id: int,
@@ -139,6 +158,7 @@ class TournamentRegistrationRepository:
             .where(
                 TournamentRegistration.player_id == player_id,
                 Tournament.status == TournamentStatus.ACTIVE,
+                Tournament.registration_open.is_(True),
                 Tournament.date >= from_date,
                 ~select(TournamentResult.id)
                 .where(
@@ -166,6 +186,7 @@ class TournamentRegistrationRepository:
             .join(TournamentRegistration, TournamentRegistration.tournament_id == Tournament.id)
             .where(
                 Tournament.status == TournamentStatus.ACTIVE,
+                Tournament.registration_open.is_(True),
                 Tournament.date >= from_date,
             )
             .group_by(Tournament.id, Tournament.date, TournamentType.name)
@@ -192,6 +213,7 @@ class TournamentRegistrationRepository:
             .where(
                 Tournament.id == tournament_id,
                 Tournament.status == TournamentStatus.ACTIVE,
+                Tournament.registration_open.is_(True),
                 Tournament.date >= from_date,
             )
         )

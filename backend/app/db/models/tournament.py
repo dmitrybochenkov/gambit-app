@@ -4,6 +4,7 @@ from datetime import date
 from typing import TYPE_CHECKING
 
 from sqlalchemy import (
+    Boolean,
     CheckConstraint,
     Date,
     ForeignKey,
@@ -36,6 +37,13 @@ class Tournament(TimestampMixin, Base):
     )
     date: Mapped[date] = mapped_column(Date, nullable=False, index=True)
     tournament_fund: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    registration_open: Mapped[bool] = mapped_column(
+        Boolean,
+        default=True,
+        server_default="1",
+        nullable=False,
+        index=True,
+    )
     status: Mapped[TournamentStatus] = mapped_column(
         database_enum(TournamentStatus, "tournament_status", length=9),
         default=TournamentStatus.ACTIVE,

@@ -7,18 +7,28 @@ from conftest import (
     seed_tournament_configs_async,
     seed_tournament_types_async,
     seed_weekly_templates_async,
+    tournament_type_id,
 )
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncEngine, async_sessionmaker, create_async_engine
 
 from app.common.clock import FixedClock
 from app.db.base import Base
-from app.db.models import ScoringConfig, Season, Tournament, WeeklyTournamentTemplate
+from app.db.models import (
+    ScoringConfig,
+    Season,
+    Tournament,
+    TournamentRegistration,
+    User,
+    WeeklyTournamentTemplate,
+)
 from app.db.models.enums import TournamentStatus, UserRole, UserStatus
 from app.services.access_policy import AdminAccessDeniedError
+from app.services.season_service import SeasonService
 from app.services.tournament_planning_service import (
     CalendarPlanStaleError,
     CalendarTournamentDateAlreadyExistsError,
+    CalendarTournamentNotEditableError,
     CalendarWeeklyPlanIntegrityError,
     TournamentPlanningService,
     WeeklyPlanningStatus,
@@ -26,6 +36,7 @@ from app.services.tournament_planning_service import (
     next_complete_game_week,
 )
 from app.services.tournament_schedule_service import TournamentScheduleService
+from app.services.tournament_service import TournamentService
 
 
 async def create_planning_service(
@@ -565,6 +576,303 @@ async def test_create_weekly_schedule_persists_five_tournaments_atomically(
             date(2026, 8, 16),
         ]
         assert {item.status for item in tournaments} == {TournamentStatus.ACTIVE}
+        assert {item.registration_open for item in tournaments} == {False}
+    finally:
+        await engine.dispose()
+
+
+async def test_calendar_autofill_creates_unapproved_week_and_approval_opens_registration(
+    tmp_path: Path,
+) -> None:
+    service, session_factory, engine = await create_planning_service(tmp_path / "approval.db")
+    try:
+        await seed_calendar_data(session_factory)
+        async with session_factory() as session:
+            session.add(
+                build_player(
+                    telegram_id=200,
+                    display_name="Player",
+                    status=UserStatus.ACTIVE,
+                    role=UserRole.PLAYER,
+                )
+            )
+            await session.commit()
+
+        preview = await service.create_calendar_autofill_week(
+            100,
+            year=2026,
+            month=8,
+            row_number=3,
+        )
+
+        assert [item.tournament_date for item in preview.tournaments] == [
+            date(2026, 8, 12),
+            date(2026, 8, 13),
+            date(2026, 8, 14),
+            date(2026, 8, 15),
+            date(2026, 8, 16),
+        ]
+        assert (
+            await TournamentService(session_factory).get_registration_options_for_player(
+                200,
+                from_date=date(2026, 8, 12),
+            )
+            == []
+        )
+
+        approved = await service.approve_calendar_week(
+            100,
+            year=2026,
+            month=8,
+            row_number=3,
+        )
+
+        assert [item.date for item in approved.tournaments] == [
+            date(2026, 8, 12),
+            date(2026, 8, 13),
+            date(2026, 8, 14),
+            date(2026, 8, 15),
+            date(2026, 8, 16),
+        ]
+        options = await TournamentService(session_factory).get_registration_options_for_player(
+            200,
+            from_date=date(2026, 8, 12),
+        )
+        assert [item.date for item in options] == [
+            date(2026, 8, 12),
+            date(2026, 8, 13),
+            date(2026, 8, 14),
+            date(2026, 8, 15),
+            date(2026, 8, 16),
+        ]
+    finally:
+        await engine.dispose()
+
+
+async def test_repeated_calendar_create_callback_does_not_duplicate_tournament(
+    tmp_path: Path,
+) -> None:
+    service, session_factory, engine = await create_planning_service(tmp_path / "stale-date.db")
+    try:
+        await seed_calendar_data(session_factory)
+
+        await service.create_calendar_tournament(
+            100,
+            tournament_date=date(2026, 8, 12),
+            tournament_type_id=tournament_type_id("classic"),
+        )
+        with pytest.raises(CalendarTournamentDateAlreadyExistsError):
+            await service.create_calendar_tournament(
+                100,
+                tournament_date=date(2026, 8, 12),
+                tournament_type_id=tournament_type_id("freezeout"),
+            )
+
+        async with session_factory() as session:
+            tournaments = list((await session.execute(select(Tournament))).scalars())
+        assert len(tournaments) == 1
+        assert tournaments[0].date == date(2026, 8, 12)
+        assert tournaments[0].tournament_type_id == tournament_type_id("classic")
+    finally:
+        await engine.dispose()
+
+
+async def test_calendar_autofill_rejects_partial_month_boundary_week(
+    tmp_path: Path,
+) -> None:
+    service, session_factory, engine = await create_planning_service(tmp_path / "boundary.db")
+    try:
+        await seed_calendar_data(session_factory)
+
+        with pytest.raises(CalendarWeeklyPlanIntegrityError):
+            await service.get_calendar_autofill_preview(
+                100,
+                year=2026,
+                month=8,
+                row_number=1,
+            )
+    finally:
+        await engine.dispose()
+
+
+async def test_week_approval_only_opens_unapproved_tournaments_and_can_be_repeated(
+    tmp_path: Path,
+) -> None:
+    service, session_factory, engine = await create_planning_service(tmp_path / "late-add.db")
+    try:
+        await seed_calendar_data(session_factory)
+        await service.create_calendar_tournament(
+            100,
+            tournament_date=date(2026, 8, 12),
+            tournament_type_id=tournament_type_id("bounty"),
+        )
+        await service.approve_calendar_week(100, year=2026, month=8, row_number=3)
+
+        await service.create_calendar_tournament(
+            100,
+            tournament_date=date(2026, 8, 13),
+            tournament_type_id=tournament_type_id("classic"),
+        )
+        async with session_factory() as session:
+            before = list(
+                (await session.execute(select(Tournament).order_by(Tournament.date))).scalars()
+            )
+        assert [(item.date, item.registration_open) for item in before] == [
+            (date(2026, 8, 12), True),
+            (date(2026, 8, 13), False),
+        ]
+
+        approved = await service.approve_calendar_week(100, year=2026, month=8, row_number=3)
+
+        assert [item.date for item in approved.tournaments] == [date(2026, 8, 13)]
+        async with session_factory() as session:
+            after = list(
+                (await session.execute(select(Tournament).order_by(Tournament.date))).scalars()
+            )
+        assert [(item.date, item.registration_open) for item in after] == [
+            (date(2026, 8, 12), True),
+            (date(2026, 8, 13), True),
+        ]
+    finally:
+        await engine.dispose()
+
+
+async def test_calendar_type_change_preserves_date_and_registration_open(
+    tmp_path: Path,
+) -> None:
+    service, session_factory, engine = await create_planning_service(tmp_path / "type-change.db")
+    try:
+        await seed_calendar_data(session_factory)
+        tournament = await service.create_calendar_tournament(
+            100,
+            tournament_date=date(2026, 8, 12),
+            tournament_type_id=tournament_type_id("bounty"),
+        )
+
+        changed = await service.change_calendar_tournament_type(
+            100,
+            tournament_id=tournament.id,
+            new_tournament_type_id=tournament_type_id("freezeout"),
+        )
+
+        assert changed.date == date(2026, 8, 12)
+        assert changed.tournament_type_id == tournament_type_id("freezeout")
+        assert changed.registration_open is False
+    finally:
+        await engine.dispose()
+
+
+async def test_calendar_delete_rejects_current_and_closed_tournaments_service_side(
+    tmp_path: Path,
+) -> None:
+    service, session_factory, engine = await create_planning_service(tmp_path / "delete.db")
+    try:
+        await seed_calendar_data(session_factory)
+        async with session_factory() as session:
+            current = Tournament(
+                season_id=1,
+                tournament_type_id=tournament_type_id("classic"),
+                date=date(2026, 8, 8),
+                status=TournamentStatus.ACTIVE,
+            )
+            closed = Tournament(
+                season_id=1,
+                tournament_type_id=tournament_type_id("classic"),
+                date=date(2026, 8, 12),
+                tournament_fund=10,
+                status=TournamentStatus.CLOSED,
+            )
+            session.add_all([current, closed])
+            await session.commit()
+            current_id = current.id
+            closed_id = closed.id
+
+        with pytest.raises(CalendarTournamentNotEditableError):
+            await service.delete_calendar_tournament(100, tournament_id=current_id)
+        with pytest.raises(CalendarTournamentNotEditableError):
+            await service.delete_calendar_tournament(100, tournament_id=closed_id)
+    finally:
+        await engine.dispose()
+
+
+async def test_calendar_delete_removes_registrations_but_keeps_users(
+    tmp_path: Path,
+) -> None:
+    service, session_factory, engine = await create_planning_service(tmp_path / "delete-reg.db")
+    try:
+        await seed_calendar_data(session_factory)
+        tournament = await service.create_calendar_tournament(
+            100,
+            tournament_date=date(2026, 8, 12),
+            tournament_type_id=tournament_type_id("classic"),
+        )
+        async with session_factory() as session:
+            player = build_player(
+                telegram_id=200,
+                display_name="Player",
+                status=UserStatus.ACTIVE,
+                role=UserRole.PLAYER,
+            )
+            session.add(player)
+            await session.flush()
+            session.add(
+                TournamentRegistration(
+                    tournament_id=tournament.id,
+                    player_id=player.id,
+                )
+            )
+            await session.commit()
+            player_id = player.id
+
+        deleted, notifications = await service.delete_calendar_tournament(
+            100,
+            tournament_id=tournament.id,
+        )
+
+        assert deleted.id == tournament.id
+        assert [item.telegram_id for item in notifications] == [200]
+        async with session_factory() as session:
+            assert await session.get(Tournament, tournament.id) is None
+            assert await session.get(User, player_id) is not None
+            registrations = list((await session.execute(select(TournamentRegistration))).scalars())
+        assert registrations == []
+    finally:
+        await engine.dispose()
+
+
+async def test_calendar_tournament_uses_season_for_its_own_date_after_boundary_change(
+    tmp_path: Path,
+) -> None:
+    service, session_factory, engine = await create_planning_service(tmp_path / "season.db")
+    try:
+        await seed_calendar_data(session_factory)
+        await SeasonService(
+            session_factory,
+            clock=FixedClock(datetime(2026, 8, 9)),
+        ).create_next_season(
+            100,
+            name="Осень 2026",
+            starts_at=date(2026, 9, 1),
+        )
+
+        august = await service.create_calendar_tournament(
+            100,
+            tournament_date=date(2026, 8, 26),
+            tournament_type_id=tournament_type_id("classic"),
+        )
+        september = await service.create_calendar_tournament(
+            100,
+            tournament_date=date(2026, 9, 2),
+            tournament_type_id=tournament_type_id("classic"),
+        )
+
+        async with session_factory() as session:
+            august_tournament = await session.get(Tournament, august.id)
+            september_tournament = await session.get(Tournament, september.id)
+        assert august_tournament is not None
+        assert september_tournament is not None
+        assert august_tournament.season_id == 1
+        assert september_tournament.season_id != august_tournament.season_id
     finally:
         await engine.dispose()
 

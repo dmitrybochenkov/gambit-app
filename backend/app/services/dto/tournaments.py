@@ -13,6 +13,7 @@ class TournamentView:
     tournament_type_id: int
     tournament_type_name: str | None
     tournament_type_code: str | None = None
+    registration_open: bool = True
 
 
 @dataclass(frozen=True)
@@ -54,3 +55,83 @@ class SuperadminOpenTournamentListItemView:
 
 
 SuperadminOpenTournamentPageView = Page[SuperadminOpenTournamentListItemView]
+
+
+@dataclass(frozen=True)
+class TournamentCalendarDayView:
+    date: date
+    in_month: bool
+    tournament: TournamentView | None
+    registrations_count: int = 0
+    editable_future: bool = False
+
+
+@dataclass(frozen=True)
+class TournamentCalendarWeekView:
+    row_number: int
+    days: tuple[TournamentCalendarDayView, ...]
+
+
+@dataclass(frozen=True)
+class TournamentCalendarMonthView:
+    year: int
+    month: int
+    weeks: tuple[TournamentCalendarWeekView, ...]
+
+
+@dataclass(frozen=True)
+class TournamentCalendarWeekDetailView:
+    year: int
+    month: int
+    row_number: int
+    week_start: date
+    week_end: date
+    days: tuple[TournamentCalendarDayView, ...]
+    has_tournaments: bool
+    has_unapproved_tournaments: bool
+    is_empty: bool
+
+
+@dataclass(frozen=True)
+class TournamentCalendarTypeOptionView:
+    id: int
+    code: str
+    name: str
+
+
+@dataclass(frozen=True)
+class TournamentCalendarCreatePreviewView:
+    tournament_date: date
+    tournament_type: TournamentCalendarTypeOptionView
+
+
+@dataclass(frozen=True)
+class TournamentCalendarAutofillPreviewView:
+    week_start: date
+    week_end: date
+    tournaments: tuple[TournamentCalendarCreatePreviewView, ...]
+
+
+@dataclass(frozen=True)
+class TournamentCalendarApprovalPreviewView:
+    week_start: date
+    week_end: date
+    tournaments: tuple[TournamentView, ...]
+
+
+@dataclass(frozen=True)
+class TournamentCalendarTypeChangePreviewView:
+    tournament: TournamentView
+    new_type: TournamentCalendarTypeOptionView
+
+
+@dataclass(frozen=True)
+class TournamentCalendarDeletePreviewView:
+    tournament: TournamentView
+    registrations_count: int
+
+
+@dataclass(frozen=True)
+class TournamentCancellationNotificationView:
+    telegram_id: int
+    tournament: TournamentView

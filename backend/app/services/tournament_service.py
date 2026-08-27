@@ -57,7 +57,8 @@ class TournamentService:
     ) -> list[TournamentView]:
         async with self.session_factory() as session:
             tournaments = await TournamentRepository(session).list_upcoming_active(
-                from_date=from_date or self.clock.today()
+                from_date=from_date or self.clock.today(),
+                registration_open_only=True,
             )
             return [tournament_view(tournament) for tournament in tournaments]
 
@@ -72,7 +73,8 @@ class TournamentService:
             except ActiveUserRequiredError as exc:
                 raise TournamentScheduleNotAllowedError from exc
             tournaments = await TournamentRepository(session).list_upcoming_active(
-                from_date=from_date or self.clock.today()
+                from_date=from_date or self.clock.today(),
+                registration_open_only=True,
             )
             return [tournament_view(tournament) for tournament in tournaments]
 
@@ -94,6 +96,7 @@ class TournamentService:
                 tournament is None
                 or tournament.status != TournamentStatus.ACTIVE
                 or tournament.date < today
+                or not tournament.registration_open
             ):
                 raise TournamentUnavailableError
 
@@ -110,7 +113,8 @@ class TournamentService:
             except ActiveUserRequiredError as exc:
                 raise TournamentRegistrationNotAllowedError from exc
             tournaments = await TournamentRepository(session).list_upcoming_active(
-                from_date=from_date or self.clock.today()
+                from_date=from_date or self.clock.today(),
+                registration_open_only=True,
             )
             return [tournament_view(tournament) for tournament in tournaments]
 
@@ -157,6 +161,7 @@ class TournamentService:
                     tournament is None
                     or tournament.status != TournamentStatus.ACTIVE
                     or tournament.date < today
+                    or not tournament.registration_open
                 ):
                     raise TournamentUnavailableError
 
@@ -236,6 +241,7 @@ def tournament_view(tournament: Tournament) -> TournamentView:
         tournament_type_id=tournament.tournament_type_id,
         tournament_type_name=tournament.tournament_type.name,
         tournament_type_code=tournament.tournament_type.code,
+        registration_open=tournament.registration_open,
     )
 
 

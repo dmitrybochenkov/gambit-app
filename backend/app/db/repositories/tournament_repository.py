@@ -2,13 +2,17 @@ from dataclasses import dataclass
 from datetime import date
 from decimal import Decimal
 
-from sqlalchemy import and_, func, select
+from sqlalchemy import and_, exists, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from app.db.models import (
+    PlayerReward,
     Tournament,
+    TournamentCombination,
     TournamentEconomyConfig,
+    TournamentPhoto,
+    TournamentPublication,
     TournamentResult,
     TournamentType,
     TournamentTypeRule,
@@ -71,8 +75,10 @@ class TournamentRepository:
         self,
         from_date: date,
         limit: int = 20,
+        *,
+        registration_open_only: bool = False,
     ) -> list[Tournament]:
-        result = await self.session.execute(
+        statement = (
             select(Tournament)
             .options(selectinload(Tournament.tournament_type))
             .where(
@@ -82,6 +88,9 @@ class TournamentRepository:
             .order_by(Tournament.date, Tournament.tournament_type_id)
             .limit(limit)
         )
+        if registration_open_only:
+            statement = statement.where(Tournament.registration_open.is_(True))
+        result = await self.session.execute(statement)
         return list(result.scalars())
 
     async def list_active_on_date(self, tournament_date: date) -> list[Tournament]:
@@ -190,10 +199,42 @@ class TournamentRepository:
         )
         return result.scalar_one_or_none() is not None
 
+    async def list_between_dates(
+        self,
+        start_date: date,
+        end_date: date,
+    ) -> list[Tournament]:
+        result = await self.session.execute(
+            select(Tournament)
+            .options(selectinload(Tournament.tournament_type))
+            .where(
+                Tournament.date >= start_date,
+                Tournament.date <= end_date,
+            )
+            .order_by(Tournament.date, Tournament.id)
+        )
+        return list(result.scalars())
+
     async def add(self, tournament: Tournament) -> Tournament:
         self.session.add(tournament)
         await self.session.flush()
         return tournament
+
+    async def delete(self, tournament: Tournament) -> None:
+        await self.session.delete(tournament)
+
+    async def has_fact_data(self, tournament_id: int) -> bool:
+        checks = [
+            select(exists().where(TournamentResult.tournament_id == tournament_id)),
+            select(exists().where(TournamentPhoto.tournament_id == tournament_id)),
+            select(exists().where(TournamentCombination.tournament_id == tournament_id)),
+            select(exists().where(PlayerReward.source_tournament_id == tournament_id)),
+            select(exists().where(TournamentPublication.tournament_id == tournament_id)),
+        ]
+        for statement in checks:
+            if bool(await self.session.scalar(statement)):
+                return True
+        return False
 
     async def list_weekly_schedule_records(
         self,

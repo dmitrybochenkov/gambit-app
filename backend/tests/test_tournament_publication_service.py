@@ -23,6 +23,8 @@ from app.db.models import (
 )
 from app.db.models.enums import (
     KnockoutMode,
+    TournamentPublicationDestination,
+    TournamentPublicationType,
     TournamentResultSource,
     TournamentStatus,
     UserRole,
@@ -98,6 +100,70 @@ async def test_schedule_publication_uses_detail_dto_and_hash_changes_with_econom
     assert second.tournaments[0].economy is not None
     assert second.tournaments[0].economy.entry_stack == 25_000
     assert second.content_hash != first.content_hash
+    await engine.dispose()
+
+
+async def test_schedule_publication_does_not_modify_registration_open(
+    tmp_path: Path,
+) -> None:
+    engine = create_async_engine(f"sqlite+aiosqlite:///{tmp_path / 'publication-open.db'}")
+    async with engine.begin() as connection:
+        await connection.run_sync(Base.metadata.create_all)
+
+    session_factory = async_sessionmaker(engine, expire_on_commit=False)
+    async with session_factory() as session:
+        config = ScoringConfig()
+        session.add(config)
+        await session.flush()
+        await seed_tournament_types_async(session)
+        await seed_tournament_configs_async(session)
+        season = Season(
+            name="Test season",
+            scoring_config_id=config.id,
+            starts_at=date(2026, 8, 1),
+            ends_at=None,
+        )
+        superadmin = build_player(
+            telegram_id=100,
+            display_name="Superadmin",
+            status=UserStatus.ACTIVE,
+            role=UserRole.SUPERADMIN,
+        )
+        session.add_all([season, superadmin])
+        await session.flush()
+        tournament = Tournament(
+            season_id=season.id,
+            tournament_type_id=tournament_type_id("classic"),
+            date=date(2026, 8, 26),
+            status=TournamentStatus.ACTIVE,
+            registration_open=False,
+        )
+        session.add(tournament)
+        await session.commit()
+        tournament_id = tournament.id
+
+    service = TournamentPublicationService(
+        session_factory,
+        clock=FixedClock(datetime(2026, 8, 22, 12, tzinfo=ZoneInfo("Europe/Moscow"))),
+        club_chat_id=-100,
+    )
+    preview = await service.get_schedule_publication_preview(100)
+
+    assert len(preview.tournaments) == 1
+    await service.record_publication_success(
+        100,
+        tournament_id=None,
+        publication_type=TournamentPublicationType.SCHEDULE,
+        destination_type=TournamentPublicationDestination.GROUP,
+        destination_chat_id=-100,
+        content_hash=preview.content_hash,
+        telegram_message_id=123,
+    )
+
+    async with session_factory() as session:
+        stored = await session.get(Tournament, tournament_id)
+    assert stored is not None
+    assert stored.registration_open is False
     await engine.dispose()
 
 

@@ -7,6 +7,17 @@ from app.domain.prize_multiplier_places import (
     parse_prize_multiplier_places,
 )
 
+CALENDAR_TYPE_ABBREVIATIONS = {
+    "bounty": "B",
+    "classic": "C",
+    "freezeout": "F",
+    "double_double": "DD",
+    "mystery_bounty": "MB",
+    "boss_bounty": "BB",
+    "legacy_unknown": "?",
+}
+_MONTH_CELL_WIDTH = 4
+
 
 def label(tournament: object) -> str:
     weekday = common_texts.WEEKDAYS[tournament.date.weekday()]
@@ -108,6 +119,138 @@ def superadmin_open_delete_confirmation(preview: object) -> str:
     return "\n".join(lines)
 
 
+def superadmin_calendar_month(view: object) -> str:
+    month_name = common_texts.MONTHS[view.month].upper()
+    title = f"{month_name} {view.year}".center(43)
+    lines = [
+        "📅 Календарь",
+        "",
+        "```",
+        title.rstrip(),
+        "",
+        "     Пн   Вт   Ср   Чт   Пт   Сб   Вс",
+    ]
+    for week in view.weeks:
+        date_cells = [
+            f"{day.date.day:02d}".center(_MONTH_CELL_WIDTH) if day.in_month else " " * 4
+            for day in week.days
+        ]
+        type_cells = [
+            _calendar_day_code(day).center(_MONTH_CELL_WIDTH) if day.in_month else " " * 4
+            for day in week.days
+        ]
+        lines.append(f"{week.row_number:<2} " + " ".join(date_cells).rstrip())
+        if any(cell.strip() for cell in type_cells):
+            lines.append("   " + " ".join(type_cells).rstrip())
+        lines.append("")
+    if lines[-1] == "":
+        lines.pop()
+    lines.extend(
+        [
+            "```",
+            "",
+            "B — Bounty",
+            "C — Classic",
+            "F — Freezeout",
+            "DD — Double Double",
+            "MB — Mystery Bounty",
+            "BB — Boss Bounty",
+            "? — тип не определён",
+        ]
+    )
+    return "\n".join(lines)
+
+
+def superadmin_calendar_week(view: object) -> str:
+    lines = [
+        f"📅 {view.week_start.day}–{view.week_end.day} {common_texts.MONTHS[view.week_end.month]}",
+        "",
+        "Выбери дату:",
+    ]
+    if view.is_empty:
+        lines.extend(["", superadmin_tournament_texts.CALENDAR_EMPTY_WEEK_HINT])
+    return "\n".join(lines)
+
+
+def superadmin_calendar_create_preview(view: object) -> str:
+    return "\n".join(
+        [
+            "➕ Создать турнир?",
+            "",
+            f"{_date_with_weekday(view.tournament_date)}",
+            view.tournament_type.name,
+            "",
+            "Регистрация будет закрыта до утверждения расписания.",
+        ]
+    )
+
+
+def superadmin_calendar_autofill_preview(view: object) -> str:
+    lines = [
+        f"✨ Расписание на {view.week_start.day}–{view.week_end.day} "
+        f"{common_texts.MONTHS[view.week_end.month]}",
+        "",
+    ]
+    lines.extend(
+        f"{_date_with_weekday(item.tournament_date)} — {item.tournament_type.name}"
+        for item in view.tournaments
+    )
+    lines.extend(["", "Создать эти турниры?"])
+    return "\n".join(lines)
+
+
+def superadmin_calendar_approval_preview(view: object) -> str:
+    lines = [
+        "✅ Утвердить неделю?",
+        "",
+        "Регистрация откроется для турниров:",
+        "",
+    ]
+    lines.extend(label(tournament) for tournament in view.tournaments)
+    return "\n".join(lines)
+
+
+def superadmin_calendar_tournament_card(day: object) -> str:
+    tournament = day.tournament
+    if tournament is None:
+        return "Турнир не найден."
+    return "\n".join(
+        [
+            f"{_date_with_weekday(tournament.date)}",
+            type_name(tournament),
+            "",
+            f"Зарегистрировано: {day.registrations_count}",
+            f"Регистрация: {'открыта' if tournament.registration_open else 'закрыта'}",
+        ]
+    )
+
+
+def superadmin_calendar_type_change_preview(view: object) -> str:
+    return "\n".join(
+        [
+            "Изменить тип турнира?",
+            "",
+            f"{view.tournament.date.day:02d}.{view.tournament.date.month:02d}",
+            f"{type_name(view.tournament)} → {view.new_type.name}",
+        ]
+    )
+
+
+def superadmin_calendar_delete_preview(view: object) -> str:
+    return "\n".join(
+        [
+            "🗑 Удалить турнир?",
+            "",
+            label(view.tournament),
+            "",
+            f"Зарегистрировано: {view.registrations_count}",
+            "",
+            "Турнир и регистрации на него будут удалены.",
+            "Зарегистрированные игроки получат уведомление об отмене.",
+        ]
+    )
+
+
 def type_name(tournament: object) -> str:
     if tournament.tournament_type_name is not None:
         return tournament.tournament_type_name
@@ -116,6 +259,17 @@ def type_name(tournament: object) -> str:
 
 def short_label(tournament: object) -> str:
     return f"{tournament.date.day:02d}.{tournament.date.month:02d} — {type_name(tournament)}"
+
+
+def _calendar_day_code(day: object) -> str:
+    if day.tournament is None:
+        return ""
+    return CALENDAR_TYPE_ABBREVIATIONS.get(day.tournament.tournament_type_code, "?")
+
+
+def _date_with_weekday(value: object) -> str:
+    weekday = common_texts.WEEKDAYS[value.weekday()].lower()
+    return f"{value.day:02d}.{value.month:02d}.{value.year}, {weekday}"
 
 
 def _readiness_reasons(readiness: object) -> list[str]:

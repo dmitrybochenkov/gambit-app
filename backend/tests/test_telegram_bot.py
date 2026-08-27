@@ -150,6 +150,9 @@ from app.services.dto.statistics.rating import PointsRatingView, RatingResultVie
 from app.services.dto.tournaments import (
     SuperadminOpenTournamentListItemView,
     SuperadminTournamentHubView,
+    TournamentCalendarDayView,
+    TournamentCalendarMonthView,
+    TournamentCalendarWeekView,
     TournamentEconomyView,
     TournamentRulesView,
     TournamentScheduleDetailsView,
@@ -459,6 +462,123 @@ def weekly_fact_view(
             for tournament_date, tournament_name in zip(dates, tournament_names, strict=True)
         ],
     )
+
+
+def tournament_calendar_month_view() -> TournamentCalendarMonthView:
+    return TournamentCalendarMonthView(
+        year=2026,
+        month=8,
+        weeks=(
+            TournamentCalendarWeekView(
+                row_number=1,
+                days=(
+                    TournamentCalendarDayView(
+                        date=date(2026, 8, 1),
+                        in_month=True,
+                        tournament=None,
+                    ),
+                    TournamentCalendarDayView(
+                        date=date(2026, 8, 2),
+                        in_month=True,
+                        tournament=None,
+                    ),
+                ),
+            ),
+            TournamentCalendarWeekView(
+                row_number=2,
+                days=(
+                    TournamentCalendarDayView(
+                        date=date(2026, 8, 3),
+                        in_month=True,
+                        tournament=None,
+                    ),
+                ),
+            ),
+        ),
+    )
+
+
+def test_superadmin_calendar_month_uses_codes_without_registration_counts() -> None:
+    view = TournamentCalendarMonthView(
+        year=2026,
+        month=8,
+        weeks=(
+            TournamentCalendarWeekView(
+                row_number=1,
+                days=(
+                    TournamentCalendarDayView(
+                        date=date(2026, 8, 1),
+                        in_month=True,
+                        tournament=TournamentView(
+                            id=1,
+                            date=date(2026, 8, 1),
+                            tournament_type_id=1,
+                            tournament_type_name="Баунти турнир",
+                            tournament_type_code="bounty",
+                        ),
+                        registrations_count=12,
+                    ),
+                    TournamentCalendarDayView(
+                        date=date(2026, 8, 2),
+                        in_month=True,
+                        tournament=TournamentView(
+                            id=2,
+                            date=date(2026, 8, 2),
+                            tournament_type_id=7,
+                            tournament_type_name="Неопределенный турнир",
+                            tournament_type_code="legacy_unknown",
+                        ),
+                        registrations_count=7,
+                    ),
+                ),
+            ),
+        ),
+    )
+
+    rendered = tournament_fmt.superadmin_calendar_month(view)
+
+    assert "B" in rendered
+    assert "?" in rendered
+    assert "12" not in rendered
+    assert "7)" not in rendered
+    assert "B — Bounty" in rendered
+    assert "C — Classic" in rendered
+    assert "F — Freezeout" in rendered
+    assert "DD — Double Double" in rendered
+    assert "MB — Mystery Bounty" in rendered
+    assert "BB — Boss Bounty" in rendered
+
+
+def test_superadmin_calendar_week_buttons_show_full_name_and_registration_count() -> None:
+    view = SimpleNamespace(
+        year=2026,
+        month=8,
+        row_number=3,
+        days=[
+            TournamentCalendarDayView(
+                date=date(2026, 8, 12),
+                in_month=True,
+                tournament=TournamentView(
+                    id=1,
+                    date=date(2026, 8, 12),
+                    tournament_type_id=2,
+                    tournament_type_name="Классика",
+                    tournament_type_code="classic",
+                ),
+                registrations_count=4,
+            )
+        ],
+        is_empty=False,
+        has_unapproved_tournaments=False,
+        has_tournaments=True,
+    )
+
+    assert inline_keyboard_texts(superadmin_tournaments_kb.calendar_week_keyboard(view)) == [
+        "12 Ср — Классика (4)",
+        "📣 Опубликовать расписание",
+        "⬅️ Назад",
+        "❌ Отмена",
+    ]
 
 
 def test_parse_result_manual_value() -> None:
@@ -5740,8 +5860,8 @@ async def test_superadmin_tournaments_button_opens_tournament_hub(
     planning_service.get_superadmin_tournament_hub.assert_awaited_once_with(100)
     assert message.answer.await_args.args[0] == "🏆 Турниры"
     assert inline_keyboard_texts(message.answer.await_args.kwargs["reply_markup"]) == [
-        "➕ Создать",
-        "🔓 Открытые (3)",
+        "📅 Календарь",
+        "🔑 Открытые (3)",
         "🔒 Закрытые",
         "⬅️ Назад",
     ]
@@ -5779,19 +5899,14 @@ async def test_superadmin_tournament_hub_back_returns_root(
     assert "🏆 Турниры" in keyboard_texts(message.answer.await_args.kwargs["reply_markup"])
 
 
-async def test_superadmin_tournament_hub_create_routes_to_existing_calendar_flow(
+async def test_superadmin_tournament_hub_calendar_opens_month(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     planning_service = SimpleNamespace(
         get_superadmin_tournament_hub=AsyncMock(
             return_value=SuperadminTournamentHubView(open_tournaments_count=0)
         ),
-        inspect_next_week=AsyncMock(
-            return_value=WeeklyPlanningCheckView(
-                status=WeeklyPlanningStatus.READY,
-                plan=tournament_plan_view(),
-            )
-        ),
+        get_calendar_month=AsyncMock(return_value=tournament_calendar_month_view()),
     )
     monkeypatch.setattr(
         superadmin_tournament_handlers,
@@ -5799,7 +5914,7 @@ async def test_superadmin_tournament_hub_create_routes_to_existing_calendar_flow
         planning_service,
     )
     state = MutableState()
-    message = SimpleNamespace(answer=AsyncMock())
+    message = SimpleNamespace(edit_text=AsyncMock())
     callback = SimpleNamespace(
         from_user=SimpleNamespace(id=100),
         message=message,
@@ -5809,21 +5924,20 @@ async def test_superadmin_tournament_hub_create_routes_to_existing_calendar_flow
     await superadmin_tournament_handlers.select_tournament_hub_action(
         callback,
         superadmin_tournaments_kb.SuperadminTournamentHubCallback(
-            action=superadmin_tournaments_kb.SuperadminTournamentHubAction.CREATE
+            action=superadmin_tournaments_kb.SuperadminTournamentHubAction.CALENDAR
         ),
         state,
     )
 
     planning_service.get_superadmin_tournament_hub.assert_awaited_once_with(100)
-    planning_service.inspect_next_week.assert_awaited_once_with(100)
-    assert message.answer.await_args_list[0].args[0] == (
-        "Суперадмин. На будущую неделю нужно создать турниры!"
-    )
-    assert message.answer.await_args_list[1].args[0].startswith("Будет создано расписание:")
-    assert inline_keyboard_texts(message.answer.await_args_list[1].kwargs["reply_markup"]) == [
-        "Изменить",
-        "Создать",
-        "Отмена",
+    planning_service.get_calendar_month.assert_awaited_once_with(100, year=None, month=None)
+    assert message.edit_text.await_args.args[0].startswith("📅 Календарь")
+    assert inline_keyboard_texts(message.edit_text.await_args.kwargs["reply_markup"]) == [
+        "1",
+        "2",
+        "⬅️ Месяц",
+        "Месяц ➡️",
+        "⬅️ Назад",
     ]
 
 
@@ -5861,7 +5975,7 @@ async def test_superadmin_tournament_hub_open_shows_empty_list(
 
     planning_service.get_superadmin_tournament_hub.assert_awaited_once_with(100)
     planning_service.list_open_tournaments_for_superadmin.assert_awaited_once_with(100, page=0)
-    assert message.edit_text.await_args.args[0] == ("🔓 Открытые турниры\n\nОткрытых турниров нет.")
+    assert message.edit_text.await_args.args[0] == ("🔑 Открытые турниры\n\nОткрытых турниров нет.")
     assert inline_keyboard_texts(message.edit_text.await_args.kwargs["reply_markup"]) == [
         "⬅️ Назад",
     ]
@@ -5909,7 +6023,7 @@ async def test_superadmin_open_tournaments_list_is_paginated(
     )
 
     planning_service.list_open_tournaments_for_superadmin.assert_awaited_once_with(100, page=1)
-    assert message.edit_text.await_args.args[0] == "🔓 Открытые турниры\n\n2-2 из 3"
+    assert message.edit_text.await_args.args[0] == "🔑 Открытые турниры\n\n2-2 из 3"
     assert inline_keyboard_texts(message.edit_text.await_args.kwargs["reply_markup"]) == [
         "26.08 — Mystery Bounty",
         "⬅️",
@@ -6008,7 +6122,7 @@ async def test_superadmin_open_tournament_card_back_returns_list(
     )
 
     planning_service.list_open_tournaments_for_superadmin.assert_awaited_once_with(100, page=1)
-    assert message.edit_text.await_args.args[0] == ("🔓 Открытые турниры\n\nОткрытых турниров нет.")
+    assert message.edit_text.await_args.args[0] == ("🔑 Открытые турниры\n\nОткрытых турниров нет.")
 
 
 async def test_superadmin_open_tournament_delete_player_lists_players(
@@ -6398,7 +6512,7 @@ async def test_close_flow_back_with_open_context_returns_open_list(
 
     planning_service.list_open_tournaments_for_superadmin.assert_awaited_once_with(100, page=2)
     assert state.data == {}
-    assert message.edit_text.await_args.args[0] == ("🔓 Открытые турниры\n\nОткрытых турниров нет.")
+    assert message.edit_text.await_args.args[0] == ("🔑 Открытые турниры\n\nОткрытых турниров нет.")
 
 
 async def test_superadmin_panel_back_returns_admin_keyboard(
