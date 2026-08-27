@@ -969,6 +969,7 @@ class ResultService:
         return TournamentCloseReadinessView(
             tournament=tournament_view(tournament),
             is_ready=not reasons,
+            players_count=len(results.players),
             photo_count=results.photo_count,
             has_photos=has_photos,
             has_checkins=has_checkins,

@@ -3,6 +3,7 @@ from datetime import date
 from decimal import Decimal
 
 from app.services.dto.schedules import TournamentRebuyView
+from app.services.pagination import Page
 
 
 @dataclass(frozen=True)
@@ -45,3 +46,11 @@ class TournamentScheduleDetailsView:
 @dataclass(frozen=True)
 class SuperadminTournamentHubView:
     open_tournaments_count: int
+
+
+@dataclass(frozen=True)
+class SuperadminOpenTournamentListItemView:
+    tournament: TournamentView
+
+
+SuperadminOpenTournamentPageView = Page[SuperadminOpenTournamentListItemView]

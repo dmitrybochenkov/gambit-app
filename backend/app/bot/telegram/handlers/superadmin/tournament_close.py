@@ -10,6 +10,7 @@ from aiogram.types import CallbackQuery, InputMediaPhoto, Message
 from app.bot.telegram.formatters import publications as publication_fmt
 from app.bot.telegram.formatters import results as result_fmt
 from app.bot.telegram.formatters import schedules as schedule_fmt
+from app.bot.telegram.formatters import tournaments as tournament_fmt
 from app.bot.telegram.handlers.admin.shared import (
     RESULT_SUMMARY_PARSE_MODE,
 )
@@ -24,6 +25,7 @@ from app.bot.telegram.keyboards import labels
 from app.bot.telegram.keyboards.admin import results as admin_results_kb
 from app.bot.telegram.keyboards.admin import schedule as admin_schedule_kb
 from app.bot.telegram.keyboards.superadmin import tournament_close as superadmin_tournament_close_kb
+from app.bot.telegram.keyboards.superadmin import tournaments as superadmin_tournaments_kb
 from app.bot.telegram.message_edit import (
     edit_message_if_changed,
     edit_message_reply_markup_by_id_if_changed,
@@ -101,6 +103,8 @@ _REPAIR_PHOTO_ACTIONS = {
     superadmin_tournament_close_kb.AdminTournamentRepairAction.DELETE_PHOTOS_CONFIRM,
     superadmin_tournament_close_kb.AdminTournamentRepairAction.DELETE_PHOTOS,
 }
+
+_CLOSE_RETURN_CONTEXT_OPEN_TOURNAMENTS = "superadmin_open_tournaments"
 
 
 @router.message(F.text == labels.ADMIN_PANEL_CLOSE_TOURNAMENT)
@@ -188,6 +192,14 @@ async def select_close_tournament_action(
 
             if callback.message is not None:
                 await _delete_close_publication_preview(callback.message, data)
+
+            if data.get("close_return_context") == _CLOSE_RETURN_CONTEXT_OPEN_TOURNAMENTS:
+                await _edit_open_tournaments_return_context(
+                    callback,
+                    state,
+                    page=int(data.get("close_return_page", callback_data.page)),
+                )
+                return
 
             await _edit_close_tournament_root(
                 callback,
@@ -281,6 +293,7 @@ async def select_close_tournament_action(
                 tournament_id=callback_data.tournament_id,
                 page=callback_data.page,
                 prompt_message=prompt_message,
+                return_context=_close_return_context_from_state(data),
             )
             return
 
@@ -1572,6 +1585,7 @@ async def _edit_close_tournament_card(
     state: FSMContext,
     tournament_id: int,
     page: int,
+    return_context: dict[str, int | str] | None = None,
 ) -> None:
     readiness = await result_service.get_close_readiness(
         superadmin_telegram_id=callback.from_user.id,
@@ -1601,6 +1615,26 @@ async def _edit_close_tournament_card(
         tournament_id=tournament_id,
         page=page,
         prompt_message=callback.message,
+        return_context=return_context,
+    )
+
+
+async def open_close_tournament_card_from_tournament_hub(
+    *,
+    callback: CallbackQuery,
+    state: FSMContext,
+    tournament_id: int,
+    page: int,
+) -> None:
+    await _edit_close_tournament_card(
+        callback=callback,
+        state=state,
+        tournament_id=tournament_id,
+        page=page,
+        return_context={
+            "close_return_context": _CLOSE_RETURN_CONTEXT_OPEN_TOURNAMENTS,
+            "close_return_page": page,
+        },
     )
 
 
@@ -1808,10 +1842,11 @@ async def _set_fund_input_state(
     tournament_id: int,
     page: int,
     prompt_message: Message | None = None,
+    return_context: dict[str, int | str] | None = None,
 ) -> None:
     await state.clear()
     await state.set_state(AdminResultStates.entering_tournament_fund)
-    data: dict[str, int] = {
+    data: dict[str, int | str] = {
         "close_tournament_id": tournament_id,
         "close_tournament_page": page,
     }
@@ -1820,7 +1855,39 @@ async def _set_fund_input_state(
         chat_id, message_id = identity
         data["close_tournament_prompt_chat_id"] = chat_id
         data["close_tournament_prompt_message_id"] = message_id
+    if return_context is not None:
+        data.update(return_context)
     await state.update_data(**data)
+
+
+def _close_return_context_from_state(data: dict[str, object]) -> dict[str, int | str] | None:
+    if data.get("close_return_context") != _CLOSE_RETURN_CONTEXT_OPEN_TOURNAMENTS:
+        return None
+    return {
+        "close_return_context": _CLOSE_RETURN_CONTEXT_OPEN_TOURNAMENTS,
+        "close_return_page": int(data.get("close_return_page", 0)),
+    }
+
+
+async def _edit_open_tournaments_return_context(
+    callback: CallbackQuery,
+    state: FSMContext,
+    *,
+    page: int,
+) -> None:
+    page_view = await tournament_planning_service.list_open_tournaments_for_superadmin(
+        callback.from_user.id,
+        page=page,
+    )
+    await state.clear()
+    await callback.answer()
+    if callback.message is None:
+        return
+    await edit_message_if_changed(
+        callback.message,
+        text=tournament_fmt.superadmin_open_list(page_view),
+        reply_markup=superadmin_tournaments_kb.open_tournament_list_keyboard(page_view),
+    )
 
 
 async def _edit_close_tournament_root(

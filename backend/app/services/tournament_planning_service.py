@@ -27,11 +27,17 @@ from app.services.dto.schedules import (
     WeeklyTournamentFactView,
     WeeklyTournamentPlanView,
 )
-from app.services.dto.tournaments import SuperadminTournamentHubView
+from app.services.dto.tournaments import (
+    SuperadminOpenTournamentListItemView,
+    SuperadminOpenTournamentPageView,
+    SuperadminTournamentHubView,
+)
+from app.services.pagination import pagination_service
 from app.services.sunday_tournament_rotation import (
     SundayTournamentRotation,
     sunday_tournament_rotation,
 )
+from app.services.tournament_service import tournament_view
 
 
 class CalendarPlanStaleError(ValueError):
@@ -76,6 +82,7 @@ WEDNESDAY_WEEKDAY = 2
 SUNDAY_WEEKDAY = 6
 WEEKLY_PLAYING_WEEKDAYS = (2, 3, 4, 5, 6)
 LEGACY_UNKNOWN_TOURNAMENT_TYPE_CODE = "legacy_unknown"
+SUPERADMIN_OPEN_TOURNAMENT_PAGE_SIZE = 6
 
 
 @dataclass(frozen=True)
@@ -230,6 +237,24 @@ class TournamentPlanningService:
                 resolve_tournament_day(self.clock, self.tournament_day_start_hour)
             )
             return SuperadminTournamentHubView(open_tournaments_count=open_count)
+
+    async def list_open_tournaments_for_superadmin(
+        self,
+        actor_telegram_id: int,
+        *,
+        page: int,
+        page_size: int = SUPERADMIN_OPEN_TOURNAMENT_PAGE_SIZE,
+    ) -> SuperadminOpenTournamentPageView:
+        async with self.session_factory() as session:
+            await access_policy.require_superadmin(session, actor_telegram_id)
+            tournaments = await TournamentRepository(session).list_active_on_or_before(
+                resolve_tournament_day(self.clock, self.tournament_day_start_hour)
+            )
+            items = [
+                SuperadminOpenTournamentListItemView(tournament=tournament_view(tournament))
+                for tournament in tournaments
+            ]
+            return pagination_service.paginate(items, page=page, page_size=page_size)
 
     async def build_next_week_plan(
         self,

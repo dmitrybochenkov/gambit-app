@@ -1,4 +1,7 @@
 TOURNAMENT_HUB_TITLE = "🏆 Турниры"
-OPEN_TOURNAMENTS_PLACEHOLDER = "Раздел открытых турниров будет доступен следующим этапом."
+OPEN_TOURNAMENTS_TITLE = "🔓 Открытые турниры"
+OPEN_TOURNAMENTS_EMPTY = "Открытых турниров нет."
+OPEN_TOURNAMENT_EDITING_INFO = "Результаты, фото и комбинации редактируются в меню администратора."
+OPEN_TOURNAMENT_DELETE_PLAYER_PLACEHOLDER = "Удаление игрока будет доступно следующим этапом."
 CLOSED_TOURNAMENTS_PLACEHOLDER = "Раздел закрытых турниров будет доступен следующим этапом."
 TOURNAMENT_PLANNING_UNAVAILABLE = "Расписание недоступно."

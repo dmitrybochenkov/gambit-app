@@ -205,3 +205,4 @@ class TournamentCloseReadinessView:
     has_checkins: bool
     validation_errors: list[str]
     reasons: list[str]
+    players_count: int = 0

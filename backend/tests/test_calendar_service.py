@@ -333,6 +333,59 @@ async def test_superadmin_tournament_hub_counts_active_on_or_before_tournament_d
         await engine.dispose()
 
 
+async def test_superadmin_open_tournament_list_filters_and_sorts_by_business_day(
+    tmp_path: Path,
+) -> None:
+    _, session_factory, engine = await create_planning_service(tmp_path / "open-list.db")
+    try:
+        await seed_calendar_data(session_factory)
+        await seed_week_tournaments(
+            session_factory,
+            dates=[date(2026, 8, 12), date(2026, 8, 13)],
+            status=TournamentStatus.ACTIVE,
+        )
+        await seed_week_tournaments(
+            session_factory,
+            dates=[date(2026, 8, 11)],
+            status=TournamentStatus.CLOSED,
+        )
+        service = TournamentPlanningService(
+            session_factory,
+            clock=FixedClock(datetime(2026, 8, 13, 12)),
+            tournament_day_start_hour=11,
+        )
+
+        page = await service.list_open_tournaments_for_superadmin(100, page=0)
+
+        assert [item.tournament.date for item in page.items] == [
+            date(2026, 8, 13),
+            date(2026, 8, 12),
+        ]
+    finally:
+        await engine.dispose()
+
+
+async def test_superadmin_open_tournament_list_requires_superadmin(tmp_path: Path) -> None:
+    service, session_factory, engine = await create_planning_service(tmp_path / "open-auth.db")
+    try:
+        await seed_calendar_data(session_factory)
+        async with session_factory() as session:
+            session.add(
+                build_player(
+                    telegram_id=200,
+                    display_name="Player",
+                    status=UserStatus.ACTIVE,
+                    role=UserRole.PLAYER,
+                )
+            )
+            await session.commit()
+
+        with pytest.raises(AdminAccessDeniedError):
+            await service.list_open_tournaments_for_superadmin(200, page=0)
+    finally:
+        await engine.dispose()
+
+
 async def test_finished_latest_week_with_missing_sunday_allows_next_week(
     tmp_path: Path,
 ) -> None:

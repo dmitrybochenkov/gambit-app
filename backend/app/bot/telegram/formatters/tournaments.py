@@ -1,5 +1,6 @@
 from app.bot.telegram.formatters import common as fmt_common
 from app.bot.telegram.texts import common as common_texts
+from app.bot.telegram.texts.superadmin import tournaments as superadmin_tournament_texts
 from app.bot.telegram.texts.user import tournaments as tournament_texts
 from app.domain.prize_multiplier_places import (
     PrizeMultiplierPlacesError,
@@ -48,10 +49,50 @@ def schedule_detail(details: object) -> str:
     return "\n".join(lines)
 
 
+def superadmin_open_list(page: object) -> str:
+    if not page.items:
+        return "\n\n".join(
+            [
+                superadmin_tournament_texts.OPEN_TOURNAMENTS_TITLE,
+                superadmin_tournament_texts.OPEN_TOURNAMENTS_EMPTY,
+            ]
+        )
+    lines = [superadmin_tournament_texts.OPEN_TOURNAMENTS_TITLE]
+    if page.total_pages > 1:
+        lines.extend(["", fmt_common.page_line(page)])
+    return "\n".join(lines)
+
+
+def superadmin_open_card(readiness: object) -> str:
+    lines = [
+        label(readiness.tournament),
+        "",
+        f"Игроков: {readiness.players_count}",
+        "",
+        "Статус готовности к закрытию:",
+    ]
+    if readiness.is_ready:
+        lines.append("готов")
+    else:
+        lines.extend(_readiness_reasons(readiness))
+    lines.extend(["", superadmin_tournament_texts.OPEN_TOURNAMENT_EDITING_INFO])
+    return "\n".join(lines)
+
+
 def type_name(tournament: object) -> str:
     if tournament.tournament_type_name is not None:
         return tournament.tournament_type_name
     return tournament_texts.TOURNAMENT_TYPE_FALLBACK
+
+
+def short_label(tournament: object) -> str:
+    return f"{tournament.date.day:02d}.{tournament.date.month:02d} — {type_name(tournament)}"
+
+
+def _readiness_reasons(readiness: object) -> list[str]:
+    if not readiness.reasons:
+        return ["Результаты заполнены не полностью."]
+    return [f"• {reason}" for reason in readiness.reasons]
 
 
 def _economy_lines(economy: object) -> list[str]:
