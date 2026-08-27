@@ -27,6 +27,10 @@ class TournamentCombination(Base):
         nullable=False,
         index=True,
     )
+    rank: Mapped[str | None] = mapped_column(
+        String(2),
+        nullable=True,
+    )
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
         default=utc_now,
@@ -43,5 +47,15 @@ class TournamentCombination(Base):
         CheckConstraint(
             "combination_type IN ('four_of_a_kind', 'straight_flush', 'royal_flush')",
             name="ck_tournament_combinations_type",
+        ),
+        CheckConstraint(
+            """
+            rank IS NULL
+            OR (
+                combination_type = 'four_of_a_kind'
+                AND rank IN ('2', '3', '4', '5', '6', '7', '8', '9', '10', 'J', 'Q', 'K', 'A')
+            )
+            """,
+            name="ck_tournament_combinations_rank",
         ),
     )

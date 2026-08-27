@@ -289,6 +289,7 @@ class TournamentPublicationService:
                 player_id=row.user.id,
                 display_name=row.user.display_name,
                 combination_type=row.combination.combination_type,
+                rank=row.combination.rank,
             )
             for row in combinations
         ]

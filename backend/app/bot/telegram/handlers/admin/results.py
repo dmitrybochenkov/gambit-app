@@ -210,12 +210,41 @@ async def select_combination_action(
                     ),
                 )
             return
+        if callback_data.action == admin_results_kb.AdminCombinationAction.SELECT_RANK:
+            combinations = await result_service.get_tournament_combinations(
+                admin_telegram_id=callback.from_user.id,
+                tournament_id=callback_data.tournament_id,
+            )
+            player = next(
+                (
+                    item
+                    for item in combinations.players
+                    if item.player_id == callback_data.player_id
+                ),
+                None,
+            )
+            if player is None:
+                await callback.answer(result_text.PLAYER_NOT_FOUND, show_alert=True)
+                return
+
+            await callback.answer()
+            if callback.message is not None:
+                await edit_message_if_changed(
+                    callback.message,
+                    text=result_fmt.four_of_a_kind_rank_prompt(player.display_name),
+                    reply_markup=admin_results_kb.admin_four_of_a_kind_rank_keyboard(
+                        tournament_id=callback_data.tournament_id,
+                        player_id=callback_data.player_id,
+                    ),
+                )
+            return
         if callback_data.action == admin_results_kb.AdminCombinationAction.SAVE:
             combinations = await result_service.add_tournament_combination(
                 admin_telegram_id=callback.from_user.id,
                 tournament_id=callback_data.tournament_id,
                 player_id=callback_data.player_id,
                 combination_type=TournamentCombinationType(callback_data.combination_type),
+                rank=callback_data.rank or None,
             )
             await callback.answer("Комбинация добавлена.")
             await _show_combinations_from_callback(callback, combinations)

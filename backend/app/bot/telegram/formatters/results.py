@@ -80,6 +80,18 @@ def combination_type_prompt(player_name: str) -> str:
     return "\n".join(["🃏 Комбинации вечера", "", player_name, "", "Выбери комбинацию:"])
 
 
+def four_of_a_kind_rank_prompt(player_name: str) -> str:
+    return "\n".join(
+        [
+            "🃏 Комбинации вечера",
+            "",
+            player_name,
+            "",
+            "Выбери достоинство каре:",
+        ]
+    )
+
+
 def combination_delete_prompt(view: object) -> str:
     return "\n".join(["🃏 Комбинации вечера", "", "Что удалить?"])
 

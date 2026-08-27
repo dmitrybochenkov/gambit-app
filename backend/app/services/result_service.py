@@ -63,6 +63,25 @@ from app.services.user_common import IdentityAlreadyExistsError, required_user_v
 
 logger = logging.getLogger(__name__)
 
+FOUR_OF_A_KIND_RANKS = {
+    "2",
+    "3",
+    "4",
+    "5",
+    "6",
+    "7",
+    "8",
+    "9",
+    "10",
+    "J",
+    "Q",
+    "K",
+    "A",
+}
+
+class ResultInvalidCombinationRankError(ValueError):
+    pass
+
 
 class ResultTournamentNotFoundError(ValueError):
     pass
@@ -735,7 +754,14 @@ class ResultService:
         tournament_id: int,
         player_id: int,
         combination_type: TournamentCombinationType,
+        rank: str | None = None,
     ) -> TournamentCombinationsView:
+        if combination_type == TournamentCombinationType.FOUR_OF_A_KIND:
+            if rank not in FOUR_OF_A_KIND_RANKS:
+                raise ResultInvalidCombinationRankError
+        elif rank is not None:
+            raise ResultInvalidCombinationRankError
+        
         async with self.session_factory() as session:
             await access_policy.require_admin(session, admin_telegram_id)
             tournament = await self._require_editable_tournament(session, tournament_id)
@@ -750,6 +776,7 @@ class ResultService:
                     tournament_id=tournament.id,
                     player_id=player_id,
                     combination_type=combination_type,
+                    rank=rank,
                 )
                 await session.commit()
             except IntegrityError as exc:
@@ -965,6 +992,7 @@ class ResultService:
                     player_id=row.user.id,
                     display_name=row.user.display_name,
                     combination_type=row.combination.combination_type,
+                    rank=row.combination.rank,
                 )
                 for row in combinations
             ],

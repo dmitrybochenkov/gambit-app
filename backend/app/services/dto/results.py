@@ -119,6 +119,7 @@ class TournamentCombinationView:
     player_id: int
     display_name: str
     combination_type: str
+    rank: str | None = None
 
 
 @dataclass(frozen=True)

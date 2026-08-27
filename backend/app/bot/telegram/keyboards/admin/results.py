@@ -125,6 +125,7 @@ class AdminCombinationAction(StrEnum):
     DELETE = "delete"
     BACK = "back"
     CANCEL = "cancel"
+    SELECT_RANK = "rank"
 
 
 class AdminCombinationCallback(CallbackData, prefix="res_combo"):
@@ -133,6 +134,7 @@ class AdminCombinationCallback(CallbackData, prefix="res_combo"):
     player_id: int = 0
     combination_id: int = 0
     combination_type: str = ""
+    rank: str = ""
 
 
 def admin_result_tournament_list_keyboard(
@@ -312,7 +314,11 @@ def admin_combination_types_keyboard(*, tournament_id: int, player_id: int) -> I
         builder.button(
             text=text,
             callback_data=AdminCombinationCallback(
-                action=AdminCombinationAction.SAVE,
+                action=(
+                    AdminCombinationAction.SELECT_RANK
+                    if combination_type == TournamentCombinationType.FOUR_OF_A_KIND
+                    else AdminCombinationAction.SAVE
+                ),
                 tournament_id=tournament_id,
                 player_id=player_id,
                 combination_type=combination_type.value,
@@ -333,6 +339,45 @@ def admin_combination_types_keyboard(*, tournament_id: int, player_id: int) -> I
         ),
     )
     builder.adjust(1)
+    return builder.as_markup()
+
+
+def admin_four_of_a_kind_rank_keyboard(
+    *,
+    tournament_id: int,
+    player_id: int,
+) -> InlineKeyboardMarkup:
+    builder = InlineKeyboardBuilder()
+
+    for rank in ("A", "K", "Q", "J", "10", "9", "8", "7", "6", "5", "4", "3", "2"):
+        builder.button(
+            text=rank,
+            callback_data=AdminCombinationCallback(
+                action=AdminCombinationAction.SAVE,
+                tournament_id=tournament_id,
+                player_id=player_id,
+                combination_type=TournamentCombinationType.FOUR_OF_A_KIND.value,
+                rank=rank,
+            ),
+        )
+
+    builder.button(
+        text="⬅️ Назад",
+        callback_data=AdminCombinationCallback(
+            action=AdminCombinationAction.SELECT_PLAYER,
+            tournament_id=tournament_id,
+            player_id=player_id,
+        ),
+    )
+    builder.button(
+        text=labels.ADMIN_CANCEL,
+        callback_data=AdminCombinationCallback(
+            action=AdminCombinationAction.CANCEL,
+            tournament_id=tournament_id,
+        ),
+    )
+
+    builder.adjust(4, 4, 5, 1, 1)
     return builder.as_markup()
 
 

@@ -44,11 +44,13 @@ class TournamentCombinationRepository:
         tournament_id: int,
         player_id: int,
         combination_type: TournamentCombinationType,
+        rank: str | None = None,
     ) -> TournamentCombination:
         combination = TournamentCombination(
             tournament_id=tournament_id,
             player_id=player_id,
             combination_type=combination_type,
+            rank=rank,
         )
         self.session.add(combination)
         await self.session.flush()
