@@ -40,9 +40,11 @@ from app.bot.telegram.texts.superadmin import panel as panel_text
 from app.bot.telegram.texts.superadmin import tournament_close as text
 from app.db.models.enums import TournamentPublicationDestination, TournamentPublicationType
 from app.services.access_policy import AdminAccessDeniedError
+from app.services.dto.results import ClosedTournamentCorrectionDraftView
 from app.services.pagination import pagination_service
 from app.services.result_fields import ResultField
 from app.services.result_service import (
+    ClosedTournamentCorrectionStaleError,
     FutureTournamentCannotBeClosedError,
     ResultInvalidFundError,
     ResultInvalidPlayerDataError,
@@ -367,9 +369,14 @@ async def select_closed_correction_action(
             )
             return
         if callback_data.action == superadmin_tournament_close_kb.AdminClosedCorrectionAction.DATA:
-            results = await result_service.get_closed_tournament_results(
-                superadmin_telegram_id=callback.from_user.id,
-                tournament_id=callback_data.tournament_id,
+            draft = await _closed_correction_draft(
+                callback.from_user.id,
+                callback_data.tournament_id,
+                state,
+            )
+            results = await result_service.get_closed_tournament_draft_results(
+                callback.from_user.id,
+                draft,
             )
             page = pagination_service.paginate(
                 results.players,
@@ -392,35 +399,40 @@ async def select_closed_correction_action(
             callback_data.action
             == superadmin_tournament_close_kb.AdminClosedCorrectionAction.FINISH
         ):
-            data = await state.get_data()
-            snapshot = ResultService.snapshot_from_payload(
-                data.get(f"closed_correction_snapshot_{callback_data.tournament_id}")
+            draft = await _closed_correction_draft(
+                callback.from_user.id,
+                callback_data.tournament_id,
+                state,
             )
-            if not snapshot:
-                current = await result_service.get_closed_tournament_results(
-                    superadmin_telegram_id=callback.from_user.id,
-                    tournament_id=callback_data.tournament_id,
-                )
-                snapshot = ResultService.snapshot_from_results(current)
-            result = await result_service.finish_closed_tournament_correction(
-                superadmin_telegram_id=callback.from_user.id,
-                tournament_id=callback_data.tournament_id,
-                original_snapshot=snapshot,
+            result = await result_service.build_closed_tournament_correction_preview(
+                callback.from_user.id,
+                draft,
             )
-            if result.result_changes:
-                refreshed = await result_service.get_closed_tournament_results(
-                    superadmin_telegram_id=callback.from_user.id,
-                    tournament_id=callback_data.tournament_id,
+            await callback.answer()
+            if callback.message is not None:
+                await edit_message_if_changed(
+                    callback.message,
+                    text=result_fmt.closed_correction_summary(result),
+                    reply_markup=superadmin_tournament_close_kb.admin_closed_correction_preview_keyboard(
+                        tournament_id=callback_data.tournament_id,
+                        page=callback_data.page,
+                    ),
                 )
-                await state.update_data(
-                    **{
-                        f"closed_correction_snapshot_{callback_data.tournament_id}": (
-                            ResultService.snapshot_to_payload(
-                                ResultService.snapshot_from_results(refreshed)
-                            )
-                        )
-                    }
-                )
+            return
+        if (
+            callback_data.action
+            == superadmin_tournament_close_kb.AdminClosedCorrectionAction.CONFIRM
+        ):
+            draft = await _closed_correction_draft(
+                callback.from_user.id,
+                callback_data.tournament_id,
+                state,
+            )
+            result = await result_service.apply_closed_tournament_correction(
+                callback.from_user.id,
+                draft,
+            )
+            await _clear_closed_correction_draft(state, callback_data.tournament_id)
             await notify_players_about_prize_stack_bonus_corrections(
                 callback.bot,
                 result.player_notifications,
@@ -447,6 +459,10 @@ async def select_closed_correction_action(
     except ResultTournamentNotFoundError:
         await callback.answer(text.ADMIN_RESULTS_NOT_FOUND, show_alert=True)
         return
+    except ClosedTournamentCorrectionStaleError:
+        await state.clear()
+        await callback.answer("Исправление устарело. Открой турнир заново.", show_alert=True)
+        return
     await callback.answer(text.ADMIN_RESULTS_NOT_FOUND, show_alert=True)
 
 
@@ -465,9 +481,14 @@ async def select_closed_result_player(
             await callback.answer(text.ADMIN_RESULTS_CANCELLED)
             await _return_to_superadmin_menu(callback, text.ADMIN_RESULTS_CANCELLED)
             return
-        results = await result_service.get_closed_tournament_results(
-            superadmin_telegram_id=callback.from_user.id,
-            tournament_id=callback_data.tournament_id,
+        draft = await _closed_correction_draft(
+            callback.from_user.id,
+            callback_data.tournament_id,
+            state,
+        )
+        results = await result_service.get_closed_tournament_draft_results(
+            callback.from_user.id,
+            draft,
         )
         page = pagination_service.paginate(
             results.players,
@@ -531,6 +552,9 @@ async def select_closed_result_player(
         await callback.answer(text.ACCESS_DENIED, show_alert=True)
     except ResultTournamentNotFoundError:
         await callback.answer(text.ADMIN_RESULTS_NOT_FOUND, show_alert=True)
+    except ClosedTournamentCorrectionStaleError:
+        await state.clear()
+        await callback.answer("Исправление устарело. Открой турнир заново.", show_alert=True)
 
 
 @router.callback_query(superadmin_tournament_close_kb.AdminClosedResultFieldCallback.filter())
@@ -548,9 +572,14 @@ async def select_closed_result_field(
             await callback.answer(text.ADMIN_RESULTS_CANCELLED)
             await _return_to_superadmin_menu(callback, text.ADMIN_RESULTS_CANCELLED)
             return
-        results = await result_service.get_closed_tournament_results(
-            superadmin_telegram_id=callback.from_user.id,
-            tournament_id=callback_data.tournament_id,
+        draft = await _closed_correction_draft(
+            callback.from_user.id,
+            callback_data.tournament_id,
+            state,
+        )
+        results = await result_service.get_closed_tournament_draft_results(
+            callback.from_user.id,
+            draft,
         )
         player = ResultService.find_result_player(results, callback_data.player_id)
         if player is None:
@@ -577,6 +606,9 @@ async def select_closed_result_field(
         await callback.answer(text.ACCESS_DENIED, show_alert=True)
     except ResultTournamentNotFoundError:
         await callback.answer(text.ADMIN_RESULTS_NOT_FOUND, show_alert=True)
+    except ClosedTournamentCorrectionStaleError:
+        await state.clear()
+        await callback.answer("Исправление устарело. Открой турнир заново.", show_alert=True)
 
 
 @router.callback_query(superadmin_tournament_close_kb.AdminClosedResultValueCallback.filter())
@@ -596,12 +628,22 @@ async def select_closed_result_value(
             return
         service_field = ResultField(callback_data.field.value)
         if callback_data.action == superadmin_tournament_close_kb.AdminClosedResultValueAction.SET:
-            results = await result_service.update_closed_tournament_result_field(
-                superadmin_telegram_id=callback.from_user.id,
-                tournament_id=callback_data.tournament_id,
+            draft = await _closed_correction_draft(
+                callback.from_user.id,
+                callback_data.tournament_id,
+                state,
+            )
+            draft = await result_service.update_closed_tournament_draft_result_field(
+                callback.from_user.id,
+                draft,
                 player_id=callback_data.player_id,
                 field=service_field,
                 value=callback_data.value,
+            )
+            await _store_closed_correction_draft(state, draft)
+            results = await result_service.get_closed_tournament_draft_results(
+                callback.from_user.id,
+                draft,
             )
             player = ResultService.find_result_player(results, callback_data.player_id)
             if player is None:
@@ -619,9 +661,14 @@ async def select_closed_result_value(
                     ),
                 )
             return
-        results = await result_service.get_closed_tournament_results(
-            superadmin_telegram_id=callback.from_user.id,
-            tournament_id=callback_data.tournament_id,
+        draft = await _closed_correction_draft(
+            callback.from_user.id,
+            callback_data.tournament_id,
+            state,
+        )
+        results = await result_service.get_closed_tournament_draft_results(
+            callback.from_user.id,
+            draft,
         )
         player = ResultService.find_result_player(results, callback_data.player_id)
         if player is None:
@@ -642,6 +689,9 @@ async def select_closed_result_value(
         await callback.answer(text.ACCESS_DENIED, show_alert=True)
     except ResultTournamentNotFoundError:
         await callback.answer(text.ADMIN_RESULTS_NOT_FOUND, show_alert=True)
+    except ClosedTournamentCorrectionStaleError:
+        await state.clear()
+        await callback.answer("Исправление устарело. Открой турнир заново.", show_alert=True)
     except (ResultInvalidPlayerDataError, ResultUserNotFoundError, ValueError):
         await callback.answer("Некорректное значение.", show_alert=True)
 
@@ -668,6 +718,7 @@ async def select_closed_result_replacement(
             await state.set_state(None)
             await _edit_closed_result_player_detail(
                 callback=callback,
+                state=state,
                 tournament_id=callback_data.tournament_id,
                 page=callback_data.page,
                 player_id=callback_data.current_player_id,
@@ -677,13 +728,18 @@ async def select_closed_result_replacement(
             callback_data.action
             == superadmin_tournament_close_kb.AdminClosedResultReplacementAction.CONFIRM
         ):
+            draft = await _closed_correction_draft(
+                callback.from_user.id,
+                callback_data.tournament_id,
+                state,
+            )
             (
                 results,
                 current_player,
                 user,
-            ) = await result_service.get_closed_result_replacement_confirmation(
-                superadmin_telegram_id=callback.from_user.id,
-                tournament_id=callback_data.tournament_id,
+            ) = await result_service.get_closed_draft_replacement_confirmation(
+                callback.from_user.id,
+                draft,
                 current_player_id=callback_data.current_player_id,
                 new_player_id=callback_data.new_player_id,
             )
@@ -709,11 +765,21 @@ async def select_closed_result_replacement(
             callback_data.action
             == superadmin_tournament_close_kb.AdminClosedResultReplacementAction.APPLY
         ):
-            results = await result_service.replace_closed_tournament_result_player(
-                superadmin_telegram_id=callback.from_user.id,
-                tournament_id=callback_data.tournament_id,
+            draft = await _closed_correction_draft(
+                callback.from_user.id,
+                callback_data.tournament_id,
+                state,
+            )
+            draft = await result_service.replace_closed_tournament_draft_result_player(
+                callback.from_user.id,
+                draft,
                 current_player_id=callback_data.current_player_id,
                 new_player_id=callback_data.new_player_id,
+            )
+            await _store_closed_correction_draft(state, draft)
+            results = await result_service.get_closed_tournament_draft_results(
+                callback.from_user.id,
+                draft,
             )
             await state.set_state(None)
             player = ResultService.find_result_player(results, callback_data.new_player_id)
@@ -733,6 +799,9 @@ async def select_closed_result_replacement(
         await callback.answer(text.ACCESS_DENIED, show_alert=True)
     except ResultPlayerAlreadyAddedError:
         await callback.answer("Этот игрок уже добавлен в турнир.", show_alert=True)
+    except ClosedTournamentCorrectionStaleError:
+        await state.clear()
+        await callback.answer("Исправление устарело. Открой турнир заново.", show_alert=True)
     except (ResultTournamentNotFoundError, ResultUserNotFoundError):
         await callback.answer(text.ADMIN_RESULTS_NOT_FOUND, show_alert=True)
 
@@ -913,9 +982,14 @@ async def enter_closed_result_replacement_search(message: Message, state: FSMCon
     current_player_id = int(data["closed_replace_current_player_id"])
     page = int(data["closed_replace_page"])
     try:
-        players = await result_service.search_closed_result_replacement_users(
-            superadmin_telegram_id=message.from_user.id,
-            tournament_id=tournament_id,
+        draft = await _closed_correction_draft(
+            message.from_user.id,
+            tournament_id,
+            state,
+        )
+        players = await result_service.search_closed_draft_replacement_users(
+            message.from_user.id,
+            draft,
             current_player_id=current_player_id,
             query=message.text or "",
         )
@@ -926,6 +1000,10 @@ async def enter_closed_result_replacement_search(message: Message, state: FSMCon
     except ResultTournamentNotFoundError:
         await state.clear()
         await message.answer(text.ADMIN_RESULTS_NOT_FOUND)
+        return
+    except ClosedTournamentCorrectionStaleError:
+        await state.clear()
+        await message.answer("Исправление устарело. Открой турнир заново.")
         return
     except TournamentResultsEditingUnavailableError:
         await state.clear()
@@ -1073,16 +1151,14 @@ async def _edit_closed_correction_card(
     tournament_id: int,
     page: int,
 ) -> None:
-    results = await result_service.get_closed_tournament_results(
-        superadmin_telegram_id=callback.from_user.id,
-        tournament_id=tournament_id,
+    draft = await _closed_correction_draft(
+        callback.from_user.id,
+        tournament_id,
+        state,
     )
-    await state.update_data(
-        **{
-            f"closed_correction_snapshot_{tournament_id}": ResultService.snapshot_to_payload(
-                ResultService.snapshot_from_results(results)
-            )
-        }
+    results = await result_service.get_closed_tournament_draft_results(
+        callback.from_user.id,
+        draft,
     )
     await callback.answer()
     if callback.message is None:
@@ -1097,16 +1173,62 @@ async def _edit_closed_correction_card(
     )
 
 
+def _closed_correction_draft_key(tournament_id: int) -> str:
+    return f"closed_correction_draft_{tournament_id}"
+
+
+async def _closed_correction_draft(
+    superadmin_telegram_id: int,
+    tournament_id: int,
+    state: FSMContext,
+    *,
+    reset: bool = False,
+) -> ClosedTournamentCorrectionDraftView:
+    key = _closed_correction_draft_key(tournament_id)
+    data = await state.get_data()
+    draft = None if reset else ResultService.correction_draft_from_payload(data.get(key))
+    if draft is None:
+        draft = await result_service.begin_closed_tournament_correction(
+            superadmin_telegram_id,
+            tournament_id,
+        )
+        await _store_closed_correction_draft(state, draft)
+    return draft
+
+
+async def _store_closed_correction_draft(
+    state: FSMContext,
+    draft: ClosedTournamentCorrectionDraftView,
+) -> None:
+    await state.update_data(
+        **{
+            _closed_correction_draft_key(draft.tournament_id): (
+                ResultService.correction_draft_to_payload(draft)
+            )
+        }
+    )
+
+
+async def _clear_closed_correction_draft(state: FSMContext, tournament_id: int) -> None:
+    await state.update_data(**{_closed_correction_draft_key(tournament_id): None})
+
+
 async def _edit_closed_result_player_detail(
     *,
     callback: CallbackQuery,
+    state: FSMContext,
     tournament_id: int,
     page: int,
     player_id: int,
 ) -> None:
-    results = await result_service.get_closed_tournament_results(
-        superadmin_telegram_id=callback.from_user.id,
-        tournament_id=tournament_id,
+    draft = await _closed_correction_draft(
+        callback.from_user.id,
+        tournament_id,
+        state,
+    )
+    results = await result_service.get_closed_tournament_draft_results(
+        callback.from_user.id,
+        draft,
     )
     player = ResultService.find_result_player(results, player_id)
     if player is None:

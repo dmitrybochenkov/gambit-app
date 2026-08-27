@@ -35,6 +35,7 @@ from app.db.repositories.tournament_result_repository import TournamentResultRep
 from app.services.access_policy import AdminAccessDeniedError
 from app.services.result_fields import ResultField
 from app.services.result_service import (
+    ClosedTournamentCorrectionStaleError,
     FutureTournamentCannotBeClosedError,
     ResultCombinationAlreadyExistsError,
     ResultDuplicateNameError,
@@ -1198,7 +1199,6 @@ async def test_closed_mystery_bounty_correction_updates_knockouts_without_big_kn
         clock=FixedClock(datetime(2026, 7, 18, 12, tzinfo=ZoneInfo("Europe/Moscow"))),
     )
     await service.close_tournament(100, tournament_id, 1000)
-    snapshot = await service.get_closed_tournament_result_snapshot(100, tournament_id)
     results = await service.get_closed_tournament_results(100, tournament_id)
 
     assert results.knockout_mode == KnockoutMode.SMALL.value
@@ -1209,24 +1209,114 @@ async def test_closed_mystery_bounty_correction_updates_knockouts_without_big_kn
     ]
     assert ResultField.BIG_KNOCKOUTS not in ResultService.editable_result_fields(results)
 
-    updated = await service.update_closed_tournament_result_field(
+    draft = await service.begin_closed_tournament_correction(100, tournament_id)
+    draft = await service.update_closed_tournament_draft_result_field(
         100,
-        tournament_id,
+        draft,
         first_player_id,
         ResultField.KNOCKOUTS,
         5,
     )
+    updated = await service.get_closed_tournament_draft_results(100, draft)
     player = ResultService.find_result_player(updated, first_player_id)
     assert player is not None
     assert player.knockout_points == Decimal("75.00")
+    persisted = ResultService.find_result_player(
+        await service.get_closed_tournament_results(100, tournament_id),
+        first_player_id,
+    )
+    assert persisted is not None
+    assert persisted.knockouts_count == 3
 
-    correction = await service.finish_closed_tournament_correction(100, tournament_id, snapshot)
+    correction = await service.build_closed_tournament_correction_preview(100, draft)
 
     assert [
         (change.display_name, [(field.label, field.before, field.after) for field in change.fields])
         for change in correction.result_changes
     ] == [("Player 1", [("КО", "3", "5")])]
     assert correction.reward_changes == ()
+    await service.apply_closed_tournament_correction(100, draft)
+    await engine.dispose()
+
+
+async def test_closed_correction_stale_draft_is_rejected(tmp_path: Path) -> None:
+    engine = create_async_engine(f"sqlite+aiosqlite:///{tmp_path / 'closed_stale.db'}")
+    async with engine.begin() as connection:
+        await connection.run_sync(Base.metadata.create_all)
+
+    session_factory = async_sessionmaker(engine, expire_on_commit=False)
+    async with session_factory() as session:
+        await seed_tournament_types_async(session)
+        config = ScoringConfig()
+        session.add(config)
+        await session.flush()
+        season = Season(
+            name="Season",
+            starts_at=date(2026, 7, 1),
+            ends_at=None,
+            scoring_config_id=config.id,
+        )
+        superadmin = build_player(
+            telegram_id=100,
+            display_name="Superadmin",
+            status=UserStatus.ACTIVE,
+            role=UserRole.SUPERADMIN,
+        )
+        players = [
+            build_player(
+                telegram_id=None,
+                display_name=f"Player {index}",
+                status=UserStatus.ACTIVE,
+            )
+            for index in range(1, 6)
+        ]
+        session.add_all([season, superadmin, *players])
+        await session.flush()
+        tournament = Tournament(
+            season_id=season.id,
+            tournament_type_id=tournament_type_id("classic"),
+            date=date(2026, 7, 18),
+            status=TournamentStatus.CLOSED,
+            tournament_fund=1000,
+        )
+        session.add(tournament)
+        await session.flush()
+        session.add_all(
+            [
+                TournamentResult(
+                    tournament_id=tournament.id,
+                    player_id=player.id,
+                    source=TournamentResultSource.WALK_IN_EXISTING,
+                    checked_in_by_user_id=superadmin.id,
+                    place=index,
+                )
+                for index, player in enumerate(players, start=1)
+            ]
+        )
+        await session.commit()
+        tournament_id = tournament.id
+        first_player_id = players[0].id
+
+    service = ResultService(session_factory)
+    draft = await service.begin_closed_tournament_correction(100, tournament_id)
+    draft = await service.update_closed_tournament_draft_result_field(
+        100,
+        draft,
+        first_player_id,
+        ResultField.PLACE,
+        2,
+    )
+    async with session_factory() as session:
+        result = await TournamentResultRepository(session).get_by_tournament_and_player(
+            tournament_id,
+            first_player_id,
+        )
+        assert result is not None
+        result.knockouts_count = 1
+        await session.commit()
+
+    with pytest.raises(ClosedTournamentCorrectionStaleError):
+        await service.apply_closed_tournament_correction(100, draft)
     await engine.dispose()
 
 

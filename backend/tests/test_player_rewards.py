@@ -33,6 +33,32 @@ from app.services.tournament_check_in_service import TournamentCheckInService
 from app.services.user_access_service import UserAccessService
 
 
+async def _closed_correction_draft(
+    service: ResultService,
+    telegram_id: int,
+    tournament_id: int,
+    updates: tuple[tuple[int, ResultField, int], ...] = (),
+    replacements: tuple[tuple[int, int], ...] = (),
+):
+    draft = await service.begin_closed_tournament_correction(telegram_id, tournament_id)
+    for player_id, field, value in updates:
+        draft = await service.update_closed_tournament_draft_result_field(
+            telegram_id,
+            draft,
+            player_id,
+            field,
+            value,
+        )
+    for current_player_id, new_player_id in replacements:
+        draft = await service.replace_closed_tournament_draft_result_player(
+            telegram_id,
+            draft,
+            current_player_id,
+            new_player_id,
+        )
+    return draft
+
+
 async def test_close_tournament_issues_prize_stack_bonuses_once(
     tmp_path: Path,
 ) -> None:
@@ -218,47 +244,19 @@ async def test_closed_tournament_correction_reconciles_rewards_and_preserves_val
         session_factory,
         clock=FixedClock(datetime(2026, 8, 23, 12, tzinfo=ZoneInfo("Europe/Moscow"))),
     )
-    snapshot = await correction_service.get_closed_tournament_result_snapshot(100, tournament_id)
-    await correction_service.update_closed_tournament_result_field(
+    draft = await _closed_correction_draft(
+        correction_service,
         100,
         tournament_id,
-        player_ids[0],
-        ResultField.PLACE,
-        2,
+        updates=(
+            (player_ids[0], ResultField.PLACE, 2),
+            (player_ids[3], ResultField.PLACE, 3),
+            (player_ids[4], ResultField.PLACE, 1),
+            (player_ids[1], ResultField.PLACE, 4),
+            (player_ids[2], ResultField.PLACE, 5),
+        ),
     )
-    await correction_service.update_closed_tournament_result_field(
-        100,
-        tournament_id,
-        player_ids[3],
-        ResultField.PLACE,
-        3,
-    )
-    await correction_service.update_closed_tournament_result_field(
-        100,
-        tournament_id,
-        player_ids[4],
-        ResultField.PLACE,
-        1,
-    )
-    await correction_service.update_closed_tournament_result_field(
-        100,
-        tournament_id,
-        player_ids[1],
-        ResultField.PLACE,
-        4,
-    )
-    await correction_service.update_closed_tournament_result_field(
-        100,
-        tournament_id,
-        player_ids[2],
-        ResultField.PLACE,
-        5,
-    )
-    result = await correction_service.finish_closed_tournament_correction(
-        100,
-        tournament_id,
-        snapshot,
-    )
+    result = await correction_service.build_closed_tournament_correction_preview(100, draft)
 
     assert [(change.display_name, len(change.fields)) for change in result.result_changes] == [
         ("Игрок 1", 1),
@@ -288,13 +286,20 @@ async def test_closed_tournament_correction_reconciles_rewards_and_preserves_val
         date(2026, 8, 29)
     }
 
-    repeat = await correction_service.finish_closed_tournament_correction(
-        100,
-        tournament_id,
-        ResultService.snapshot_from_results(
-            await correction_service.get_closed_tournament_results(100, tournament_id)
-        ),
-    )
+    async with session_factory() as session:
+        rewards_before_apply = (
+            await session.execute(select(PlayerReward).order_by(PlayerReward.player_id))
+        ).scalars()
+        assert [(reward.player_id, reward.source_place) for reward in rewards_before_apply] == [
+            (player_ids[0], 1),
+            (player_ids[1], 2),
+            (player_ids[2], 3),
+        ]
+
+    result = await correction_service.apply_closed_tournament_correction(100, draft)
+
+    repeat_draft = await correction_service.begin_closed_tournament_correction(100, tournament_id)
+    repeat = await correction_service.build_closed_tournament_correction_preview(100, repeat_draft)
     assert repeat.result_changes == ()
     assert repeat.reward_changes == ()
     assert repeat.player_notifications == ()
@@ -406,38 +411,23 @@ async def test_closed_tournament_correction_warns_about_redeemed_reward(
         session_factory,
         clock=FixedClock(datetime(2026, 8, 23, 13, tzinfo=ZoneInfo("Europe/Moscow"))),
     )
-    snapshot = await correction_service.get_closed_tournament_result_snapshot(100, tournament_id)
-    await correction_service.update_closed_tournament_result_field(
+    draft = await _closed_correction_draft(
+        correction_service,
         100,
         tournament_id,
-        player_ids[0],
-        ResultField.PLACE,
-        2,
+        updates=(
+            (player_ids[0], ResultField.PLACE, 2),
+            (player_ids[4], ResultField.PLACE, 1),
+            (player_ids[1], ResultField.PLACE, 5),
+        ),
     )
-    await correction_service.update_closed_tournament_result_field(
-        100,
-        tournament_id,
-        player_ids[4],
-        ResultField.PLACE,
-        1,
-    )
-    await correction_service.update_closed_tournament_result_field(
-        100,
-        tournament_id,
-        player_ids[1],
-        ResultField.PLACE,
-        5,
-    )
-    result = await correction_service.finish_closed_tournament_correction(
-        100,
-        tournament_id,
-        snapshot,
-    )
+    result = await correction_service.build_closed_tournament_correction_preview(100, draft)
 
     assert [
         (warning.player_id, warning.old_chips_amount, warning.new_chips_amount)
         for warning in result.used_reward_warnings
     ] == [(player_ids[0], 40_000, 30_000)]
+    await correction_service.apply_closed_tournament_correction(100, draft)
 
 
 async def test_closed_tournament_correction_requires_superadmin(tmp_path: Path) -> None:
@@ -485,7 +475,6 @@ async def test_closed_tournament_correction_requires_superadmin(tmp_path: Path) 
             )
         )
         tournament_id = tournament.id
-        player_id = player.id
         await session.commit()
 
     service = ResultService(session_factory)
@@ -493,13 +482,7 @@ async def test_closed_tournament_correction_requires_superadmin(tmp_path: Path) 
     with pytest.raises(AdminAccessDeniedError):
         await service.get_closed_tournament_results(100, tournament_id)
     with pytest.raises(AdminAccessDeniedError):
-        await service.update_closed_tournament_result_field(
-            100,
-            tournament_id,
-            player_id,
-            ResultField.PLACE,
-            2,
-        )
+        await service.begin_closed_tournament_correction(100, tournament_id)
 
 
 async def test_closed_tournament_correction_replaces_player_and_preserves_result_data(
@@ -576,19 +559,21 @@ async def test_closed_tournament_correction_replaces_player_and_preserves_result
     )
 
     with pytest.raises(ResultPlayerAlreadyAddedError):
-        await service.replace_closed_tournament_result_player(
+        draft = await service.begin_closed_tournament_correction(100, tournament_id)
+        await service.replace_closed_tournament_draft_result_player(
             100,
-            tournament_id,
+            draft,
             wrong_id,
             duplicate_id,
         )
 
-    results = await service.replace_closed_tournament_result_player(
+    draft = await _closed_correction_draft(
+        service,
         100,
         tournament_id,
-        wrong_id,
-        correct_id,
+        replacements=((wrong_id, correct_id),),
     )
+    results = await service.get_closed_tournament_draft_results(100, draft)
     replaced = ResultService.find_result_player(results, correct_id)
     assert replaced is not None
     assert replaced.place == 1
@@ -596,6 +581,14 @@ async def test_closed_tournament_correction_replaces_player_and_preserves_result
     assert replaced.big_knockouts_count == 2
     assert replaced.bonus_points == 5
     assert ResultService.find_result_player(results, wrong_id) is None
+    assert (
+        ResultService.find_result_player(
+            await service.get_closed_tournament_results(100, tournament_id),
+            wrong_id,
+        )
+        is not None
+    )
+    await service.apply_closed_tournament_correction(100, draft)
 
 
 async def test_closed_tournament_correction_player_replacement_moves_top_reward(
@@ -671,19 +664,13 @@ async def test_closed_tournament_correction_player_replacement_moves_top_reward(
         session_factory,
         clock=FixedClock(datetime(2026, 8, 24, 12, tzinfo=ZoneInfo("Europe/Moscow"))),
     )
-    snapshot = await correction_service.get_closed_tournament_result_snapshot(100, tournament_id)
-    await correction_service.replace_closed_tournament_result_player(
+    draft = await _closed_correction_draft(
+        correction_service,
         100,
         tournament_id,
-        player_ids[0],
-        player_ids[5],
+        replacements=((player_ids[0], player_ids[5]),),
     )
-
-    result = await correction_service.finish_closed_tournament_correction(
-        100,
-        tournament_id,
-        snapshot,
-    )
+    result = await correction_service.build_closed_tournament_correction_preview(100, draft)
 
     assert [
         (change.display_name, [(field.label, field.before, field.after) for field in change.fields])
@@ -696,6 +683,8 @@ async def test_closed_tournament_correction_player_replacement_moves_top_reward(
         "Игрок 1": (40_000, None),
         "Игрок 6": (None, 40_000),
     }
+
+    await correction_service.apply_closed_tournament_correction(100, draft)
 
     async with session_factory() as session:
         rewards = (
@@ -773,18 +762,19 @@ async def test_closed_tournament_correction_restores_original_lifecycle_without_
         session_factory,
         clock=FixedClock(datetime(2026, 8, 24, 12, tzinfo=ZoneInfo("Europe/Moscow"))),
     )
-    snapshot = await service.get_closed_tournament_result_snapshot(100, tournament_id)
-    await service.replace_closed_tournament_result_player(
+    draft = await _closed_correction_draft(
+        service,
         100,
         tournament_id,
-        player_ids[0],
-        player_ids[5],
+        replacements=((player_ids[0], player_ids[5]),),
     )
-    result = await service.finish_closed_tournament_correction(100, tournament_id, snapshot)
+    result = await service.build_closed_tournament_correction_preview(100, draft)
 
     assert {notification.valid_through for notification in result.player_notifications} == {
         date(2026, 8, 17)
     }
+    await service.apply_closed_tournament_correction(100, draft)
+
     async with session_factory() as session:
         rewards = (await session.execute(select(PlayerReward))).scalars().all()
 

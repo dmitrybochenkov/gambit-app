@@ -37,6 +37,7 @@ class AdminClosedCorrectionAction(StrEnum):
     PAGE = "page"
     DATA = "data"
     FINISH = "finish"
+    CONFIRM = "confirm"
     BACK = "back"
     CANCEL = "cancel"
 
@@ -262,6 +263,40 @@ def admin_closed_correction_card_keyboard(
         text="⬅️ Назад",
         callback_data=AdminClosedCorrectionCallback(
             action=AdminClosedCorrectionAction.PAGE,
+            page=page,
+        ),
+    )
+    builder.button(
+        text=labels.ADMIN_CANCEL,
+        callback_data=AdminClosedCorrectionCallback(
+            action=AdminClosedCorrectionAction.CANCEL,
+            tournament_id=tournament_id,
+            page=page,
+        ),
+    )
+    builder.adjust(1)
+    return builder.as_markup()
+
+
+def admin_closed_correction_preview_keyboard(
+    *,
+    tournament_id: int,
+    page: int,
+) -> InlineKeyboardMarkup:
+    builder = InlineKeyboardBuilder()
+    builder.button(
+        text="✅ Применить исправления",
+        callback_data=AdminClosedCorrectionCallback(
+            action=AdminClosedCorrectionAction.CONFIRM,
+            tournament_id=tournament_id,
+            page=page,
+        ),
+    )
+    builder.button(
+        text="⬅️ Назад",
+        callback_data=AdminClosedCorrectionCallback(
+            action=AdminClosedCorrectionAction.OPEN,
+            tournament_id=tournament_id,
             page=page,
         ),
     )

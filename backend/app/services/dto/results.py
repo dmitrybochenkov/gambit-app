@@ -52,6 +52,13 @@ class TournamentResultSnapshotItemView:
 
 
 @dataclass(frozen=True)
+class ClosedTournamentCorrectionDraftView:
+    tournament_id: int
+    original_results: tuple[TournamentResultSnapshotItemView, ...]
+    proposed_results: tuple[TournamentResultSnapshotItemView, ...]
+
+
+@dataclass(frozen=True)
 class TournamentResultFieldChangeView:
     label: str
     before: str

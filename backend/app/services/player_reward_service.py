@@ -274,6 +274,35 @@ class PlayerRewardService:
         *,
         source_results: tuple[PrizeStackBonusSourceResultView, ...],
     ) -> PlayerRewardCorrectionResultView:
+        return await self._plan_prize_stack_bonus_reconciliation_for_closed_tournament(
+            session,
+            tournament,
+            source_results=source_results,
+            apply=True,
+        )
+
+    async def preview_prize_stack_bonus_reconciliation_for_closed_tournament(
+        self,
+        session: AsyncSession,
+        tournament: Tournament,
+        *,
+        source_results: tuple[PrizeStackBonusSourceResultView, ...],
+    ) -> PlayerRewardCorrectionResultView:
+        return await self._plan_prize_stack_bonus_reconciliation_for_closed_tournament(
+            session,
+            tournament,
+            source_results=source_results,
+            apply=False,
+        )
+
+    async def _plan_prize_stack_bonus_reconciliation_for_closed_tournament(
+        self,
+        session: AsyncSession,
+        tournament: Tournament,
+        *,
+        source_results: tuple[PrizeStackBonusSourceResultView, ...],
+        apply: bool,
+    ) -> PlayerRewardCorrectionResultView:
         reward_repository = PlayerRewardRepository(session)
         tournament_type = await TournamentTypeRepository(session).get_by_id(
             tournament.tournament_type_id
@@ -328,7 +357,8 @@ class PlayerRewardService:
                         new_chips_amount=None,
                     )
                 )
-                await reward_repository.delete(reward)
+                if apply:
+                    await reward_repository.delete(reward)
                 continue
 
             if wanted.place is None:
@@ -357,9 +387,10 @@ class PlayerRewardService:
                     new_chips_amount=chips_amount,
                 )
             )
-            reward.chips_amount = chips_amount
-            reward.source_place = wanted.place
-            reward.valid_through = valid_through
+            if apply:
+                reward.chips_amount = chips_amount
+                reward.source_place = wanted.place
+                reward.valid_through = valid_through
 
         for player_id, result in desired.items():
             if player_id in existing_by_player:
@@ -367,16 +398,17 @@ class PlayerRewardService:
             if result.place is None:
                 continue
             chips_amount = PRIZE_STACK_BONUS_BY_PLACE[result.place]
-            reward = PlayerReward(
-                player_id=player_id,
-                reward_type=PlayerRewardType.PRIZE_STACK_BONUS,
-                chips_amount=chips_amount,
-                source_tournament_id=tournament.id,
-                source_place=result.place,
-                issued_at=issued_at,
-                valid_through=valid_through,
-            )
-            reward_repository.add(reward)
+            if apply:
+                reward = PlayerReward(
+                    player_id=player_id,
+                    reward_type=PlayerRewardType.PRIZE_STACK_BONUS,
+                    chips_amount=chips_amount,
+                    source_tournament_id=tournament.id,
+                    source_place=result.place,
+                    issued_at=issued_at,
+                    valid_through=valid_through,
+                )
+                reward_repository.add(reward)
             changes.append(
                 PlayerRewardCorrectionChangeView(
                     player_id=player_id,
@@ -397,7 +429,7 @@ class PlayerRewardService:
                 )
             )
 
-        if changes:
+        if apply and changes:
             await session.flush()
         return PlayerRewardCorrectionResultView(
             reward_changes=tuple(changes),
