@@ -1123,61 +1123,6 @@ def test_admin_close_tournament_fund_input_keyboard_has_back_and_cancel() -> Non
     assert inline_keyboard_texts(keyboard) == ["⬅️ Назад", "❌ Отмена"]
 
 
-def test_superadmin_repair_root_keyboard_has_back_and_cancel() -> None:
-    tournament = tournament_view(125, date(2026, 7, 19), 6, "Boss Bounty")
-    readiness = SimpleNamespace(tournament=tournament, photo_count=3)
-
-    keyboard = superadmin_tournament_close_kb.admin_correction_tournament_card_keyboard(readiness)
-
-    assert inline_keyboard_texts(keyboard) == [
-        "👤 Добавить игрока",
-        "🏁 Внести данные",
-        "📸 Фотографии",
-        "🃏 Комбинации вечера",
-        "⬅️ Назад",
-        "❌ Отмена",
-    ]
-
-
-def test_superadmin_correction_list_keyboard_has_back_and_cancel() -> None:
-    tournament = tournament_view(125, date(2026, 7, 19), 6, "Boss Bounty")
-    readiness = SimpleNamespace(tournament=tournament, is_ready=True)
-    page = Page(items=[readiness], page=0, page_size=6, total_items=1)
-
-    keyboard = superadmin_tournament_close_kb.admin_correction_tournament_list_keyboard(page)
-
-    assert inline_keyboard_texts(keyboard) == [
-        "✅ 19.07 — Boss Bounty",
-        "⬅️ Назад",
-        "❌ Отмена",
-    ]
-
-
-def test_superadmin_repair_nested_keyboards_keep_back_and_cancel() -> None:
-    player = SimpleNamespace(id=42, display_name="Игрок")
-
-    assert inline_keyboard_texts(
-        superadmin_tournament_close_kb.admin_repair_add_player_mode_keyboard(125)
-    ) == ["👤 Играл ранее", "🆕 Новый игрок", "⬅️ Назад", "❌ Отмена"]
-    assert inline_keyboard_texts(
-        superadmin_tournament_close_kb.admin_repair_search_results_keyboard(
-            tournament_id=125,
-            players=[player],
-        )
-    ) == ["Игрок", "⬅️ Назад", "❌ Отмена"]
-    assert inline_keyboard_texts(
-        superadmin_tournament_close_kb.admin_repair_add_existing_confirmation_keyboard(
-            tournament_id=125,
-            player_id=42,
-        )
-    ) == ["✅ Добавить", "⬅️ Назад", "❌ Отмена"]
-    assert inline_keyboard_texts(
-        superadmin_tournament_close_kb.admin_repair_add_new_confirmation_keyboard(
-            tournament_id=125,
-        )
-    ) == ["✅ Создать", "⬅️ Назад", "❌ Отмена"]
-
-
 def test_admin_close_tournament_nested_keyboards_show_back() -> None:
     keyboards = [
         superadmin_tournament_close_kb.admin_close_tournament_card_keyboard(
@@ -2960,7 +2905,6 @@ async def test_close_tournament_single_ready_tournament_root_shows_list(
     assert "Баунти турнир" in message.answer.await_args.args[0]
     assert inline_keyboard_texts(message.answer.await_args.kwargs["reply_markup"]) == [
         "✅ 09.08 — Баунти турнир",
-        "🛠 Корректировать турниры",
         "❌ Отмена",
     ]
 
@@ -3008,7 +2952,6 @@ async def test_close_tournament_fund_back_returns_to_root(
     assert "🔒 Закрыть турнир" in message.edit_text.await_args.args[0]
     assert inline_keyboard_texts(message.edit_text.await_args.kwargs["reply_markup"]) == [
         "✅ 09.08 — Баунти турнир",
-        "🛠 Корректировать турниры",
         "❌ Отмена",
     ]
 
@@ -3066,91 +3009,6 @@ async def test_close_tournament_confirmation_back_returns_to_root(
     assert "🔒 Закрыть турнир" in message.edit_text.await_args.args[0]
     assert inline_keyboard_texts(message.edit_text.await_args.kwargs["reply_markup"]) == [
         "✅ 09.08 — Баунти турнир",
-        "🛠 Корректировать турниры",
-        "❌ Отмена",
-    ]
-
-
-async def test_correction_list_back_returns_to_close_root(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    tournament = tournament_view(125, date(2026, 8, 9), 1, "Баунти турнир")
-    readiness = TournamentCloseReadinessView(
-        tournament=tournament,
-        is_ready=True,
-        photo_count=1,
-        has_photos=True,
-        has_checkins=True,
-        validation_errors=[],
-        reasons=[],
-    )
-    service = SimpleNamespace(
-        list_unclosed_tournaments_for_superadmin=AsyncMock(return_value=[readiness])
-    )
-    monkeypatch.setattr(superadmin_close_handlers, "result_service", service)
-    state = MutableState()
-    message = SimpleNamespace(edit_text=AsyncMock())
-    callback = SimpleNamespace(
-        from_user=SimpleNamespace(id=100),
-        message=message,
-        answer=AsyncMock(),
-    )
-
-    await superadmin_close_handlers.select_close_tournament_action(
-        callback,
-        superadmin_tournament_close_kb.AdminCloseTournamentCallback(
-            action=superadmin_tournament_close_kb.AdminCloseTournamentAction.BACK,
-            page=0,
-        ),
-        state,
-    )
-
-    assert "🔒 Закрыть турнир" in message.edit_text.await_args.args[0]
-    assert inline_keyboard_texts(message.edit_text.await_args.kwargs["reply_markup"]) == [
-        "✅ 09.08 — Баунти турнир",
-        "🛠 Корректировать турниры",
-        "❌ Отмена",
-    ]
-
-
-async def test_correction_card_back_returns_to_correction_list(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    tournament = tournament_view(125, date(2026, 8, 9), 1, "Баунти турнир")
-    readiness = TournamentCloseReadinessView(
-        tournament=tournament,
-        is_ready=True,
-        photo_count=1,
-        has_photos=True,
-        has_checkins=True,
-        validation_errors=[],
-        reasons=[],
-    )
-    service = SimpleNamespace(
-        list_unclosed_tournaments_for_superadmin=AsyncMock(return_value=[readiness])
-    )
-    monkeypatch.setattr(superadmin_close_handlers, "result_service", service)
-    state = MutableState()
-    message = SimpleNamespace(edit_text=AsyncMock())
-    callback = SimpleNamespace(
-        from_user=SimpleNamespace(id=100),
-        message=message,
-        answer=AsyncMock(),
-    )
-
-    await superadmin_close_handlers.select_close_tournament_action(
-        callback,
-        superadmin_tournament_close_kb.AdminCloseTournamentCallback(
-            action=superadmin_tournament_close_kb.AdminCloseTournamentAction.CORRECTION_LIST,
-            page=0,
-        ),
-        state,
-    )
-
-    assert "🛠 Корректировать турниры" in message.edit_text.await_args.args[0]
-    assert inline_keyboard_texts(message.edit_text.await_args.kwargs["reply_markup"]) == [
-        "✅ 09.08 — Баунти турнир",
-        "⬅️ Назад",
         "❌ Отмена",
     ]
 
@@ -3505,63 +3363,6 @@ async def test_admin_photo_collection_duplicate_and_limit_use_control_message(
         await engine.dispose()
 
 
-async def test_superadmin_repair_photo_collection_done_returns_to_repair_card(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    service, engine, tournament_id = await _build_photo_collection_service(
-        tmp_path / "repair_photo_collection.db",
-        telegram_id=100,
-        role=UserRole.SUPERADMIN,
-    )
-    monkeypatch.setattr(superadmin_close_handlers, "result_service", service)
-    bot = RecordingBot()
-
-    try:
-        await runtime.telegram_dispatcher.feed_raw_update(
-            bot,
-            _photo_callback_update(
-                60,
-                user_id=100,
-                data=superadmin_tournament_close_kb.AdminTournamentRepairCallback(
-                    action=superadmin_tournament_close_kb.AdminTournamentRepairAction.ADD_PHOTO,
-                    tournament_id=tournament_id,
-                ).pack(),
-            ),
-        )
-        await runtime.telegram_dispatcher.feed_raw_update(
-            bot,
-            _photo_message_update(61, user_id=100, file_id="file-1", unique_id="unique-1"),
-        )
-        await runtime.telegram_dispatcher.feed_raw_update(
-            bot,
-            _photo_callback_update(
-                62,
-                user_id=100,
-                data=superadmin_tournament_close_kb.AdminTournamentRepairCallback(
-                    action=superadmin_tournament_close_kb.AdminTournamentRepairAction.PHOTO_DONE,
-                    tournament_id=tournament_id,
-                ).pack(),
-            ),
-        )
-
-        sent_texts = [call.text for call in bot.calls if call.__class__.__name__ == "SendMessage"]
-        edited_texts = [
-            call.text for call in bot.calls if call.__class__.__name__ == "EditMessageText"
-        ]
-        assert any("Загружено фото: 0" in text for text in sent_texts)
-        assert any("Загружено фото: 1" in text for text in sent_texts)
-        assert any("📸 Фотографии" in text for text in edited_texts)
-        assert any("Фотографий: 1" in text for text in edited_texts)
-        assert all("Фото добавлено" not in text for text in [*sent_texts, *edited_texts])
-        async with service.session_factory() as session:
-            photos = await TournamentPhotoRepository(session).list_for_tournament(tournament_id)
-        assert len(photos) == 1
-    finally:
-        await bot.session.close()
-        await engine.dispose()
-
-
 async def test_admin_view_single_photo_restores_control_after_photo(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -3649,54 +3450,6 @@ async def test_admin_view_album_restores_one_control_after_album(
             "SendMessage",
         ]
         assert len([name for name in method_names if name == "SendMessage"]) == 1
-        assert "📸 Фотографии" in sent_texts[-1]
-        assert "Фотографий: 2" in sent_texts[-1]
-        assert all("Фото добавлено" not in text for text in sent_texts)
-    finally:
-        await bot.session.close()
-        await engine.dispose()
-
-
-async def test_superadmin_repair_view_album_restores_repair_card(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    service, engine, tournament_id = await _build_photo_collection_service(
-        tmp_path / "repair_view_album.db",
-        telegram_id=100,
-        role=UserRole.SUPERADMIN,
-    )
-    for index in range(2):
-        await service.add_tournament_photo(
-            admin_telegram_id=100,
-            tournament_id=tournament_id,
-            telegram_file_id=f"repair-view-file-{index}",
-            telegram_file_unique_id=f"repair-view-unique-{index}",
-        )
-    monkeypatch.setattr(superadmin_close_handlers, "result_service", service)
-    bot = RecordingBot()
-
-    try:
-        await runtime.telegram_dispatcher.feed_raw_update(
-            bot,
-            _photo_callback_update(
-                90,
-                user_id=100,
-                data=superadmin_tournament_close_kb.AdminTournamentRepairCallback(
-                    action=superadmin_tournament_close_kb.AdminTournamentRepairAction.VIEW_PHOTOS,
-                    tournament_id=tournament_id,
-                ).pack(),
-            ),
-        )
-
-        method_names = [call.__class__.__name__ for call in bot.calls]
-        sent_texts = [call.text for call in bot.calls if call.__class__.__name__ == "SendMessage"]
-        assert method_names == [
-            "AnswerCallbackQuery",
-            "DeleteMessage",
-            "SendMediaGroup",
-            "SendMessage",
-        ]
         assert "📸 Фотографии" in sent_texts[-1]
         assert "Фотографий: 2" in sent_texts[-1]
         assert all("Фото добавлено" not in text for text in sent_texts)

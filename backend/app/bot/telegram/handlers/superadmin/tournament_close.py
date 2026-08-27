@@ -1,5 +1,4 @@
 import logging
-from collections.abc import Awaitable, Callable
 from datetime import date
 
 from aiogram import Bot, F, Router
@@ -34,31 +33,17 @@ from app.bot.telegram.notifications import (
     notify_players_about_prize_stack_bonus_corrections,
     notify_players_about_prize_stack_bonuses,
 )
-from app.bot.telegram.photo_collection import (
-    PhotoControlContext,
-    refresh_photo_control_message,
-    schedule_album_photo_control_refresh,
-    send_media_then_restore_control,
-    send_photo_control_message,
-)
 from app.bot.telegram.states import AdminResultStates
 from app.bot.telegram.texts.admin import calendar as calendar_text
 from app.bot.telegram.texts.admin import results as result_text
 from app.bot.telegram.texts.superadmin import panel as panel_text
 from app.bot.telegram.texts.superadmin import tournament_close as text
-from app.db.models.enums import (
-    TournamentCombinationType,
-    TournamentPublicationDestination,
-    TournamentPublicationType,
-)
+from app.db.models.enums import TournamentPublicationDestination, TournamentPublicationType
 from app.services.access_policy import AdminAccessDeniedError
 from app.services.pagination import pagination_service
 from app.services.result_fields import ResultField
 from app.services.result_service import (
     FutureTournamentCannotBeClosedError,
-    ResultCombinationAlreadyExistsError,
-    ResultCombinationNotFoundError,
-    ResultDuplicateNameError,
     ResultInvalidFundError,
     ResultInvalidPlayerDataError,
     ResultPlayerAlreadyAddedError,
@@ -87,23 +72,6 @@ logger = logging.getLogger(__name__)
 
 router = Router(name="admin.tournament_close")
 
-_REPAIR_COMBINATION_ACTIONS = {
-    superadmin_tournament_close_kb.AdminTournamentRepairAction.COMBINATIONS,
-    superadmin_tournament_close_kb.AdminTournamentRepairAction.ADD_COMBINATION,
-    superadmin_tournament_close_kb.AdminTournamentRepairAction.SELECT_COMBINATION_PLAYER,
-    superadmin_tournament_close_kb.AdminTournamentRepairAction.SAVE_COMBINATION,
-    superadmin_tournament_close_kb.AdminTournamentRepairAction.DELETE_COMBINATION_MENU,
-    superadmin_tournament_close_kb.AdminTournamentRepairAction.DELETE_COMBINATION,
-}
-
-_REPAIR_PHOTO_ACTIONS = {
-    superadmin_tournament_close_kb.AdminTournamentRepairAction.ADD_PHOTO,
-    superadmin_tournament_close_kb.AdminTournamentRepairAction.PHOTO_DONE,
-    superadmin_tournament_close_kb.AdminTournamentRepairAction.VIEW_PHOTOS,
-    superadmin_tournament_close_kb.AdminTournamentRepairAction.DELETE_PHOTOS_CONFIRM,
-    superadmin_tournament_close_kb.AdminTournamentRepairAction.DELETE_PHOTOS,
-}
-
 _CLOSE_RETURN_CONTEXT_OPEN_TOURNAMENTS = "superadmin_open_tournaments"
 
 
@@ -122,8 +90,7 @@ async def show_close_tournament_flow(message: Message, state: FSMContext) -> Non
         return
 
     ready = [item for item in tournaments if item.is_ready]
-    problematic = [item for item in tournaments if not item.is_ready]
-    if not ready and not problematic and not closed_tournaments:
+    if not ready and not closed_tournaments:
         await send_superadmin_panel(
             message,
             superadmin_telegram_id=message.from_user.id,
@@ -139,7 +106,6 @@ async def show_close_tournament_flow(message: Message, state: FSMContext) -> Non
         result_fmt.close_tournament_list(page),
         reply_markup=superadmin_tournament_close_kb.admin_close_tournament_list_keyboard(
             page,
-            has_correction_targets=bool(tournaments),
             has_closed_correction_targets=bool(closed_tournaments),
         ),
     )
@@ -181,7 +147,6 @@ async def select_close_tournament_action(
                     text=result_fmt.close_tournament_list(page),
                     reply_markup=superadmin_tournament_close_kb.admin_close_tournament_list_keyboard(
                         page,
-                        has_correction_targets=bool(tournaments),
                         has_closed_correction_targets=bool(closed_tournaments),
                     ),
                 )
@@ -206,29 +171,6 @@ async def select_close_tournament_action(
                 state,
                 page=callback_data.page,
             )
-            return
-
-        if (
-            callback_data.action
-            == superadmin_tournament_close_kb.AdminCloseTournamentAction.CORRECTION_LIST
-        ):
-            tournaments = await result_service.list_unclosed_tournaments_for_superadmin(
-                callback.from_user.id
-            )
-            page = pagination_service.paginate(
-                tournaments,
-                page=0,
-                page_size=admin_results_kb.ADMIN_RESULT_PAGE_SIZE,
-            )
-            await callback.answer()
-            if callback.message is not None:
-                await edit_message_if_changed(
-                    callback.message,
-                    text=result_fmt.correction_tournament_list(page),
-                    reply_markup=superadmin_tournament_close_kb.admin_correction_tournament_list_keyboard(
-                        page
-                    ),
-                )
             return
 
         if (
@@ -795,214 +737,6 @@ async def select_closed_result_replacement(
         await callback.answer(text.ADMIN_RESULTS_NOT_FOUND, show_alert=True)
 
 
-@router.callback_query(superadmin_tournament_close_kb.AdminTournamentRepairCallback.filter())
-async def select_repair_tournament_action(
-    callback: CallbackQuery,
-    callback_data: superadmin_tournament_close_kb.AdminTournamentRepairCallback,
-    state: FSMContext,
-) -> None:
-    try:
-        if (
-            callback_data.action
-            == superadmin_tournament_close_kb.AdminTournamentRepairAction.CANCEL
-        ):
-            await state.clear()
-            await callback.answer(text.ADMIN_RESULTS_CANCELLED)
-            await _return_to_superadmin_menu(callback, text.ADMIN_RESULTS_CANCELLED)
-            return
-        if callback_data.action == superadmin_tournament_close_kb.AdminTournamentRepairAction.OPEN:
-            await callback.answer()
-            if callback.message is not None:
-                await _edit_repair_tournament_card(callback, callback_data.tournament_id)
-            return
-        if (
-            callback_data.action
-            == superadmin_tournament_close_kb.AdminTournamentRepairAction.ADD_PLAYER
-        ):
-            await callback.answer()
-            if callback.message is not None:
-                await edit_message_if_changed(
-                    callback.message,
-                    text="Кого добавить в турнир?",
-                    reply_markup=superadmin_tournament_close_kb.admin_repair_add_player_mode_keyboard(
-                        callback_data.tournament_id
-                    ),
-                )
-            return
-        if (
-            callback_data.action
-            == superadmin_tournament_close_kb.AdminTournamentRepairAction.ADD_EXISTING_SEARCH
-        ):
-            await state.set_state(AdminResultStates.entering_repair_existing_player_search)
-            await state.update_data(repair_tournament_id=callback_data.tournament_id)
-            await callback.answer()
-            if callback.message is not None:
-                await _delete_callback_message(callback)
-                await callback.message.answer("Введи имя игрока из базы.")
-            return
-        if (
-            callback_data.action
-            == superadmin_tournament_close_kb.AdminTournamentRepairAction.ADD_NEW_PLAYER
-        ):
-            await state.set_state(AdminResultStates.entering_repair_new_player)
-            await state.update_data(repair_tournament_id=callback_data.tournament_id)
-            await callback.answer()
-            if callback.message is not None:
-                await _delete_callback_message(callback)
-                await callback.message.answer("Введи имя нового игрока.")
-            return
-        if (
-            callback_data.action
-            == superadmin_tournament_close_kb.AdminTournamentRepairAction.CONFIRM_EXISTING
-        ):
-            tournament, user = await result_service.get_existing_player_add_confirmation(
-                admin_telegram_id=callback.from_user.id,
-                tournament_id=callback_data.tournament_id,
-                user_id=callback_data.player_id,
-            )
-            await callback.answer()
-            if callback.message is not None:
-                await edit_message_if_changed(
-                    callback.message,
-                    text=result_fmt.add_existing_player_prompt(tournament, user),
-                    reply_markup=superadmin_tournament_close_kb.admin_repair_add_existing_confirmation_keyboard(
-                        tournament_id=callback_data.tournament_id,
-                        player_id=callback_data.player_id,
-                    ),
-                )
-            return
-        if (
-            callback_data.action
-            == superadmin_tournament_close_kb.AdminTournamentRepairAction.ADD_EXISTING
-        ):
-            await result_service.add_existing_player_to_tournament(
-                admin_telegram_id=callback.from_user.id,
-                tournament_id=callback_data.tournament_id,
-                user_id=callback_data.player_id,
-            )
-            await state.clear()
-            await callback.answer("Игрок добавлен.")
-            if callback.message is not None:
-                await _edit_repair_tournament_card(callback, callback_data.tournament_id)
-            return
-        if (
-            callback_data.action
-            == superadmin_tournament_close_kb.AdminTournamentRepairAction.CONFIRM_NEW
-        ):
-            data = await state.get_data()
-            display_name = str(data.get("repair_new_display_name", ""))
-            tournament, display_name = await result_service.get_new_player_add_confirmation(
-                admin_telegram_id=callback.from_user.id,
-                tournament_id=callback_data.tournament_id,
-                display_name=display_name,
-            )
-            await state.set_state(AdminResultStates.confirming_repair_new_player)
-            await state.update_data(
-                repair_tournament_id=callback_data.tournament_id,
-                repair_new_display_name=display_name,
-            )
-            await callback.answer()
-            if callback.message is not None:
-                await edit_message_if_changed(
-                    callback.message,
-                    text=result_fmt.add_new_player_prompt(tournament, display_name),
-                    reply_markup=superadmin_tournament_close_kb.admin_repair_add_new_confirmation_keyboard(
-                        tournament_id=callback_data.tournament_id
-                    ),
-                )
-            return
-        if (
-            callback_data.action
-            == superadmin_tournament_close_kb.AdminTournamentRepairAction.CREATE_NEW
-        ):
-            data = await state.get_data()
-            await result_service.add_new_player_to_tournament(
-                admin_telegram_id=callback.from_user.id,
-                tournament_id=callback_data.tournament_id,
-                display_name=str(data.get("repair_new_display_name", "")),
-            )
-            await state.clear()
-            await callback.answer("Игрок добавлен.")
-            if callback.message is not None:
-                await _edit_repair_tournament_card(callback, callback_data.tournament_id)
-            return
-        if (
-            callback_data.action
-            == superadmin_tournament_close_kb.AdminTournamentRepairAction.EDIT_RESULTS
-        ):
-            results = await result_service.get_tournament_results(
-                admin_telegram_id=callback.from_user.id,
-                tournament_id=callback_data.tournament_id,
-            )
-            page = pagination_service.paginate(
-                results.players,
-                page=0,
-                page_size=admin_results_kb.ADMIN_RESULT_PAGE_SIZE,
-            )
-            await state.update_data(
-                result_return_context="superadmin_repair",
-                repair_tournament_id=callback_data.tournament_id,
-            )
-            await callback.answer()
-            if callback.message is not None:
-                await edit_message_if_changed(
-                    callback.message,
-                    text=result_fmt.players_table(results, page),
-                    reply_markup=_repair_result_players_keyboard(results, page),
-                    parse_mode=RESULT_SUMMARY_PARSE_MODE,
-                )
-            return
-        if (
-            callback_data.action
-            == superadmin_tournament_close_kb.AdminTournamentRepairAction.PHOTOS
-        ):
-            results = await result_service.get_tournament_results(
-                admin_telegram_id=callback.from_user.id,
-                tournament_id=callback_data.tournament_id,
-            )
-            await callback.answer()
-            if callback.message is not None:
-                await edit_message_if_changed(
-                    callback.message,
-                    text=result_fmt.photo_menu(results),
-                    reply_markup=_repair_photo_menu_keyboard(results),
-                )
-            return
-        if callback_data.action in _REPAIR_COMBINATION_ACTIONS:
-            await _handle_repair_combination_action(callback, callback_data)
-            return
-        if callback_data.action in _REPAIR_PHOTO_ACTIONS:
-            await _handle_repair_photo_action(callback, callback_data, state)
-            return
-    except AdminAccessDeniedError:
-        await callback.answer(text.ACCESS_DENIED, show_alert=True)
-        return
-    except ResultDuplicateNameError:
-        await callback.answer(
-            "Такой игрок уже существует.\nИспользуй «Играл ранее».",
-            show_alert=True,
-        )
-        return
-    except ResultPlayerAlreadyAddedError:
-        await callback.answer("Этот игрок уже добавлен в турнир.", show_alert=True)
-        if callback.message is not None:
-            await _edit_repair_tournament_card(callback, callback_data.tournament_id)
-        return
-    except ResultCombinationAlreadyExistsError:
-        await callback.answer("Такая комбинация уже добавлена.", show_alert=True)
-        return
-    except ResultCombinationNotFoundError:
-        await callback.answer("Комбинация не найдена.", show_alert=True)
-        return
-    except (ResultTournamentNotFoundError, ResultUserNotFoundError):
-        await callback.answer(text.ADMIN_RESULTS_NOT_FOUND, show_alert=True)
-        return
-    except TournamentResultsEditingUnavailableError:
-        await callback.answer("Турнир недоступен для редактирования.", show_alert=True)
-        return
-    await callback.answer(text.ADMIN_RESULTS_NOT_FOUND, show_alert=True)
-
-
 async def _send_calendar_planning_notification_after_close(
     callback: CallbackQuery,
     closed_tournament_date: date,
@@ -1170,205 +904,6 @@ async def _send_publication_media_with_ids(
     return getattr(first, "message_id", None), message_ids
 
 
-async def _handle_repair_photo_action(
-    callback: CallbackQuery,
-    callback_data: superadmin_tournament_close_kb.AdminTournamentRepairCallback,
-    state: FSMContext,
-) -> None:
-    action = callback_data.action
-    tournament_id = callback_data.tournament_id
-    if action == superadmin_tournament_close_kb.AdminTournamentRepairAction.ADD_PHOTO:
-        await state.set_state(AdminResultStates.collecting_repair_tournament_photos)
-        await state.update_data(repair_photo_tournament_id=tournament_id)
-        photo_count = await result_service.count_tournament_photos(
-            admin_telegram_id=callback.from_user.id,
-            tournament_id=tournament_id,
-        )
-        await callback.answer()
-        if callback.message is not None:
-            await _delete_callback_message(callback)
-            await send_photo_control_message(
-                callback.message,
-                state,
-                _repair_photo_control_context(tournament_id),
-                photo_count=photo_count,
-            )
-        return
-
-    if action == superadmin_tournament_close_kb.AdminTournamentRepairAction.PHOTO_DONE:
-        await state.clear()
-        results = await result_service.get_tournament_results(
-            admin_telegram_id=callback.from_user.id,
-            tournament_id=tournament_id,
-        )
-        await callback.answer()
-        if callback.message is not None:
-            await edit_message_if_changed(
-                callback.message,
-                text=result_fmt.photo_menu(results),
-                reply_markup=_repair_photo_menu_keyboard(results),
-            )
-        return
-
-    if action == superadmin_tournament_close_kb.AdminTournamentRepairAction.VIEW_PHOTOS:
-        if callback.message is not None:
-            await state.update_data(repair_photo_control_message_id=callback.message.message_id)
-        await _send_tournament_photos(
-            callback=callback,
-            tournament_id=tournament_id,
-            state=state,
-            context=_repair_photo_control_context(tournament_id),
-            restore_control=lambda: _restore_repair_photo_menu_control(callback, tournament_id),
-        )
-        return
-
-    if action == superadmin_tournament_close_kb.AdminTournamentRepairAction.DELETE_PHOTOS_CONFIRM:
-        await callback.answer()
-        if callback.message is not None:
-            await edit_message_if_changed(
-                callback.message,
-                text=result_fmt.delete_photos_confirmation(),
-                reply_markup=admin_results_kb.admin_result_delete_photos_confirmation_keyboard(
-                    tournament_id,
-                    back_callback=superadmin_tournament_close_kb.AdminTournamentRepairCallback(
-                        action=superadmin_tournament_close_kb.AdminTournamentRepairAction.PHOTOS,
-                        tournament_id=tournament_id,
-                    ),
-                    cancel_callback=superadmin_tournament_close_kb.AdminTournamentRepairCallback(
-                        action=superadmin_tournament_close_kb.AdminTournamentRepairAction.CANCEL,
-                        tournament_id=tournament_id,
-                    ),
-                ),
-            )
-        return
-
-    results = await result_service.delete_tournament_photos(
-        admin_telegram_id=callback.from_user.id,
-        tournament_id=tournament_id,
-    )
-    await callback.answer("Фото удалены.")
-    if callback.message is not None:
-        await edit_message_if_changed(
-            callback.message,
-            text=result_fmt.photo_menu(results),
-            reply_markup=_repair_photo_menu_keyboard(results),
-        )
-
-
-async def _handle_repair_combination_action(
-    callback: CallbackQuery,
-    callback_data: superadmin_tournament_close_kb.AdminTournamentRepairCallback,
-) -> None:
-    action = callback_data.action
-    if action == superadmin_tournament_close_kb.AdminTournamentRepairAction.COMBINATIONS:
-        combinations = await result_service.get_tournament_combinations(
-            admin_telegram_id=callback.from_user.id,
-            tournament_id=callback_data.tournament_id,
-        )
-        await callback.answer()
-        if callback.message is not None:
-            await edit_message_if_changed(
-                callback.message,
-                text=result_fmt.combinations_root(combinations),
-                reply_markup=superadmin_tournament_close_kb.admin_repair_combination_root_keyboard(
-                    combinations
-                ),
-            )
-        return
-
-    if action == superadmin_tournament_close_kb.AdminTournamentRepairAction.ADD_COMBINATION:
-        combinations = await result_service.get_tournament_combinations(
-            admin_telegram_id=callback.from_user.id,
-            tournament_id=callback_data.tournament_id,
-        )
-        await callback.answer()
-        if callback.message is not None:
-            await edit_message_if_changed(
-                callback.message,
-                text=result_fmt.combination_player_prompt(combinations),
-                reply_markup=superadmin_tournament_close_kb.admin_repair_combination_players_keyboard(
-                    combinations
-                ),
-            )
-        return
-
-    if (
-        action
-        == superadmin_tournament_close_kb.AdminTournamentRepairAction.SELECT_COMBINATION_PLAYER
-    ):
-        combinations = await result_service.get_tournament_combinations(
-            admin_telegram_id=callback.from_user.id,
-            tournament_id=callback_data.tournament_id,
-        )
-        player = next(
-            (item for item in combinations.players if item.player_id == callback_data.player_id),
-            None,
-        )
-        if player is None:
-            await callback.answer(text.ADMIN_RESULTS_NOT_FOUND, show_alert=True)
-            return
-        await callback.answer()
-        if callback.message is not None:
-            await edit_message_if_changed(
-                callback.message,
-                text=result_fmt.combination_type_prompt(player.display_name),
-                reply_markup=superadmin_tournament_close_kb.admin_repair_combination_types_keyboard(
-                    tournament_id=callback_data.tournament_id,
-                    player_id=callback_data.player_id,
-                ),
-            )
-        return
-
-    if action == superadmin_tournament_close_kb.AdminTournamentRepairAction.SAVE_COMBINATION:
-        combinations = await result_service.add_tournament_combination(
-            admin_telegram_id=callback.from_user.id,
-            tournament_id=callback_data.tournament_id,
-            player_id=callback_data.player_id,
-            combination_type=TournamentCombinationType(callback_data.combination_type),
-        )
-        await callback.answer("Комбинация добавлена.")
-        if callback.message is not None:
-            await edit_message_if_changed(
-                callback.message,
-                text=result_fmt.combinations_root(combinations),
-                reply_markup=superadmin_tournament_close_kb.admin_repair_combination_root_keyboard(
-                    combinations
-                ),
-            )
-        return
-
-    if action == superadmin_tournament_close_kb.AdminTournamentRepairAction.DELETE_COMBINATION_MENU:
-        combinations = await result_service.get_tournament_combinations(
-            admin_telegram_id=callback.from_user.id,
-            tournament_id=callback_data.tournament_id,
-        )
-        await callback.answer()
-        if callback.message is not None:
-            await edit_message_if_changed(
-                callback.message,
-                text=result_fmt.combination_delete_prompt(combinations),
-                reply_markup=superadmin_tournament_close_kb.admin_repair_combination_delete_keyboard(
-                    combinations
-                ),
-            )
-        return
-
-    combinations = await result_service.delete_tournament_combination(
-        admin_telegram_id=callback.from_user.id,
-        tournament_id=callback_data.tournament_id,
-        combination_id=callback_data.combination_id,
-    )
-    await callback.answer("Комбинация удалена.")
-    if callback.message is not None:
-        await edit_message_if_changed(
-            callback.message,
-            text=result_fmt.combinations_root(combinations),
-            reply_markup=superadmin_tournament_close_kb.admin_repair_combination_root_keyboard(
-                combinations
-            ),
-        )
-
-
 @router.message(AdminResultStates.entering_closed_result_replacement_search)
 async def enter_closed_result_replacement_search(message: Message, state: FSMContext) -> None:
     if message.from_user is None:
@@ -1408,132 +943,6 @@ async def enter_closed_result_replacement_search(message: Message, state: FSMCon
             current_player_id=current_player_id,
             players=players,
         ),
-    )
-
-
-@router.message(AdminResultStates.entering_repair_existing_player_search)
-async def enter_repair_existing_player_search(message: Message, state: FSMContext) -> None:
-    if message.from_user is None:
-        return
-    data = await state.get_data()
-    tournament_id = int(data["repair_tournament_id"])
-    try:
-        players = await result_service.search_existing_users_for_tournament(
-            admin_telegram_id=message.from_user.id,
-            tournament_id=tournament_id,
-            query=message.text or "",
-        )
-    except AdminAccessDeniedError:
-        await state.clear()
-        await message.answer(text.ACCESS_DENIED)
-        return
-    except ResultTournamentNotFoundError:
-        await state.clear()
-        await message.answer(text.ADMIN_RESULTS_NOT_FOUND)
-        return
-    except TournamentResultsEditingUnavailableError:
-        await state.clear()
-        await message.answer("Турнир недоступен для редактирования.")
-        return
-
-    if not players:
-        await message.answer("Игроки не найдены.")
-        return
-    await message.answer(
-        "Нашел игроков в базе:",
-        reply_markup=superadmin_tournament_close_kb.admin_repair_search_results_keyboard(
-            tournament_id=tournament_id,
-            players=players,
-        ),
-    )
-
-
-@router.message(AdminResultStates.entering_repair_new_player)
-async def enter_repair_new_player(message: Message, state: FSMContext) -> None:
-    if message.from_user is None:
-        return
-    data = await state.get_data()
-    tournament_id = int(data["repair_tournament_id"])
-    display_name = message.text or ""
-    try:
-        tournament, display_name = await result_service.get_new_player_add_confirmation(
-            admin_telegram_id=message.from_user.id,
-            tournament_id=tournament_id,
-            display_name=display_name,
-        )
-    except AdminAccessDeniedError:
-        await state.clear()
-        await message.answer(text.ACCESS_DENIED)
-        return
-    except ResultDuplicateNameError:
-        await message.answer("Такой игрок уже существует.\nИспользуй «Играл ранее».")
-        return
-    except TournamentResultsEditingUnavailableError:
-        await state.clear()
-        await message.answer("Турнир недоступен для редактирования.")
-        return
-    except (ResultTournamentNotFoundError, ValueError):
-        await message.answer("Введи корректное имя игрока.")
-        return
-
-    await state.set_state(AdminResultStates.confirming_repair_new_player)
-    await state.update_data(
-        repair_tournament_id=tournament_id,
-        repair_new_display_name=display_name,
-    )
-    await message.answer(
-        result_fmt.add_new_player_prompt(tournament, display_name),
-        reply_markup=superadmin_tournament_close_kb.admin_repair_add_new_confirmation_keyboard(
-            tournament_id=tournament_id
-        ),
-    )
-
-
-@router.message(AdminResultStates.collecting_repair_tournament_photos, F.photo)
-async def collect_repair_tournament_photo(message: Message, state: FSMContext) -> None:
-    if message.from_user is None or not message.photo:
-        return
-    data = await state.get_data()
-    tournament_id = int(data["repair_photo_tournament_id"])
-    photo = message.photo[-1]
-    try:
-        result = await result_service.add_tournament_photo(
-            admin_telegram_id=message.from_user.id,
-            tournament_id=tournament_id,
-            telegram_file_id=photo.file_id,
-            telegram_file_unique_id=photo.file_unique_id,
-        )
-    except AdminAccessDeniedError:
-        await state.clear()
-        await message.answer(text.ACCESS_DENIED)
-        return
-    except ResultTournamentNotFoundError:
-        await state.clear()
-        await message.answer(text.ADMIN_RESULTS_NOT_FOUND)
-        return
-    except TournamentResultsEditingUnavailableError:
-        await state.clear()
-        await message.answer("Турнир недоступен для редактирования.")
-        return
-    context = _repair_photo_control_context(tournament_id)
-    if message.media_group_id:
-        schedule_album_photo_control_refresh(
-            message,
-            state,
-            context,
-            count_provider=lambda: result_service.count_tournament_photos(
-                admin_telegram_id=message.from_user.id,
-                tournament_id=tournament_id,
-            ),
-            limit_reached=result.limit_reached,
-        )
-        return
-    await refresh_photo_control_message(
-        message,
-        state,
-        context,
-        photo_count=result.photo_count,
-        limit_reached=result.limit_reached,
     )
 
 
@@ -1638,25 +1047,6 @@ async def open_close_tournament_card_from_tournament_hub(
     )
 
 
-async def _edit_repair_tournament_card(
-    callback: CallbackQuery,
-    tournament_id: int,
-) -> None:
-    if callback.message is None:
-        return
-    readiness = await result_service.get_close_readiness(
-        superadmin_telegram_id=callback.from_user.id,
-        tournament_id=tournament_id,
-    )
-    await edit_message_if_changed(
-        callback.message,
-        text=result_fmt.correction_tournament_card(readiness),
-        reply_markup=superadmin_tournament_close_kb.admin_correction_tournament_card_keyboard(
-            readiness
-        ),
-    )
-
-
 async def _edit_closed_correction_list(callback: CallbackQuery, *, page: int) -> None:
     tournaments = await result_service.list_closed_tournaments_for_superadmin(callback.from_user.id)
     page_view = pagination_service.paginate(
@@ -1756,59 +1146,6 @@ async def _list_closed_tournaments_or_empty(superadmin_telegram_id: int) -> list
     return await list_closed(superadmin_telegram_id)
 
 
-def _repair_result_players_keyboard(results: object, page: object) -> object:
-    tournament_id = results.tournament.id
-    return admin_results_kb.admin_result_players_keyboard(
-        results,
-        page,
-        back_callback=superadmin_tournament_close_kb.AdminTournamentRepairCallback(
-            action=superadmin_tournament_close_kb.AdminTournamentRepairAction.OPEN,
-            tournament_id=tournament_id,
-        ),
-        cancel_callback=superadmin_tournament_close_kb.AdminTournamentRepairCallback(
-            action=superadmin_tournament_close_kb.AdminTournamentRepairAction.CANCEL,
-            tournament_id=tournament_id,
-        ),
-    )
-
-
-def _repair_photo_menu_keyboard(results: object) -> object:
-    tournament_id = results.tournament.id
-    return admin_results_kb.admin_result_photo_menu_keyboard(
-        results,
-        add_callback=superadmin_tournament_close_kb.AdminTournamentRepairCallback(
-            action=superadmin_tournament_close_kb.AdminTournamentRepairAction.ADD_PHOTO,
-            tournament_id=tournament_id,
-        ),
-        view_callback=superadmin_tournament_close_kb.AdminTournamentRepairCallback(
-            action=superadmin_tournament_close_kb.AdminTournamentRepairAction.VIEW_PHOTOS,
-            tournament_id=tournament_id,
-        ),
-        delete_callback=superadmin_tournament_close_kb.AdminTournamentRepairCallback(
-            action=superadmin_tournament_close_kb.AdminTournamentRepairAction.DELETE_PHOTOS_CONFIRM,
-            tournament_id=tournament_id,
-        ),
-        back_callback=superadmin_tournament_close_kb.AdminTournamentRepairCallback(
-            action=superadmin_tournament_close_kb.AdminTournamentRepairAction.OPEN,
-            tournament_id=tournament_id,
-        ),
-        cancel_callback=superadmin_tournament_close_kb.AdminTournamentRepairCallback(
-            action=superadmin_tournament_close_kb.AdminTournamentRepairAction.CANCEL,
-            tournament_id=tournament_id,
-        ),
-    )
-
-
-def _repair_photo_control_context(tournament_id: int) -> PhotoControlContext:
-    return PhotoControlContext(
-        tournament_id=tournament_id,
-        control_message_id_key="repair_photo_control_message_id",
-        reply_markup=superadmin_tournament_close_kb.admin_repair_photo_collect_keyboard(
-            tournament_id
-        ),
-    )
-
-
 async def _return_to_superadmin_menu(callback: CallbackQuery, message_text: str) -> None:
     if callback.message is None:
         return
@@ -1901,12 +1238,11 @@ async def _edit_close_tournament_root(
     )
     closed_tournaments = await _list_closed_tournaments_or_empty(callback.from_user.id)
     ready = [item for item in tournaments if item.is_ready]
-    problematic = [item for item in tournaments if not item.is_ready]
     await state.clear()
     await callback.answer()
     if callback.message is None:
         return
-    if not ready and not problematic and not closed_tournaments:
+    if not ready and not closed_tournaments:
         await _delete_callback_message(callback)
         await send_superadmin_panel(
             callback.message,
@@ -1924,7 +1260,6 @@ async def _edit_close_tournament_root(
         text=result_fmt.close_tournament_list(page_view),
         reply_markup=superadmin_tournament_close_kb.admin_close_tournament_list_keyboard(
             page_view,
-            has_correction_targets=bool(tournaments),
             has_closed_correction_targets=bool(closed_tournaments),
         ),
     )
@@ -2001,9 +1336,6 @@ async def enter_tournament_fund(message: Message, state: FSMContext) -> None:
 async def _send_tournament_photos(
     callback: CallbackQuery,
     tournament_id: int,
-    state: FSMContext | None = None,
-    context: PhotoControlContext | None = None,
-    restore_control: Callable[[], Awaitable[int | None]] | None = None,
 ) -> None:
     try:
         photos = await result_service.list_tournament_photos(
@@ -2022,15 +1354,6 @@ async def _send_tournament_photos(
     await callback.answer()
     if callback.message is None:
         return
-    if state is not None and context is not None and restore_control is not None:
-        await send_media_then_restore_control(
-            callback.message,
-            state,
-            context,
-            media_sender=lambda: _send_photo_media(callback.message, photos),
-            restore_control=restore_control,
-        )
-        return
     await _send_photo_media(callback.message, photos)
 
 
@@ -2041,23 +1364,6 @@ async def _send_photo_media(message: Message, photos: list[object]) -> None:
     await message.answer_media_group(
         [InputMediaPhoto(media=photo.telegram_file_id) for photo in photos]
     )
-
-
-async def _restore_repair_photo_menu_control(
-    callback: CallbackQuery,
-    tournament_id: int,
-) -> int | None:
-    if callback.message is None:
-        return None
-    results = await result_service.get_tournament_results(
-        admin_telegram_id=callback.from_user.id,
-        tournament_id=tournament_id,
-    )
-    sent = await callback.message.answer(
-        result_fmt.photo_menu(results),
-        reply_markup=_repair_photo_menu_keyboard(results),
-    )
-    return sent.message_id
 
 
 def _message_identity(message: Message | None) -> tuple[int, int] | None:

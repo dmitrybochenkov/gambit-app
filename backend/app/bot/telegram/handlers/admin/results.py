@@ -21,7 +21,6 @@ from app.bot.telegram.handlers.superadmin.navigation import send_superadmin_pane
 from app.bot.telegram.keyboards import labels
 from app.bot.telegram.keyboards.admin import panel as admin_panel_kb
 from app.bot.telegram.keyboards.admin import results as admin_results_kb
-from app.bot.telegram.keyboards.superadmin import tournament_close as superadmin_tournament_close_kb
 from app.bot.telegram.message_edit import edit_message_if_changed
 from app.bot.telegram.photo_collection import (
     PhotoControlContext,
@@ -443,7 +442,7 @@ async def select_result_player(
             await callback.message.answer(result_text.admin_result_check_failed(error.errors))
         return
 
-    await _clear_result_state_preserving_return_context(state)
+    await state.clear()
 
     await callback.answer()
     if callback.message is not None:
@@ -481,7 +480,7 @@ async def select_result_field(
             await _return_from_result_cancel(callback, result_text.ADMIN_RESULTS_CANCELLED)
             return
 
-        await _clear_result_state_preserving_return_context(state)
+        await state.clear()
 
         if callback_data.field == admin_results_kb.AdminResultField.BONUS:
             await state.set_state(AdminResultStates.entering_manual_value)
@@ -546,15 +545,11 @@ async def select_result_value(
 ) -> None:
     try:
         if callback_data.action == admin_results_kb.AdminResultValueAction.CANCEL:
-            return_to_superadmin = (
-                await _superadmin_repair_tournament_id(state) == callback_data.tournament_id
-            )
             await state.clear()
             await callback.answer(result_text.ADMIN_RESULTS_CANCELLED)
             await _return_from_result_cancel(
                 callback,
                 result_text.ADMIN_RESULTS_CANCELLED,
-                return_to_superadmin=return_to_superadmin,
             )
             return
 
@@ -571,7 +566,7 @@ async def select_result_value(
             if player is None:
                 await callback.answer(result_text.PLAYER_NOT_FOUND, show_alert=True)
                 return
-            await _clear_result_state_preserving_return_context(state)
+            await state.clear()
             await callback.answer(result_text.ADMIN_RESULTS_SAVED)
             if callback.message is not None:
                 await edit_message_if_changed(
@@ -596,7 +591,7 @@ async def select_result_value(
             return
 
         if callback_data.action == admin_results_kb.AdminResultValueAction.BACK:
-            await _clear_result_state_preserving_return_context(state)
+            await state.clear()
             await callback.answer()
             if callback.message is not None:
                 await edit_message_if_changed(
@@ -882,20 +877,6 @@ async def _admin_result_players_keyboard(
     page: object,
     state: FSMContext,
 ) -> object:
-    repair_tournament_id = await _superadmin_repair_tournament_id(state)
-    if repair_tournament_id == results.tournament.id:
-        return admin_results_kb.admin_result_players_keyboard(
-            results,
-            page,
-            back_callback=superadmin_tournament_close_kb.AdminTournamentRepairCallback(
-                action=superadmin_tournament_close_kb.AdminTournamentRepairAction.OPEN,
-                tournament_id=results.tournament.id,
-            ),
-            cancel_callback=superadmin_tournament_close_kb.AdminTournamentRepairCallback(
-                action=superadmin_tournament_close_kb.AdminTournamentRepairAction.CANCEL,
-                tournament_id=results.tournament.id,
-            ),
-        )
     return admin_results_kb.admin_result_players_keyboard(
         results,
         page,
@@ -922,41 +903,7 @@ async def _admin_result_player_fields_keyboard(
             page=page,
             player_id=0,
         ),
-        cancel_callback=await _result_cancel_callback(results.tournament.id, state),
     )
-
-
-async def _superadmin_repair_tournament_id(state: FSMContext) -> int | None:
-    if not hasattr(state, "get_data"):
-        return None
-    data = await state.get_data()
-    if data.get("result_return_context") != "superadmin_repair":
-        return None
-    tournament_id = data.get("repair_tournament_id")
-    return tournament_id if isinstance(tournament_id, int) else None
-
-
-async def _clear_result_state_preserving_return_context(state: FSMContext) -> None:
-    if not hasattr(state, "get_data") or not hasattr(state, "update_data"):
-        await state.clear()
-        return
-    data = await state.get_data()
-    context = {
-        key: data[key] for key in ("result_return_context", "repair_tournament_id") if key in data
-    }
-    await state.clear()
-    if context:
-        await state.update_data(**context)
-
-
-async def _result_cancel_callback(tournament_id: int, state: FSMContext) -> object | None:
-    repair_tournament_id = await _superadmin_repair_tournament_id(state)
-    if repair_tournament_id == tournament_id:
-        return superadmin_tournament_close_kb.AdminTournamentRepairCallback(
-            action=superadmin_tournament_close_kb.AdminTournamentRepairAction.CANCEL,
-            tournament_id=tournament_id,
-        )
-    return None
 
 
 def _admin_result_photo_menu_keyboard(results: object) -> object:
@@ -1066,7 +1013,7 @@ async def enter_result_manual_value(message: Message, state: FSMContext) -> None
         await message.answer(result_text.PLAYER_NOT_FOUND)
         return
     reply_markup = await _admin_result_player_fields_keyboard(results, player, page_number, state)
-    await _clear_result_state_preserving_return_context(state)
+    await state.clear()
     await _delete_message_by_id(
         message,
         int(data.get("result_prompt_message_id", 0)),

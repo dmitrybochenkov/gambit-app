@@ -118,31 +118,6 @@ def close_tournament_list(page: object) -> str:
     return "\n".join(lines)
 
 
-def correction_tournament_list(page: object) -> str:
-    lines = ["🛠 Корректировать турниры", ""]
-    for readiness in page.items:
-        lines.append(tournament_fmt.label(readiness.tournament))
-        lines.append("✅ Готов к закрытию" if readiness.is_ready else _readiness_warning(readiness))
-        lines.append("")
-    if lines[-1] == "":
-        lines.pop()
-    if page.total_pages > 1:
-        lines.extend(["", fmt_common.page_line(page)])
-    return "\n".join(lines)
-
-
-def correction_tournament_card(readiness: object) -> str:
-    return "\n".join(
-        [
-            "🛠 Корректировка турнира",
-            "",
-            tournament_fmt.label(readiness.tournament),
-            "",
-            "✅ Готов к закрытию" if readiness.is_ready else _readiness_warning(readiness),
-        ]
-    )
-
-
 def closed_correction_tournament_list(page: object) -> str:
     lines = ["✏️ Править закрытый турнир", ""]
     if not page.items:
