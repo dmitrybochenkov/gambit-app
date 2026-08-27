@@ -8,10 +8,7 @@ from app.common.clock import Clock, club_clock
 from app.config import settings
 from app.db.factories import create_user
 from app.db.models import Tournament
-from app.db.models.enums import (
-    TournamentResultSource,
-    TournamentStatus,
-)
+from app.db.models.enums import TournamentResultSource, UserRole
 from app.db.repositories.tournament_registration_repository import (
     TournamentRegistrationRepository,
 )
@@ -19,6 +16,10 @@ from app.db.repositories.tournament_repository import TournamentRepository
 from app.db.repositories.tournament_result_repository import TournamentResultRepository
 from app.db.repositories.user_repository import UserRepository
 from app.db.session import SessionFactory
+from app.domain.open_tournament_edit_policy import (
+    can_edit_open_tournament_for_actor,
+    is_superadmin_late_open_tournament_override,
+)
 from app.domain.tournament_day import resolve_tournament_day
 from app.services.access_policy import access_policy
 from app.services.dto.check_in import (
@@ -83,10 +84,13 @@ class TournamentCheckInService:
 
     async def list_today_tournaments(self, admin_telegram_id: int) -> list[TournamentView]:
         async with self.session_factory() as session:
-            await access_policy.require_admin(session, admin_telegram_id)
-            tournaments = await TournamentRepository(session).list_active_on_date(
-                self._tournament_day()
-            )
+            actor = await access_policy.require_admin(session, admin_telegram_id)
+            business_date = self._tournament_day()
+            repository = TournamentRepository(session)
+            if actor.role == UserRole.SUPERADMIN:
+                tournaments = await repository.list_active_on_or_before(business_date)
+            else:
+                tournaments = await repository.list_active_on_date(business_date)
             return [tournament_view(tournament) for tournament in tournaments]
 
     async def get_check_in(
@@ -95,9 +99,13 @@ class TournamentCheckInService:
         tournament_id: int,
     ) -> TournamentCheckInView:
         async with self.session_factory() as session:
-            await access_policy.require_admin(session, admin_telegram_id)
-            tournament = await self._require_today_tournament(session, tournament_id)
-            return await self._check_in_view(session, tournament.id)
+            actor = await access_policy.require_admin(session, admin_telegram_id)
+            tournament = await self._require_editable_tournament_for_actor(
+                session,
+                tournament_id,
+                actor_role=actor.role,
+            )
+            return await self._check_in_view(session, tournament.id, actor_role=actor.role)
 
     async def get_checked_in_players(
         self,
@@ -105,8 +113,12 @@ class TournamentCheckInService:
         tournament_id: int,
     ) -> CheckedInPlayersView:
         async with self.session_factory() as session:
-            await access_policy.require_admin(session, admin_telegram_id)
-            tournament = await self._require_today_tournament(session, tournament_id)
+            actor = await access_policy.require_admin(session, admin_telegram_id)
+            tournament = await self._require_editable_tournament_for_actor(
+                session,
+                tournament_id,
+                actor_role=actor.role,
+            )
             rows = await TournamentResultRepository(session).list_checked_in_with_users(
                 tournament.id
             )
@@ -128,8 +140,12 @@ class TournamentCheckInService:
         query: str,
     ) -> list[CheckInCandidateView]:
         async with self.session_factory() as session:
-            await access_policy.require_admin(session, admin_telegram_id)
-            tournament = await self._require_today_tournament(session, tournament_id)
+            actor = await access_policy.require_admin(session, admin_telegram_id)
+            tournament = await self._require_editable_tournament_for_actor(
+                session,
+                tournament_id,
+                actor_role=actor.role,
+            )
             players = await self._registered_candidates(session, tournament.id)
             return _score_check_in_players(players, query)
 
@@ -140,8 +156,12 @@ class TournamentCheckInService:
         query: str,
     ) -> list[UserView]:
         async with self.session_factory() as session:
-            await access_policy.require_admin(session, admin_telegram_id)
-            tournament = await self._require_today_tournament(session, tournament_id)
+            actor = await access_policy.require_admin(session, admin_telegram_id)
+            tournament = await self._require_editable_tournament_for_actor(
+                session,
+                tournament_id,
+                actor_role=actor.role,
+            )
             checked_in_player_ids = await TournamentResultRepository(
                 session
             ).list_checked_in_player_ids(tournament.id)
@@ -168,8 +188,12 @@ class TournamentCheckInService:
     ) -> tuple[str, list[UserView], bool]:
         normalized = validate_display_name(display_name)
         async with self.session_factory() as session:
-            await access_policy.require_admin(session, admin_telegram_id)
-            tournament = await self._require_today_tournament(session, tournament_id)
+            actor = await access_policy.require_admin(session, admin_telegram_id)
+            tournament = await self._require_editable_tournament_for_actor(
+                session,
+                tournament_id,
+                actor_role=actor.role,
+            )
             checked_in_player_ids = await TournamentResultRepository(
                 session
             ).list_checked_in_player_ids(tournament.id)
@@ -195,8 +219,12 @@ class TournamentCheckInService:
         user_id: int,
     ) -> CheckInResultView:
         async with self.session_factory() as session:
-            await access_policy.require_admin(session, admin_telegram_id)
-            tournament = await self._require_today_tournament(session, tournament_id)
+            actor = await access_policy.require_admin(session, admin_telegram_id)
+            tournament = await self._require_editable_tournament_for_actor(
+                session,
+                tournament_id,
+                actor_role=actor.role,
+            )
             user = await self._get_active_check_in_user(session, user_id)
             return CheckInResultView(tournament_view(tournament), required_user_view(user), False)
 
@@ -208,8 +236,12 @@ class TournamentCheckInService:
     ) -> tuple[TournamentView, str]:
         validate_display_name(display_name)
         async with self.session_factory() as session:
-            await access_policy.require_admin(session, admin_telegram_id)
-            tournament = await self._require_today_tournament(session, tournament_id)
+            actor = await access_policy.require_admin(session, admin_telegram_id)
+            tournament = await self._require_editable_tournament_for_actor(
+                session,
+                tournament_id,
+                actor_role=actor.role,
+            )
             return tournament_view(tournament), display_name
 
     async def check_in_registered(
@@ -220,7 +252,11 @@ class TournamentCheckInService:
     ) -> CheckInResultView:
         async with self.session_factory() as session:
             admin = await access_policy.require_admin(session, admin_telegram_id)
-            tournament = await self._require_today_tournament(session, tournament_id)
+            tournament = await self._require_editable_tournament_for_actor(
+                session,
+                tournament_id,
+                actor_role=admin.role,
+            )
             registration_exists = await TournamentRegistrationRepository(session).exists(
                 tournament.id,
                 user_id,
@@ -256,7 +292,11 @@ class TournamentCheckInService:
     ) -> CheckInResultView:
         async with self.session_factory() as session:
             admin = await access_policy.require_admin(session, admin_telegram_id)
-            tournament = await self._require_today_tournament(session, tournament_id)
+            tournament = await self._require_editable_tournament_for_actor(
+                session,
+                tournament_id,
+                actor_role=admin.role,
+            )
             user = await self._get_active_check_in_user(session, user_id)
             if await TournamentRegistrationRepository(session).exists(tournament.id, user.id):
                 raise TournamentCheckInRegisteredUserError
@@ -289,7 +329,11 @@ class TournamentCheckInService:
         normalized = validate_display_name(display_name)
         async with self.session_factory() as session:
             admin = await access_policy.require_admin(session, admin_telegram_id)
-            tournament = await self._require_today_tournament(session, tournament_id)
+            tournament = await self._require_editable_tournament_for_actor(
+                session,
+                tournament_id,
+                actor_role=admin.role,
+            )
             existing_names = await UserRepository(session).list_by_display_name_normalized(
                 normalized
             )
@@ -322,17 +366,22 @@ class TournamentCheckInService:
                 rewards,
             )
 
-    async def _require_today_tournament(
+    async def _require_editable_tournament_for_actor(
         self,
         session: AsyncSession,
         tournament_id: int,
+        *,
+        actor_role: UserRole,
     ) -> Tournament:
         tournament = await TournamentRepository(session).get_by_id(tournament_id)
         if tournament is None:
             raise TournamentCheckInNotFoundError
-        if (
-            tournament.status != TournamentStatus.ACTIVE
-            or tournament.date != self._tournament_day()
+        if not can_edit_open_tournament_for_actor(
+            actor_role=actor_role,
+            tournament_status=tournament.status,
+            tournament_date=tournament.date,
+            business_date=self._tournament_day(),
+            admin_current_day_only=True,
         ):
             raise TournamentCheckInClosedError
         return tournament
@@ -398,6 +447,8 @@ class TournamentCheckInService:
         self,
         session: AsyncSession,
         tournament_id: int,
+        *,
+        actor_role: UserRole,
     ) -> TournamentCheckInView:
         tournament = await TournamentRepository(session).get_by_id(tournament_id)
         if tournament is None:
@@ -427,6 +478,12 @@ class TournamentCheckInService:
             registered_checked_in_count=registered_checked_in_count,
             checked_in_count=len(checked_results),
             walk_in_count=walk_in_count,
+            is_superadmin_late_override=is_superadmin_late_open_tournament_override(
+                actor_role=actor_role,
+                tournament_status=tournament.status,
+                tournament_date=tournament.date,
+                business_date=self._tournament_day(),
+            ),
         )
 
 

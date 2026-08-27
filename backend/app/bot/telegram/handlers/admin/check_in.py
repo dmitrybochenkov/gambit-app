@@ -12,7 +12,6 @@ from app.bot.telegram.handlers.admin.shared import (
 from app.bot.telegram.keyboards import labels
 from app.bot.telegram.keyboards.admin import check_in as admin_check_in_kb
 from app.bot.telegram.keyboards.admin import panel as admin_panel_kb
-from app.bot.telegram.keyboards.admin import results as admin_results_kb
 from app.bot.telegram.message_edit import (
     edit_message_if_changed,
     edit_message_reply_markup_by_id_if_changed,
@@ -63,11 +62,11 @@ async def show_admin_check_in(message: Message) -> None:
         page = pagination_service.paginate(
             tournaments,
             page=0,
-            page_size=admin_results_kb.ADMIN_RESULT_PAGE_SIZE,
+            page_size=admin_check_in_kb.ADMIN_CHECK_IN_PAGE_SIZE,
         )
         await message.answer(
             check_in_fmt.tournament_list(page),
-            reply_markup=admin_results_kb.admin_result_tournament_list_keyboard(page),
+            reply_markup=admin_check_in_kb.admin_check_in_tournament_list_keyboard(page),
         )
         return
 
@@ -92,6 +91,9 @@ async def select_check_in_action(
             await state.clear()
             await callback.answer(result_text.ADMIN_RESULTS_CANCELLED)
             await _return_to_admin_menu(callback, result_text.ADMIN_RESULTS_CANCELLED)
+            return
+
+        if await _handle_check_in_tournament_navigation(callback, callback_data):
             return
 
         if callback_data.action == admin_check_in_kb.AdminCheckInAction.BACK:
@@ -435,6 +437,45 @@ async def _send_check_in_notification(
         )
     except (TelegramBadRequest, TelegramForbiddenError):
         logger.info("Failed to send check-in notification", exc_info=True)
+
+
+async def _handle_check_in_tournament_navigation(
+    callback: CallbackQuery,
+    callback_data: admin_check_in_kb.AdminCheckInCallback,
+) -> bool:
+    if callback_data.action == admin_check_in_kb.AdminCheckInAction.PAGE_TOURNAMENTS:
+        tournaments = await tournament_check_in_service.list_today_tournaments(
+            callback.from_user.id
+        )
+        page = pagination_service.paginate(
+            tournaments,
+            page=callback_data.page,
+            page_size=admin_check_in_kb.ADMIN_CHECK_IN_PAGE_SIZE,
+        )
+        await callback.answer()
+        if callback.message is not None:
+            await edit_message_if_changed(
+                callback.message,
+                text=check_in_fmt.tournament_list(page),
+                reply_markup=admin_check_in_kb.admin_check_in_tournament_list_keyboard(page),
+            )
+        return True
+
+    if callback_data.action == admin_check_in_kb.AdminCheckInAction.OPEN_TOURNAMENT:
+        view = await tournament_check_in_service.get_check_in(
+            admin_telegram_id=callback.from_user.id,
+            tournament_id=callback_data.tournament_id,
+        )
+        await callback.answer()
+        if callback.message is not None:
+            await edit_message_if_changed(
+                callback.message,
+                text=check_in_fmt.summary(view),
+                reply_markup=admin_check_in_kb.admin_check_in_keyboard(view),
+            )
+        return True
+
+    return False
 
 
 async def _return_to_admin_menu(callback: CallbackQuery, message_text: str) -> None:

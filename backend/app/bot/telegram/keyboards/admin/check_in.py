@@ -8,6 +8,7 @@ from app.bot.telegram.formatters import common as fmt_common
 from app.bot.telegram.keyboards import labels
 from app.bot.telegram.keyboards.admin.common import _admin_candidate_page_label
 from app.services.dto.check_in import CheckInCandidateView, TournamentCheckInView
+from app.services.dto.tournaments import TournamentView
 from app.services.dto.users import UserView
 from app.services.pagination import Page
 
@@ -15,6 +16,8 @@ ADMIN_CHECK_IN_PAGE_SIZE = 6
 
 
 class AdminCheckInAction(StrEnum):
+    OPEN_TOURNAMENT = "open_tournament"
+    PAGE_TOURNAMENTS = "page_tournaments"
     SHOW_CHECKED_IN = "show_checked_in"
     CONFIRM_REGISTERED = "confirm_registered"
     ADD_REGISTERED = "add_registered"
@@ -83,6 +86,61 @@ def admin_check_in_keyboard(
         ),
     )
     builder.adjust(1)
+    return builder.as_markup()
+
+
+def admin_check_in_tournament_list_keyboard(
+    page: Page[TournamentView],
+) -> InlineKeyboardMarkup:
+    builder = InlineKeyboardBuilder()
+    for tournament in page.items:
+        builder.button(
+            text=str(tournament.id),
+            callback_data=AdminCheckInCallback(
+                action=AdminCheckInAction.OPEN_TOURNAMENT,
+                tournament_id=tournament.id,
+                page=page.page,
+            ),
+        )
+    if page.total_pages > 1:
+        if page.has_previous:
+            builder.button(
+                text="⬅️",
+                callback_data=AdminCheckInCallback(
+                    action=AdminCheckInAction.PAGE_TOURNAMENTS,
+                    tournament_id=0,
+                    page=page.previous_page,
+                ),
+            )
+        builder.button(
+            text=_admin_candidate_page_label(page),
+            callback_data=AdminCheckInCallback(
+                action=AdminCheckInAction.PAGE_TOURNAMENTS,
+                tournament_id=0,
+                page=page.page,
+            ),
+        )
+        if page.has_next:
+            builder.button(
+                text="➡️",
+                callback_data=AdminCheckInCallback(
+                    action=AdminCheckInAction.PAGE_TOURNAMENTS,
+                    tournament_id=0,
+                    page=page.next_page,
+                ),
+            )
+    builder.button(
+        text=labels.ADMIN_CANCEL,
+        callback_data=AdminCheckInCallback(
+            action=AdminCheckInAction.CANCEL,
+            tournament_id=0,
+        ),
+    )
+    item_rows = [3] * (len(page.items) // 3)
+    if len(page.items) % 3:
+        item_rows.append(len(page.items) % 3)
+    footer_rows = ([3] if page.total_pages > 1 else []) + [1]
+    builder.adjust(*item_rows, *footer_rows)
     return builder.as_markup()
 
 

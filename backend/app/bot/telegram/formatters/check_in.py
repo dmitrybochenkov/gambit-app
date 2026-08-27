@@ -23,8 +23,16 @@ def summary(view: object) -> str:
         "",
         f"Всего в турнире: {view.checked_in_count}",
         "",
-        "Выбери тип игрока:",
     ]
+    if getattr(view, "is_superadmin_late_override", False):
+        lines.extend(
+            [
+                "Обычное окно чекина закрыто.",
+                "Для суперадмина доступен ручной чекин до закрытия турнира.",
+                "",
+            ]
+        )
+    lines.append("Выбери тип игрока:")
     return "\n".join(lines)
 
 

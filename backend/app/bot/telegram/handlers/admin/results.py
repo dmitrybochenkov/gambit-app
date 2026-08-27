@@ -41,8 +41,6 @@ from app.services.result_service import (
     ResultCombinationNotFoundError,
     ResultInvalidPlayerDataError,
     ResultService,
-    ResultTodayTournamentInvariantViolationError,
-    ResultTodayTournamentNotFoundError,
     ResultTournamentNotFoundError,
     ResultUserNotFoundError,
     ResultValidationError,
@@ -85,20 +83,36 @@ async def show_result_tournaments(message: Message) -> None:
         return
 
     try:
-        results = await result_service.get_today_tournament_results(message.from_user.id)
+        tournaments = await result_service.list_editable_tournaments(message.from_user.id)
     except AdminAccessDeniedError:
         await message.answer(panel_text.ACCESS_DENIED)
         return
-    except ResultTodayTournamentNotFoundError:
+    if not tournaments:
         await message.answer(
             "На сегодня нет активного турнира.",
             reply_markup=admin_results_kb.admin_result_root_no_today_keyboard(),
         )
         return
-    except ResultTodayTournamentInvariantViolationError:
-        await message.answer(
-            "Не удалось определить сегодняшний турнир.\nОбратитесь к суперадминистратору."
+
+    if len(tournaments) > 1:
+        page = pagination_service.paginate(
+            tournaments,
+            page=0,
+            page_size=admin_results_kb.ADMIN_RESULT_PAGE_SIZE,
         )
+        await message.answer(
+            result_fmt.tournament_list(page),
+            reply_markup=admin_results_kb.admin_result_tournament_list_keyboard(page),
+        )
+        return
+
+    try:
+        results = await result_service.get_tournament_results(
+            admin_telegram_id=message.from_user.id,
+            tournament_id=tournaments[0].id,
+        )
+    except TournamentResultsEditingUnavailableError:
+        await message.answer(result_text.ADMIN_RESULTS_EDITING_UNAVAILABLE)
         return
 
     await message.answer(
@@ -106,6 +120,48 @@ async def show_result_tournaments(message: Message) -> None:
         reply_markup=admin_results_kb.admin_result_root_keyboard(results),
         parse_mode=RESULT_SUMMARY_PARSE_MODE,
     )
+
+
+@router.callback_query(admin_results_kb.AdminResultTournamentCallback.filter())
+async def select_result_tournament_action(
+    callback: CallbackQuery,
+    callback_data: admin_results_kb.AdminResultTournamentCallback,
+) -> None:
+    try:
+        if callback_data.action == admin_results_kb.AdminResultTournamentAction.CANCEL:
+            await callback.answer(result_text.ADMIN_RESULTS_CANCELLED)
+            await _return_to_admin_menu(callback, result_text.ADMIN_RESULTS_CANCELLED)
+            return
+        if callback_data.action == admin_results_kb.AdminResultTournamentAction.PAGE:
+            tournaments = await result_service.list_editable_tournaments(callback.from_user.id)
+            page = pagination_service.paginate(
+                tournaments,
+                page=callback_data.page,
+                page_size=admin_results_kb.ADMIN_RESULT_PAGE_SIZE,
+            )
+            await callback.answer()
+            if callback.message is not None:
+                await edit_message_if_changed(
+                    callback.message,
+                    text=result_fmt.tournament_list(page),
+                    reply_markup=admin_results_kb.admin_result_tournament_list_keyboard(page),
+                )
+            return
+        if callback_data.action == admin_results_kb.AdminResultTournamentAction.OPEN:
+            results = await result_service.get_tournament_results(
+                admin_telegram_id=callback.from_user.id,
+                tournament_id=callback_data.tournament_id,
+            )
+            await callback.answer()
+            await _show_result_root_from_callback(callback, results)
+            return
+    except AdminAccessDeniedError:
+        await callback.answer(panel_text.ACCESS_DENIED, show_alert=True)
+        return
+    except (ResultTournamentNotFoundError, TournamentResultsEditingUnavailableError):
+        await callback.answer(result_text.ADMIN_RESULTS_NOT_FOUND, show_alert=True)
+        return
+    await callback.answer(result_text.ADMIN_RESULTS_NOT_FOUND, show_alert=True)
 
 
 @router.callback_query(admin_results_kb.AdminResultMenuCallback.filter())

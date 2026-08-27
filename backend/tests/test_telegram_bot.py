@@ -1415,6 +1415,22 @@ def test_check_in_summary_mixed_sources() -> None:
     assert "Ещё не отмечены" not in rendered
 
 
+def test_check_in_summary_shows_superadmin_late_override_hint() -> None:
+    view = SimpleNamespace(
+        tournament=tournament_view(125, date(2026, 8, 9), 1, "Баунти турнир"),
+        registered_count=1,
+        registered_checked_in_count=0,
+        walk_in_count=0,
+        checked_in_count=0,
+        is_superadmin_late_override=True,
+    )
+
+    rendered = check_in_fmt.summary(view)
+
+    assert "Обычное окно чекина закрыто." in rendered
+    assert "Для суперадмина доступен ручной чекин до закрытия турнира." in rendered
+
+
 def test_checked_in_players_empty_state() -> None:
     view = SimpleNamespace(players=[], total_count=0)
 

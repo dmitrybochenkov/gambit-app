@@ -48,6 +48,15 @@ def management_root(results: object) -> str:
     return "\n".join(lines)
 
 
+def tournament_list(page: object) -> str:
+    lines = ["Выбери турнир:", ""]
+    for tournament in page.items:
+        lines.append(f"{tournament.id} — {tournament_fmt.label(tournament)}")
+    if page.total_pages > 1:
+        lines.extend(["", fmt_common.page_line(page)])
+    return "\n".join(lines)
+
+
 def photo_menu(results: object) -> str:
     return "\n".join(
         [

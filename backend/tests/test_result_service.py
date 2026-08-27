@@ -45,6 +45,7 @@ from app.services.result_service import (
     ResultTodayTournamentNotFoundError,
     ResultTournamentNotFoundError,
     ResultUserNotFoundError,
+    TournamentResultsEditingUnavailableError,
 )
 
 
@@ -1669,7 +1670,7 @@ async def test_results_use_checked_in_rows_not_pre_registrations(tmp_path: Path)
     await engine.dispose()
 
 
-async def test_stale_yesterday_result_callback_is_rejected_without_mutation(
+async def test_admin_previous_open_result_callback_uses_existing_result_policy(
     tmp_path: Path,
 ) -> None:
     engine = create_async_engine(f"sqlite+aiosqlite:///{tmp_path / 'stale_results.db'}")
@@ -1735,4 +1736,249 @@ async def test_stale_yesterday_result_callback_is_rejected_without_mutation(
             )
         ).scalar_one()
     assert stored.place == 1
+    await engine.dispose()
+
+
+async def test_superadmin_can_edit_previous_open_tournament_results_photos_and_combinations(
+    tmp_path: Path,
+) -> None:
+    engine = create_async_engine(f"sqlite+aiosqlite:///{tmp_path / 'superadmin_open_edit.db'}")
+    async with engine.begin() as connection:
+        await connection.run_sync(Base.metadata.create_all)
+
+    session_factory = async_sessionmaker(engine, expire_on_commit=False)
+    async with session_factory() as session:
+        config = ScoringConfig()
+        session.add(config)
+        await session.flush()
+        await seed_tournament_types_async(session)
+        session.add(
+            TournamentTypeRule(
+                tournament_type_id=tournament_type_id("classic"),
+                knockout_mode=KnockoutMode.SMALL_BIG,
+            )
+        )
+        season = Season(
+            name="Test season",
+            scoring_config_id=config.id,
+            starts_at=date(2026, 7, 1),
+            ends_at=None,
+        )
+        superadmin = build_player(
+            telegram_id=100,
+            display_name="Superadmin",
+            status=UserStatus.ACTIVE,
+            role=UserRole.SUPERADMIN,
+        )
+        player = build_player(telegram_id=101, display_name="Player", status=UserStatus.ACTIVE)
+        session.add_all([season, superadmin, player])
+        await session.flush()
+        tournament = Tournament(
+            season_id=season.id,
+            tournament_type_id=tournament_type_id("classic"),
+            date=date(2026, 7, 19),
+            status=TournamentStatus.ACTIVE,
+        )
+        session.add(tournament)
+        await session.flush()
+        session.add(
+            TournamentResult(
+                tournament_id=tournament.id,
+                player_id=player.id,
+                source=TournamentResultSource.REGISTERED,
+                checked_in_by_user_id=superadmin.id,
+            )
+        )
+        await session.commit()
+        tournament_id = tournament.id
+        player_id = player.id
+
+    service = ResultService(
+        session_factory,
+        clock=FixedClock(datetime(2026, 7, 20, 12, tzinfo=ZoneInfo("Europe/Moscow"))),
+    )
+
+    results = await service.update_player_result_field(
+        100,
+        tournament_id,
+        player_id,
+        ResultField.PLACE,
+        1,
+    )
+    photo = await service.add_tournament_photo(
+        100,
+        tournament_id,
+        telegram_file_id="file-1",
+        telegram_file_unique_id="unique-1",
+    )
+    combinations = await service.add_tournament_combination(
+        100,
+        tournament_id,
+        player_id,
+        TournamentCombinationType.STRAIGHT_FLUSH,
+    )
+
+    assert ResultService.find_result_player(results, player_id).place == 1
+    assert photo.created is True
+    assert [combination.player_id for combination in combinations.combinations] == [player_id]
+    await engine.dispose()
+
+
+async def test_result_tournament_navigation_preserves_admin_scope_and_expands_superadmin(
+    tmp_path: Path,
+) -> None:
+    engine = create_async_engine(f"sqlite+aiosqlite:///{tmp_path / 'editable_tournaments.db'}")
+    async with engine.begin() as connection:
+        await connection.run_sync(Base.metadata.create_all)
+
+    session_factory = async_sessionmaker(engine, expire_on_commit=False)
+    async with session_factory() as session:
+        config = ScoringConfig()
+        session.add(config)
+        await session.flush()
+        await seed_tournament_types_async(session)
+        season = Season(
+            name="Test season",
+            scoring_config_id=config.id,
+            starts_at=date(2026, 7, 1),
+            ends_at=None,
+        )
+        admin = build_player(
+            telegram_id=100,
+            display_name="Admin",
+            status=UserStatus.ACTIVE,
+            role=UserRole.ADMIN,
+        )
+        superadmin = build_player(
+            telegram_id=101,
+            display_name="Superadmin",
+            status=UserStatus.ACTIVE,
+            role=UserRole.SUPERADMIN,
+        )
+        session.add_all([season, admin, superadmin])
+        await session.flush()
+        previous = Tournament(
+            season_id=season.id,
+            tournament_type_id=tournament_type_id("classic"),
+            date=date(2026, 7, 19),
+            status=TournamentStatus.ACTIVE,
+        )
+        current = Tournament(
+            season_id=season.id,
+            tournament_type_id=tournament_type_id("freezeout"),
+            date=date(2026, 7, 20),
+            status=TournamentStatus.ACTIVE,
+        )
+        future = Tournament(
+            season_id=season.id,
+            tournament_type_id=tournament_type_id("bounty"),
+            date=date(2026, 7, 21),
+            status=TournamentStatus.ACTIVE,
+        )
+        session.add_all([previous, current, future])
+        await session.commit()
+        previous_id = previous.id
+        current_id = current.id
+
+    service = ResultService(
+        session_factory,
+        clock=FixedClock(datetime(2026, 7, 20, 12, tzinfo=ZoneInfo("Europe/Moscow"))),
+    )
+
+    admin_tournaments = await service.list_editable_tournaments(100)
+    superadmin_tournaments = await service.list_editable_tournaments(101)
+
+    assert [tournament.id for tournament in admin_tournaments] == [current_id]
+    assert [tournament.id for tournament in superadmin_tournaments] == [
+        current_id,
+        previous_id,
+    ]
+    await engine.dispose()
+
+
+async def test_superadmin_open_edit_rejects_future_and_closed_tournaments(
+    tmp_path: Path,
+) -> None:
+    engine = create_async_engine(f"sqlite+aiosqlite:///{tmp_path / 'superadmin_open_edit_gate.db'}")
+    async with engine.begin() as connection:
+        await connection.run_sync(Base.metadata.create_all)
+
+    session_factory = async_sessionmaker(engine, expire_on_commit=False)
+    async with session_factory() as session:
+        config = ScoringConfig()
+        session.add(config)
+        await session.flush()
+        await seed_tournament_types_async(session)
+        season = Season(
+            name="Test season",
+            scoring_config_id=config.id,
+            starts_at=date(2026, 7, 1),
+            ends_at=None,
+        )
+        superadmin = build_player(
+            telegram_id=100,
+            display_name="Superadmin",
+            status=UserStatus.ACTIVE,
+            role=UserRole.SUPERADMIN,
+        )
+        player = build_player(telegram_id=101, display_name="Player", status=UserStatus.ACTIVE)
+        session.add_all([season, superadmin, player])
+        await session.flush()
+        closed = Tournament(
+            season_id=season.id,
+            tournament_type_id=tournament_type_id("classic"),
+            date=date(2026, 7, 19),
+            status=TournamentStatus.CLOSED,
+            tournament_fund=1000,
+        )
+        future = Tournament(
+            season_id=season.id,
+            tournament_type_id=tournament_type_id("classic"),
+            date=date(2026, 7, 21),
+            status=TournamentStatus.ACTIVE,
+        )
+        session.add_all([closed, future])
+        await session.flush()
+        session.add_all(
+            [
+                TournamentResult(
+                    tournament_id=closed.id,
+                    player_id=player.id,
+                    source=TournamentResultSource.REGISTERED,
+                    checked_in_by_user_id=superadmin.id,
+                ),
+                TournamentResult(
+                    tournament_id=future.id,
+                    player_id=player.id,
+                    source=TournamentResultSource.REGISTERED,
+                    checked_in_by_user_id=superadmin.id,
+                ),
+            ]
+        )
+        await session.commit()
+        closed_id = closed.id
+        future_id = future.id
+        player_id = player.id
+
+    service = ResultService(
+        session_factory,
+        clock=FixedClock(datetime(2026, 7, 20, 12, tzinfo=ZoneInfo("Europe/Moscow"))),
+    )
+
+    with pytest.raises(ResultTournamentNotFoundError):
+        await service.update_player_result_field(
+            100,
+            closed_id,
+            player_id,
+            ResultField.PLACE,
+            1,
+        )
+    with pytest.raises(TournamentResultsEditingUnavailableError):
+        await service.update_player_result_field(
+            100,
+            future_id,
+            player_id,
+            ResultField.PLACE,
+            1,
+        )
     await engine.dispose()

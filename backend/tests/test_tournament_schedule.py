@@ -41,7 +41,10 @@ from app.services.dto.schedules import (
     WeeklyScheduleTournamentView,
     WeeklyScheduleView,
 )
-from app.services.tournament_check_in_service import TournamentCheckInService
+from app.services.tournament_check_in_service import (
+    TournamentCheckInClosedError,
+    TournamentCheckInService,
+)
 from app.services.tournament_service import (
     TournamentRegistrationAlreadyCheckedInError,
     TournamentService,
@@ -695,6 +698,123 @@ async def test_check_in_uses_tournament_day_before_start_hour(
         assert [tournament.id for tournament in today_at_start] == [current_tournament_id]
         assert check_in.tournament.id == previous_tournament_id
         assert check_in.created is True
+    finally:
+        await engine.dispose()
+
+
+async def test_admin_cannot_check_in_previous_open_tournament_after_business_day(
+    tmp_path: Path,
+) -> None:
+    engine = create_async_engine(f"sqlite+aiosqlite:///{tmp_path / 'admin_late_check_in.db'}")
+    async with engine.begin() as connection:
+        await connection.run_sync(Base.metadata.create_all)
+
+    session_factory = async_sessionmaker(engine, expire_on_commit=False)
+    async with session_factory() as session:
+        config = ScoringConfig()
+        session.add(config)
+        await session.flush()
+        await seed_tournament_types_async(session)
+        season = Season(
+            name="Test season",
+            scoring_config_id=config.id,
+            starts_at=date(2026, 7, 1),
+            ends_at=None,
+        )
+        admin = build_player(
+            telegram_id=100,
+            display_name="Admin",
+            status=UserStatus.ACTIVE,
+            role=UserRole.ADMIN,
+        )
+        player = build_player(telegram_id=101, display_name="Player", status=UserStatus.ACTIVE)
+        session.add_all([season, admin, player])
+        await session.flush()
+        tournament = Tournament(
+            season_id=season.id,
+            tournament_type_id=tournament_type_id("classic"),
+            date=date(2026, 7, 9),
+            status=TournamentStatus.ACTIVE,
+        )
+        session.add(tournament)
+        await session.flush()
+        session.add(TournamentRegistration(tournament_id=tournament.id, player_id=player.id))
+        await session.commit()
+        tournament_id = tournament.id
+        player_id = player.id
+
+    service = TournamentCheckInService(
+        session_factory,
+        clock=FixedClock(datetime(2026, 7, 10, 12, tzinfo=ZoneInfo("Europe/Moscow"))),
+    )
+    try:
+        with pytest.raises(TournamentCheckInClosedError):
+            await service.check_in_registered(
+                admin_telegram_id=100,
+                tournament_id=tournament_id,
+                user_id=player_id,
+            )
+    finally:
+        await engine.dispose()
+
+
+async def test_superadmin_can_check_in_previous_open_tournament_with_late_hint(
+    tmp_path: Path,
+) -> None:
+    engine = create_async_engine(f"sqlite+aiosqlite:///{tmp_path / 'superadmin_late_check_in.db'}")
+    async with engine.begin() as connection:
+        await connection.run_sync(Base.metadata.create_all)
+
+    session_factory = async_sessionmaker(engine, expire_on_commit=False)
+    async with session_factory() as session:
+        config = ScoringConfig()
+        session.add(config)
+        await session.flush()
+        await seed_tournament_types_async(session)
+        season = Season(
+            name="Test season",
+            scoring_config_id=config.id,
+            starts_at=date(2026, 7, 1),
+            ends_at=None,
+        )
+        superadmin = build_player(
+            telegram_id=100,
+            display_name="Superadmin",
+            status=UserStatus.ACTIVE,
+            role=UserRole.SUPERADMIN,
+        )
+        player = build_player(telegram_id=101, display_name="Player", status=UserStatus.ACTIVE)
+        session.add_all([season, superadmin, player])
+        await session.flush()
+        tournament = Tournament(
+            season_id=season.id,
+            tournament_type_id=tournament_type_id("classic"),
+            date=date(2026, 7, 9),
+            status=TournamentStatus.ACTIVE,
+        )
+        session.add(tournament)
+        await session.flush()
+        session.add(TournamentRegistration(tournament_id=tournament.id, player_id=player.id))
+        await session.commit()
+        tournament_id = tournament.id
+        player_id = player.id
+
+    service = TournamentCheckInService(
+        session_factory,
+        clock=FixedClock(datetime(2026, 7, 10, 12, tzinfo=ZoneInfo("Europe/Moscow"))),
+    )
+    try:
+        tournaments = await service.list_today_tournaments(100)
+        view = await service.get_check_in(100, tournament_id)
+        result = await service.check_in_registered(
+            admin_telegram_id=100,
+            tournament_id=tournament_id,
+            user_id=player_id,
+        )
+
+        assert [tournament.id for tournament in tournaments] == [tournament_id]
+        assert view.is_superadmin_late_override is True
+        assert result.created is True
     finally:
         await engine.dispose()
 

@@ -21,6 +21,7 @@ class TournamentCheckInView:
     registered_checked_in_count: int
     checked_in_count: int
     walk_in_count: int
+    is_superadmin_late_override: bool = False
 
 
 @dataclass(frozen=True)

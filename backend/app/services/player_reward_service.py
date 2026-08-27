@@ -6,7 +6,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from app.common.clock import Clock, club_clock
 from app.config import settings
 from app.db.models import PlayerReward, Tournament
-from app.db.models.enums import PlayerRewardType, TournamentStatus
+from app.db.models.enums import PlayerRewardType
 from app.db.repositories.player_reward_repository import (
     PlayerRewardReminderRow,
     PlayerRewardRepository,
@@ -17,6 +17,7 @@ from app.db.repositories.tournament_result_repository import TournamentResultRep
 from app.db.repositories.tournament_type_repository import TournamentTypeRepository
 from app.db.repositories.user_repository import UserRepository
 from app.db.session import SessionFactory
+from app.domain.open_tournament_edit_policy import can_edit_open_tournament_for_actor
 from app.domain.tournament_day import resolve_tournament_day
 from app.services.access_policy import access_policy
 from app.services.dto.rewards import (
@@ -125,12 +126,14 @@ class PlayerRewardService:
     ) -> tuple[PlayerRewardView, ...]:
         business_date = self._tournament_day()
         async with self.session_factory() as session:
-            await access_policy.require_admin(session, admin_telegram_id)
+            actor = await access_policy.require_admin(session, admin_telegram_id)
             tournament = await TournamentRepository(session).get_by_id(tournament_id)
-            if (
-                tournament is None
-                or tournament.date != business_date
-                or tournament.status != TournamentStatus.ACTIVE
+            if tournament is None or not can_edit_open_tournament_for_actor(
+                actor_role=actor.role,
+                tournament_status=tournament.status,
+                tournament_date=tournament.date,
+                business_date=business_date,
+                admin_current_day_only=True,
             ):
                 raise PlayerRewardNotFoundError
             return await self._list_active_reward_views(session, player_id, business_date)
@@ -181,10 +184,12 @@ class PlayerRewardService:
             ):
                 raise PlayerRewardAlreadyRedeemedTodayError
             tournament = await TournamentRepository(session).get_by_id(tournament_id)
-            if (
-                tournament is None
-                or tournament.date != business_date
-                or tournament.status != TournamentStatus.ACTIVE
+            if tournament is None or not can_edit_open_tournament_for_actor(
+                actor_role=admin.role,
+                tournament_status=tournament.status,
+                tournament_date=tournament.date,
+                business_date=business_date,
+                admin_current_day_only=True,
             ):
                 raise PlayerRewardNotFoundError
 
