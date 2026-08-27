@@ -119,7 +119,7 @@ def close_tournament_list(page: object) -> str:
 
 
 def closed_correction_tournament_list(page: object) -> str:
-    lines = ["✏️ Править закрытый турнир", ""]
+    lines = ["🔒 Закрытые турниры", ""]
     if not page.items:
         lines.append("Закрытых турниров нет.")
     else:
@@ -133,24 +133,130 @@ def closed_correction_tournament_list(page: object) -> str:
 def closed_correction_tournament_card(results: object) -> str:
     return "\n".join(
         [
-            "✏️ Правка закрытого турнира",
+            "🔒 Закрытый турнир",
             "",
+            tournament_fmt.label(results.tournament),
+            "",
+            f"Игроков: {len(results.players)}",
+            f"Фонд: {_fund_label(results.tournament_fund)}",
+            "Статус: 🔒 Закрыт",
+        ]
+    )
+
+
+def closed_correction_players(results: object) -> str:
+    lines = [
+        "👥 Игроки",
+        "",
+        tournament_fmt.label(results.tournament),
+        "",
+    ]
+    if not results.players:
+        lines.append("Игроков пока нет.")
+    else:
+        lines.extend(player.display_name for player in results.players)
+    return "\n".join(lines)
+
+
+def closed_add_player_search_prompt(results: object) -> str:
+    return "\n".join(
+        [
+            "Добавить игрока",
+            "",
+            tournament_fmt.label(results.tournament),
+            "",
+            "Введи имя игрока из базы.",
+        ]
+    )
+
+
+def closed_add_player_confirmation(results: object, user: object) -> str:
+    return "\n".join(
+        [
+            "Добавить игрока в закрытый турнир?",
+            "",
+            user.display_name,
             tournament_fmt.label(results.tournament),
         ]
     )
 
 
+def closed_delete_player_confirmation(results: object, player: object) -> str:
+    lines = [
+        "Удалить игрока из турнира?",
+        "",
+        tournament_fmt.label(results.tournament),
+        f"Игрок: {player.display_name}",
+        "",
+        f"Место: {_place_label(player.place) if player.place is not None else '—'}",
+    ]
+    if results.knockout_mode in {"small", "small_big"}:
+        lines.append(f"KO: {player.knockouts_count}")
+    if results.knockout_mode == "small_big":
+        lines.append(f"BKO: {player.big_knockouts_count}")
+    if results.supports_bonus_points:
+        lines.append(f"{results.bonus_points_label}: {player.bonus_points}")
+    lines.extend(
+        [
+            "",
+            "Будет удалено участие только в этом турнире.",
+            "Игрок останется в базе.",
+        ]
+    )
+    return "\n".join(lines)
+
+
+def closed_fund_card(results: object) -> str:
+    return "\n".join(
+        [
+            "💰 Фонд турнира",
+            "",
+            tournament_fmt.label(results.tournament),
+            "",
+            f"Текущий фонд: {_fund_label(results.tournament_fund)}",
+        ]
+    )
+
+
+def closed_fund_prompt(results: object) -> str:
+    return "\n".join(
+        [
+            "Введите новый фонд турнира.",
+            "",
+            tournament_fmt.label(results.tournament),
+            f"Сейчас: {_fund_label(results.tournament_fund)}",
+        ]
+    )
+
+
 def closed_correction_summary(result: object) -> str:
-    if not result.result_changes:
+    fund_changed = result.fund_before != result.fund_after
+    if not result.result_changes and not fund_changed:
         return "Изменений нет."
     lines = [
-        f"Турнир {fmt_common.date_long(result.tournament_date)} изменён.",
+        "Проверь исправления перед применением.",
         "",
+        "Что изменилось:",
     ]
+    if fund_changed:
+        lines.append(f"Фонд: {_fund_label(result.fund_before)} → {_fund_label(result.fund_after)}")
     for player in result.result_changes:
         lines.append(player.display_name)
         lines.extend(f"{field.label}: {field.before} → {field.after}" for field in player.fields)
         lines.append("")
+    if result.before_results is not None and result.after_results is not None:
+        if lines[-1] != "":
+            lines.append("")
+        lines.extend(
+            [
+                "БЫЛО",
+                *_game_table_lines(result.before_results, include_all_players=True),
+                "",
+                "СТАЛО",
+                *_game_table_lines(result.after_results, include_all_players=True),
+                "",
+            ]
+        )
     if result.reward_changes:
         lines.append("Бонусы:")
         for reward in result.reward_changes:
@@ -162,6 +268,12 @@ def closed_correction_summary(result: object) -> str:
     if lines[-1] == "":
         lines.pop()
     return "\n".join(lines)
+
+
+def _fund_label(value: int | None) -> str:
+    if value is None:
+        return "—"
+    return fmt_common.decimal(value)
 
 
 def _reward_change_line(reward: object) -> str:

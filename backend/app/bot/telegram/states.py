@@ -35,4 +35,6 @@ class AdminResultStates(StatesGroup):
     entering_new_check_in_player = State()
     confirming_new_check_in_player = State()
     collecting_tournament_photos = State()
+    entering_closed_add_player_search = State()
     entering_closed_result_replacement_search = State()
+    entering_closed_tournament_fund = State()

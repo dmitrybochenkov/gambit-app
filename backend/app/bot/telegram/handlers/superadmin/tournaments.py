@@ -66,7 +66,7 @@ async def select_tournament_hub_action(
                 )
             return
 
-        hub = await tournament_planning_service.get_superadmin_tournament_hub(callback.from_user.id)
+        await tournament_planning_service.get_superadmin_tournament_hub(callback.from_user.id)
     except AdminAccessDeniedError:
         await state.clear()
         await callback.answer(panel_text.INSUFFICIENT_RIGHTS, show_alert=True)
@@ -96,15 +96,14 @@ async def select_tournament_hub_action(
         await _edit_open_tournament_list(callback, page=0)
         return
 
-    await callback.answer()
-    if callback.message is not None:
-        await edit_message_if_changed(
-            callback.message,
-            text=text.CLOSED_TOURNAMENTS_PLACEHOLDER,
-            reply_markup=superadmin_tournaments_kb.tournament_hub_keyboard(
-                hub.open_tournaments_count
-            ),
-        )
+    from app.bot.telegram.handlers.superadmin import (
+        tournament_close as superadmin_close_handlers,
+    )
+
+    await superadmin_close_handlers.open_closed_tournament_list_from_tournament_hub(
+        callback=callback,
+        page=0,
+    )
 
 
 @router.callback_query(superadmin_tournaments_kb.SuperadminOpenTournamentCallback.filter())

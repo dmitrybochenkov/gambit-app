@@ -1149,7 +1149,6 @@ def test_closed_correction_keyboards_are_separate_from_publish_flow() -> None:
     page = Page(items=[tournament], page=0, page_size=6, total_items=1)
     root = superadmin_tournament_close_kb.admin_close_tournament_list_keyboard(
         Page(items=[], page=0, page_size=6, total_items=0),
-        has_closed_correction_targets=True,
     )
     listing = superadmin_tournament_close_kb.admin_closed_correction_tournament_list_keyboard(page)
     card = superadmin_tournament_close_kb.admin_closed_correction_card_keyboard(
@@ -1157,10 +1156,12 @@ def test_closed_correction_keyboards_are_separate_from_publish_flow() -> None:
         page=0,
     )
 
-    assert "✏️ Править закрытый турнир" in inline_keyboard_texts(root)
+    assert "✏️ Править закрытый турнир" not in inline_keyboard_texts(root)
     assert inline_keyboard_texts(listing)[:1] == ["22.08 — Double Double"]
     assert inline_keyboard_texts(card) == [
-        "🏁 Внести данные",
+        "👥 Игроки",
+        "📊 Результаты",
+        "💰 Фонд",
         "✅ Завершить исправление",
         "⬅️ Назад",
         "❌ Отмена",
@@ -6263,19 +6264,29 @@ async def test_superadmin_open_tournament_delete_cancel_returns_root(
     assert message.answer.await_args.args[0] == "Суперадмин."
 
 
-async def test_superadmin_tournament_hub_closed_is_placeholder(
+async def test_superadmin_tournament_hub_closed_shows_closed_list(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    tournament = TournamentView(
+        id=12,
+        date=date(2026, 8, 26),
+        tournament_type_id=5,
+        tournament_type_name="Mystery Bounty",
+    )
     planning_service = SimpleNamespace(
         get_superadmin_tournament_hub=AsyncMock(
             return_value=SuperadminTournamentHubView(open_tournaments_count=2)
         )
+    )
+    result_service_mock = SimpleNamespace(
+        list_closed_tournaments_for_superadmin=AsyncMock(return_value=[tournament])
     )
     monkeypatch.setattr(
         superadmin_tournament_handlers,
         "tournament_planning_service",
         planning_service,
     )
+    monkeypatch.setattr(superadmin_close_handlers, "result_service", result_service_mock)
     state = MutableState()
     message = SimpleNamespace(edit_text=AsyncMock())
     callback = SimpleNamespace(
@@ -6293,8 +6304,9 @@ async def test_superadmin_tournament_hub_closed_is_placeholder(
     )
 
     planning_service.get_superadmin_tournament_hub.assert_awaited_once_with(100)
+    result_service_mock.list_closed_tournaments_for_superadmin.assert_awaited_once_with(100)
     assert message.edit_text.await_args.args[0] == (
-        "Раздел закрытых турниров будет доступен следующим этапом."
+        "🔒 Закрытые турниры\n\nСреда, 26 августа — Mystery Bounty"
     )
 
 

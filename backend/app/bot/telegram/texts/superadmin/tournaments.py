@@ -7,5 +7,4 @@ OPEN_TOURNAMENT_DELETE_WARNING = "Будут удалены данные игр�
 OPEN_TOURNAMENT_PLAYER_DELETED = "Игрок удалён из турнира."
 OPEN_TOURNAMENT_PLAYER_STALE = "Игрок уже не найден в этом турнире."
 OPEN_TOURNAMENT_DELETE_REWARD_CONFLICT = "Нельзя удалить игрока: для этого турнира уже есть бонус."
-CLOSED_TOURNAMENTS_PLACEHOLDER = "Раздел закрытых турниров будет доступен следующим этапом."
 TOURNAMENT_PLANNING_UNAVAILABLE = "Расписание недоступно."

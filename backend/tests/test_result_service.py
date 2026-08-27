@@ -41,6 +41,7 @@ from app.services.result_service import (
     ResultDuplicateNameError,
     ResultInvalidFundError,
     ResultInvalidPlayerDataError,
+    ResultPlayerAlreadyAddedError,
     ResultPlayerRewardConflictError,
     ResultService,
     ResultTodayTournamentNotFoundError,
@@ -1318,6 +1319,76 @@ async def test_closed_correction_stale_draft_is_rejected(tmp_path: Path) -> None
     with pytest.raises(ClosedTournamentCorrectionStaleError):
         await service.apply_closed_tournament_correction(100, draft)
     await engine.dispose()
+
+
+async def test_closed_correction_add_delete_and_fund_are_draft_only(tmp_path: Path) -> None:
+    service, session_factory, engine, ids = await _build_open_delete_service(
+        tmp_path / "closed-draft-only.db",
+        tournament_status=TournamentStatus.CLOSED,
+    )
+    try:
+        draft = await service.begin_closed_tournament_correction(100, ids["tournament"])
+
+        candidates = await service.search_closed_draft_add_player_users(
+            100,
+            draft,
+            query="Только",
+        )
+        assert [candidate.id for candidate in candidates] == [ids["other_only"]]
+
+        draft = await service.add_closed_tournament_draft_existing_player(
+            100,
+            draft,
+            user_id=ids["other_only"],
+        )
+        draft = await service.delete_closed_tournament_draft_player(
+            100,
+            draft,
+            player_id=ids["second"],
+        )
+        draft = await service.update_closed_tournament_draft_fund(100, draft, 2000)
+        draft_results = await service.get_closed_tournament_draft_results(100, draft)
+
+        assert {player.player_id for player in draft_results.players} == {
+            ids["first"],
+            ids["other_only"],
+        }
+        assert draft_results.tournament_fund == 2000
+
+        async with session_factory() as session:
+            persisted_results = (
+                await session.execute(
+                    select(TournamentResult).where(
+                        TournamentResult.tournament_id == ids["tournament"]
+                    )
+                )
+            ).scalars()
+            persisted_player_ids = {result.player_id for result in persisted_results}
+            tournament = await session.get(Tournament, ids["tournament"])
+            assert tournament is not None
+
+        assert persisted_player_ids == {ids["first"], ids["second"]}
+        assert tournament.tournament_fund == 10
+    finally:
+        await engine.dispose()
+
+
+async def test_closed_correction_duplicate_draft_player_is_rejected(tmp_path: Path) -> None:
+    service, _session_factory, engine, ids = await _build_open_delete_service(
+        tmp_path / "closed-duplicate-player.db",
+        tournament_status=TournamentStatus.CLOSED,
+    )
+    try:
+        draft = await service.begin_closed_tournament_correction(100, ids["tournament"])
+
+        with pytest.raises(ResultPlayerAlreadyAddedError):
+            await service.add_closed_tournament_draft_existing_player(
+                100,
+                draft,
+                user_id=ids["first"],
+            )
+    finally:
+        await engine.dispose()
 
 
 async def test_add_existing_player_to_past_tournament_creates_zero_result(

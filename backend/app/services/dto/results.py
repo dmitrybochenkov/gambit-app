@@ -20,6 +20,7 @@ class TournamentResultPlayerView:
     bonus_points: int = 0
     tournament_points: Decimal = Decimal("0")
     knockout_points: Decimal = Decimal("0")
+    result_id: int | None = None
 
     @property
     def total_points(self) -> Decimal:
@@ -49,11 +50,14 @@ class TournamentResultSnapshotItemView:
     knockouts_count: int
     big_knockouts_count: int
     bonus_points: int
+    result_id: int | None = None
 
 
 @dataclass(frozen=True)
 class ClosedTournamentCorrectionDraftView:
     tournament_id: int
+    original_tournament_fund: int | None
+    proposed_tournament_fund: int | None
     original_results: tuple[TournamentResultSnapshotItemView, ...]
     proposed_results: tuple[TournamentResultSnapshotItemView, ...]
 
@@ -81,6 +85,10 @@ class ClosedTournamentCorrectionResultView:
     reward_changes: tuple[PlayerRewardCorrectionChangeView, ...]
     used_reward_warnings: tuple[PlayerRewardCorrectionChangeView, ...]
     player_notifications: tuple[PlayerRewardCorrectionNotificationView, ...]
+    before_results: object | None = None
+    after_results: object | None = None
+    fund_before: int | None = None
+    fund_after: int | None = None
 
 
 @dataclass(frozen=True)

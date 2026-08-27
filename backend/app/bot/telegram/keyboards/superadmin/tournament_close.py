@@ -17,7 +17,6 @@ class AdminCloseTournamentAction(StrEnum):
     OPEN = "open"
     PAGE = "page"
     BACK = "back"
-    CLOSED_CORRECTION_LIST = "closed_correction"
     VIEW_PHOTOS = "view_photos"
     CONFIRM = "confirm"
     CHANGE_FUND = "change_fund"
@@ -35,9 +34,13 @@ class AdminCloseTournamentCallback(CallbackData, prefix="close_tour"):
 class AdminClosedCorrectionAction(StrEnum):
     OPEN = "open"
     PAGE = "page"
+    PLAYERS = "players"
     DATA = "data"
+    FUND = "fund"
+    FUND_INPUT = "fund_input"
     FINISH = "finish"
     CONFIRM = "confirm"
+    BACK_TO_HUB = "back_to_hub"
     BACK = "back"
     CANCEL = "cancel"
 
@@ -51,6 +54,12 @@ class AdminClosedCorrectionCallback(CallbackData, prefix="closed_corr"):
 class AdminClosedResultPlayerAction(StrEnum):
     OPEN = "open"
     PAGE = "page"
+    ADD_SEARCH = "add_search"
+    ADD_CONFIRM = "add_confirm"
+    ADD_APPLY = "add_apply"
+    DELETE_LIST = "delete_list"
+    DELETE_PREVIEW = "delete_preview"
+    DELETE_APPLY = "delete_apply"
     REPLACE = "replace"
     CANCEL = "cancel"
 
@@ -60,6 +69,7 @@ class AdminClosedResultPlayerCallback(CallbackData, prefix="closed_player"):
     tournament_id: int
     page: int
     player_id: int = 0
+    target_player_id: int = 0
 
 
 class AdminClosedResultField(StrEnum):
@@ -97,6 +107,17 @@ class AdminClosedResultValueCallback(CallbackData, prefix="closed_value"):
     value: int = 0
 
 
+class AdminClosedFundAction(StrEnum):
+    BACK = "back"
+    CANCEL = "cancel"
+
+
+class AdminClosedFundCallback(CallbackData, prefix="closed_fund"):
+    action: AdminClosedFundAction
+    tournament_id: int
+    page: int
+
+
 class AdminClosedResultReplacementAction(StrEnum):
     CONFIRM = "confirm"
     APPLY = "apply"
@@ -112,11 +133,7 @@ class AdminClosedResultReplacementCallback(CallbackData, prefix="closed_replace"
     new_player_id: int = 0
 
 
-def admin_close_tournament_list_keyboard(
-    page: Page[object],
-    *,
-    has_closed_correction_targets: bool = False,
-) -> InlineKeyboardMarkup:
+def admin_close_tournament_list_keyboard(page: Page[object]) -> InlineKeyboardMarkup:
     builder = InlineKeyboardBuilder()
     for readiness in page.items:
         if not readiness.is_ready:
@@ -129,14 +146,6 @@ def admin_close_tournament_list_keyboard(
                 action=AdminCloseTournamentAction.OPEN,
                 page=page.page,
                 tournament_id=tournament.id,
-            ),
-        )
-    if has_closed_correction_targets:
-        builder.button(
-            text="✏️ Править закрытый турнир",
-            callback_data=AdminCloseTournamentCallback(
-                action=AdminCloseTournamentAction.CLOSED_CORRECTION_LIST,
-                page=0,
             ),
         )
     if page.total_pages > 1:
@@ -174,8 +183,6 @@ def admin_close_tournament_list_keyboard(
         ),
     )
     item_rows = [1] * len([item for item in page.items if item.is_ready])
-    if has_closed_correction_targets:
-        item_rows.append(1)
     _adjust_paged_keyboard(builder, page, item_rows=item_rows)
     return builder.as_markup()
 
@@ -222,8 +229,8 @@ def admin_closed_correction_tournament_list_keyboard(
             )
     builder.button(
         text="⬅️ Назад",
-        callback_data=AdminCloseTournamentCallback(
-            action=AdminCloseTournamentAction.BACK,
+        callback_data=AdminClosedCorrectionCallback(
+            action=AdminClosedCorrectionAction.BACK_TO_HUB,
             page=0,
         ),
     )
@@ -244,9 +251,25 @@ def admin_closed_correction_card_keyboard(
 ) -> InlineKeyboardMarkup:
     builder = InlineKeyboardBuilder()
     builder.button(
-        text="🏁 Внести данные",
+        text="👥 Игроки",
+        callback_data=AdminClosedCorrectionCallback(
+            action=AdminClosedCorrectionAction.PLAYERS,
+            tournament_id=tournament_id,
+            page=page,
+        ),
+    )
+    builder.button(
+        text="📊 Результаты",
         callback_data=AdminClosedCorrectionCallback(
             action=AdminClosedCorrectionAction.DATA,
+            tournament_id=tournament_id,
+            page=page,
+        ),
+    )
+    builder.button(
+        text="💰 Фонд",
+        callback_data=AdminClosedCorrectionCallback(
+            action=AdminClosedCorrectionAction.FUND,
             tournament_id=tournament_id,
             page=page,
         ),
@@ -293,7 +316,7 @@ def admin_closed_correction_preview_keyboard(
         ),
     )
     builder.button(
-        text="⬅️ Назад",
+        text="✏️ Продолжить правки",
         callback_data=AdminClosedCorrectionCallback(
             action=AdminClosedCorrectionAction.OPEN,
             tournament_id=tournament_id,
@@ -304,6 +327,245 @@ def admin_closed_correction_preview_keyboard(
         text=labels.ADMIN_CANCEL,
         callback_data=AdminClosedCorrectionCallback(
             action=AdminClosedCorrectionAction.CANCEL,
+            tournament_id=tournament_id,
+            page=page,
+        ),
+    )
+    builder.adjust(1)
+    return builder.as_markup()
+
+
+def admin_closed_players_menu_keyboard(
+    *,
+    tournament_id: int,
+    page: int,
+) -> InlineKeyboardMarkup:
+    builder = InlineKeyboardBuilder()
+    builder.button(
+        text="➕ Добавить игрока",
+        callback_data=AdminClosedResultPlayerCallback(
+            action=AdminClosedResultPlayerAction.ADD_SEARCH,
+            tournament_id=tournament_id,
+            page=page,
+        ),
+    )
+    builder.button(
+        text="🗑 Удалить игрока",
+        callback_data=AdminClosedResultPlayerCallback(
+            action=AdminClosedResultPlayerAction.DELETE_LIST,
+            tournament_id=tournament_id,
+            page=page,
+        ),
+    )
+    builder.button(
+        text="⬅️ Назад",
+        callback_data=AdminClosedCorrectionCallback(
+            action=AdminClosedCorrectionAction.OPEN,
+            tournament_id=tournament_id,
+            page=page,
+        ),
+    )
+    builder.button(
+        text=labels.ADMIN_CANCEL,
+        callback_data=AdminClosedResultPlayerCallback(
+            action=AdminClosedResultPlayerAction.CANCEL,
+            tournament_id=tournament_id,
+            page=page,
+        ),
+    )
+    builder.adjust(1)
+    return builder.as_markup()
+
+
+def admin_closed_add_player_search_results_keyboard(
+    *,
+    tournament_id: int,
+    page: int,
+    players: list[object],
+) -> InlineKeyboardMarkup:
+    builder = InlineKeyboardBuilder()
+    for player in players:
+        builder.button(
+            text=player.display_name,
+            callback_data=AdminClosedResultPlayerCallback(
+                action=AdminClosedResultPlayerAction.ADD_CONFIRM,
+                tournament_id=tournament_id,
+                page=page,
+                target_player_id=player.id,
+            ),
+        )
+    builder.button(
+        text="⬅️ Назад",
+        callback_data=AdminClosedCorrectionCallback(
+            action=AdminClosedCorrectionAction.PLAYERS,
+            tournament_id=tournament_id,
+            page=page,
+        ),
+    )
+    builder.button(
+        text=labels.ADMIN_CANCEL,
+        callback_data=AdminClosedResultPlayerCallback(
+            action=AdminClosedResultPlayerAction.CANCEL,
+            tournament_id=tournament_id,
+            page=page,
+        ),
+    )
+    builder.adjust(*([1] * len(players)), 1, 1)
+    return builder.as_markup()
+
+
+def admin_closed_add_player_confirmation_keyboard(
+    *,
+    tournament_id: int,
+    page: int,
+    target_player_id: int,
+) -> InlineKeyboardMarkup:
+    builder = InlineKeyboardBuilder()
+    builder.button(
+        text="✅ Добавить",
+        callback_data=AdminClosedResultPlayerCallback(
+            action=AdminClosedResultPlayerAction.ADD_APPLY,
+            tournament_id=tournament_id,
+            page=page,
+            target_player_id=target_player_id,
+        ),
+    )
+    builder.button(
+        text="⬅️ Назад",
+        callback_data=AdminClosedResultPlayerCallback(
+            action=AdminClosedResultPlayerAction.ADD_SEARCH,
+            tournament_id=tournament_id,
+            page=page,
+        ),
+    )
+    builder.button(
+        text=labels.ADMIN_CANCEL,
+        callback_data=AdminClosedResultPlayerCallback(
+            action=AdminClosedResultPlayerAction.CANCEL,
+            tournament_id=tournament_id,
+            page=page,
+        ),
+    )
+    builder.adjust(1)
+    return builder.as_markup()
+
+
+def admin_closed_delete_player_list_keyboard(
+    results: TournamentResultsView,
+    *,
+    page: int,
+) -> InlineKeyboardMarkup:
+    builder = InlineKeyboardBuilder()
+    for player in results.players:
+        builder.button(
+            text=player.display_name,
+            callback_data=AdminClosedResultPlayerCallback(
+                action=AdminClosedResultPlayerAction.DELETE_PREVIEW,
+                tournament_id=results.tournament.id,
+                page=page,
+                player_id=player.player_id,
+            ),
+        )
+    builder.button(
+        text="⬅️ Назад",
+        callback_data=AdminClosedCorrectionCallback(
+            action=AdminClosedCorrectionAction.PLAYERS,
+            tournament_id=results.tournament.id,
+            page=page,
+        ),
+    )
+    builder.button(
+        text=labels.ADMIN_CANCEL,
+        callback_data=AdminClosedResultPlayerCallback(
+            action=AdminClosedResultPlayerAction.CANCEL,
+            tournament_id=results.tournament.id,
+            page=page,
+        ),
+    )
+    builder.adjust(*([1] * len(results.players)), 1, 1)
+    return builder.as_markup()
+
+
+def admin_closed_delete_player_confirmation_keyboard(
+    *,
+    tournament_id: int,
+    page: int,
+    player_id: int,
+) -> InlineKeyboardMarkup:
+    builder = InlineKeyboardBuilder()
+    builder.button(
+        text="🗑 Да, удалить",
+        callback_data=AdminClosedResultPlayerCallback(
+            action=AdminClosedResultPlayerAction.DELETE_APPLY,
+            tournament_id=tournament_id,
+            page=page,
+            player_id=player_id,
+        ),
+    )
+    builder.button(
+        text="⬅️ Назад",
+        callback_data=AdminClosedResultPlayerCallback(
+            action=AdminClosedResultPlayerAction.DELETE_LIST,
+            tournament_id=tournament_id,
+            page=page,
+        ),
+    )
+    builder.button(
+        text=labels.ADMIN_CANCEL,
+        callback_data=AdminClosedResultPlayerCallback(
+            action=AdminClosedResultPlayerAction.CANCEL,
+            tournament_id=tournament_id,
+            page=page,
+        ),
+    )
+    builder.adjust(1)
+    return builder.as_markup()
+
+
+def admin_closed_fund_keyboard(*, tournament_id: int, page: int) -> InlineKeyboardMarkup:
+    builder = InlineKeyboardBuilder()
+    builder.button(
+        text="✏️ Изменить фонд",
+        callback_data=AdminClosedCorrectionCallback(
+            action=AdminClosedCorrectionAction.FUND_INPUT,
+            tournament_id=tournament_id,
+            page=page,
+        ),
+    )
+    builder.button(
+        text="⬅️ Назад",
+        callback_data=AdminClosedCorrectionCallback(
+            action=AdminClosedCorrectionAction.OPEN,
+            tournament_id=tournament_id,
+            page=page,
+        ),
+    )
+    builder.button(
+        text=labels.ADMIN_CANCEL,
+        callback_data=AdminClosedFundCallback(
+            action=AdminClosedFundAction.CANCEL,
+            tournament_id=tournament_id,
+            page=page,
+        ),
+    )
+    builder.adjust(1)
+    return builder.as_markup()
+
+
+def admin_closed_fund_input_keyboard(*, tournament_id: int, page: int) -> InlineKeyboardMarkup:
+    builder = InlineKeyboardBuilder()
+    builder.button(
+        text="⬅️ Назад",
+        callback_data=AdminClosedFundCallback(
+            action=AdminClosedFundAction.BACK,
+            tournament_id=tournament_id,
+            page=page,
+        ),
+    )
+    builder.button(
+        text=labels.ADMIN_CANCEL,
+        callback_data=AdminClosedFundCallback(
+            action=AdminClosedFundAction.CANCEL,
             tournament_id=tournament_id,
             page=page,
         ),
