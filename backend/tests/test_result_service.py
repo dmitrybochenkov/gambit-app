@@ -11,6 +11,7 @@ from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 from app.common.clock import FixedClock
 from app.db.base import Base
 from app.db.models import (
+    PlayerReward,
     ScoringConfig,
     Season,
     Tournament,
@@ -19,15 +20,19 @@ from app.db.models import (
     TournamentRegistration,
     TournamentResult,
     TournamentTypeRule,
+    User,
 )
 from app.db.models.enums import (
     KnockoutMode,
+    PlayerRewardType,
     TournamentCombinationType,
     TournamentResultSource,
     TournamentStatus,
     UserRole,
     UserStatus,
 )
+from app.db.repositories.tournament_result_repository import TournamentResultRepository
+from app.services.access_policy import AdminAccessDeniedError
 from app.services.result_fields import ResultField
 from app.services.result_service import (
     FutureTournamentCannotBeClosedError,
@@ -35,8 +40,11 @@ from app.services.result_service import (
     ResultDuplicateNameError,
     ResultInvalidFundError,
     ResultInvalidPlayerDataError,
+    ResultPlayerRewardConflictError,
     ResultService,
     ResultTodayTournamentNotFoundError,
+    ResultTournamentNotFoundError,
+    ResultUserNotFoundError,
 )
 
 
@@ -48,6 +56,350 @@ def test_live_close_fund_validation_rejects_invalid_values(fund: object) -> None
 
 def test_live_close_fund_validation_accepts_valid_value() -> None:
     assert ResultService.validate_tournament_fund(1000) == 1000
+
+
+async def _build_open_delete_service(
+    database_path: Path,
+    *,
+    tournament_status: TournamentStatus = TournamentStatus.ACTIVE,
+    tournament_date: date = date(2026, 8, 26),
+) -> tuple[ResultService, async_sessionmaker, object, dict[str, int]]:
+    engine = create_async_engine(f"sqlite+aiosqlite:///{database_path}")
+    async with engine.begin() as connection:
+        await connection.run_sync(Base.metadata.create_all)
+    session_factory = async_sessionmaker(engine, expire_on_commit=False)
+    async with session_factory() as session:
+        config = ScoringConfig()
+        session.add(config)
+        await session.flush()
+        await seed_tournament_types_async(session)
+        season = Season(
+            name="Test season",
+            scoring_config_id=config.id,
+            starts_at=date(2026, 8, 1),
+            ends_at=None,
+        )
+        superadmin = build_player(
+            telegram_id=100,
+            display_name="Superadmin",
+            status=UserStatus.ACTIVE,
+            role=UserRole.SUPERADMIN,
+        )
+        admin = build_player(
+            telegram_id=101,
+            display_name="Admin",
+            status=UserStatus.ACTIVE,
+            role=UserRole.ADMIN,
+        )
+        first = build_player(telegram_id=201, display_name="Первый", status=UserStatus.ACTIVE)
+        second = build_player(telegram_id=202, display_name="Второй", status=UserStatus.ACTIVE)
+        other_only = build_player(
+            telegram_id=203,
+            display_name="Только другой",
+            status=UserStatus.ACTIVE,
+        )
+        session.add_all([season, superadmin, admin, first, second, other_only])
+        await session.flush()
+        tournament = Tournament(
+            season_id=season.id,
+            tournament_type_id=tournament_type_id("mystery_bounty"),
+            date=tournament_date,
+            status=tournament_status,
+            tournament_fund=10 if tournament_status == TournamentStatus.CLOSED else None,
+        )
+        other_tournament = Tournament(
+            season_id=season.id,
+            tournament_type_id=tournament_type_id("classic"),
+            date=date(2026, 8, 25),
+            status=TournamentStatus.ACTIVE,
+        )
+        session.add_all([tournament, other_tournament])
+        await session.flush()
+        session.add_all(
+            [
+                TournamentResult(
+                    tournament_id=tournament.id,
+                    player_id=first.id,
+                    source=TournamentResultSource.WALK_IN_EXISTING,
+                    checked_in_by_user_id=superadmin.id,
+                    place=1,
+                    knockouts_count=2,
+                    big_knockouts_count=1,
+                    bonus_points=5,
+                ),
+                TournamentResult(
+                    tournament_id=tournament.id,
+                    player_id=second.id,
+                    source=TournamentResultSource.WALK_IN_EXISTING,
+                    checked_in_by_user_id=superadmin.id,
+                ),
+                TournamentResult(
+                    tournament_id=other_tournament.id,
+                    player_id=first.id,
+                    source=TournamentResultSource.WALK_IN_EXISTING,
+                    checked_in_by_user_id=superadmin.id,
+                    place=2,
+                ),
+                TournamentResult(
+                    tournament_id=other_tournament.id,
+                    player_id=other_only.id,
+                    source=TournamentResultSource.WALK_IN_EXISTING,
+                    checked_in_by_user_id=superadmin.id,
+                    place=3,
+                ),
+                TournamentRegistration(tournament_id=tournament.id, player_id=first.id),
+                TournamentRegistration(tournament_id=other_tournament.id, player_id=first.id),
+                TournamentCombination(
+                    tournament_id=tournament.id,
+                    player_id=first.id,
+                    combination_type=TournamentCombinationType.STRAIGHT_FLUSH,
+                ),
+                TournamentCombination(
+                    tournament_id=other_tournament.id,
+                    player_id=first.id,
+                    combination_type=TournamentCombinationType.ROYAL_FLUSH,
+                ),
+            ]
+        )
+        ids = {
+            "tournament": tournament.id,
+            "other_tournament": other_tournament.id,
+            "first": first.id,
+            "second": second.id,
+            "other_only": other_only.id,
+        }
+        await session.commit()
+    service = ResultService(
+        session_factory,
+        clock=FixedClock(datetime(2026, 8, 26, 12, tzinfo=ZoneInfo("Europe/Moscow"))),
+    )
+    return service, session_factory, engine, ids
+
+
+async def test_delete_player_from_open_tournament_removes_scoped_rows_only(
+    tmp_path: Path,
+) -> None:
+    service, session_factory, engine, ids = await _build_open_delete_service(
+        tmp_path / "open-delete.db"
+    )
+    try:
+        result = await service.delete_player_from_open_tournament(
+            superadmin_telegram_id=100,
+            tournament_id=ids["tournament"],
+            player_id=ids["first"],
+        )
+
+        assert result.player.display_name == "Первый"
+        assert result.deleted_registration is True
+        assert result.deleted_combinations_count == 1
+        async with session_factory() as session:
+            results = (await session.execute(select(TournamentResult))).scalars().all()
+            registrations = (await session.execute(select(TournamentRegistration))).scalars().all()
+            combinations = (await session.execute(select(TournamentCombination))).scalars().all()
+            users = [user.display_name for user in (await session.execute(select(User))).scalars()]
+
+        assert (ids["tournament"], ids["first"]) not in {
+            (item.tournament_id, item.player_id) for item in results
+        }
+        assert (ids["other_tournament"], ids["first"]) in {
+            (item.tournament_id, item.player_id) for item in results
+        }
+        assert (ids["tournament"], ids["first"]) not in {
+            (item.tournament_id, item.player_id) for item in registrations
+        }
+        assert (ids["other_tournament"], ids["first"]) in {
+            (item.tournament_id, item.player_id) for item in registrations
+        }
+        assert (ids["tournament"], ids["first"]) not in {
+            (item.tournament_id, item.player_id) for item in combinations
+        }
+        assert (ids["other_tournament"], ids["first"]) in {
+            (item.tournament_id, item.player_id) for item in combinations
+        }
+        assert "Первый" in users
+    finally:
+        await engine.dispose()
+
+
+async def test_delete_player_from_open_tournament_refreshes_readiness(
+    tmp_path: Path,
+) -> None:
+    service, _, engine, ids = await _build_open_delete_service(tmp_path / "readiness.db")
+    try:
+        before = await service.get_close_readiness(100, ids["tournament"])
+
+        await service.delete_player_from_open_tournament(
+            superadmin_telegram_id=100,
+            tournament_id=ids["tournament"],
+            player_id=ids["first"],
+        )
+        after = await service.get_close_readiness(100, ids["tournament"])
+
+        assert before.players_count == 2
+        assert after.players_count == 1
+    finally:
+        await engine.dispose()
+
+
+async def test_open_tournament_delete_player_list_uses_selected_tournament_only(
+    tmp_path: Path,
+) -> None:
+    service, _, engine, ids = await _build_open_delete_service(tmp_path / "delete-list.db")
+    try:
+        page = await service.list_open_tournament_players_for_delete(
+            superadmin_telegram_id=100,
+            tournament_id=ids["tournament"],
+            page=0,
+        )
+
+        assert {player.player_id for player in page.items} == {ids["first"], ids["second"]}
+        assert ids["other_only"] not in {player.player_id for player in page.items}
+    finally:
+        await engine.dispose()
+
+
+async def test_delete_player_from_open_tournament_requires_superadmin(
+    tmp_path: Path,
+) -> None:
+    service, _, engine, ids = await _build_open_delete_service(tmp_path / "delete-auth.db")
+    try:
+        with pytest.raises(AdminAccessDeniedError):
+            await service.delete_player_from_open_tournament(
+                superadmin_telegram_id=101,
+                tournament_id=ids["tournament"],
+                player_id=ids["first"],
+            )
+    finally:
+        await engine.dispose()
+
+
+async def test_delete_player_from_open_tournament_rejects_closed_and_stale_player(
+    tmp_path: Path,
+) -> None:
+    service, _, engine, ids = await _build_open_delete_service(
+        tmp_path / "delete-closed.db",
+        tournament_status=TournamentStatus.CLOSED,
+    )
+    try:
+        with pytest.raises(ResultTournamentNotFoundError):
+            await service.delete_player_from_open_tournament(
+                superadmin_telegram_id=100,
+                tournament_id=ids["tournament"],
+                player_id=ids["first"],
+            )
+        with pytest.raises(ResultTournamentNotFoundError):
+            await service.get_open_tournament_player_delete_preview(
+                superadmin_telegram_id=100,
+                tournament_id=ids["tournament"],
+                player_id=ids["first"],
+            )
+    finally:
+        await engine.dispose()
+
+    service, _, engine, ids = await _build_open_delete_service(
+        tmp_path / "delete-future.db",
+        tournament_date=date(2026, 8, 27),
+    )
+    try:
+        with pytest.raises(FutureTournamentCannotBeClosedError):
+            await service.delete_player_from_open_tournament(
+                superadmin_telegram_id=100,
+                tournament_id=ids["tournament"],
+                player_id=ids["first"],
+            )
+    finally:
+        await engine.dispose()
+
+    service, _, engine, ids = await _build_open_delete_service(tmp_path / "delete-stale.db")
+    try:
+        with pytest.raises(ResultUserNotFoundError):
+            await service.delete_player_from_open_tournament(
+                superadmin_telegram_id=100,
+                tournament_id=ids["tournament"],
+                player_id=999,
+            )
+    finally:
+        await engine.dispose()
+
+
+async def test_delete_player_from_open_tournament_blocks_existing_reward(
+    tmp_path: Path,
+) -> None:
+    service, session_factory, engine, ids = await _build_open_delete_service(
+        tmp_path / "delete-reward.db"
+    )
+    try:
+        async with session_factory() as session:
+            session.add(
+                PlayerReward(
+                    player_id=ids["first"],
+                    reward_type=PlayerRewardType.PRIZE_STACK_BONUS,
+                    chips_amount=40_000,
+                    source_tournament_id=ids["tournament"],
+                    source_place=1,
+                    issued_at=datetime(2026, 8, 26, 20, tzinfo=ZoneInfo("Europe/Moscow")),
+                    valid_through=date(2026, 9, 2),
+                )
+            )
+            await session.commit()
+
+        with pytest.raises(ResultPlayerRewardConflictError):
+            await service.delete_player_from_open_tournament(
+                superadmin_telegram_id=100,
+                tournament_id=ids["tournament"],
+                player_id=ids["first"],
+            )
+    finally:
+        await engine.dispose()
+
+
+async def test_delete_player_from_open_tournament_rolls_back_on_delete_failure(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    service, session_factory, engine, ids = await _build_open_delete_service(
+        tmp_path / "delete-rollback.db"
+    )
+
+    async def fail_delete(self: TournamentResultRepository, result: TournamentResult) -> None:
+        raise RuntimeError("delete failed")
+
+    monkeypatch.setattr(TournamentResultRepository, "delete", fail_delete)
+    try:
+        with pytest.raises(RuntimeError, match="delete failed"):
+            await service.delete_player_from_open_tournament(
+                superadmin_telegram_id=100,
+                tournament_id=ids["tournament"],
+                player_id=ids["first"],
+            )
+
+        async with session_factory() as session:
+            assert (
+                await session.execute(
+                    select(TournamentResult).where(
+                        TournamentResult.tournament_id == ids["tournament"],
+                        TournamentResult.player_id == ids["first"],
+                    )
+                )
+            ).scalar_one_or_none() is not None
+            assert (
+                await session.execute(
+                    select(TournamentRegistration).where(
+                        TournamentRegistration.tournament_id == ids["tournament"],
+                        TournamentRegistration.player_id == ids["first"],
+                    )
+                )
+            ).scalar_one_or_none() is not None
+            assert (
+                await session.execute(
+                    select(TournamentCombination).where(
+                        TournamentCombination.tournament_id == ids["tournament"],
+                        TournamentCombination.player_id == ids["first"],
+                    )
+                )
+            ).scalar_one_or_none() is not None
+    finally:
+        await engine.dispose()
 
 
 async def test_tournament_combinations_can_be_added_deleted_and_deduplicated(

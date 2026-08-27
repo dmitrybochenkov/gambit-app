@@ -27,6 +27,21 @@ class TournamentResultPlayerView:
 
 
 @dataclass(frozen=True)
+class OpenTournamentPlayerDeletePreviewView:
+    tournament: TournamentView
+    player: TournamentResultPlayerView
+    combinations_count: int
+
+
+@dataclass(frozen=True)
+class OpenTournamentPlayerDeleteResultView:
+    tournament: TournamentView
+    player: TournamentResultPlayerView
+    deleted_registration: bool
+    deleted_combinations_count: int
+
+
+@dataclass(frozen=True)
 class TournamentResultSnapshotItemView:
     player_id: int
     display_name: str

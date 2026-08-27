@@ -113,6 +113,17 @@ class TournamentRegistrationRepository:
     async def delete(self, registration: TournamentRegistration) -> None:
         await self.session.delete(registration)
 
+    async def delete_by_tournament_and_player(
+        self,
+        tournament_id: int,
+        player_id: int,
+    ) -> bool:
+        registration = await self.get(tournament_id, player_id)
+        if registration is None:
+            return False
+        await self.delete(registration)
+        return True
+
     async def list_registered_upcoming(
         self,
         player_id: int,

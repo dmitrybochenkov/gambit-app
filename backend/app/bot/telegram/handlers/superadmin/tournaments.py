@@ -15,7 +15,9 @@ from app.bot.telegram.texts.superadmin import tournaments as text
 from app.services.access_policy import AdminAccessDeniedError
 from app.services.result_service import (
     FutureTournamentCannotBeClosedError,
+    ResultPlayerRewardConflictError,
     ResultTournamentNotFoundError,
+    ResultUserNotFoundError,
     result_service,
 )
 from app.services.tournament_planning_service import (
@@ -151,21 +153,52 @@ async def select_open_tournament_action(
 
         if (
             callback_data.action
-            == superadmin_tournaments_kb.SuperadminOpenTournamentAction.DELETE_PLAYER
+            == superadmin_tournaments_kb.SuperadminOpenTournamentAction.DELETE_PLAYER_LIST
         ):
-            readiness = await result_service.get_close_readiness(
+            await _edit_open_tournament_delete_player_list(
+                callback,
+                tournament_id=callback_data.tournament_id,
+                page=callback_data.page,
+            )
+            return
+
+        if (
+            callback_data.action
+            == superadmin_tournaments_kb.SuperadminOpenTournamentAction.DELETE_PLAYER_PREVIEW
+        ):
+            await _edit_open_tournament_delete_player_confirmation(
+                callback,
+                tournament_id=callback_data.tournament_id,
+                player_id=callback_data.player_id,
+                page=callback_data.page,
+            )
+            return
+
+        if (
+            callback_data.action
+            == superadmin_tournaments_kb.SuperadminOpenTournamentAction.DELETE_PLAYER_CONFIRM
+        ):
+            await result_service.delete_player_from_open_tournament(
                 superadmin_telegram_id=callback.from_user.id,
                 tournament_id=callback_data.tournament_id,
+                player_id=callback_data.player_id,
             )
+            await _edit_open_tournament_card(
+                callback,
+                tournament_id=callback_data.tournament_id,
+                page=callback_data.page,
+                answer_text=text.OPEN_TOURNAMENT_PLAYER_DELETED,
+            )
+            return
+
+        if callback_data.action == superadmin_tournaments_kb.SuperadminOpenTournamentAction.CANCEL:
+            await state.clear()
             await callback.answer()
             if callback.message is not None:
-                await edit_message_if_changed(
+                await send_superadmin_panel(
                     callback.message,
-                    text=text.OPEN_TOURNAMENT_DELETE_PLAYER_PLACEHOLDER,
-                    reply_markup=superadmin_tournaments_kb.open_tournament_card_keyboard(
-                        tournament_id=readiness.tournament.id,
-                        page=callback_data.page,
-                    ),
+                    superadmin_telegram_id=callback.from_user.id,
+                    text=panel_text.SUPERADMIN_PANEL_WELCOME,
                 )
             return
 
@@ -186,6 +219,10 @@ async def select_open_tournament_action(
         await callback.answer(panel_text.INSUFFICIENT_RIGHTS, show_alert=True)
     except (FutureTournamentCannotBeClosedError, ResultTournamentNotFoundError):
         await callback.answer(text.OPEN_TOURNAMENTS_EMPTY, show_alert=True)
+    except ResultUserNotFoundError:
+        await callback.answer(text.OPEN_TOURNAMENT_PLAYER_STALE, show_alert=True)
+    except ResultPlayerRewardConflictError:
+        await callback.answer(text.OPEN_TOURNAMENT_DELETE_REWARD_CONFLICT, show_alert=True)
 
 
 async def _edit_open_tournament_list(callback: CallbackQuery, *, page: int) -> None:
@@ -207,12 +244,16 @@ async def _edit_open_tournament_card(
     *,
     tournament_id: int,
     page: int,
+    answer_text: str | None = None,
 ) -> None:
     readiness = await result_service.get_close_readiness(
         superadmin_telegram_id=callback.from_user.id,
         tournament_id=tournament_id,
     )
-    await callback.answer()
+    if answer_text is None:
+        await callback.answer()
+    else:
+        await callback.answer(answer_text)
     if callback.message is not None:
         await edit_message_if_changed(
             callback.message,
@@ -220,5 +261,61 @@ async def _edit_open_tournament_card(
             reply_markup=superadmin_tournaments_kb.open_tournament_card_keyboard(
                 tournament_id=tournament_id,
                 page=page,
+            ),
+        )
+
+
+async def _edit_open_tournament_delete_player_list(
+    callback: CallbackQuery,
+    *,
+    tournament_id: int,
+    page: int,
+) -> None:
+    readiness = await result_service.get_close_readiness(
+        superadmin_telegram_id=callback.from_user.id,
+        tournament_id=tournament_id,
+    )
+    players = await result_service.list_open_tournament_players_for_delete(
+        superadmin_telegram_id=callback.from_user.id,
+        tournament_id=tournament_id,
+        page=0,
+        page_size=1000,
+    )
+    await callback.answer()
+    if callback.message is not None:
+        await edit_message_if_changed(
+            callback.message,
+            text=tournament_fmt.superadmin_open_player_list(players, readiness.tournament),
+            reply_markup=superadmin_tournaments_kb.open_tournament_player_delete_list_keyboard(
+                tournament_id=tournament_id,
+                page=players,
+                tournament_page=page,
+            ),
+        )
+
+
+async def _edit_open_tournament_delete_player_confirmation(
+    callback: CallbackQuery,
+    *,
+    tournament_id: int,
+    player_id: int,
+    page: int,
+) -> None:
+    preview = await result_service.get_open_tournament_player_delete_preview(
+        superadmin_telegram_id=callback.from_user.id,
+        tournament_id=tournament_id,
+        player_id=player_id,
+    )
+    await callback.answer()
+    if callback.message is not None:
+        await edit_message_if_changed(
+            callback.message,
+            text=tournament_fmt.superadmin_open_delete_confirmation(preview),
+            reply_markup=(
+                superadmin_tournaments_kb.open_tournament_player_delete_confirmation_keyboard(
+                    tournament_id=tournament_id,
+                    player_id=player_id,
+                    page=page,
+                )
             ),
         )

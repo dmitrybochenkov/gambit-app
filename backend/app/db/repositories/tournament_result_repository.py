@@ -129,3 +129,6 @@ class TournamentResultRepository:
         self.session.add(result)
         await self.session.flush()
         return result
+
+    async def delete(self, result: TournamentResult) -> None:
+        await self.session.delete(result)

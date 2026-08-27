@@ -104,6 +104,7 @@ from app.services.dto.registrations import (
     TournamentRegistrationsDetailView,
 )
 from app.services.dto.results import (
+    OpenTournamentPlayerDeletePreviewView,
     TournamentCloseReadinessView,
     TournamentPublicationDestinationView,
     TournamentPublicationPlaceView,
@@ -158,7 +159,11 @@ from app.services.dto.users import UserStartStatusView, UserStartView, UserView
 from app.services.pagination import Page
 from app.services.profile_service import ProfileKind
 from app.services.rating_service import RatingKind
-from app.services.result_service import FutureTournamentCannotBeClosedError, ResultService
+from app.services.result_service import (
+    FutureTournamentCannotBeClosedError,
+    ResultService,
+    ResultUserNotFoundError,
+)
 from app.services.tournament_check_in_service import TournamentCheckInService
 from app.services.tournament_planning_service import (
     WeeklyPlanningCheckView,
@@ -6236,7 +6241,7 @@ async def test_superadmin_open_tournament_card_back_returns_list(
     assert message.edit_text.await_args.args[0] == ("🔓 Открытые турниры\n\nОткрытых турниров нет.")
 
 
-async def test_superadmin_open_tournament_delete_player_is_placeholder(
+async def test_superadmin_open_tournament_delete_player_lists_players(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     readiness = TournamentCloseReadinessView(
@@ -6254,10 +6259,26 @@ async def test_superadmin_open_tournament_delete_player_is_placeholder(
         reasons=[],
         players_count=7,
     )
-    service = SimpleNamespace(get_close_readiness=AsyncMock(return_value=readiness))
+    players = Page(
+        items=[
+            TournamentResultPlayerView(
+                player_id=7,
+                display_name="Игрок турнира",
+                place=1,
+                knockouts_count=2,
+                big_knockouts_count=1,
+            )
+        ],
+        page=0,
+        page_size=1000,
+        total_items=1,
+    )
+    service = SimpleNamespace(
+        get_close_readiness=AsyncMock(return_value=readiness),
+        list_open_tournament_players_for_delete=AsyncMock(return_value=players),
+    )
     monkeypatch.setattr(superadmin_tournament_handlers, "result_service", service)
     state = MutableState()
-    await state.update_data(unchanged="yes")
     message = SimpleNamespace(edit_text=AsyncMock())
     callback = SimpleNamespace(
         from_user=SimpleNamespace(id=100),
@@ -6268,7 +6289,7 @@ async def test_superadmin_open_tournament_delete_player_is_placeholder(
     await superadmin_tournament_handlers.select_open_tournament_action(
         callback,
         superadmin_tournaments_kb.SuperadminOpenTournamentCallback(
-            action=superadmin_tournaments_kb.SuperadminOpenTournamentAction.DELETE_PLAYER,
+            action=superadmin_tournaments_kb.SuperadminOpenTournamentAction.DELETE_PLAYER_LIST,
             page=0,
             tournament_id=12,
         ),
@@ -6276,10 +6297,201 @@ async def test_superadmin_open_tournament_delete_player_is_placeholder(
     )
 
     service.get_close_readiness.assert_awaited_once()
-    assert state.data == {"unchanged": "yes"}
-    assert message.edit_text.await_args.args[0] == (
-        "Удаление игрока будет доступно следующим этапом."
+    service.list_open_tournament_players_for_delete.assert_awaited_once_with(
+        superadmin_telegram_id=100,
+        tournament_id=12,
+        page=0,
+        page_size=1000,
     )
+    assert message.edit_text.await_args.args[0] == (
+        "🗑 Удалить игрока\n\nСреда, 26 августа — Mystery Bounty"
+    )
+    assert inline_keyboard_texts(message.edit_text.await_args.kwargs["reply_markup"]) == [
+        "Игрок турнира",
+        "⬅️ Назад",
+    ]
+
+
+async def test_superadmin_open_tournament_delete_player_confirmation(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    preview = OpenTournamentPlayerDeletePreviewView(
+        tournament=TournamentView(
+            id=12,
+            date=date(2026, 8, 26),
+            tournament_type_id=5,
+            tournament_type_name="Mystery Bounty",
+        ),
+        player=TournamentResultPlayerView(
+            player_id=7,
+            display_name="Игрок турнира",
+            place=1,
+            knockouts_count=2,
+            big_knockouts_count=1,
+            bonus_points=5,
+        ),
+        combinations_count=1,
+    )
+    service = SimpleNamespace(
+        get_open_tournament_player_delete_preview=AsyncMock(return_value=preview)
+    )
+    monkeypatch.setattr(superadmin_tournament_handlers, "result_service", service)
+    state = MutableState()
+    message = SimpleNamespace(edit_text=AsyncMock())
+    callback = SimpleNamespace(
+        from_user=SimpleNamespace(id=100),
+        message=message,
+        answer=AsyncMock(),
+    )
+
+    await superadmin_tournament_handlers.select_open_tournament_action(
+        callback,
+        superadmin_tournaments_kb.SuperadminOpenTournamentCallback(
+            action=superadmin_tournaments_kb.SuperadminOpenTournamentAction.DELETE_PLAYER_PREVIEW,
+            page=0,
+            tournament_id=12,
+            player_id=7,
+        ),
+        state,
+    )
+
+    service.get_open_tournament_player_delete_preview.assert_awaited_once_with(
+        superadmin_telegram_id=100,
+        tournament_id=12,
+        player_id=7,
+    )
+    assert message.edit_text.await_args.args[0] == (
+        "Удалить игрока из турнира?\n\n"
+        "Среда, 26 августа — Mystery Bounty\n"
+        "Игрок: Игрок турнира\n\n"
+        "Место: 1\n"
+        "KO: 2\n"
+        "BKO: 1\n"
+        "Бонус: 5\n"
+        "Комбинации: 1\n\n"
+        "Будут удалены данные игрока только из этого турнира."
+    )
+    assert inline_keyboard_texts(message.edit_text.await_args.kwargs["reply_markup"]) == [
+        "🗑 Да, удалить",
+        "⬅️ Назад",
+        "❌ Отмена",
+    ]
+
+
+async def test_superadmin_open_tournament_delete_player_confirm_refreshes_card(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    refreshed = TournamentCloseReadinessView(
+        tournament=TournamentView(
+            id=12,
+            date=date(2026, 8, 26),
+            tournament_type_id=5,
+            tournament_type_name="Mystery Bounty",
+        ),
+        is_ready=False,
+        photo_count=1,
+        has_photos=True,
+        has_checkins=True,
+        validation_errors=[],
+        reasons=["Не введены призовые места."],
+        players_count=6,
+    )
+    service = SimpleNamespace(
+        delete_player_from_open_tournament=AsyncMock(),
+        get_close_readiness=AsyncMock(return_value=refreshed),
+    )
+    monkeypatch.setattr(superadmin_tournament_handlers, "result_service", service)
+    state = MutableState()
+    message = SimpleNamespace(edit_text=AsyncMock())
+    callback = SimpleNamespace(
+        from_user=SimpleNamespace(id=100),
+        message=message,
+        answer=AsyncMock(),
+    )
+
+    await superadmin_tournament_handlers.select_open_tournament_action(
+        callback,
+        superadmin_tournaments_kb.SuperadminOpenTournamentCallback(
+            action=superadmin_tournaments_kb.SuperadminOpenTournamentAction.DELETE_PLAYER_CONFIRM,
+            page=0,
+            tournament_id=12,
+            player_id=7,
+        ),
+        state,
+    )
+
+    service.delete_player_from_open_tournament.assert_awaited_once_with(
+        superadmin_telegram_id=100,
+        tournament_id=12,
+        player_id=7,
+    )
+    callback.answer.assert_awaited_once_with("Игрок удалён из турнира.")
+    assert "Игроков: 6" in message.edit_text.await_args.args[0]
+
+
+async def test_superadmin_open_tournament_stale_player_callback_is_alert(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    service = SimpleNamespace(
+        get_open_tournament_player_delete_preview=AsyncMock(side_effect=ResultUserNotFoundError)
+    )
+    monkeypatch.setattr(superadmin_tournament_handlers, "result_service", service)
+    state = MutableState()
+    callback = SimpleNamespace(
+        from_user=SimpleNamespace(id=100),
+        message=SimpleNamespace(edit_text=AsyncMock()),
+        answer=AsyncMock(),
+    )
+
+    await superadmin_tournament_handlers.select_open_tournament_action(
+        callback,
+        superadmin_tournaments_kb.SuperadminOpenTournamentCallback(
+            action=superadmin_tournaments_kb.SuperadminOpenTournamentAction.DELETE_PLAYER_PREVIEW,
+            page=0,
+            tournament_id=12,
+            player_id=7,
+        ),
+        state,
+    )
+
+    callback.answer.assert_awaited_once_with(
+        "Игрок уже не найден в этом турнире.",
+        show_alert=True,
+    )
+
+
+async def test_superadmin_open_tournament_delete_cancel_returns_root(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    admin = admin_player(1, 100, UserRole.SUPERADMIN)
+    panel_service = SimpleNamespace(
+        get_superadmin_panel_for_superadmin=AsyncMock(
+            return_value=AdminPanelView(admin=admin, reviews=[])
+        )
+    )
+    monkeypatch.setattr(superadmin_navigation, "user_access_service", panel_service)
+    state = MutableState()
+    await state.update_data(delete_context="x")
+    message = SimpleNamespace(answer=AsyncMock())
+    callback = SimpleNamespace(
+        from_user=SimpleNamespace(id=100),
+        message=message,
+        answer=AsyncMock(),
+    )
+
+    await superadmin_tournament_handlers.select_open_tournament_action(
+        callback,
+        superadmin_tournaments_kb.SuperadminOpenTournamentCallback(
+            action=superadmin_tournaments_kb.SuperadminOpenTournamentAction.CANCEL,
+            page=0,
+            tournament_id=12,
+        ),
+        state,
+    )
+
+    assert state.data == {}
+    panel_service.get_superadmin_panel_for_superadmin.assert_awaited_once_with(100)
+    assert message.answer.await_args.args[0] == "Суперадмин."
 
 
 async def test_superadmin_tournament_hub_closed_is_placeholder(

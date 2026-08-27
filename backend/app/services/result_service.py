@@ -16,14 +16,17 @@ from app.db.models import (
 )
 from app.db.models.enums import (
     KnockoutMode,
+    PlayerRewardType,
     TournamentCombinationType,
     TournamentResultSource,
     TournamentStatus,
 )
+from app.db.repositories.player_reward_repository import PlayerRewardRepository
 from app.db.repositories.scoring_config_repository import ScoringConfigRepository
 from app.db.repositories.season_repository import SeasonRepository
 from app.db.repositories.tournament_combination_repository import TournamentCombinationRepository
 from app.db.repositories.tournament_photo_repository import TournamentPhotoRepository
+from app.db.repositories.tournament_registration_repository import TournamentRegistrationRepository
 from app.db.repositories.tournament_repository import TournamentRepository
 from app.db.repositories.tournament_result_repository import TournamentResultRepository
 from app.db.repositories.tournament_type_repository import TournamentTypeRepository
@@ -39,6 +42,8 @@ from app.domain.tournament_result_edit_policy import is_tournament_result_editab
 from app.services.access_policy import access_policy
 from app.services.dto.results import (
     ClosedTournamentCorrectionResultView,
+    OpenTournamentPlayerDeletePreviewView,
+    OpenTournamentPlayerDeleteResultView,
     TournamentCloseReadinessView,
     TournamentCombinationPlayerView,
     TournamentCombinationsView,
@@ -54,6 +59,7 @@ from app.services.dto.results import (
 from app.services.dto.rewards import PrizeStackBonusSourceResultView
 from app.services.dto.tournaments import TournamentView
 from app.services.dto.users import UserView
+from app.services.pagination import Page, pagination_service
 from app.services.player_reward_service import PlayerRewardService
 from app.services.player_search import rank_player_candidates, validate_display_name
 from app.services.result_field_policy import is_result_field_allowed
@@ -78,6 +84,7 @@ FOUR_OF_A_KIND_RANKS = {
     "K",
     "A",
 }
+OPEN_TOURNAMENT_DELETE_PLAYER_PAGE_SIZE = 6
 
 
 class ResultInvalidCombinationRankError(ValueError):
@@ -131,6 +138,10 @@ class ResultDuplicateNameError(ValueError):
 
 
 class ResultPlayerAlreadyAddedError(ValueError):
+    pass
+
+
+class ResultPlayerRewardConflictError(ValueError):
     pass
 
 
@@ -533,6 +544,92 @@ class ResultService:
             await access_policy.require_superadmin(session, superadmin_telegram_id)
             tournament = await self._require_closeable_tournament(session, tournament_id)
             return await self._readiness_view(session, tournament)
+
+    async def get_open_tournament_player_delete_preview(
+        self,
+        superadmin_telegram_id: int,
+        tournament_id: int,
+        player_id: int,
+    ) -> OpenTournamentPlayerDeletePreviewView:
+        async with self.session_factory() as session:
+            await access_policy.require_superadmin(session, superadmin_telegram_id)
+            tournament = await self._require_closeable_tournament(session, tournament_id)
+            player = await self._require_tournament_result_player(
+                session,
+                tournament_id=tournament.id,
+                player_id=player_id,
+            )
+            combinations = await TournamentCombinationRepository(session).list_for_player(
+                tournament_id=tournament.id,
+                player_id=player_id,
+            )
+            return OpenTournamentPlayerDeletePreviewView(
+                tournament=tournament_view(tournament),
+                player=player,
+                combinations_count=len(combinations),
+            )
+
+    async def list_open_tournament_players_for_delete(
+        self,
+        superadmin_telegram_id: int,
+        tournament_id: int,
+        *,
+        page: int,
+        page_size: int = OPEN_TOURNAMENT_DELETE_PLAYER_PAGE_SIZE,
+    ) -> Page[TournamentResultPlayerView]:
+        async with self.session_factory() as session:
+            await access_policy.require_superadmin(session, superadmin_telegram_id)
+            tournament = await self._require_closeable_tournament(session, tournament_id)
+            results = await self._results_view(session, tournament.id)
+            return pagination_service.paginate(results.players, page=page, page_size=page_size)
+
+    async def delete_player_from_open_tournament(
+        self,
+        superadmin_telegram_id: int,
+        tournament_id: int,
+        player_id: int,
+    ) -> OpenTournamentPlayerDeleteResultView:
+        async with self.session_factory() as session:
+            try:
+                await access_policy.require_superadmin(session, superadmin_telegram_id)
+                tournament = await self._require_closeable_tournament(session, tournament_id)
+                player = await self._require_tournament_result_player(
+                    session,
+                    tournament_id=tournament.id,
+                    player_id=player_id,
+                )
+                if await PlayerRewardRepository(session).exists_for_source(
+                    source_tournament_id=tournament.id,
+                    player_id=player_id,
+                    reward_type=PlayerRewardType.PRIZE_STACK_BONUS,
+                ):
+                    raise ResultPlayerRewardConflictError
+
+                combination_repository = TournamentCombinationRepository(session)
+                deleted_combinations_count = await combination_repository.delete_for_player(
+                    tournament_id=tournament.id,
+                    player_id=player_id,
+                )
+                deleted_registration = await TournamentRegistrationRepository(
+                    session
+                ).delete_by_tournament_and_player(tournament.id, player_id)
+                result = await TournamentResultRepository(session).get_by_tournament_and_player(
+                    tournament.id,
+                    player_id,
+                )
+                if result is None:
+                    raise ResultUserNotFoundError
+                await TournamentResultRepository(session).delete(result)
+                await session.commit()
+                return OpenTournamentPlayerDeleteResultView(
+                    tournament=tournament_view(tournament),
+                    player=player,
+                    deleted_registration=deleted_registration,
+                    deleted_combinations_count=deleted_combinations_count,
+                )
+            except Exception:
+                await session.rollback()
+                raise
 
     async def validate_results(
         self,
@@ -939,6 +1036,33 @@ class ResultService:
             ),
             knockout_mode=knockout_mode.value,
             supports_bonus_points=supports_bonus_points,
+        )
+
+    async def _require_tournament_result_player(
+        self,
+        session: AsyncSession,
+        *,
+        tournament_id: int,
+        player_id: int,
+    ) -> TournamentResultPlayerView:
+        row = await TournamentResultRepository(session).get_by_tournament_and_player(
+            tournament_id,
+            player_id,
+        )
+        if row is None:
+            raise ResultUserNotFoundError
+        user = await UserRepository(session).get_by_id(player_id)
+        if user is None:
+            raise ResultUserNotFoundError
+        return TournamentResultPlayerView(
+            player_id=user.id,
+            display_name=user.display_name,
+            place=row.place,
+            knockouts_count=row.knockouts_count,
+            big_knockouts_count=row.big_knockouts_count,
+            bonus_points=row.bonus_points,
+            tournament_points=row.tournament_points,
+            knockout_points=row.knockout_points,
         )
 
     async def _readiness_view(

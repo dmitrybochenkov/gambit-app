@@ -79,6 +79,35 @@ def superadmin_open_card(readiness: object) -> str:
     return "\n".join(lines)
 
 
+def superadmin_open_player_list(page: object, tournament: object) -> str:
+    if not page.items:
+        return "\n\n".join(
+            [
+                "🗑 Удалить игрока",
+                label(tournament),
+                superadmin_tournament_texts.OPEN_TOURNAMENT_PLAYERS_EMPTY,
+            ]
+        )
+    lines = ["🗑 Удалить игрока", "", label(tournament)]
+    if page.total_pages > 1:
+        lines.extend(["", fmt_common.page_line(page)])
+    return "\n".join(lines)
+
+
+def superadmin_open_delete_confirmation(preview: object) -> str:
+    lines = [
+        "Удалить игрока из турнира?",
+        "",
+        label(preview.tournament),
+        f"Игрок: {preview.player.display_name}",
+    ]
+    details = _delete_player_details(preview)
+    if details:
+        lines.extend(["", *details])
+    lines.extend(["", superadmin_tournament_texts.OPEN_TOURNAMENT_DELETE_WARNING])
+    return "\n".join(lines)
+
+
 def type_name(tournament: object) -> str:
     if tournament.tournament_type_name is not None:
         return tournament.tournament_type_name
@@ -93,6 +122,22 @@ def _readiness_reasons(readiness: object) -> list[str]:
     if not readiness.reasons:
         return ["Результаты заполнены не полностью."]
     return [f"• {reason}" for reason in readiness.reasons]
+
+
+def _delete_player_details(preview: object) -> list[str]:
+    player = preview.player
+    lines: list[str] = []
+    if player.place is not None:
+        lines.append(f"Место: {player.place}")
+    if player.knockouts_count:
+        lines.append(f"KO: {player.knockouts_count}")
+    if player.big_knockouts_count:
+        lines.append(f"BKO: {player.big_knockouts_count}")
+    if player.bonus_points:
+        lines.append(f"Бонус: {player.bonus_points}")
+    if preview.combinations_count:
+        lines.append(f"Комбинации: {preview.combinations_count}")
+    return lines
 
 
 def _economy_lines(economy: object) -> list[str]:

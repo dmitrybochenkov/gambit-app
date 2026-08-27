@@ -64,3 +64,33 @@ class TournamentCombinationRepository:
             )
         )
         return bool(result.rowcount)
+
+    async def list_for_player(
+        self,
+        *,
+        tournament_id: int,
+        player_id: int,
+    ) -> list[TournamentCombination]:
+        result = await self.session.execute(
+            select(TournamentCombination)
+            .where(
+                TournamentCombination.tournament_id == tournament_id,
+                TournamentCombination.player_id == player_id,
+            )
+            .order_by(TournamentCombination.id)
+        )
+        return list(result.scalars())
+
+    async def delete_for_player(
+        self,
+        *,
+        tournament_id: int,
+        player_id: int,
+    ) -> int:
+        result = await self.session.execute(
+            delete(TournamentCombination).where(
+                TournamentCombination.tournament_id == tournament_id,
+                TournamentCombination.player_id == player_id,
+            )
+        )
+        return result.rowcount or 0

@@ -23,7 +23,10 @@ class SuperadminTournamentHubCallback(CallbackData, prefix="superadmin_tournamen
 class SuperadminOpenTournamentAction(StrEnum):
     PAGE = "page"
     OPEN = "open"
-    DELETE_PLAYER = "delete_player"
+    DELETE_PLAYER_LIST = "delete_player_list"
+    DELETE_PLAYER_PREVIEW = "delete_player_preview"
+    DELETE_PLAYER_CONFIRM = "delete_player_confirm"
+    CANCEL = "cancel"
     CLOSE = "close"
     BACK_TO_HUB = "back_hub"
     BACK_TO_LIST = "back_list"
@@ -33,6 +36,7 @@ class SuperadminOpenTournamentCallback(CallbackData, prefix="superadmin_open_tou
     action: SuperadminOpenTournamentAction
     page: int = 0
     tournament_id: int = 0
+    player_id: int = 0
 
 
 def tournament_hub_keyboard(open_tournaments_count: int) -> InlineKeyboardMarkup:
@@ -112,7 +116,7 @@ def open_tournament_card_keyboard(
     builder.button(
         text="🗑 Удалить игрока",
         callback_data=SuperadminOpenTournamentCallback(
-            action=SuperadminOpenTournamentAction.DELETE_PLAYER,
+            action=SuperadminOpenTournamentAction.DELETE_PLAYER_LIST,
             tournament_id=tournament_id,
             page=page,
         ),
@@ -129,6 +133,71 @@ def open_tournament_card_keyboard(
         text=labels.ADMIN_CALENDAR_BACK,
         callback_data=SuperadminOpenTournamentCallback(
             action=SuperadminOpenTournamentAction.BACK_TO_LIST,
+            tournament_id=tournament_id,
+            page=page,
+        ),
+    )
+    builder.adjust(1)
+    return builder.as_markup()
+
+
+def open_tournament_player_delete_list_keyboard(
+    *,
+    tournament_id: int,
+    page: object,
+    tournament_page: int,
+) -> InlineKeyboardMarkup:
+    builder = InlineKeyboardBuilder()
+    for player in page.items:
+        builder.button(
+            text=player.display_name,
+            callback_data=SuperadminOpenTournamentCallback(
+                action=SuperadminOpenTournamentAction.DELETE_PLAYER_PREVIEW,
+                tournament_id=tournament_id,
+                player_id=player.player_id,
+                page=tournament_page,
+            ),
+        )
+    builder.button(
+        text=labels.ADMIN_CALENDAR_BACK,
+        callback_data=SuperadminOpenTournamentCallback(
+            action=SuperadminOpenTournamentAction.OPEN,
+            tournament_id=tournament_id,
+            page=tournament_page,
+        ),
+    )
+    builder.adjust(1)
+    return builder.as_markup()
+
+
+def open_tournament_player_delete_confirmation_keyboard(
+    *,
+    tournament_id: int,
+    player_id: int,
+    page: int,
+) -> InlineKeyboardMarkup:
+    builder = InlineKeyboardBuilder()
+    builder.button(
+        text="🗑 Да, удалить",
+        callback_data=SuperadminOpenTournamentCallback(
+            action=SuperadminOpenTournamentAction.DELETE_PLAYER_CONFIRM,
+            tournament_id=tournament_id,
+            player_id=player_id,
+            page=page,
+        ),
+    )
+    builder.button(
+        text=labels.ADMIN_CALENDAR_BACK,
+        callback_data=SuperadminOpenTournamentCallback(
+            action=SuperadminOpenTournamentAction.DELETE_PLAYER_LIST,
+            tournament_id=tournament_id,
+            page=page,
+        ),
+    )
+    builder.button(
+        text=labels.ADMIN_CALENDAR_CANCEL,
+        callback_data=SuperadminOpenTournamentCallback(
+            action=SuperadminOpenTournamentAction.CANCEL,
             tournament_id=tournament_id,
             page=page,
         ),
