@@ -154,7 +154,7 @@ async def select_check_in_action(
             result = CheckInResultView(
                 confirmation.tournament,
                 confirmation.user,
-                True,
+                False,
                 rewards,
             )
             await callback.answer()
@@ -198,28 +198,21 @@ async def select_check_in_action(
             admin_check_in_kb.AdminCheckInAction.SKIP_REWARD,
             admin_check_in_kb.AdminCheckInAction.REDEEM_REWARD,
         }:
-            if callback_data.action == admin_check_in_kb.AdminCheckInAction.REDEEM_REWARD:
-                reward = await player_reward_service.redeem_reward(
-                    admin_telegram_id=callback.from_user.id,
-                    tournament_id=callback_data.tournament_id,
-                    reward_id=callback_data.reward_id,
-                )
-                message_text = check_in_fmt.reward_redeemed(reward)
-            else:
-                message_text = "Бонус не использован."
+            result = await tournament_check_in_service.check_in_user(
+                admin_telegram_id=callback.from_user.id,
+                tournament_id=callback_data.tournament_id,
+                user_id=callback_data.player_id,
+                reward_id=(
+                    callback_data.reward_id
+                    if callback_data.action == admin_check_in_kb.AdminCheckInAction.REDEEM_REWARD
+                    else None
+                ),
+            )
             view = await tournament_check_in_service.get_check_in(
                 admin_telegram_id=callback.from_user.id,
                 tournament_id=callback_data.tournament_id,
             )
-            await state.clear()
-            await callback.answer()
-            if callback.message is not None:
-                await edit_message_if_changed(callback.message, text=message_text)
-                await callback.message.answer(
-                    check_in_fmt.summary(view),
-                    reply_markup=admin_check_in_kb.admin_check_in_keyboard(view),
-                )
-            return
+            return await _finish_check_in_callback(callback, state, result, view)
 
         if callback_data.action == admin_check_in_kb.AdminCheckInAction.REGISTERED_SEARCH:
             await state.set_state(AdminResultStates.entering_registered_check_in_search)
@@ -267,47 +260,69 @@ async def select_check_in_action(
             return
 
         if callback_data.action == admin_check_in_kb.AdminCheckInAction.CONFIRM_REGISTERED:
-            confirmation = await tournament_check_in_service.get_user_check_in_confirmation(
+            confirmation = await tournament_check_in_service.get_registered_check_in_decision(
                 admin_telegram_id=callback.from_user.id,
                 tournament_id=callback_data.tournament_id,
                 user_id=callback_data.player_id,
             )
             await callback.answer()
             if callback.message is not None:
-                await edit_message_if_changed(
-                    callback.message,
-                    text=check_in_fmt.registered_confirmation(
-                        confirmation.tournament,
-                        confirmation.user,
-                    ),
-                    reply_markup=admin_check_in_kb.admin_check_in_confirmation_keyboard(
-                        tournament_id=callback_data.tournament_id,
-                        player_id=callback_data.player_id,
-                        confirm_action=admin_check_in_kb.AdminCheckInAction.ADD_REGISTERED,
-                    ),
-                )
+                if confirmation.active_rewards:
+                    await edit_message_if_changed(
+                        callback.message,
+                        text=check_in_fmt.reward_selection(confirmation),
+                        reply_markup=admin_check_in_kb.admin_check_in_reward_selection_keyboard(
+                            tournament_id=callback_data.tournament_id,
+                            player_id=callback_data.player_id,
+                            rewards=confirmation.active_rewards,
+                        ),
+                    )
+                else:
+                    await edit_message_if_changed(
+                        callback.message,
+                        text=check_in_fmt.registered_confirmation(
+                            confirmation.tournament,
+                            confirmation.user,
+                        ),
+                        reply_markup=admin_check_in_kb.admin_check_in_confirmation_keyboard(
+                            tournament_id=callback_data.tournament_id,
+                            player_id=callback_data.player_id,
+                            confirm_action=admin_check_in_kb.AdminCheckInAction.ADD_REGISTERED,
+                        ),
+                    )
             return
 
         if callback_data.action == admin_check_in_kb.AdminCheckInAction.CONFIRM_EXISTING:
-            confirmation = await tournament_check_in_service.get_user_check_in_confirmation(
+            confirmation = await tournament_check_in_service.get_existing_user_check_in_decision(
                 admin_telegram_id=callback.from_user.id,
                 tournament_id=callback_data.tournament_id,
                 user_id=callback_data.player_id,
             )
             await callback.answer()
             if callback.message is not None:
-                await edit_message_if_changed(
-                    callback.message,
-                    text=check_in_fmt.existing_confirmation(
-                        confirmation.tournament,
-                        confirmation.user,
-                    ),
-                    reply_markup=admin_check_in_kb.admin_check_in_confirmation_keyboard(
-                        tournament_id=callback_data.tournament_id,
-                        player_id=callback_data.player_id,
-                        confirm_action=admin_check_in_kb.AdminCheckInAction.ADD_EXISTING,
-                    ),
-                )
+                if confirmation.active_rewards:
+                    await edit_message_if_changed(
+                        callback.message,
+                        text=check_in_fmt.reward_selection(confirmation),
+                        reply_markup=admin_check_in_kb.admin_check_in_reward_selection_keyboard(
+                            tournament_id=callback_data.tournament_id,
+                            player_id=callback_data.player_id,
+                            rewards=confirmation.active_rewards,
+                        ),
+                    )
+                else:
+                    await edit_message_if_changed(
+                        callback.message,
+                        text=check_in_fmt.existing_confirmation(
+                            confirmation.tournament,
+                            confirmation.user,
+                        ),
+                        reply_markup=admin_check_in_kb.admin_check_in_confirmation_keyboard(
+                            tournament_id=callback_data.tournament_id,
+                            player_id=callback_data.player_id,
+                            confirm_action=admin_check_in_kb.AdminCheckInAction.ADD_EXISTING,
+                        ),
+                    )
             return
 
         if callback_data.action == admin_check_in_kb.AdminCheckInAction.CONFIRM_NEW:
@@ -393,23 +408,20 @@ async def select_check_in_action(
         await callback.answer("Сегодня уже использован другой бонус.", show_alert=True)
         return
 
+    await _finish_check_in_callback(callback, state, result, view)
+
+
+async def _finish_check_in_callback(
+    callback: CallbackQuery,
+    state: FSMContext,
+    result: CheckInResultView,
+    view: object,
+) -> None:
     await state.clear()
     await callback.answer(
         result_text.ADMIN_RESULTS_SAVED if result.created else "Игрок уже прошёл check-in."
     )
     await _send_check_in_notification(callback, result)
-    if result.created and result.active_rewards:
-        if callback.message is not None:
-            await edit_message_if_changed(
-                callback.message,
-                text=check_in_fmt.reward_selection(result),
-                reply_markup=admin_check_in_kb.admin_check_in_reward_selection_keyboard(
-                    tournament_id=callback_data.tournament_id,
-                    player_id=result.user.id,
-                    rewards=result.active_rewards,
-                ),
-            )
-        return
     if callback.message is not None:
         await edit_message_if_changed(
             callback.message,

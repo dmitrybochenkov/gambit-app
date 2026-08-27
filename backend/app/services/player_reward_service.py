@@ -171,18 +171,6 @@ class PlayerRewardService:
         business_date = self._tournament_day()
         async with self.session_factory() as session:
             admin = await access_policy.require_admin(session, admin_telegram_id)
-            reward_repository = PlayerRewardRepository(session)
-            reward = await reward_repository.get_for_redemption(
-                reward_id=reward_id,
-                business_date=business_date,
-            )
-            if reward is None:
-                raise PlayerRewardNotFoundError
-            if await reward_repository.has_redeemed_on_tournament_day(
-                player_id=reward.player_id,
-                tournament_day=business_date,
-            ):
-                raise PlayerRewardAlreadyRedeemedTodayError
             tournament = await TournamentRepository(session).get_by_id(tournament_id)
             if tournament is None or not can_edit_open_tournament_for_actor(
                 actor_role=admin.role,
@@ -192,20 +180,50 @@ class PlayerRewardService:
                 admin_current_day_only=True,
             ):
                 raise PlayerRewardNotFoundError
-
-            reward.redeemed_at = self.clock.now()
-            reward.redeemed_tournament_id = tournament.id
-            reward.redeemed_by_user_id = admin.id
-            reward.redeemed_tournament_day = business_date
             try:
-                await session.flush()
+                view = await self.redeem_reward_in_session(
+                    session,
+                    admin_user_id=admin.id,
+                    tournament_id=tournament.id,
+                    reward_id=reward_id,
+                    player_id=None,
+                    business_date=business_date,
+                )
             except IntegrityError as exc:
                 await session.rollback()
                 raise PlayerRewardAlreadyRedeemedTodayError from exc
-
-            view = await self._reward_view_by_id(session, reward.id)
             await session.commit()
             return view
+
+    async def redeem_reward_in_session(
+        self,
+        session: AsyncSession,
+        *,
+        admin_user_id: int,
+        tournament_id: int,
+        reward_id: int,
+        player_id: int | None,
+        business_date: date,
+    ) -> PlayerRewardView:
+        reward_repository = PlayerRewardRepository(session)
+        reward = await reward_repository.get_for_redemption(
+            reward_id=reward_id,
+            business_date=business_date,
+        )
+        if reward is None or (player_id is not None and reward.player_id != player_id):
+            raise PlayerRewardNotFoundError
+        if await reward_repository.has_redeemed_on_tournament_day(
+            player_id=reward.player_id,
+            tournament_day=business_date,
+        ):
+            raise PlayerRewardAlreadyRedeemedTodayError
+
+        reward.redeemed_at = self.clock.now()
+        reward.redeemed_tournament_id = tournament_id
+        reward.redeemed_by_user_id = admin_user_id
+        reward.redeemed_tournament_day = business_date
+        await session.flush()
+        return await self._reward_view_by_id(session, reward.id)
 
     async def issue_prize_stack_bonuses_for_closed_tournament(
         self,

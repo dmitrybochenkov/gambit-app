@@ -25,6 +25,7 @@ from app.db.models.enums import TournamentResultSource, TournamentStatus, UserRo
 from app.services.access_policy import AdminAccessDeniedError
 from app.services.player_reward_service import (
     PlayerRewardAlreadyRedeemedTodayError,
+    PlayerRewardNotFoundError,
     PlayerRewardService,
 )
 from app.services.result_fields import ResultField
@@ -908,7 +909,7 @@ async def test_reward_expiration_is_inclusive_and_redemption_is_one_per_tourname
     assert expired == ()
 
 
-async def test_check_in_returns_reward_without_redeeming_it(tmp_path: Path) -> None:
+async def test_check_in_reward_decision_precedes_atomic_check_in(tmp_path: Path) -> None:
     session_factory = await _reward_session_factory(tmp_path, "check-in.db")
     async with session_factory() as session:
         await seed_tournament_types_async(session)
@@ -960,21 +961,96 @@ async def test_check_in_returns_reward_without_redeeming_it(tmp_path: Path) -> N
         player_id = player.id
         await session.commit()
 
-    result = await TournamentCheckInService(
+    service = TournamentCheckInService(
         session_factory,
         clock=FixedClock(datetime(2026, 8, 26, 12, tzinfo=ZoneInfo("Europe/Moscow"))),
-    ).check_in_existing_user(
+    )
+
+    decision = await service.get_existing_user_check_in_decision(
         admin_telegram_id=100,
         tournament_id=today_id,
         user_id=player_id,
     )
 
-    assert [reward.reward_id for reward in result.active_rewards] == [reward_id]
+    assert [reward.reward_id for reward in decision.active_rewards] == [reward_id]
     async with session_factory() as session:
+        result_count = len((await session.execute(select(TournamentResult))).scalars().all())
         stored_reward = await session.get(PlayerReward, reward_id)
         assert stored_reward is not None
+        assert result_count == 0
         assert stored_reward.redeemed_at is None
         assert stored_reward.redeemed_tournament_id is None
+
+    result = await service.check_in_user(
+        admin_telegram_id=100,
+        tournament_id=today_id,
+        user_id=player_id,
+        reward_id=reward_id,
+    )
+
+    assert result.created is True
+    async with session_factory() as session:
+        stored_results = (await session.execute(select(TournamentResult))).scalars().all()
+        stored_reward = await session.get(PlayerReward, reward_id)
+        assert len(stored_results) == 1
+        assert stored_results[0].player_id == player_id
+        assert stored_results[0].source == TournamentResultSource.WALK_IN_EXISTING
+        assert stored_reward is not None
+        assert stored_reward.redeemed_tournament_id == today_id
+        assert stored_reward.redeemed_by_user_id == 1
+        assert stored_reward.redeemed_tournament_day == date(2026, 8, 26)
+
+
+async def test_check_in_reward_failure_creates_no_result(tmp_path: Path) -> None:
+    session_factory = await _reward_session_factory(tmp_path, "check-in-invalid-reward.db")
+    async with session_factory() as session:
+        await seed_tournament_types_async(session)
+        config = ScoringConfig()
+        session.add(config)
+        await session.flush()
+        season = Season(
+            name="Season",
+            starts_at=date(2026, 8, 1),
+            ends_at=None,
+            scoring_config_id=config.id,
+        )
+        admin = build_player(
+            telegram_id=100,
+            display_name="Admin",
+            status=UserStatus.ACTIVE,
+            role=UserRole.ADMIN,
+        )
+        player = build_player(telegram_id=200, display_name="Player")
+        session.add_all([season, admin, player])
+        await session.flush()
+        today = Tournament(
+            season_id=season.id,
+            tournament_type_id=tournament_type_id("classic"),
+            date=date(2026, 8, 26),
+            status=TournamentStatus.ACTIVE,
+        )
+        session.add(today)
+        await session.flush()
+        today_id = today.id
+        player_id = player.id
+        await session.commit()
+
+    service = TournamentCheckInService(
+        session_factory,
+        clock=FixedClock(datetime(2026, 8, 26, 12, tzinfo=ZoneInfo("Europe/Moscow"))),
+    )
+
+    with pytest.raises(PlayerRewardNotFoundError):
+        await service.check_in_user(
+            admin_telegram_id=100,
+            tournament_id=today_id,
+            user_id=player_id,
+            reward_id=999,
+        )
+
+    async with session_factory() as session:
+        stored_results = (await session.execute(select(TournamentResult))).scalars().all()
+        assert stored_results == []
 
 
 def test_check_in_reward_decision_uses_reward_buttons() -> None:
@@ -995,6 +1071,7 @@ def test_check_in_reward_decision_uses_reward_buttons() -> None:
         rewards=result.active_rewards,
     )
 
+    assert "Добавить Дима в турнир?" in text
     assert "🎁 У игрока есть бонус:" in text
     assert "+40 000 фишек к первому стеку" in text
     assert _inline_texts(keyboard) == ["🎁 +40 000 · до 29.08", "Не использовать"]
