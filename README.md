@@ -7,6 +7,8 @@ schedule, check-in, results, ratings, tournament history, and hall of fame.
 
 See [docs/architecture.md](docs/architecture.md).
 
+Contributor and Codex working rules: [docs/development-contract.md](docs/development-contract.md).
+
 ## Domain Model
 
 See [docs/domain-model.md](docs/domain-model.md).
@@ -25,7 +27,7 @@ The backend reads `backend/.env` and `../.env`; the root `.env` is the standard
 local location. The health check is available at `http://127.0.0.1:8100/health`.
 Tournament operations use `TOURNAMENT_DAY_START_HOUR` in the club timezone:
 before that hour, check-in/results/close still treat the tournament day as
-yesterday.
+yesterday. Reward expiration reminders use `REWARD_REMINDER_RUN_HOUR`.
 
 ## Tests
 

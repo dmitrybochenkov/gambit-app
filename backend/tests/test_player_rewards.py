@@ -1049,10 +1049,10 @@ async def test_superadmin_panel_counts_active_users_with_telegram_id(
         await session.commit()
 
     panel = await UserAccessService(session_factory).get_superadmin_panel_for_superadmin(100)
-    keyboard = superadmin_panel_kb.superadmin_panel_keyboard(panel.active_telegram_users_count)
+    keyboard = superadmin_panel_kb.superadmin_panel_keyboard()
 
-    assert panel.active_telegram_users_count == 3
-    assert _reply_texts(keyboard)[0] == "📝 Регистрации · 👤 3"
+    assert panel.admin.telegram_id == 100
+    assert _reply_texts(keyboard)[0] == "📝 Регистрации"
 
 
 async def test_expiration_reminder_due_window_grouping_and_sent_mark(

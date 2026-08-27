@@ -1135,9 +1135,7 @@ async def _send_publication_media_with_ids(
     media = [
         InputMediaPhoto(
             media=photo.telegram_file_id,
-            caption=report
-            if index == 0 and len(report) <= publication_fmt.CAPTION_LIMIT
-            else None,
+            caption=report if index == 0 and len(report) <= publication_fmt.CAPTION_LIMIT else None,
         )
         for index, photo in enumerate(photos[:10])
     ]

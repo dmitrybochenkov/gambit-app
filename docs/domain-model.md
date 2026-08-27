@@ -3,8 +3,7 @@
 ## Identity Naming
 
 - `telegram_id` is the external Telegram user ID. It is used at Telegram
-  boundaries, public service use-cases, actor lookup, and notifications. It is
-  not a gameplay foreign key.
+  boundaries, public service use-cases, actor lookup, and notifications.
 - `user_id` is internal `users.id` in account, access, audit, and system-user
   contexts.
 - `player_id` is internal `users.id` in gameplay contexts, such as
@@ -50,13 +49,18 @@ Fields:
 - `scoring_config_id`
 - `starts_at`
 - `ends_at`
+- `is_statistics_visible`
 
 Rules:
 
 - Season lifecycle is date-driven; there is no persisted `Season.status`.
-- `ends_at IS NULL` means the open-ended current/future season range.
+- `ends_at IS NULL` means the only open-ended season range.
+- SQLite enforces at most one open-ended season through
+  `uq_seasons_open_ended`.
 - Tournament creation assigns the season found for that tournament date.
 - Season creation drafts live only in Telegram FSM until confirmation.
+- Hall of Fame and season statistics only expose seasons whose statistics are
+  visible and whose date range is completed for the current business date.
 - Technical `created_at` and `updated_at` timestamps are not part of the
   current season domain contract.
 
@@ -81,10 +85,12 @@ Fields:
 
 Rules:
 
-- `telegram_id` is required and stores the Telegram actor/source identity.
+- `telegram_id` stores the Telegram actor/source identity.
 - `candidate_user_id` stores internal `users.id` for the historical user the
   actor wants to link.
-- Rejection has no persisted free-text reason in the current UX.
+- Registration review is a SUPERADMIN use-case.
+- Result notifications for registration review go to active SUPERADMIN users
+  with real Telegram IDs, not ordinary ADMIN users.
 
 ## ScoringConfig
 
@@ -135,6 +141,8 @@ Rules:
 - Historical/imported closed tournaments may have `tournament_fund = NULL`
   because old rating sheets contain calculated rating points, not the original
   tournament fund.
+- If `tournament_fund` is set, the database requires it to be positive and
+  divisible by `10`.
 - One tournament date is allowed in the database.
 - A created gaming week has no required number of tournaments. If a day is
   removed before confirmation, no tournament row is created for that day.
@@ -188,19 +196,40 @@ Rules:
 - Admin result entry edits fields on this same row.
 - One result/check-in row per player per tournament.
 - `place` is empty or `1..5`.
-- Prize places are unique inside a tournament.
+- Database allows duplicate places for historical ties.
+- Live `ResultService` prevents duplicate assigned places in ordinary
+  result-entry flows.
 - Knockout counts and point fields are nonnegative.
 - `bonus_points` is an integer, `NOT NULL`, default `0`, and `>= 0`.
 - `total_points` is derived as
   `tournament_points + knockout_points + bonus_points`.
 
-## TournamentType / TournamentTypeRule
+## TournamentType
 
-Tournament type stores reusable game/economy configuration. Weekly schedule
-templates define default planning presets only. Management selects only date
-and tournament type; public schedule formatting reads details from the type
-configuration. A confirmed tournament stores its concrete `tournament_type_id`;
-later template changes do not rewrite or re-evaluate existing weeks.
+Reusable tournament identity and public naming.
+
+Fields:
+
+- `id`
+- `code`
+- `name`
+- `short_name`
+- `description`
+- `status`: `active`, `archived`
+
+## TournamentTypeRule
+
+Reusable tournament scoring capabilities.
+
+Fields:
+
+- `id`
+- `tournament_type_id`
+- `points_multiplier`
+- `prize_place_multiplier`
+- `prize_place_multiplier_places`
+- `knockout_mode`: `none`, `small`, `small_big`
+- `supports_bonus_points`
 
 Rules:
 
@@ -208,13 +237,145 @@ Rules:
   codec in `backend/app/domain/prize_multiplier_places.py`.
 - `NULL` means prize-place multiplier is disabled.
 - Non-empty values are sorted unique integer places from `1` to `5`.
-- `mystery_bounty` uses `knockout_mode = none` and
+- `mystery_bounty` currently uses `knockout_mode = small` and
   `supports_bonus_points = true`.
-- Mystery Bounty result entry does not use KO or Boss KO fields. The
-  `bonus_points` field is shown to administrators as "Доп. очки".
-- Mystery Bounty scoring still uses saved result fields only:
-  `total_points = tournament_points + knockout_points + bonus_points`; because
-  `knockout_mode = none`, `knockout_points` remains `0`.
+- Mystery Bounty result entry uses KO, does not use Boss KO, and supports bonus
+  points.
+- Mystery Bounty scoring uses saved result fields:
+  `total_points = tournament_points + knockout_points + bonus_points`.
+
+## TournamentEconomyConfig / TournamentRebuyConfig
+
+Economy configuration belongs to the tournament type, not to a weekly planning
+draft. Admin weekly planning selects tournament day and tournament type only.
+Public schedule formatting reads buy-in, stack, rebuy, addon, and description
+from tournament type configuration.
+
+## WeeklyTournamentTemplate
+
+Default planning row for a weekday.
+
+Fields:
+
+- `weekday`
+- `tournament_type_id`
+- `rotation_order`
+- `is_active`
+
+Rules:
+
+- Weekly planning supports Wednesday, Thursday, Friday, Saturday, and Sunday.
+- Sunday rotation is DB-driven by active template rows with `rotation_order`.
+- Templates are defaults for new planning only. Created tournaments keep their
+  concrete `tournament_type_id`.
+
+## TournamentPhoto
+
+Telegram photo attached to a tournament.
+
+Fields:
+
+- `id`
+- `tournament_id`
+- `telegram_file_id`
+- `telegram_file_unique_id`
+- `uploaded_by_user_id`
+- `position`
+- `created_at`
+
+Rules:
+
+- One Telegram unique file can be stored once per tournament.
+- Photos are part of close readiness and public result preview.
+- Admin and SUPERADMIN photo presentation uses a control-message pattern:
+  the control panel is restored after media is sent.
+
+## TournamentCombination
+
+Manual tournament combinations of the evening.
+
+Fields:
+
+- `id`
+- `tournament_id`
+- `player_id`
+- `combination_type`: `four_of_a_kind`, `straight_flush`, `royal_flush`
+- `rank`
+- `created_at`
+
+Rules:
+
+- One row per tournament/player/combination type.
+- `rank` is allowed only for four of a kind and stores the card rank.
+- Combination publication uses these rows; result scoring is independent.
+
+## TournamentPublication
+
+Idempotency record for public Telegram publications.
+
+Fields:
+
+- `id`
+- `tournament_id`
+- `publication_type`: `results`, `schedule`
+- `destination_type`: `group`, `channel`
+- `destination_chat_id`
+- `content_hash`
+- `telegram_message_id`
+- `published_at`
+- `published_by_user_id`
+
+Rules:
+
+- Results and schedule can be published to configured group/channel
+  destinations.
+- Idempotency identity is
+  `publication_type + destination_type + destination_chat_id + content_hash`.
+- Publishing is independent from closing. Result notifications and reward
+  notifications are also independent from public publication.
+
+## PlayerReward
+
+Prize-stack bonus granted to players in places 1-3 after tournament close.
+
+Fields:
+
+- `id`
+- `player_id`
+- `reward_type`: `prize_stack_bonus`
+- `chips_amount`
+- `source_tournament_id`
+- `source_place`
+- `issued_at`
+- `valid_through`
+- `redeemed_at`
+- `redeemed_tournament_id`
+- `redeemed_by_user_id`
+- `redeemed_tournament_day`
+- `expiration_reminder_sent_at`
+
+Rules:
+
+- Place 1 receives `40_000`, place 2 receives `30_000`, place 3 receives
+  `20_000`.
+- Validity is `7` business days from the source tournament lifecycle.
+- Expiration reminder becomes due `4` days before `valid_through`; scheduler run
+  hour is configured by `REWARD_REMINDER_RUN_HOUR`.
+- One reward can be redeemed per player per tournament day.
+- Reward issuance is idempotent by
+  `source_tournament_id + player_id + reward_type`.
+- Reward correction for CLOSED tournaments is reconciled by
+  `PlayerRewardService`; corrected rewards keep source-tournament lifecycle
+  semantics rather than correction-time semantics.
+
+## Closed Tournament Correction
+
+SUPERADMIN can correct CLOSED tournament data. Current implementation edits
+result fields/player replacement in the stored result rows, then a finish step
+validates readiness, recalculates points, reconciles player rewards, updates the
+correction snapshot, and sends best-effort notifications.
+
+This is the current contract. It is not a fully staged, reversible draft model.
 
 ## SeasonHallOfFame
 
@@ -226,6 +387,10 @@ Fields:
 - `season_id`
 - `champion_player_id`
 - `knockout_player_id`
+- `champion_photo_file_id`
+- `champion_photo_file_unique_id`
+- `knockout_photo_file_id`
+- `knockout_photo_file_unique_id`
 - `updated_by_user_id`
 - `created_at`
 - `updated_at`
@@ -234,6 +399,7 @@ Rules:
 
 - One row per season.
 - `champion_player_id` and `knockout_player_id` are nullable.
+- Champion and knockout photos are optional.
 - The same player may be both season champion and knockout leader.
 - All foreign keys use `ON DELETE RESTRICT`.
 - User Hall of Fame and rating honours read this table; they do not derive

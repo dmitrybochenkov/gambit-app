@@ -79,6 +79,7 @@ FOUR_OF_A_KIND_RANKS = {
     "A",
 }
 
+
 class ResultInvalidCombinationRankError(ValueError):
     pass
 
@@ -761,7 +762,7 @@ class ResultService:
                 raise ResultInvalidCombinationRankError
         elif rank is not None:
             raise ResultInvalidCombinationRankError
-        
+
         async with self.session_factory() as session:
             await access_policy.require_admin(session, admin_telegram_id)
             tournament = await self._require_editable_tournament(session, tournament_id)

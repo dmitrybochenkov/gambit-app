@@ -1,5 +1,8 @@
 # Architecture
 
+Contributor guardrails, validation tiers, and known cleanup candidates are
+maintained in [development-contract.md](development-contract.md).
+
 ## Layers
 
 ```text
@@ -72,19 +75,23 @@ not call `date.today()` directly for domain decisions.
 
 Current service classes include:
 
-- `UserAccessService`
-- `RegistrationService`
-- `RegistrationReviewService`
 - `AdminManagementService`
-- `TournamentService`
-- `TournamentScheduleService`
-- `TournamentPlanningService`
-- `TournamentCheckInService`
-- `ResultService`
-- `RatingService`
+- `HallOfFameManagementService`
+- `PlayerRewardService`
 - `ProfileService`
-- `UserStatisticsService`
+- `RatingService`
+- `RegistrationReviewService`
+- `RegistrationService`
+- `ResultService`
 - `SeasonService`
+- `TournamentCheckInService`
+- `TournamentPlanningService`
+- `TournamentPublicationService`
+- `TournamentScheduleService`
+- `TournamentService`
+- `UserAccessService`
+- `UserRenameService`
+- `UserStatisticsService`
 
 This list documents the current tree, not a future split plan.
 

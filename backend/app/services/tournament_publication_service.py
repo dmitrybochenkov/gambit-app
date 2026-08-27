@@ -240,9 +240,7 @@ class TournamentPublicationService:
             else {}
         )
         effective_fund = (
-            tournament_fund
-            if tournament_fund is not None
-            else int(tournament.tournament_fund or 0)
+            tournament_fund if tournament_fund is not None else int(tournament.tournament_fund or 0)
         )
         places = [
             TournamentPublicationPlaceView(

@@ -44,13 +44,16 @@ the matching `X-Telegram-Bot-Api-Secret-Token` header are rejected.
 Optional Telegram publication destinations can be configured in the environment:
 
 ```env
+CLUB_TIMEZONE=Europe/Moscow
+TOURNAMENT_DAY_START_HOUR=11
+REWARD_REMINDER_RUN_HOUR=12
 TELEGRAM_CLUB_CHAT_ID=
 TELEGRAM_CLUB_CHANNEL_ID=
 ```
 
 Empty values mean that the destination is not configured. These settings only
-prepare the runtime configuration; schedule/result publication flows are wired
-separately.
+prepare the runtime configuration; schedule/result publication flows send only
+to configured destinations.
 
 ## Fresh DB Bootstrap
 

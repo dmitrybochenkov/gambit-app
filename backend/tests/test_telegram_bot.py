@@ -103,7 +103,10 @@ from app.services.dto.registrations import (
 )
 from app.services.dto.results import (
     TournamentCloseReadinessView,
+    TournamentPublicationDestinationView,
+    TournamentPublicationPlaceView,
     TournamentResultPlayerView,
+    TournamentResultPublicationView,
     TournamentResultsView,
 )
 from app.services.dto.rewards import (
@@ -1624,6 +1627,36 @@ def tournament_view(
     )
 
 
+def publication_preview(
+    tournament: TournamentView,
+    *,
+    tournament_fund: int = 15000,
+    photos: list[object] | None = None,
+) -> TournamentResultPublicationView:
+    return TournamentResultPublicationView(
+        tournament=tournament,
+        tournament_fund=tournament_fund,
+        places=[
+            TournamentPublicationPlaceView(
+                place=1,
+                display_name="Илларионов Александр",
+                total_points=Decimal("42"),
+            )
+        ],
+        top_knockouters=[],
+        combinations=[],
+        photos=[] if photos is None else photos,
+        destinations=[
+            TournamentPublicationDestinationView(
+                destination_type="group",
+                chat_id=300,
+                already_published=False,
+            )
+        ],
+        content_hash="test-content-hash",
+    )
+
+
 def keyboard_texts(reply_markup: object) -> list[str]:
     return [button.text for row in reply_markup.keyboard for button in row]
 
@@ -1691,6 +1724,7 @@ def registration_review(player_id: int) -> RegistrationReviewView:
 
 def registrations_overview(
     *,
+    registered_user_count: int = 0,
     pending_count: int = 0,
     tournament_count: int = 0,
 ) -> RegistrationsOverviewView:
@@ -1705,6 +1739,7 @@ def registrations_overview(
             )
         )
     return RegistrationsOverviewView(
+        registered_user_count=registered_user_count,
         pending_user_registration_count=pending_count,
         active_tournament_registration_count=tournament_count,
         tournaments=tournaments,
@@ -2694,23 +2729,27 @@ async def test_superadmin_close_tournament_dispatcher_replaces_fund_preview(
             call.text for call in bot.calls if call.__class__.__name__ == "EditMessageText"
         ]
         assert "🔒 Закрыть турнир" in sent_texts[0]
-        assert any("🔒 Закрытие турнира" in text for text in edited_texts)
-        assert any("Введите фонд турнира?" in text for text in edited_texts)
-        assert "Введите фонд турнира." in edited_texts
-        assert any("Фонд турнира: 10000" in text for text in sent_texts)
-        assert any("Фонд турнира: 15000" in text for text in sent_texts)
-        assert len(photo_calls) == 1
-        assert photo_calls[0].chat_id == 300
-        assert photo_calls[0].photo == "close-file-1"
-        assert photo_calls[0].caption == publication_fmt.result_publication_report(
-            await publication_service.get_result_publication_content_preview(300, tournament_id)
+        assert any("Введите фонд турнира для 09.07 — Классика" in text for text in edited_texts)
+        assert any("Введите фонд турнира для 09.07 — Классика" in text for text in sent_texts)
+        assert any(
+            "Выше — сообщение для игроков. Ниже — результаты, которые пойдут в базу." in text
+            for text in sent_texts
         )
+        assert any(
+            "Фонд турнира составил 10 000 очков!" in (call.caption or "") for call in photo_calls
+        )
+        assert any(
+            "Фонд турнира составил 15 000 очков!" in (call.caption or "") for call in photo_calls
+        )
+        assert photo_calls
+        assert all(call.chat_id == 300 for call in photo_calls)
+        assert any(call.photo == "close-file-1" for call in photo_calls)
         assert len(control_calls) == 1
         assert inline_keyboard_texts(control_calls[0].reply_markup) == [
             "📣 Опубликовать результаты",
             "❌ Закрыть",
         ]
-        assert bot.calls.index(photo_calls[0]) < bot.calls.index(control_calls[0])
+        assert bot.calls.index(photo_calls[-1]) < bot.calls.index(control_calls[0])
         assert [call.chat_id for call in reward_calls] == [301, 302, 303]
         assert "+40 000 фишек к первому стеку." in reward_calls[0].text
         assert "+30 000 фишек к первому стеку." in reward_calls[1].text
@@ -2732,7 +2771,6 @@ async def test_superadmin_close_tournament_dispatcher_replaces_fund_preview(
 
 async def test_publication_media_album_uses_public_caption_contract() -> None:
     bot = RecordingBot()
-    callback = SimpleNamespace(bot=bot)
     photos = [
         SimpleNamespace(telegram_file_id="album-file-1"),
         SimpleNamespace(telegram_file_id="album-file-2"),
@@ -2740,7 +2778,7 @@ async def test_publication_media_album_uses_public_caption_contract() -> None:
 
     try:
         message_id = await superadmin_close_handlers._send_publication_media(
-            callback,
+            bot,
             chat_id=300,
             photos=photos,
             report="ЕЖЕДНЕВНЫЙ ОТЧЁТ 🏆",
@@ -2757,13 +2795,12 @@ async def test_publication_media_album_uses_public_caption_contract() -> None:
 
 async def test_publication_media_caption_overflow_sends_full_report_message() -> None:
     bot = RecordingBot()
-    callback = SimpleNamespace(bot=bot)
     photos = [SimpleNamespace(telegram_file_id="photo-file")]
     report = "x" * (publication_fmt.CAPTION_LIMIT + 1)
 
     try:
         message_id = await superadmin_close_handlers._send_publication_media(
-            callback,
+            bot,
             chat_id=300,
             photos=photos,
             report=report,
@@ -2821,7 +2858,7 @@ async def test_future_tournament_close_callback_shows_domain_error(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     service = SimpleNamespace(
-        get_closeable_tournament_results=AsyncMock(side_effect=FutureTournamentCannotBeClosedError)
+        get_close_readiness=AsyncMock(side_effect=FutureTournamentCannotBeClosedError)
     )
     monkeypatch.setattr(superadmin_close_handlers, "result_service", service)
     callback = SimpleNamespace(
@@ -2951,16 +2988,34 @@ async def test_close_tournament_fund_back_returns_to_root(
     ]
 
 
-async def test_close_tournament_confirmation_back_returns_to_fund_input() -> None:
+async def test_close_tournament_confirmation_back_returns_to_root(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    tournament = tournament_view(125, date(2026, 8, 9), 1, "Баунти турнир")
+    readiness = TournamentCloseReadinessView(
+        tournament=tournament,
+        is_ready=True,
+        photo_count=1,
+        has_photos=True,
+        has_checkins=True,
+        validation_errors=[],
+        reasons=[],
+    )
+    service = SimpleNamespace(
+        list_unclosed_tournaments_for_superadmin=AsyncMock(return_value=[readiness])
+    )
+    monkeypatch.setattr(superadmin_close_handlers, "result_service", service)
     state = MutableState()
     await state.update_data(
         close_tournament_id=125,
         close_tournament_page=0,
         tournament_fund=15000,
+        close_publication_preview_message_ids=[701, 702],
     )
     message = SimpleNamespace(
         chat=SimpleNamespace(id=100),
         message_id=700,
+        bot=SimpleNamespace(delete_message=AsyncMock()),
         edit_text=AsyncMock(),
     )
     callback = SimpleNamespace(
@@ -2980,12 +3035,13 @@ async def test_close_tournament_confirmation_back_returns_to_fund_input() -> Non
     )
 
     callback.answer.assert_awaited_once_with()
-    assert state.state == AdminResultStates.entering_tournament_fund
-    assert state.data["tournament_fund"] == 15000
-    assert state.data["close_tournament_prompt_message_id"] == 700
-    assert message.edit_text.await_args.args[0] == "Введите фонд турнира."
+    assert state.state is None
+    assert state.data == {}
+    assert message.bot.delete_message.await_count == 2
+    assert "🔒 Закрыть турнир" in message.edit_text.await_args.args[0]
     assert inline_keyboard_texts(message.edit_text.await_args.kwargs["reply_markup"]) == [
-        "⬅️ Назад",
+        "✅ 09.08 — Баунти турнир",
+        "🛠 Корректировать турниры",
         "❌ Отмена",
     ]
 
@@ -3077,15 +3133,35 @@ async def test_correction_card_back_returns_to_correction_list(
 async def test_close_tournament_change_fund_deletes_preview_and_waits_for_new_value(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    service = SimpleNamespace(validate_closeable_results=AsyncMock(return_value=[]))
+    tournament = tournament_view(125, date(2026, 8, 9), 1, "Баунти турнир")
+    readiness = TournamentCloseReadinessView(
+        tournament=tournament,
+        is_ready=True,
+        photo_count=1,
+        has_photos=True,
+        has_checkins=True,
+        validation_errors=[],
+        reasons=[],
+    )
+    service = SimpleNamespace(get_close_readiness=AsyncMock(return_value=readiness))
     monkeypatch.setattr(superadmin_close_handlers, "result_service", service)
     state = MutableState()
     await state.update_data(
         close_tournament_id=125,
         close_tournament_page=0,
         tournament_fund=10000,
+        close_publication_preview_message_ids=[701, 702],
     )
-    message = SimpleNamespace(delete=AsyncMock())
+    prompt_message = SimpleNamespace(
+        chat=SimpleNamespace(id=100),
+        message_id=800,
+    )
+    message = SimpleNamespace(
+        chat=SimpleNamespace(id=100),
+        bot=SimpleNamespace(delete_message=AsyncMock()),
+        answer=AsyncMock(return_value=prompt_message),
+        delete=AsyncMock(),
+    )
     callback = SimpleNamespace(
         from_user=SimpleNamespace(id=100),
         message=message,
@@ -3102,14 +3178,22 @@ async def test_close_tournament_change_fund_deletes_preview_and_waits_for_new_va
         state,
     )
 
-    service.validate_closeable_results.assert_awaited_once_with(
+    service.get_close_readiness.assert_awaited_once_with(
         superadmin_telegram_id=100,
         tournament_id=125,
     )
     callback.answer.assert_awaited_once_with()
+    assert message.bot.delete_message.await_count == 2
+    message.answer.assert_awaited_once()
+    assert message.answer.await_args.args[0] == "Введите фонд турнира для 09.08 — Баунти турнир"
     message.delete.assert_awaited_once_with()
     assert state.state == AdminResultStates.entering_tournament_fund
-    assert state.data == {"close_tournament_id": 125, "close_tournament_page": 0}
+    assert state.data == {
+        "close_tournament_id": 125,
+        "close_tournament_page": 0,
+        "close_tournament_prompt_chat_id": 100,
+        "close_tournament_prompt_message_id": 800,
+    }
 
 
 async def test_close_tournament_invalid_fund_stays_in_input_flow() -> None:
@@ -3153,6 +3237,16 @@ async def test_close_tournament_valid_fund_replaces_root_preview_with_prompt(
     )
     service = SimpleNamespace(get_closeable_tournament_results=AsyncMock(return_value=results))
     monkeypatch.setattr(superadmin_close_handlers, "result_service", service)
+    publication_service = SimpleNamespace(
+        get_pre_close_result_publication_preview=AsyncMock(
+            return_value=publication_preview(tournament, tournament_fund=15000)
+        )
+    )
+    monkeypatch.setattr(
+        superadmin_close_handlers,
+        "tournament_publication_service",
+        publication_service,
+    )
     state = MutableState()
     await state.set_state(AdminResultStates.entering_tournament_fund)
     await state.update_data(
@@ -3161,33 +3255,43 @@ async def test_close_tournament_valid_fund_replaces_root_preview_with_prompt(
         close_tournament_prompt_chat_id=100,
         close_tournament_prompt_message_id=700,
     )
-    bot = SimpleNamespace(edit_message_text=AsyncMock())
+    bot = RecordingBot()
     message = SimpleNamespace(
         from_user=SimpleNamespace(id=100),
+        chat=SimpleNamespace(id=100),
         text="15000",
         bot=bot,
         answer=AsyncMock(),
     )
 
-    await superadmin_close_handlers.enter_tournament_fund(message, state)
+    try:
+        await superadmin_close_handlers.enter_tournament_fund(message, state)
+    finally:
+        await bot.session.close()
 
+    publication_service.get_pre_close_result_publication_preview.assert_awaited_once_with(
+        superadmin_telegram_id=100,
+        tournament_id=125,
+        tournament_fund=15000,
+    )
     service.get_closeable_tournament_results.assert_awaited_once_with(
         superadmin_telegram_id=100,
         tournament_id=125,
     )
-    bot.edit_message_text.assert_awaited_once_with(
-        chat_id=100,
-        message_id=700,
-        text="Введите фонд турнира.",
-        reply_markup=superadmin_tournament_close_kb.admin_close_tournament_card_keyboard(
-            tournament_id=125,
-            page=0,
-        ),
-    )
+    method_names = [call.__class__.__name__ for call in bot.calls]
+    assert method_names == ["EditMessageReplyMarkup", "SendMessage"]
+    assert bot.calls[0].chat_id == 100
+    assert bot.calls[0].message_id == 700
+    assert bot.calls[0].reply_markup is None
+    assert "ЕЖЕДНЕВНЫЙ ОТЧЁТ" in bot.calls[1].text
     message.answer.assert_awaited_once()
-    assert "Фонд турнира: 15000" in message.answer.await_args.args[0]
+    confirmation_text = message.answer.await_args.args[0]
+    assert "Выше — сообщение для игроков." in confirmation_text
+    assert "Илларионов Александр" in confirmation_text
+    assert "Очки" not in confirmation_text
     assert state.state is None
     assert state.data["tournament_fund"] == 15000
+    assert state.data["close_publication_preview_message_ids"] == [102]
 
 
 async def test_admin_photo_collection_reissues_single_control_message(
@@ -5804,11 +5908,7 @@ async def test_superadmin_panel_button_opens_superadmin_keyboard(
     admin = admin_player(1, 100, UserRole.SUPERADMIN)
     service = SimpleNamespace(
         get_superadmin_panel_for_superadmin=AsyncMock(
-            return_value=AdminPanelView(
-                admin=admin,
-                reviews=[],
-                active_telegram_users_count=183,
-            )
+            return_value=AdminPanelView(admin=admin, reviews=[])
         )
     )
     monkeypatch.setattr(superadmin_panel_handlers, "user_access_service", service)
@@ -5823,12 +5923,12 @@ async def test_superadmin_panel_button_opens_superadmin_keyboard(
     assert message.answer.await_args.args[0] == "Суперадмин."
     reply_markup = message.answer.await_args.kwargs["reply_markup"]
     assert keyboard_rows(reply_markup) == [
-        ["📝 Регистрации · 👤 183", "✏️ Переименовать пользователя"],
+        ["📝 Регистрации", "✏️ Переименовать пользователя"],
         ["🔒 Закрыть турнир", "➕ Добавить администратора"],
         ["🗓 Календарь", "🔧 Наполнить зал славы"],
         ["⬅️ Админка"],
     ]
-    assert "📝 Регистрации" not in keyboard_texts(reply_markup)
+    assert "📝 Регистрации" in keyboard_texts(reply_markup)
     assert "📝 Заявки на регистрацию" not in keyboard_texts(reply_markup)
     assert "🛠 Админка" not in keyboard_texts(reply_markup)
     assert "⬅️ Выход" not in keyboard_texts(reply_markup)
@@ -5945,12 +6045,22 @@ async def test_superadmin_rename_new_name_confirmation_does_not_mutate_user(
     assert not hasattr(service, "rename_user")
 
 
-async def test_superadmin_rename_cancel_clears_state_and_returns_menu() -> None:
+async def test_superadmin_rename_cancel_clears_state_and_returns_menu(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     state = MutableState()
     await state.update_data(target_user_id=10, old_display_name="Иван Иванов")
+    admin = admin_player(1, 100, UserRole.SUPERADMIN)
+    panel_service = SimpleNamespace(
+        get_superadmin_panel_for_superadmin=AsyncMock(
+            return_value=AdminPanelView(admin=admin, reviews=[])
+        )
+    )
+    monkeypatch.setattr(superadmin_navigation, "user_access_service", panel_service)
     message = SimpleNamespace(delete=AsyncMock(), answer=AsyncMock())
     callback = SimpleNamespace(
         answer=AsyncMock(),
+        from_user=SimpleNamespace(id=100),
         message=message,
     )
 
@@ -5958,6 +6068,7 @@ async def test_superadmin_rename_cancel_clears_state_and_returns_menu() -> None:
 
     callback.answer.assert_awaited_once_with("Отмена.")
     message.delete.assert_awaited_once_with()
+    panel_service.get_superadmin_panel_for_superadmin.assert_awaited_once_with(100)
     answer = message.answer.await_args
     assert answer.args[0] == "Отмена."
     assert "✏️ Переименовать пользователя" in keyboard_texts(answer.kwargs["reply_markup"])
@@ -5999,6 +6110,15 @@ async def test_superadmin_rename_confirm_updates_and_does_not_notify_target(
     renamed = UserView(10, 555, "Иван Петров", UserStatus.ACTIVE, UserRole.PLAYER)
     service = SimpleNamespace(rename_user=AsyncMock(return_value=renamed))
     monkeypatch.setattr(superadmin_user_handlers, "user_rename_service", service)
+    panel_service = SimpleNamespace(
+        get_superadmin_panel_for_superadmin=AsyncMock(
+            return_value=AdminPanelView(
+                admin=admin_player(1, 100, UserRole.SUPERADMIN),
+                reviews=[],
+            )
+        )
+    )
+    monkeypatch.setattr(superadmin_navigation, "user_access_service", panel_service)
     state = MutableState()
     await state.update_data(
         target_user_id=10,
@@ -6029,6 +6149,7 @@ async def test_superadmin_rename_confirm_updates_and_does_not_notify_target(
         "✅ Пользователь переименован\n\nИван Иванов → Иван Петров"
     )
     message.delete.assert_awaited_once_with()
+    panel_service.get_superadmin_panel_for_superadmin.assert_awaited_once_with(100)
     answer = message.answer.await_args
     assert answer.args[0] == "✅ Пользователь переименован\n\nИван Иванов → Иван Петров"
     assert state.data == {}
@@ -6242,6 +6363,15 @@ async def test_confirm_add_admin_promotes_player_and_notifies(
 
     service = UserAccessServiceContractFake()
     monkeypatch.setattr(superadmin_administrator_handlers, "admin_management_service", service)
+    panel_service = SimpleNamespace(
+        get_superadmin_panel_for_superadmin=AsyncMock(
+            return_value=AdminPanelView(
+                admin=admin_player(1, 100, UserRole.SUPERADMIN),
+                reviews=[],
+            )
+        )
+    )
+    monkeypatch.setattr(superadmin_navigation, "user_access_service", panel_service)
     state = MutableState()
     bot = SimpleNamespace(send_message=AsyncMock())
     message = SimpleNamespace(delete=AsyncMock(), answer=AsyncMock())
@@ -6261,6 +6391,7 @@ async def test_confirm_add_admin_promotes_player_and_notifies(
     assert service.calls == [{"superadmin_telegram_id": 100, "user_id": 2}]
     callback.answer.assert_awaited_once_with("✅ Админ 2 назначен администратором.")
     message.delete.assert_awaited_once_with()
+    panel_service.get_superadmin_panel_for_superadmin.assert_awaited_once_with(100)
     message.answer.assert_awaited_once()
     assert message.answer.await_args.args[0] == "✅ Админ 2 назначен администратором."
     bot.send_message.assert_awaited_once()
@@ -6984,6 +7115,9 @@ async def test_registrations_hub_empty_user_branch_shows_back(
         list_pending_reviews_page_for_superadmin=AsyncMock(
             return_value=Page(items=[], page=0, page_size=5, total_items=0),
         ),
+        get_registrations_overview_for_superadmin=AsyncMock(
+            return_value=registrations_overview(registered_user_count=183),
+        ),
     )
     monkeypatch.setattr(superadmin_registration_handlers, "registration_review_service", service)
     message = SimpleNamespace(edit_text=AsyncMock())
@@ -7006,7 +7140,9 @@ async def test_registrations_hub_empty_user_branch_shows_back(
         page_size=5,
     )
     assert message.edit_text.await_args.args[0] == (
-        "📝 Регистрации пользователей\n\nРегистраций нет."
+        "📝 Регистрации пользователей\n"
+        "Всего зарегистрировано 183 пользователей.\n\n"
+        "Регистраций нет."
     )
     assert inline_keyboard_texts(message.edit_text.await_args.kwargs["reply_markup"]) == [
         "⬅️ Назад",
@@ -7282,6 +7418,9 @@ async def test_admin_registration_list_page_callback_edits_list(
         list_pending_reviews_page_for_superadmin=AsyncMock(
             return_value=Page(items=reviews, page=1, page_size=5, total_items=6)
         ),
+        get_registrations_overview_for_superadmin=AsyncMock(
+            return_value=registrations_overview(registered_user_count=183),
+        ),
     )
     monkeypatch.setattr(superadmin_registration_handlers, "registration_review_service", service)
     message = SimpleNamespace(edit_text=AsyncMock())
@@ -7305,7 +7444,9 @@ async def test_admin_registration_list_page_callback_edits_list(
     )
     callback.answer.assert_awaited_once_with()
     message.edit_text.assert_awaited_once()
-    assert message.edit_text.await_args.args[0] == "Регистрации"
+    assert message.edit_text.await_args.args[0] == (
+        "📝 Регистрации пользователей\nВсего зарегистрировано 183 пользователей."
+    )
     buttons = [
         button.text
         for row in message.edit_text.await_args.kwargs["reply_markup"].inline_keyboard
@@ -7314,17 +7455,13 @@ async def test_admin_registration_list_page_callback_edits_list(
     assert buttons == ["Игрок 15", "⬅️", "2/2", "⬅️ Назад", "❌ Отмена"]
 
 
-async def test_admin_registration_list_cancel_returns_superadmin_panel_with_active_count(
+async def test_admin_registration_list_cancel_returns_superadmin_panel(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     admin = admin_player(1, 100, UserRole.SUPERADMIN)
     service = SimpleNamespace(
         get_superadmin_panel_for_superadmin=AsyncMock(
-            return_value=AdminPanelView(
-                admin=admin,
-                reviews=[],
-                active_telegram_users_count=183,
-            )
+            return_value=AdminPanelView(admin=admin, reviews=[])
         )
     )
     monkeypatch.setattr(superadmin_navigation, "user_access_service", service)
@@ -7347,22 +7484,16 @@ async def test_admin_registration_list_cancel_returns_superadmin_panel_with_acti
     service.get_superadmin_panel_for_superadmin.assert_awaited_once_with(100)
     message.answer.assert_awaited_once()
     assert message.answer.await_args.args[0] == "Суперадмин."
-    assert keyboard_rows(message.answer.await_args.kwargs["reply_markup"])[0][0] == (
-        "📝 Регистрации · 👤 183"
-    )
+    assert keyboard_rows(message.answer.await_args.kwargs["reply_markup"])[0][0] == "📝 Регистрации"
 
 
-async def test_result_cancel_return_to_superadmin_panel_keeps_active_count(
+async def test_result_cancel_return_to_superadmin_panel_uses_current_keyboard(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     admin = admin_player(1, 100, UserRole.SUPERADMIN)
     service = SimpleNamespace(
         get_superadmin_panel_for_superadmin=AsyncMock(
-            return_value=AdminPanelView(
-                admin=admin,
-                reviews=[],
-                active_telegram_users_count=183,
-            )
+            return_value=AdminPanelView(admin=admin, reviews=[])
         )
     )
     monkeypatch.setattr(superadmin_navigation, "user_access_service", service)
@@ -7382,9 +7513,7 @@ async def test_result_cancel_return_to_superadmin_panel_keeps_active_count(
     service.get_superadmin_panel_for_superadmin.assert_awaited_once_with(100)
     message.answer.assert_awaited_once()
     assert message.answer.await_args.args[0] == "Отменено."
-    assert keyboard_rows(message.answer.await_args.kwargs["reply_markup"])[0][0] == (
-        "📝 Регистрации · 👤 183"
-    )
+    assert keyboard_rows(message.answer.await_args.kwargs["reply_markup"])[0][0] == "📝 Регистрации"
 
 
 async def test_admin_registration_list_open_edits_message_to_review(
@@ -7465,6 +7594,9 @@ async def test_registration_review_back_returns_to_source_page(
     page = Page(items=[registration_review(15)], page=1, page_size=5, total_items=6)
     service = SimpleNamespace(
         list_pending_reviews_page_for_superadmin=AsyncMock(return_value=page),
+        get_registrations_overview_for_superadmin=AsyncMock(
+            return_value=registrations_overview(registered_user_count=183),
+        ),
     )
     monkeypatch.setattr(superadmin_registration_handlers, "registration_review_service", service)
     message = SimpleNamespace(edit_text=AsyncMock())
@@ -7486,7 +7618,9 @@ async def test_registration_review_back_returns_to_source_page(
         page=1,
         page_size=5,
     )
-    assert message.edit_text.await_args.args[0] == "Регистрации"
+    assert message.edit_text.await_args.args[0] == (
+        "📝 Регистрации пользователей\nВсего зарегистрировано 183 пользователей."
+    )
     assert inline_keyboard_texts(message.edit_text.await_args.kwargs["reply_markup"]) == [
         "Игрок 15",
         "⬅️",
@@ -7504,6 +7638,9 @@ async def test_registration_review_dispatcher_card_back_returns_to_list(
     service = SimpleNamespace(
         get_registration_review_for_admin=AsyncMock(return_value=review),
         list_pending_reviews_page_for_superadmin=AsyncMock(return_value=page),
+        get_registrations_overview_for_superadmin=AsyncMock(
+            return_value=registrations_overview(registered_user_count=183),
+        ),
     )
     monkeypatch.setattr(superadmin_registration_handlers, "registration_review_service", service)
     bot = RecordingBot()
@@ -7556,7 +7693,9 @@ async def test_registration_review_dispatcher_card_back_returns_to_list(
         ]
         assert len(edited_texts) == 2
         assert "Новая заявка на регистрацию" in edited_texts[0]
-        assert edited_texts[1] == "Регистрации"
+        assert edited_texts[1] == (
+            "📝 Регистрации пользователей\nВсего зарегистрировано 183 пользователей."
+        )
         last_edit = [call for call in bot.calls if call.__class__.__name__ == "EditMessageText"][-1]
         assert inline_keyboard_texts(last_edit.reply_markup) == [
             "Игрок 10",
@@ -7755,6 +7894,13 @@ async def test_registration_review_cancel_deletes_message_without_review(
         reject_registration=AsyncMock(),
     )
     monkeypatch.setattr(superadmin_registration_handlers, "registration_review_service", service)
+    admin = admin_player(1, 100, UserRole.SUPERADMIN)
+    panel_service = SimpleNamespace(
+        get_superadmin_panel_for_superadmin=AsyncMock(
+            return_value=AdminPanelView(admin=admin, reviews=[])
+        )
+    )
+    monkeypatch.setattr(superadmin_navigation, "user_access_service", panel_service)
     message = SimpleNamespace(delete=AsyncMock(), answer=AsyncMock())
     callback = SimpleNamespace(
         from_user=SimpleNamespace(id=100, full_name="Админ 1"),
@@ -7771,6 +7917,7 @@ async def test_registration_review_cancel_deletes_message_without_review(
 
     callback.answer.assert_awaited_once_with("Заявка скрыта")
     message.delete.assert_awaited_once()
+    panel_service.get_superadmin_panel_for_superadmin.assert_awaited_once_with(100)
     message.answer.assert_awaited_once()
     service.approve_registration.assert_not_awaited()
     service.reject_registration.assert_not_awaited()
@@ -7801,6 +7948,9 @@ async def test_registration_review_reject_deletes_pending_and_notifies_superadmi
         ),
         list_pending_reviews_page_for_superadmin=AsyncMock(
             return_value=Page(items=[], page=0, page_size=5, total_items=0)
+        ),
+        get_registrations_overview_for_superadmin=AsyncMock(
+            return_value=registrations_overview(registered_user_count=183),
         ),
     )
     monkeypatch.setattr(superadmin_registration_handlers, "registration_review_service", service)
@@ -7834,7 +7984,11 @@ async def test_registration_review_reject_deletes_pending_and_notifies_superadmi
         page_size=5,
     )
     message.edit_text.assert_awaited_once()
-    assert message.edit_text.await_args.args[0] == "Заявок на регистрацию нет."
+    assert message.edit_text.await_args.args[0] == (
+        "📝 Регистрации пользователей\n"
+        "Всего зарегистрировано 183 пользователей.\n\n"
+        "Регистраций нет."
+    )
     assert callback.answer.await_args.args[0] == "Заявка отклонена"
     assert bot.send_message.await_count == 2
     admin_call, player_call = bot.send_message.await_args_list
@@ -7872,6 +8026,9 @@ async def test_registration_review_result_moves_empty_last_page_to_previous_page
                 page_size=5,
                 total_items=1,
             )
+        ),
+        get_registrations_overview_for_superadmin=AsyncMock(
+            return_value=registrations_overview(registered_user_count=183),
         ),
     )
     monkeypatch.setattr(superadmin_registration_handlers, "registration_review_service", service)
@@ -8040,6 +8197,9 @@ async def test_confirm_selected_registration_candidate_links_user(
         list_pending_reviews_page_for_superadmin=AsyncMock(
             return_value=Page(items=[], page=0, page_size=5, total_items=0)
         ),
+        get_registrations_overview_for_superadmin=AsyncMock(
+            return_value=registrations_overview(registered_user_count=183),
+        ),
     )
     monkeypatch.setattr(superadmin_registration_handlers, "registration_review_service", service)
     message = SimpleNamespace(text="confirmation", edit_text=AsyncMock(), answer=AsyncMock())
@@ -8156,6 +8316,9 @@ async def test_registration_review_result_is_sent_to_other_superadmins(
         list_pending_reviews_page_for_superadmin=AsyncMock(
             return_value=Page(items=[], page=0, page_size=5, total_items=0)
         ),
+        get_registrations_overview_for_superadmin=AsyncMock(
+            return_value=registrations_overview(registered_user_count=183),
+        ),
     )
     monkeypatch.setattr(superadmin_registration_handlers, "registration_review_service", service)
     message = SimpleNamespace(
@@ -8188,7 +8351,11 @@ async def test_registration_review_result_is_sent_to_other_superadmins(
         page_size=5,
     )
     message.edit_text.assert_awaited_once()
-    assert message.edit_text.await_args.args[0] == "Заявок на регистрацию нет."
+    assert message.edit_text.await_args.args[0] == (
+        "📝 Регистрации пользователей\n"
+        "Всего зарегистрировано 183 пользователей.\n\n"
+        "Регистраций нет."
+    )
     assert callback.answer.await_args.args[0] == "Заявка одобрена"
     assert bot.send_message.await_count == 2
     admin_call, player_call = bot.send_message.await_args_list
