@@ -23,7 +23,8 @@ from app.bot.telegram.texts.admin import panel as panel_text
 from app.bot.telegram.texts.admin import results as result_text
 from app.db.models.enums import UserGender
 from app.services.access_policy import AdminAccessDeniedError
-from app.services.pagination import pagination_service
+from app.services.dto.check_in import CheckInCandidateView
+from app.services.pagination import Page, pagination_service
 from app.services.player_reward_service import (
     PlayerRewardAlreadyRedeemedTodayError,
     PlayerRewardNotFoundError,
@@ -180,8 +181,37 @@ async def select_check_in_action(
             return await _finish_check_in_callback(callback, state, result, view)
 
         if callback_data.action == admin_check_in_kb.AdminCheckInAction.REGISTERED_SEARCH:
+            await _show_registered_candidates(
+                callback,
+                state,
+                tournament_id=callback_data.tournament_id,
+                page=callback_data.page,
+            )
+            return
+
+        if callback_data.action == admin_check_in_kb.AdminCheckInAction.SEARCH_REGISTERED:
+            view = await tournament_check_in_service.get_check_in(
+                admin_telegram_id=callback.from_user.id,
+                tournament_id=callback_data.tournament_id,
+            )
+            if not view.registered_candidates:
+                await callback.answer()
+                if callback.message is not None:
+                    page = _registered_candidates_page(view, page=callback_data.page)
+                    await edit_message_if_changed(
+                        callback.message,
+                        text=check_in_fmt.registered_candidates(page),
+                        reply_markup=admin_check_in_kb.admin_registered_candidates_keyboard(
+                            tournament_id=callback_data.tournament_id,
+                            page=page,
+                        ),
+                    )
+                return
             await state.set_state(AdminResultStates.entering_registered_check_in_search)
-            await state.update_data(check_in_tournament_id=callback_data.tournament_id)
+            await state.update_data(
+                check_in_tournament_id=callback_data.tournament_id,
+                check_in_registered_page=callback_data.page,
+            )
             await callback.answer()
             if callback.message is not None:
                 await _delete_callback_message(callback)
@@ -548,6 +578,15 @@ async def _handle_check_in_tournament_navigation(
             )
         return True
 
+    if callback_data.action == admin_check_in_kb.AdminCheckInAction.PAGE_REGISTERED:
+        await _show_registered_candidates(
+            callback,
+            None,
+            tournament_id=callback_data.tournament_id,
+            page=callback_data.page,
+        )
+        return True
+
     if callback_data.action == admin_check_in_kb.AdminCheckInAction.OPEN_TOURNAMENT:
         view = await tournament_check_in_service.get_check_in(
             admin_telegram_id=callback.from_user.id,
@@ -563,6 +602,40 @@ async def _handle_check_in_tournament_navigation(
         return True
 
     return False
+
+
+async def _show_registered_candidates(
+    callback: CallbackQuery,
+    state: FSMContext | None,
+    *,
+    tournament_id: int,
+    page: int,
+) -> None:
+    view = await tournament_check_in_service.get_check_in(
+        admin_telegram_id=callback.from_user.id,
+        tournament_id=tournament_id,
+    )
+    if state is not None:
+        await state.clear()
+    page_view = _registered_candidates_page(view, page=page)
+    await callback.answer()
+    if callback.message is not None:
+        await edit_message_if_changed(
+            callback.message,
+            text=check_in_fmt.registered_candidates(page_view),
+            reply_markup=admin_check_in_kb.admin_registered_candidates_keyboard(
+                tournament_id=tournament_id,
+                page=page_view,
+            ),
+        )
+
+
+def _registered_candidates_page(view: object, *, page: int) -> Page[CheckInCandidateView]:
+    return pagination_service.paginate(
+        list(getattr(view, "registered_candidates", None) or []),
+        page=page,
+        page_size=admin_check_in_kb.ADMIN_CHECK_IN_PAGE_SIZE,
+    )
 
 
 async def _return_to_admin_menu(callback: CallbackQuery, message_text: str) -> None:
@@ -598,10 +671,13 @@ async def _restore_check_in_previous_screen(
                 tournament_id=tournament_id,
                 players=players,
                 action=admin_check_in_kb.AdminCheckInAction.CONFIRM_REGISTERED,
-                back_action=admin_check_in_kb.AdminCheckInAction.REGISTERED_SEARCH,
+                back_action=admin_check_in_kb.AdminCheckInAction.SEARCH_REGISTERED,
             )
             if players
-            else None,
+            else admin_check_in_kb.admin_check_in_empty_search_keyboard(
+                tournament_id=tournament_id,
+                search_action=admin_check_in_kb.AdminCheckInAction.SEARCH_REGISTERED,
+            ),
         )
         return True
     if back_screen == "database_search":
@@ -694,7 +770,7 @@ async def enter_registered_check_in_search(message: Message, state: FSMContext) 
             "Игроки не найдены.",
             reply_markup=admin_check_in_kb.admin_check_in_empty_search_keyboard(
                 tournament_id=tournament_id,
-                search_action=admin_check_in_kb.AdminCheckInAction.REGISTERED_SEARCH,
+                search_action=admin_check_in_kb.AdminCheckInAction.SEARCH_REGISTERED,
             ),
         )
         return
@@ -709,7 +785,7 @@ async def enter_registered_check_in_search(message: Message, state: FSMContext) 
             tournament_id=tournament_id,
             players=players,
             action=admin_check_in_kb.AdminCheckInAction.CONFIRM_REGISTERED,
-            back_action=admin_check_in_kb.AdminCheckInAction.REGISTERED_SEARCH,
+            back_action=admin_check_in_kb.AdminCheckInAction.SEARCH_REGISTERED,
         ),
     )
 

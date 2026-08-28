@@ -34,6 +34,15 @@ def summary(view: object) -> str:
     return "\n".join(lines)
 
 
+def registered_candidates(page: object) -> str:
+    if page.total_items == 0:
+        return "Нет зарегистрированных игроков для чекина."
+    lines = ["Выбери зарегистрированного игрока:"]
+    if page.total_pages > 1:
+        lines.extend(["", fmt_common.page_line(page)])
+    return "\n".join(lines)
+
+
 def checked_in_players(view: object) -> str:
     lines = ["✅ Уже отметились", ""]
     if not view.players:

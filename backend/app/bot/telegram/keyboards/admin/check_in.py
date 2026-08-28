@@ -19,10 +19,12 @@ ADMIN_CHECK_IN_PAGE_SIZE = 6
 class AdminCheckInAction(StrEnum):
     OPEN_TOURNAMENT = "open_tournament"
     PAGE_TOURNAMENTS = "page_tournaments"
+    PAGE_REGISTERED = "page_registered"
     SHOW_CHECKED_IN = "show_checked_in"
     CONFIRM_REGISTERED = "confirm_registered"
     ADD_REGISTERED = "add_registered"
     REGISTERED_SEARCH = "registered_search"
+    SEARCH_REGISTERED = "search_registered"
     DATABASE_SEARCH = "database_search"
     CONFIRM_EXISTING = "confirm_existing"
     ADD_EXISTING = "add_existing"
@@ -54,16 +56,6 @@ def admin_check_in_keyboard(
     view: TournamentCheckInView,
 ) -> InlineKeyboardMarkup:
     builder = InlineKeyboardBuilder()
-    registered_candidates = getattr(view, "registered_candidates", None) or []
-    for player in registered_candidates:
-        builder.button(
-            text=player.display_name,
-            callback_data=AdminCheckInCallback(
-                action=AdminCheckInAction.CONFIRM_REGISTERED,
-                tournament_id=view.tournament.id,
-                player_id=player.user_id,
-            ),
-        )
     builder.button(
         text="✅ Зарегистрированный",
         callback_data=AdminCheckInCallback(
@@ -99,7 +91,84 @@ def admin_check_in_keyboard(
             tournament_id=view.tournament.id,
         ),
     )
-    builder.adjust(*([1] * len(registered_candidates)), 1)
+    builder.adjust(1)
+    return builder.as_markup()
+
+
+def admin_registered_candidates_keyboard(
+    *,
+    tournament_id: int,
+    page: Page[CheckInCandidateView],
+) -> InlineKeyboardMarkup:
+    builder = InlineKeyboardBuilder()
+    if page.total_items:
+        builder.button(
+            text="🔎 Найти зарегистрированного",
+            callback_data=AdminCheckInCallback(
+                action=AdminCheckInAction.SEARCH_REGISTERED,
+                tournament_id=tournament_id,
+                page=page.page,
+            ),
+        )
+    for player in page.items:
+        builder.button(
+            text=player.display_name,
+            callback_data=AdminCheckInCallback(
+                action=AdminCheckInAction.CONFIRM_REGISTERED,
+                tournament_id=tournament_id,
+                page=page.page,
+                player_id=player.user_id,
+            ),
+        )
+    if page.total_pages > 1:
+        if page.has_previous:
+            builder.button(
+                text="⬅️",
+                callback_data=AdminCheckInCallback(
+                    action=AdminCheckInAction.PAGE_REGISTERED,
+                    tournament_id=tournament_id,
+                    page=page.previous_page,
+                ),
+            )
+        builder.button(
+            text=_admin_candidate_page_label(page),
+            callback_data=AdminCheckInCallback(
+                action=AdminCheckInAction.PAGE_REGISTERED,
+                tournament_id=tournament_id,
+                page=page.page,
+            ),
+        )
+        if page.has_next:
+            builder.button(
+                text="➡️",
+                callback_data=AdminCheckInCallback(
+                    action=AdminCheckInAction.PAGE_REGISTERED,
+                    tournament_id=tournament_id,
+                    page=page.next_page,
+                ),
+            )
+    builder.button(
+        text="↩️ Назад",
+        callback_data=AdminCheckInCallback(
+            action=AdminCheckInAction.BACK_TO_TOURNAMENT,
+            tournament_id=tournament_id,
+        ),
+    )
+    builder.button(
+        text=labels.ADMIN_CANCEL,
+        callback_data=AdminCheckInCallback(
+            action=AdminCheckInAction.CANCEL,
+            tournament_id=tournament_id,
+        ),
+    )
+    rows = []
+    if page.total_items:
+        rows.append(1)
+    rows.extend([1] * len(page.items))
+    if page.total_pages > 1:
+        rows.append(1 + int(page.has_previous) + int(page.has_next))
+    rows.extend([1, 1])
+    builder.adjust(*rows)
     return builder.as_markup()
 
 

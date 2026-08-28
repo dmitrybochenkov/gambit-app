@@ -1390,6 +1390,112 @@ async def test_check_in_existing_user_search_includes_admin_roles(
         await engine.dispose()
 
 
+async def test_check_in_registered_search_scope_is_tournament_registrations_minus_results(
+    tmp_path: Path,
+) -> None:
+    engine = create_async_engine(f"sqlite+aiosqlite:///{tmp_path / 'registered_search_scope.db'}")
+    async with engine.begin() as connection:
+        await connection.run_sync(Base.metadata.create_all)
+
+    session_factory = async_sessionmaker(engine, expire_on_commit=False)
+    async with session_factory() as session:
+        config = ScoringConfig()
+        session.add(config)
+        await session.flush()
+        await seed_tournament_types_async(session)
+        season = Season(
+            name="Test season",
+            scoring_config_id=config.id,
+            starts_at=date(2026, 7, 1),
+            ends_at=None,
+        )
+        session.add(season)
+        await session.flush()
+        operator = build_player(
+            telegram_id=100,
+            display_name="Оператор",
+            status=UserStatus.ACTIVE,
+            role=UserRole.ADMIN,
+        )
+        eligible = build_player(
+            telegram_id=101,
+            display_name="Игрок Eligible",
+            status=UserStatus.ACTIVE,
+        )
+        checked_in = build_player(
+            telegram_id=102,
+            display_name="Игрок Checked",
+            status=UserStatus.ACTIVE,
+        )
+        not_registered = build_player(
+            telegram_id=103,
+            display_name="Игрок External",
+            status=UserStatus.ACTIVE,
+        )
+        other_tournament_registered = build_player(
+            telegram_id=104,
+            display_name="Игрок Other",
+            status=UserStatus.ACTIVE,
+        )
+        tournament = Tournament(
+            season_id=season.id,
+            tournament_type_id=tournament_type_id("classic"),
+            date=date(2026, 7, 9),
+            status=TournamentStatus.ACTIVE,
+        )
+        other_tournament = Tournament(
+            season_id=season.id,
+            tournament_type_id=tournament_type_id("classic"),
+            date=date(2026, 7, 10),
+            status=TournamentStatus.ACTIVE,
+        )
+        session.add_all(
+            [
+                operator,
+                eligible,
+                checked_in,
+                not_registered,
+                other_tournament_registered,
+                tournament,
+                other_tournament,
+            ]
+        )
+        await session.flush()
+        session.add_all(
+            [
+                TournamentRegistration(tournament_id=tournament.id, player_id=eligible.id),
+                TournamentRegistration(tournament_id=tournament.id, player_id=checked_in.id),
+                TournamentRegistration(
+                    tournament_id=other_tournament.id,
+                    player_id=other_tournament_registered.id,
+                ),
+                TournamentResult(
+                    tournament_id=tournament.id,
+                    player_id=checked_in.id,
+                    source=TournamentResultSource.REGISTERED,
+                    checked_in_by_user_id=operator.id,
+                ),
+            ]
+        )
+        await session.commit()
+        tournament_id = tournament.id
+
+    check_in_service = TournamentCheckInService(
+        session_factory,
+        clock=FixedClock(datetime(2026, 7, 9, 12, tzinfo=ZoneInfo("Europe/Moscow"))),
+    )
+    try:
+        search_results = await check_in_service.search_registered(
+            admin_telegram_id=100,
+            tournament_id=tournament_id,
+            query="игрок",
+        )
+
+        assert [user.display_name for user in search_results] == ["Игрок Eligible"]
+    finally:
+        await engine.dispose()
+
+
 async def test_check_in_summary_counters_use_sources_and_include_admin_players(
     tmp_path: Path,
 ) -> None:
