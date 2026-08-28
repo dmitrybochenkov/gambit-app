@@ -23,6 +23,7 @@ Fields:
 - `telegram_id`
 - `display_name`
 - `display_name_normalized`
+- `gender`: `male`, `female`, or `NULL`
 - `role`: `player`, `admin`, `superadmin`
 - `status`: `active`, `blocked`
 - `created_at`
@@ -37,6 +38,12 @@ Rules:
 - Duplicate normalized display names are allowed at database level.
 - Public self-registration blocks accidental duplicate names as a business
   rule.
+- `gender = NULL` means unknown or not specified. Gender is never inferred from
+  a name and is not requested during online registration.
+- ADMIN may fill missing gender during in-person check-in; SUPERADMIN may
+  correct it from the user management flow.
+- Public result publication may decorate female players in the five prize/result
+  rows with `🌸`. The stored `display_name` remains unchanged.
 
 ## Season
 

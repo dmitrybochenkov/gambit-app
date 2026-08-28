@@ -2,7 +2,7 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.models import User
-from app.db.models.enums import UserRole, UserStatus
+from app.db.models.enums import UserGender, UserRole, UserStatus
 
 
 class UserRepository:
@@ -118,3 +118,6 @@ class UserRepository:
     ) -> None:
         user.display_name = display_name
         user.display_name_normalized = display_name_normalized
+
+    def update_gender(self, user: User, gender: UserGender | None) -> None:
+        user.gender = gender

@@ -83,7 +83,13 @@ from app.db.models import (
     TournamentResult,
     User,
 )
-from app.db.models.enums import TournamentResultSource, TournamentStatus, UserRole, UserStatus
+from app.db.models.enums import (
+    TournamentResultSource,
+    TournamentStatus,
+    UserGender,
+    UserRole,
+    UserStatus,
+)
 from app.db.repositories.tournament_photo_repository import TournamentPhotoRepository
 from app.services.access_policy import AdminAccessDeniedError
 from app.services.dto.hall_of_fame import (
@@ -167,7 +173,7 @@ from app.services.result_service import (
     ResultService,
     ResultUserNotFoundError,
 )
-from app.services.tournament_check_in_service import TournamentCheckInService
+from app.services.tournament_check_in_service import CheckInResultView, TournamentCheckInService
 from app.services.tournament_planning_service import (
     WeeklyPlanningCheckView,
     WeeklyPlanningStatus,
@@ -1883,6 +1889,7 @@ async def test_admin_check_in_registered_user_flow_creates_result(
             display_name="Игрок Админ",
             status=UserStatus.ACTIVE,
             role=UserRole.SUPERADMIN,
+            gender=UserGender.MALE,
         )
         session.add_all([season, admin, registered_user])
         await session.flush()
@@ -2081,6 +2088,142 @@ async def test_check_in_new_player_clears_prompt_keyboard(
         tournament,
         "Черепаха",
     )
+
+
+async def test_check_in_unknown_gender_shown_before_registered_result(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    tournament = tournament_view(125, date(2026, 8, 9), 1, "Баунти турнир")
+    user = UserView(10, 101, "Анна", UserStatus.ACTIVE, UserRole.PLAYER)
+    decision = SimpleNamespace(tournament=tournament, user=user, active_rewards=())
+    service = SimpleNamespace(
+        get_registered_check_in_decision=AsyncMock(return_value=decision),
+        check_in_user=AsyncMock(),
+    )
+    monkeypatch.setattr(admin_check_in_handlers, "tournament_check_in_service", service)
+    callback = SimpleNamespace(
+        from_user=SimpleNamespace(id=100),
+        message=SimpleNamespace(edit_text=AsyncMock()),
+        answer=AsyncMock(),
+    )
+
+    await admin_check_in_handlers.select_check_in_action(
+        callback,
+        admin_check_in_kb.AdminCheckInCallback(
+            action=admin_check_in_kb.AdminCheckInAction.CONFIRM_REGISTERED,
+            tournament_id=125,
+            player_id=10,
+        ),
+        MutableState(),
+    )
+
+    service.check_in_user.assert_not_awaited()
+    callback.message.edit_text.assert_awaited_once()
+    assert callback.message.edit_text.await_args.args[0] == (
+        "У игрока не указан пол.\n\nАнна\n\nВыбери:"
+    )
+    assert inline_keyboard_texts(callback.message.edit_text.await_args.kwargs["reply_markup"]) == [
+        "👩 Женский",
+        "👨 Мужской",
+        "❓ Не указывать",
+        "❌ Отмена",
+    ]
+
+
+async def test_check_in_gender_decision_persists_before_final_check_in(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    tournament = tournament_view(125, date(2026, 8, 9), 1, "Баунти турнир")
+    user = UserView(10, 101, "Анна", UserStatus.ACTIVE, UserRole.PLAYER, UserGender.FEMALE)
+    result = CheckInResultView(tournament=tournament, user=user, created=True)
+    view = SimpleNamespace(
+        tournament=tournament,
+        registered_count=1,
+        registered_checked_in_count=1,
+        walk_in_count=0,
+        checked_in_count=1,
+    )
+    check_in_service = SimpleNamespace(
+        check_in_user=AsyncMock(return_value=result),
+        get_check_in=AsyncMock(return_value=view),
+    )
+    rename_service = SimpleNamespace(set_user_gender=AsyncMock(return_value=user))
+    reward_service = SimpleNamespace(list_active_rewards_for_check_in=AsyncMock(return_value=()))
+    monkeypatch.setattr(admin_check_in_handlers, "tournament_check_in_service", check_in_service)
+    monkeypatch.setattr(admin_check_in_handlers, "user_rename_service", rename_service)
+    monkeypatch.setattr(admin_check_in_handlers, "player_reward_service", reward_service)
+    callback = SimpleNamespace(
+        from_user=SimpleNamespace(id=100),
+        message=SimpleNamespace(edit_text=AsyncMock(), answer=AsyncMock()),
+        answer=AsyncMock(),
+        bot=SimpleNamespace(send_message=AsyncMock()),
+    )
+
+    await admin_check_in_handlers.select_check_in_action(
+        callback,
+        admin_check_in_kb.AdminCheckInCallback(
+            action=admin_check_in_kb.AdminCheckInAction.SET_GENDER_FEMALE,
+            tournament_id=125,
+            player_id=10,
+        ),
+        MutableState(),
+    )
+
+    rename_service.set_user_gender.assert_awaited_once_with(100, 10, UserGender.FEMALE)
+    check_in_service.check_in_user.assert_awaited_once_with(
+        admin_telegram_id=100,
+        tournament_id=125,
+        user_id=10,
+    )
+    callback.message.edit_text.assert_awaited_once()
+    assert "✅ Игрок добавлен в турнир" in callback.message.edit_text.await_args.args[0]
+
+
+async def test_check_in_new_user_created_after_gender_skip(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    tournament = tournament_view(125, date(2026, 8, 9), 1, "Баунти турнир")
+    user = UserView(10, None, "Новая Игрок", UserStatus.ACTIVE, UserRole.PLAYER)
+    result = CheckInResultView(tournament=tournament, user=user, created=True)
+    view = SimpleNamespace(
+        tournament=tournament,
+        registered_count=0,
+        registered_checked_in_count=0,
+        walk_in_count=1,
+        checked_in_count=1,
+    )
+    service = SimpleNamespace(
+        create_user_and_check_in=AsyncMock(return_value=result),
+        get_check_in=AsyncMock(return_value=view),
+    )
+    monkeypatch.setattr(admin_check_in_handlers, "tournament_check_in_service", service)
+    state = MutableState()
+    await state.update_data(new_check_in_display_name="Новая Игрок")
+    callback = SimpleNamespace(
+        from_user=SimpleNamespace(id=100),
+        message=SimpleNamespace(edit_text=AsyncMock(), answer=AsyncMock()),
+        answer=AsyncMock(),
+        bot=SimpleNamespace(send_message=AsyncMock()),
+    )
+
+    await admin_check_in_handlers.select_check_in_action(
+        callback,
+        admin_check_in_kb.AdminCheckInCallback(
+            action=admin_check_in_kb.AdminCheckInAction.SKIP_GENDER,
+            tournament_id=125,
+            player_id=0,
+        ),
+        state,
+    )
+
+    service.create_user_and_check_in.assert_awaited_once_with(
+        admin_telegram_id=100,
+        tournament_id=125,
+        display_name="Новая Игрок",
+        gender=None,
+    )
+    assert state.state is None
+    assert state.data == {}
 
 
 async def test_check_in_input_back_returns_to_main_screen(
@@ -2335,6 +2478,7 @@ async def test_admin_check_in_registered_user_dispatcher_flow_creates_result(
             telegram_id=101,
             display_name="Игрок Первый",
             status=UserStatus.ACTIVE,
+            gender=UserGender.MALE,
         )
         session.add_all([season, admin, player])
         await session.flush()
@@ -5822,7 +5966,7 @@ async def test_superadmin_panel_button_opens_superadmin_keyboard(
     assert message.answer.await_args.args[0] == "Суперадмин."
     reply_markup = message.answer.await_args.kwargs["reply_markup"]
     assert keyboard_rows(reply_markup) == [
-        ["📝 Регистрации", "✏️ Переименовать пользователя"],
+        ["📝 Регистрации", "✏️ Изменить пользователя"],
         ["🏆 Турниры", "➕ Добавить администратора"],
         ["🍂 Сезоны", "🔧 Наполнить зал славы"],
         ["⬅️ Админка"],
@@ -6560,7 +6704,7 @@ async def test_superadmin_rename_button_prompts_for_user_name(
     assert state.state == UserRenameStates.entering_current_name
     assert state.data == {"user_rename_prompt_message_id": 77}
     answer = message.answer.await_args
-    assert answer.args[0] == "✏️ Переименовать пользователя\n\nВведи имя пользователя."
+    assert answer.args[0] == "✏️ Изменить пользователя\n\nВведи имя пользователя."
     assert inline_keyboard_texts(answer.kwargs["reply_markup"]) == ["❌ Отмена"]
 
 
@@ -6595,6 +6739,64 @@ async def test_superadmin_rename_search_shows_multiple_users_without_ids(
         "⬅️ Назад",
         "❌ Отмена",
     ]
+
+
+async def test_superadmin_user_single_search_opens_edit_card(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    user = UserView(10, None, "Анна", UserStatus.ACTIVE, UserRole.PLAYER, UserGender.FEMALE)
+    service = SimpleNamespace(
+        search_users_for_rename=AsyncMock(return_value=[user]),
+        get_target_for_rename=AsyncMock(return_value=user),
+    )
+    monkeypatch.setattr(superadmin_user_handlers, "user_rename_service", service)
+    state = MutableState()
+    await state.update_data(user_rename_prompt_message_id=77)
+    message = SimpleNamespace(
+        from_user=SimpleNamespace(id=100),
+        text="Анна",
+        chat=SimpleNamespace(id=100),
+        bot=SimpleNamespace(edit_message_reply_markup=AsyncMock()),
+        answer=AsyncMock(),
+    )
+
+    await superadmin_user_handlers.search_user_to_rename(message, state)
+
+    service.get_target_for_rename.assert_awaited_once_with(100, 10)
+    assert message.answer.await_args.args[0] == "👤 Анна\n\nИмя: Анна\nПол: Женский"
+    assert inline_keyboard_texts(message.answer.await_args.kwargs["reply_markup"]) == [
+        "✏️ Изменить имя",
+        "⚧ Изменить пол",
+        "⬅️ Назад",
+        "❌ Отмена",
+    ]
+
+
+async def test_superadmin_user_gender_update_returns_to_card(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    updated = UserView(10, None, "Анна", UserStatus.ACTIVE, UserRole.PLAYER, UserGender.MALE)
+    service = SimpleNamespace(set_user_gender_by_superadmin=AsyncMock(return_value=updated))
+    monkeypatch.setattr(superadmin_user_handlers, "user_rename_service", service)
+    callback = SimpleNamespace(
+        from_user=SimpleNamespace(id=100),
+        message=SimpleNamespace(edit_text=AsyncMock()),
+        answer=AsyncMock(),
+    )
+
+    await superadmin_user_handlers.select_user_gender(
+        callback,
+        superadmin_users_kb.UserGenderCallback(
+            action=superadmin_users_kb.UserGenderAction.MALE,
+            user_id=10,
+        ),
+        MutableState(),
+    )
+
+    service.set_user_gender_by_superadmin.assert_awaited_once_with(100, 10, UserGender.MALE)
+    callback.answer.assert_awaited_once_with("Пол обновлён.")
+    callback.message.edit_text.assert_awaited_once()
+    assert callback.message.edit_text.await_args.args[0] == "👤 Анна\n\nИмя: Анна\nПол: Мужской"
 
 
 async def test_superadmin_rename_new_name_confirmation_does_not_mutate_user(
@@ -6652,7 +6854,7 @@ async def test_superadmin_rename_cancel_clears_state_and_returns_menu(
     panel_service.get_superadmin_panel_for_superadmin.assert_awaited_once_with(100)
     answer = message.answer.await_args
     assert answer.args[0] == "Отмена."
-    assert "✏️ Переименовать пользователя" in keyboard_texts(answer.kwargs["reply_markup"])
+    assert "✏️ Изменить пользователя" in keyboard_texts(answer.kwargs["reply_markup"])
     assert state.data == {}
     assert state.state is None
 

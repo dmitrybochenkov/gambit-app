@@ -14,6 +14,11 @@ class UserRole(StrEnum):
     SUPERADMIN = "superadmin"
 
 
+class UserGender(StrEnum):
+    MALE = "male"
+    FEMALE = "female"
+
+
 class TournamentStatus(StrEnum):
     ACTIVE = "active"
     CLOSED = "closed"

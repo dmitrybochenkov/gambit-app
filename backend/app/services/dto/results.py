@@ -2,6 +2,7 @@ from dataclasses import dataclass
 from datetime import date
 from decimal import Decimal
 
+from app.db.models.enums import UserGender
 from app.services.dto.rewards import (
     PlayerRewardCorrectionChangeView,
     PlayerRewardCorrectionNotificationView,
@@ -177,6 +178,7 @@ class TournamentPublicationPlaceView:
     place: int
     display_name: str
     total_points: Decimal
+    gender: UserGender | None = None
 
 
 @dataclass(frozen=True)

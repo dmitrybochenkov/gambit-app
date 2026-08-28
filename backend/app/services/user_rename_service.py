@@ -1,5 +1,6 @@
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
+from app.db.models.enums import UserGender
 from app.db.repositories.user_repository import UserRepository
 from app.db.session import SessionFactory
 from app.services.access_policy import access_policy
@@ -54,6 +55,40 @@ class UserRenameService:
             if user is None:
                 raise UserNotFoundError
             return required_user_view(user)
+
+    async def set_user_gender(
+        self,
+        actor_telegram_id: int,
+        target_user_id: int,
+        gender: UserGender | None,
+    ) -> UserView:
+        async with self.session_factory() as session:
+            await access_policy.require_admin(session, actor_telegram_id)
+            repository = UserRepository(session)
+            target = await repository.get_by_id(target_user_id)
+            if target is None:
+                raise UserNotFoundError
+            repository.update_gender(target, gender)
+            await session.commit()
+            await session.refresh(target)
+            return required_user_view(target)
+
+    async def set_user_gender_by_superadmin(
+        self,
+        superadmin_telegram_id: int,
+        target_user_id: int,
+        gender: UserGender | None,
+    ) -> UserView:
+        async with self.session_factory() as session:
+            await access_policy.require_superadmin(session, superadmin_telegram_id)
+            repository = UserRepository(session)
+            target = await repository.get_by_id(target_user_id)
+            if target is None:
+                raise UserNotFoundError
+            repository.update_gender(target, gender)
+            await session.commit()
+            await session.refresh(target)
+            return required_user_view(target)
 
     async def validate_new_display_name(
         self,

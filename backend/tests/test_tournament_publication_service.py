@@ -27,6 +27,7 @@ from app.db.models.enums import (
     TournamentPublicationType,
     TournamentResultSource,
     TournamentStatus,
+    UserGender,
     UserRole,
     UserStatus,
 )
@@ -204,6 +205,7 @@ async def test_mystery_bounty_result_publication_includes_top_knockouters(
                 telegram_id=200 + index,
                 display_name=f"Player {index}",
                 status=UserStatus.ACTIVE,
+                gender=UserGender.FEMALE if index == 1 else UserGender.MALE,
             )
             for index in range(1, 5)
         ]
@@ -246,6 +248,7 @@ async def test_mystery_bounty_result_publication_includes_top_knockouters(
 
     preview = await service.get_result_publication_preview(100, tournament_id)
 
+    assert preview.places[0].gender == UserGender.FEMALE
     assert [
         (item.display_name, item.knockouts_count, item.big_knockouts_count)
         for item in preview.top_knockouters

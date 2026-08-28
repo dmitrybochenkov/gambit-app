@@ -17,7 +17,7 @@ from app.db.models import (
     TournamentResult,
     User,
 )
-from app.db.models.enums import TournamentResultSource, TournamentStatus, UserStatus
+from app.db.models.enums import TournamentResultSource, TournamentStatus, UserGender, UserStatus
 
 
 @pytest.fixture
@@ -67,6 +67,19 @@ def test_new_season_defaults_to_statistics_visible(session: Session) -> None:
     assert season.is_statistics_visible is True
 
 
+def test_user_gender_is_nullable_and_accepts_known_values(session: Session) -> None:
+    unknown = create_user(display_name="Unknown")
+    female = create_user(display_name="Female", gender=UserGender.FEMALE)
+    male = create_user(display_name="Male", gender=UserGender.MALE)
+    session.add_all([unknown, female, male])
+
+    session.commit()
+
+    assert unknown.gender is None
+    assert female.gender == UserGender.FEMALE
+    assert male.gender == UserGender.MALE
+
+
 @pytest.mark.parametrize(
     ("table_name", "column_name", "invalid_value", "insert_sql"),
     [
@@ -94,6 +107,20 @@ def test_new_season_defaults_to_statistics_visible(session: Session) -> None:
             )
             VALUES (
                 'Invalid', 'invalid', 'player', :invalid_value,
+                CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
+            )
+            """,
+        ),
+        (
+            "users",
+            "gender",
+            "other",
+            """
+            INSERT INTO users (
+                display_name, display_name_normalized, role, status, gender, created_at, updated_at
+            )
+            VALUES (
+                'Invalid', 'invalid', 'player', 'active', :invalid_value,
                 CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
             )
             """,

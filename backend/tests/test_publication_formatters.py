@@ -2,6 +2,7 @@ from datetime import date
 from decimal import Decimal
 
 from app.bot.telegram.formatters import publications as publication_fmt
+from app.db.models.enums import UserGender
 from app.services.dto.results import (
     SchedulePublicationView,
     TournamentCombinationView,
@@ -34,11 +35,25 @@ def test_result_publication_report_uses_saved_points_and_evening_combinations() 
                 place=1,
                 display_name="Агафонов Павел",
                 total_points=Decimal("42.5"),
+                gender=UserGender.FEMALE,
             ),
             TournamentPublicationPlaceView(
                 place=2,
                 display_name="Рыжов Евгений",
                 total_points=Decimal("31"),
+                gender=UserGender.MALE,
+            ),
+            TournamentPublicationPlaceView(
+                place=5,
+                display_name="Анна",
+                total_points=Decimal("20"),
+                gender=UserGender.FEMALE,
+            ),
+            TournamentPublicationPlaceView(
+                place=6,
+                display_name="Мария",
+                total_points=Decimal("10"),
+                gender=UserGender.FEMALE,
             ),
         ],
         top_knockouters=[
@@ -85,8 +100,11 @@ def test_result_publication_report_uses_saved_points_and_evening_combinations() 
 
     assert "ИТОГИ БАУНТИ ТУРНИР 🏆" in text
     assert "Фонд турнира составил 1 500 очков!" in text
-    assert "1️⃣ Агафонов Павел — 43 очков" in text
+    assert "1️⃣ Агафонов Павел 🌸 — 43 очков" in text
     assert "2️⃣ Рыжов Евгений — 31 очков" in text
+    assert "5️⃣ Анна 🌸 — 20 очков" in text
+    assert "6 Мария — 10 очков" in text
+    assert "Мария 🌸" not in text
     assert "Агафонов Павел — 7 K.O. + 1 BOSS" in text
     assert "Рыжов Евгений — 2 BOSS" in text
     assert "Агафонов Павел — Стрит-флеш" in text

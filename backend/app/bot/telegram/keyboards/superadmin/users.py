@@ -19,6 +19,31 @@ class UserRenameSearchCallback(CallbackData, prefix="user_rename_search"):
     user_id: int
 
 
+class UserEditAction(StrEnum):
+    EDIT_NAME = "edit_name"
+    CHANGE_GENDER = "change_gender"
+    BACK = "back"
+    CANCEL = "cancel"
+
+
+class UserEditCallback(CallbackData, prefix="user_edit"):
+    action: UserEditAction
+    user_id: int
+
+
+class UserGenderAction(StrEnum):
+    FEMALE = "female"
+    MALE = "male"
+    UNKNOWN = "unknown"
+    BACK = "back"
+    CANCEL = "cancel"
+
+
+class UserGenderCallback(CallbackData, prefix="user_gender"):
+    action: UserGenderAction
+    user_id: int
+
+
 class UserRenameConfirmAction(StrEnum):
     CONFIRM = "confirm"
     BACK = "back"
@@ -68,6 +93,54 @@ def user_rename_search_results_keyboard(candidates: list[UserView]) -> InlineKey
         ),
     )
     builder.adjust(*([1] * len(candidates)), 1, 1)
+    return builder.as_markup()
+
+
+def user_edit_card_keyboard(user_id: int) -> InlineKeyboardMarkup:
+    builder = InlineKeyboardBuilder()
+    builder.button(
+        text="✏️ Изменить имя",
+        callback_data=UserEditCallback(action=UserEditAction.EDIT_NAME, user_id=user_id),
+    )
+    builder.button(
+        text="⚧ Изменить пол",
+        callback_data=UserEditCallback(action=UserEditAction.CHANGE_GENDER, user_id=user_id),
+    )
+    builder.button(
+        text=labels.ADMIN_PANEL_BACK,
+        callback_data=UserEditCallback(action=UserEditAction.BACK, user_id=user_id),
+    )
+    builder.button(
+        text=labels.ADMIN_CANCEL,
+        callback_data=UserEditCallback(action=UserEditAction.CANCEL, user_id=user_id),
+    )
+    builder.adjust(1)
+    return builder.as_markup()
+
+
+def user_gender_keyboard(user_id: int) -> InlineKeyboardMarkup:
+    builder = InlineKeyboardBuilder()
+    builder.button(
+        text="👩 Женский",
+        callback_data=UserGenderCallback(action=UserGenderAction.FEMALE, user_id=user_id),
+    )
+    builder.button(
+        text="👨 Мужской",
+        callback_data=UserGenderCallback(action=UserGenderAction.MALE, user_id=user_id),
+    )
+    builder.button(
+        text="❓ Не указан",
+        callback_data=UserGenderCallback(action=UserGenderAction.UNKNOWN, user_id=user_id),
+    )
+    builder.button(
+        text=labels.ADMIN_PANEL_BACK,
+        callback_data=UserGenderCallback(action=UserGenderAction.BACK, user_id=user_id),
+    )
+    builder.button(
+        text=labels.ADMIN_CANCEL,
+        callback_data=UserGenderCallback(action=UserGenderAction.CANCEL, user_id=user_id),
+    )
+    builder.adjust(1)
     return builder.as_markup()
 
 

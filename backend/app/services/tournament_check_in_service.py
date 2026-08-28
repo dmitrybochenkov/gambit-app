@@ -8,7 +8,7 @@ from app.common.clock import Clock, club_clock
 from app.config import settings
 from app.db.factories import create_user
 from app.db.models import Tournament
-from app.db.models.enums import TournamentResultSource, UserRole
+from app.db.models.enums import TournamentResultSource, UserGender, UserRole
 from app.db.repositories.tournament_registration_repository import (
     TournamentRegistrationRepository,
 )
@@ -380,6 +380,7 @@ class TournamentCheckInService:
         admin_telegram_id: int,
         tournament_id: int,
         display_name: str,
+        gender: UserGender | None = None,
     ) -> CheckInResultView:
         normalized = validate_display_name(display_name)
         async with self.session_factory() as session:
@@ -394,7 +395,7 @@ class TournamentCheckInService:
             )
             if existing_names:
                 raise TournamentCheckInDuplicateNameError
-            user = create_user(display_name=display_name)
+            user = create_user(display_name=display_name, gender=gender)
             UserRepository(session).add(user)
             try:
                 await session.flush()

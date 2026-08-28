@@ -56,6 +56,7 @@ def required_user_view(user: User) -> UserView:
         display_name=user.display_name,
         status=user.status,
         role=user.role,
+        gender=user.gender,
     )
 
 

@@ -246,6 +246,7 @@ class TournamentPublicationService:
             TournamentPublicationPlaceView(
                 place=row.result.place,
                 display_name=row.user.display_name,
+                gender=row.user.gender,
                 total_points=(
                     calculated_players[row.user.id].total_points
                     if calculated_results is not None
@@ -310,6 +311,7 @@ class TournamentPublicationService:
                     {
                         "place": place.place,
                         "name": place.display_name,
+                        "gender": place.gender.value if place.gender is not None else None,
                         "points": str(place.total_points),
                     }
                     for place in places

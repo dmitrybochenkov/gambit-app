@@ -72,6 +72,7 @@ Relevant database/runtime environment values:
 | `f4b5c6d7e8f9` | Add player rewards | Yes | No | No | Adds prize-stack bonus rewards. |
 | `f5c6d7e8f9a0` | Add reward expiration reminders | Yes | No | No | Adds `expiration_reminder_sent_at`. |
 | `f6d7e8f9a0b1` | Enable Mystery Bounty knockouts | Yes | No | Yes | Sets `mystery_bounty` to `knockout_mode = small`. |
+| `3b4c5d6e7f8a` | Add user gender | Yes | No | Yes | Adds nullable `users.gender`; existing users remain unknown. |
 
 Pre-production destructive resets were intentional for the current development
 stage. They are not a permanent production rule: future destructive migrations
@@ -105,6 +106,7 @@ Removed runtime tables include `players`, `admin_prompts`,
 
 - `users.telegram_id` is unique when present.
 - `users.display_name_normalized` is not unique.
+- `users.gender` is nullable and restricted to `male` or `female` when set.
 - `seasons.name` is unique.
 - `uq_seasons_open_ended` allows at most one open-ended season.
 - `tournaments.date` is unique through `uq_tournaments_date`.

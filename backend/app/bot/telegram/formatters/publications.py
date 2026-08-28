@@ -42,7 +42,7 @@ def result_publication_report(view: object) -> str:
         "",
     ]
     lines.extend(
-        f"{PLACE_EMOJIS.get(place.place, str(place.place))} {place.display_name} — "
+        f"{PLACE_EMOJIS.get(place.place, str(place.place))} {_publication_place_name(place)} — "
         f"{fmt_common.points(place.total_points)} очков"
         for place in view.places
     )
@@ -130,6 +130,12 @@ def schedule_publication_summary(summary: object) -> str:
 
 def combination_label(value: str) -> str:
     return COMBINATION_LABELS.get(value, value)
+
+
+def _publication_place_name(place: object) -> str:
+    if place.place <= 5 and str(place.gender or "") == "female":
+        return f"{place.display_name} 🌸"
+    return str(place.display_name)
 
 
 def _knockout_line(player: object) -> str:

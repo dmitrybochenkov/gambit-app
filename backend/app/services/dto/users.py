@@ -1,7 +1,7 @@
 from dataclasses import dataclass
 from enum import StrEnum
 
-from app.db.models.enums import UserRole, UserStatus
+from app.db.models.enums import UserGender, UserRole, UserStatus
 
 
 class UserStartStatusView(StrEnum):
@@ -18,6 +18,7 @@ class UserView:
     display_name: str
     status: UserStatus
     role: UserRole
+    gender: UserGender | None = None
 
     @property
     def is_active(self) -> bool:

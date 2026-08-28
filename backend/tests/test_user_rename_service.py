@@ -17,7 +17,7 @@ from app.db.models import (
     TournamentType,
     User,
 )
-from app.db.models.enums import TournamentStatus, UserRole, UserStatus
+from app.db.models.enums import TournamentStatus, UserGender, UserRole, UserStatus
 from app.services.access_policy import ActiveUserRequiredError, AdminAccessDeniedError
 from app.services.player_search import InvalidDisplayNameError
 from app.services.user_rename_service import (
@@ -226,5 +226,74 @@ async def test_user_rename_confirmation_updates_name_only_and_keeps_relations(
         assert hall_of_fame.champion_player_id == target_id
         assert hall_of_fame.knockout_player_id == target_id
         assert hall_of_fame.updated_by_user_id == root_id
+    finally:
+        await engine.dispose()
+
+
+@pytest.mark.asyncio
+async def test_superadmin_can_change_user_gender(tmp_path: Path) -> None:
+    service, engine = await create_rename_service(tmp_path / "gender.db")
+    try:
+        async with async_sessionmaker(engine, expire_on_commit=False)() as session:
+            root = create_user(display_name="Root", telegram_id=1, role=UserRole.SUPERADMIN)
+            target = create_user(display_name="Target", telegram_id=10)
+            session.add_all([root, target])
+            await session.commit()
+            target_id = target.id
+
+        updated = await service.set_user_gender_by_superadmin(
+            1,
+            target_id,
+            UserGender.FEMALE,
+        )
+
+        assert updated.gender == UserGender.FEMALE
+        async with async_sessionmaker(engine, expire_on_commit=False)() as session:
+            stored = await session.get(User, target_id)
+        assert stored is not None
+        assert stored.gender == UserGender.FEMALE
+
+        reset = await service.set_user_gender_by_superadmin(1, target_id, None)
+
+        assert reset.gender is None
+        async with async_sessionmaker(engine, expire_on_commit=False)() as session:
+            stored = await session.get(User, target_id)
+        assert stored is not None
+        assert stored.gender is None
+    finally:
+        await engine.dispose()
+
+
+@pytest.mark.asyncio
+async def test_admin_can_set_gender_for_check_in_user(tmp_path: Path) -> None:
+    service, engine = await create_rename_service(tmp_path / "admin-gender.db")
+    try:
+        async with async_sessionmaker(engine, expire_on_commit=False)() as session:
+            admin = create_user(display_name="Admin", telegram_id=1, role=UserRole.ADMIN)
+            target = create_user(display_name="Target", telegram_id=10)
+            session.add_all([admin, target])
+            await session.commit()
+            target_id = target.id
+
+        updated = await service.set_user_gender(1, target_id, UserGender.MALE)
+
+        assert updated.gender == UserGender.MALE
+    finally:
+        await engine.dispose()
+
+
+@pytest.mark.asyncio
+async def test_player_cannot_change_user_gender(tmp_path: Path) -> None:
+    service, engine = await create_rename_service(tmp_path / "player-gender.db")
+    try:
+        async with async_sessionmaker(engine, expire_on_commit=False)() as session:
+            player = create_user(display_name="Player", telegram_id=1)
+            target = create_user(display_name="Target", telegram_id=10)
+            session.add_all([player, target])
+            await session.commit()
+            target_id = target.id
+
+        with pytest.raises(AdminAccessDeniedError):
+            await service.set_user_gender(1, target_id, UserGender.MALE)
     finally:
         await engine.dispose()

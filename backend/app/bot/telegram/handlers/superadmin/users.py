@@ -12,11 +12,15 @@ from app.bot.telegram.handlers.superadmin.navigation import send_superadmin_pane
 from app.bot.telegram.handlers.user.shared import clean_text as _clean_text
 from app.bot.telegram.keyboards import labels
 from app.bot.telegram.keyboards.superadmin import users as superadmin_users_kb
-from app.bot.telegram.message_edit import edit_message_reply_markup_by_id_if_changed
+from app.bot.telegram.message_edit import (
+    edit_message_if_changed,
+    edit_message_reply_markup_by_id_if_changed,
+)
 from app.bot.telegram.states import UserRenameStates
 from app.bot.telegram.texts.admin import calendar as calendar_text
 from app.bot.telegram.texts.superadmin import panel as panel_text
 from app.bot.telegram.texts.superadmin import users as text
+from app.db.models.enums import UserGender
 from app.services.access_policy import ActiveUserRequiredError, AdminAccessDeniedError
 from app.services.player_search import InvalidDisplayNameError
 from app.services.user_common import UserNotFoundError
@@ -77,7 +81,7 @@ async def search_user_to_rename(message: Message, state: FSMContext) -> None:
         return
 
     if len(candidates) == 1:
-        await _show_new_name_prompt(message, state, message.from_user.id, candidates[0].id)
+        await _show_user_edit_card(message, state, message.from_user.id, candidates[0].id)
         return
 
     await message.answer(
@@ -111,11 +115,117 @@ async def select_user_to_rename(
     await callback.answer()
     if callback.message is not None:
         await _delete_callback_message(callback)
-        await _show_new_name_prompt(
+        await _show_user_edit_card(
             callback.message,
             state,
             callback.from_user.id,
             callback_data.user_id,
+        )
+
+
+@router.callback_query(superadmin_users_kb.UserEditCallback.filter())
+async def select_user_edit_action(
+    callback: CallbackQuery,
+    callback_data: superadmin_users_kb.UserEditCallback,
+    state: FSMContext,
+) -> None:
+    if callback_data.action == superadmin_users_kb.UserEditAction.CANCEL:
+        await _cancel_user_rename(callback, state)
+        return
+
+    if callback_data.action == superadmin_users_kb.UserEditAction.BACK:
+        await callback.answer()
+        if callback.message is not None:
+            await _delete_callback_message(callback)
+            prompt = await callback.message.answer(
+                text.USER_RENAME_PROMPT,
+                reply_markup=superadmin_users_kb.user_rename_prompt_keyboard(),
+            )
+            await state.update_data(user_rename_prompt_message_id=prompt.message_id)
+        await state.set_state(UserRenameStates.entering_current_name)
+        return
+
+    if callback_data.action == superadmin_users_kb.UserEditAction.EDIT_NAME:
+        await callback.answer()
+        if callback.message is not None:
+            await _delete_callback_message(callback)
+            await _show_new_name_prompt(
+                callback.message,
+                state,
+                callback.from_user.id,
+                callback_data.user_id,
+            )
+        return
+
+    try:
+        target = await user_rename_service.get_target_for_rename(
+            callback.from_user.id,
+            callback_data.user_id,
+        )
+    except (ActiveUserRequiredError, AdminAccessDeniedError):
+        await state.clear()
+        await callback.answer(panel_text.INSUFFICIENT_RIGHTS, show_alert=True)
+        return
+    except UserNotFoundError:
+        await callback.answer(text.USER_RENAME_STALE, show_alert=True)
+        return
+
+    await callback.answer()
+    if callback.message is not None:
+        await edit_message_if_changed(
+            callback.message,
+            text=text.gender_prompt(target),
+            reply_markup=superadmin_users_kb.user_gender_keyboard(target.id),
+        )
+
+
+@router.callback_query(superadmin_users_kb.UserGenderCallback.filter())
+async def select_user_gender(
+    callback: CallbackQuery,
+    callback_data: superadmin_users_kb.UserGenderCallback,
+    state: FSMContext,
+) -> None:
+    if callback_data.action == superadmin_users_kb.UserGenderAction.CANCEL:
+        await _cancel_user_rename(callback, state)
+        return
+
+    if callback_data.action == superadmin_users_kb.UserGenderAction.BACK:
+        await callback.answer()
+        if callback.message is not None:
+            await _show_user_edit_card(
+                callback.message,
+                state,
+                callback.from_user.id,
+                callback_data.user_id,
+                edit=True,
+            )
+        return
+
+    gender = {
+        superadmin_users_kb.UserGenderAction.FEMALE: UserGender.FEMALE,
+        superadmin_users_kb.UserGenderAction.MALE: UserGender.MALE,
+        superadmin_users_kb.UserGenderAction.UNKNOWN: None,
+    }[callback_data.action]
+    try:
+        updated = await user_rename_service.set_user_gender_by_superadmin(
+            callback.from_user.id,
+            callback_data.user_id,
+            gender,
+        )
+    except (ActiveUserRequiredError, AdminAccessDeniedError):
+        await state.clear()
+        await callback.answer(panel_text.INSUFFICIENT_RIGHTS, show_alert=True)
+        return
+    except UserNotFoundError:
+        await callback.answer(text.USER_RENAME_STALE, show_alert=True)
+        return
+
+    await callback.answer(text.USER_GENDER_UPDATED)
+    if callback.message is not None:
+        await edit_message_if_changed(
+            callback.message,
+            text=text.user_card(updated),
+            reply_markup=superadmin_users_kb.user_edit_card_keyboard(updated.id),
         )
 
 
@@ -238,6 +348,36 @@ async def _show_new_name_prompt(
     await state.set_state(UserRenameStates.entering_new_display_name)
     await state.update_data(target_user_id=target.id, old_display_name=target.display_name)
     await message.answer(text.new_name_prompt(target.display_name))
+
+
+async def _show_user_edit_card(
+    message: Message,
+    state: FSMContext,
+    actor_telegram_id: int,
+    user_id: int,
+    *,
+    edit: bool = False,
+) -> None:
+    try:
+        target = await user_rename_service.get_target_for_rename(actor_telegram_id, user_id)
+    except (ActiveUserRequiredError, AdminAccessDeniedError):
+        await state.clear()
+        await message.answer(panel_text.INSUFFICIENT_RIGHTS)
+        return
+    except UserNotFoundError:
+        await message.answer(text.USER_RENAME_STALE)
+        return
+
+    await state.update_data(target_user_id=target.id, old_display_name=target.display_name)
+    reply_markup = superadmin_users_kb.user_edit_card_keyboard(target.id)
+    if edit:
+        await edit_message_if_changed(
+            message,
+            text=text.user_card(target),
+            reply_markup=reply_markup,
+        )
+    else:
+        await message.answer(text.user_card(target), reply_markup=reply_markup)
 
 
 async def _cancel_user_rename(callback: CallbackQuery, state: FSMContext) -> None:

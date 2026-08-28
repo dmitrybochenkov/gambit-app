@@ -81,6 +81,18 @@ def new_confirmation(tournament: object, display_name: str) -> str:
     )
 
 
+def unknown_gender(user: object) -> str:
+    return "\n".join(
+        [
+            "У игрока не указан пол.",
+            "",
+            user.display_name,
+            "",
+            "Выбери:",
+        ]
+    )
+
+
 def player_notification(tournament: object) -> str:
     return "\n".join(
         [

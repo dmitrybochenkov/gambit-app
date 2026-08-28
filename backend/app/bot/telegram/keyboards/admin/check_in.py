@@ -32,6 +32,9 @@ class AdminCheckInAction(StrEnum):
     SELECT_REWARD = "select_reward"
     CONFIRM_REWARD = "confirm_reward"
     REDEEM_REWARD = "redeem_reward"
+    SET_GENDER_FEMALE = "set_gender_female"
+    SET_GENDER_MALE = "set_gender_male"
+    SKIP_GENDER = "skip_gender"
     CHOOSE_OTHER_NEW = "choose_other_new"
     BACK = "back"
     BACK_TO_TOURNAMENT = "back_to_tournament"
@@ -332,6 +335,47 @@ def admin_check_in_reward_selection_keyboard(
             action=AdminCheckInAction.SKIP_REWARD,
             tournament_id=tournament_id,
             player_id=player_id,
+        ),
+    )
+    builder.adjust(1)
+    return builder.as_markup()
+
+
+def admin_check_in_gender_keyboard(
+    *,
+    tournament_id: int,
+    player_id: int,
+) -> InlineKeyboardMarkup:
+    builder = InlineKeyboardBuilder()
+    builder.button(
+        text="👩 Женский",
+        callback_data=AdminCheckInCallback(
+            action=AdminCheckInAction.SET_GENDER_FEMALE,
+            tournament_id=tournament_id,
+            player_id=player_id,
+        ),
+    )
+    builder.button(
+        text="👨 Мужской",
+        callback_data=AdminCheckInCallback(
+            action=AdminCheckInAction.SET_GENDER_MALE,
+            tournament_id=tournament_id,
+            player_id=player_id,
+        ),
+    )
+    builder.button(
+        text="❓ Не указывать",
+        callback_data=AdminCheckInCallback(
+            action=AdminCheckInAction.SKIP_GENDER,
+            tournament_id=tournament_id,
+            player_id=player_id,
+        ),
+    )
+    builder.button(
+        text=labels.ADMIN_CANCEL,
+        callback_data=AdminCheckInCallback(
+            action=AdminCheckInAction.CANCEL,
+            tournament_id=tournament_id,
         ),
     )
     builder.adjust(1)
