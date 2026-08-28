@@ -36,7 +36,8 @@ def result_publication_report(view: object) -> str:
     lines = [
         "ЕЖЕДНЕВНЫЙ ОТЧЁТ 🏆",
         "",
-        f"ИТОГИ {tournament_fmt.type_name(view.tournament).upper()} 🏆",
+        f"ИТОГИ {tournament_fmt.type_name(view.tournament).upper()} — "
+        f"{view.tournament.date.day} {common_texts.MONTHS[view.tournament.date.month].upper()} 🏆",
         "",
         f"Фонд турнира составил {fmt_common.number(view.tournament_fund)} очков!",
         "",

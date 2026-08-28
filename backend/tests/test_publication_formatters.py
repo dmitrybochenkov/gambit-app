@@ -98,7 +98,7 @@ def test_result_publication_report_uses_saved_points_and_evening_combinations() 
 
     text = publication_fmt.result_publication_report(view)
 
-    assert "ИТОГИ БАУНТИ ТУРНИР 🏆" in text
+    assert "ИТОГИ БАУНТИ ТУРНИР — 9 АВГУСТА 🏆" in text
     assert "Фонд турнира составил 1 500 очков!" in text
     assert "1️⃣ Агафонов Павел 🌸 — 43 очков" in text
     assert "2️⃣ Рыжов Евгений — 31 очков" in text
