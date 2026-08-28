@@ -1011,13 +1011,6 @@ def admin_publish_results_action_keyboard(tournament_id: int) -> InlineKeyboardM
             tournament_id=tournament_id,
         ),
     )
-    builder.button(
-        text="❌ Закрыть",
-        callback_data=AdminCloseTournamentCallback(
-            action=AdminCloseTournamentAction.CANCEL,
-            tournament_id=tournament_id,
-        ),
-    )
     builder.adjust(1)
     return builder.as_markup()
 

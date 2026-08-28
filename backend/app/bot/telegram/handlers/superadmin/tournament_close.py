@@ -249,12 +249,17 @@ async def select_close_tournament_action(
             )
             await callback.answer("Турнир закрыт.")
             if callback.message is not None:
-                await _delete_callback_message(callback)
+                await edit_message_if_changed(
+                    callback.message,
+                    text=text.TOURNAMENT_CLOSED_SUCCESS,
+                    reply_markup=superadmin_tournament_close_kb.admin_publish_results_action_keyboard(
+                        results.tournament.id,
+                    ),
+                )
                 await _send_calendar_planning_notification_after_close(
                     callback,
                     results.tournament.date,
                 )
-                await callback.message.answer("✅ Турнир закрыт.")
             return
 
         if (

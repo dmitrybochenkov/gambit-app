@@ -3279,20 +3279,32 @@ async def test_superadmin_close_tournament_dispatcher_sends_short_success_after_
             for call in bot.calls
             if call.__class__.__name__ == "SendMessage" and call.text == "Турнир закрыт ✅"
         ]
-        success_calls = [
+        separate_success_calls = [
             call
             for call in bot.calls
             if call.__class__.__name__ == "SendMessage" and call.text == "✅ Турнир закрыт."
         ]
-        edited_texts = [
-            call.text for call in bot.calls if call.__class__.__name__ == "EditMessageText"
+        edit_calls = [call for call in bot.calls if call.__class__.__name__ == "EditMessageText"]
+        edited_texts = [call.text for call in edit_calls]
+        confirmation_calls = [
+            call
+            for call in bot.calls
+            if call.__class__.__name__ == "SendMessage"
+            and "Выше — сообщение для игроков. Ниже — результаты, которые пойдут в базу."
+            in call.text
+        ]
+        success_edits = [
+            call
+            for call in edit_calls
+            if call.text == superadmin_close_handlers.text.TOURNAMENT_CLOSED_SUCCESS
         ]
         assert "🔒 Закрыть турнир" in sent_texts[0]
         assert any("Введите фонд турнира для 09.07 — Классика" in text for text in edited_texts)
         assert any("Введите фонд турнира для 09.07 — Классика" in text for text in sent_texts)
-        assert any(
-            "Выше — сообщение для игроков. Ниже — результаты, которые пойдут в базу." in text
-            for text in sent_texts
+        assert len(confirmation_calls) == 2
+        assert all(
+            "✅ Закрыть турнир" in inline_keyboard_texts(call.reply_markup)
+            for call in confirmation_calls
         )
         assert any(
             "Фонд турнира составил 10 000 очков!" in (call.caption or "") for call in photo_calls
@@ -3304,9 +3316,16 @@ async def test_superadmin_close_tournament_dispatcher_sends_short_success_after_
         assert all(call.chat_id == 300 for call in photo_calls)
         assert any(call.photo == "close-file-1" for call in photo_calls)
         assert duplicate_preview_controls == []
-        assert len(success_calls) == 1
-        assert success_calls[0].reply_markup is None
-        assert bot.calls.index(photo_calls[-1]) < bot.calls.index(success_calls[0])
+        assert separate_success_calls == []
+        assert len(success_edits) == 1
+        assert inline_keyboard_texts(success_edits[0].reply_markup) == [
+            "📣 Опубликовать результаты"
+        ]
+        assert "✅ Закрыть турнир" not in inline_keyboard_texts(success_edits[0].reply_markup)
+        assert "↩️ Назад" not in inline_keyboard_texts(success_edits[0].reply_markup)
+        assert "❌ Отмена" not in inline_keyboard_texts(success_edits[0].reply_markup)
+        assert "К турнирам" not in inline_keyboard_texts(success_edits[0].reply_markup)
+        assert bot.calls.index(photo_calls[-1]) < bot.calls.index(success_edits[0])
         assert [call.chat_id for call in reward_calls] == [301, 302, 303]
         assert "+40 000 фишек к первому стеку." in reward_calls[0].text
         assert "+30 000 фишек к первому стеку." in reward_calls[1].text
