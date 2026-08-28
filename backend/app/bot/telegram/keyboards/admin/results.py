@@ -384,11 +384,12 @@ def admin_four_of_a_kind_rank_keyboard(
 def admin_combination_delete_keyboard(view: object) -> InlineKeyboardMarkup:
     builder = InlineKeyboardBuilder()
     for combination in view.combinations:
+        combination_label = publication_fmt.combination_label(
+            combination.combination_type,
+            rank=combination.rank,
+        )
         builder.button(
-            text=(
-                f"{combination.display_name} — "
-                f"{publication_fmt.combination_label(combination.combination_type)}"
-            ),
+            text=f"{combination.display_name} — {combination_label}",
             callback_data=AdminCombinationCallback(
                 action=AdminCombinationAction.DELETE,
                 tournament_id=view.tournament.id,

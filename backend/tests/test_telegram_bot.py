@@ -113,6 +113,8 @@ from app.services.dto.registrations import (
 from app.services.dto.results import (
     OpenTournamentPlayerDeletePreviewView,
     TournamentCloseReadinessView,
+    TournamentCombinationsView,
+    TournamentCombinationView,
     TournamentPublicationDestinationView,
     TournamentPublicationPlaceView,
     TournamentResultPlayerView,
@@ -775,6 +777,26 @@ def test_admin_result_root_keyboard_has_data_photos_combinations_cancel_only() -
         "🃏 Комбинации вечера",
         "❌ Отмена",
     ]
+
+
+def test_admin_combinations_preview_preserves_four_of_a_kind_rank() -> None:
+    tournament = tournament_view(125, date(2026, 7, 19), 6, "Boss Bounty")
+    view = TournamentCombinationsView(
+        tournament=tournament,
+        combinations=[
+            TournamentCombinationView(
+                id=1,
+                tournament_id=tournament.id,
+                player_id=108,
+                display_name="Агафонов Павел",
+                combination_type="four_of_a_kind",
+                rank="K",
+            )
+        ],
+        players=[],
+    )
+
+    assert "Агафонов Павел — Каре королей" in result_fmt.combinations_root(view)
 
 
 def test_admin_result_data_keyboard_has_players_back_cancel_without_photo_actions() -> None:

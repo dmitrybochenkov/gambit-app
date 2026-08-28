@@ -7,6 +7,22 @@ COMBINATION_LABELS = {
     "straight_flush": "Стрит-флеш",
     "royal_flush": "Роял-флеш",
 }
+FOUR_OF_A_KIND_RANK_LABELS = {
+    "A": "тузов",
+    "K": "королей",
+    "Q": "дам",
+    "J": "валетов",
+    "T": "десяток",
+    "10": "десяток",
+    "9": "девяток",
+    "8": "восьмёрок",
+    "7": "семёрок",
+    "6": "шестёрок",
+    "5": "пятёрок",
+    "4": "четвёрок",
+    "3": "троек",
+    "2": "двоек",
+}
 PLACE_EMOJIS = {1: "1️⃣", 2: "2️⃣", 3: "3️⃣", 4: "4️⃣", 5: "5️⃣"}
 
 RESULTS_FOOTER = "Игра ведётся исключительно на рейтинг, без использования денежных средств ❗️18+"
@@ -54,7 +70,8 @@ def result_publication_report(view: object) -> str:
     if view.combinations:
         lines.extend(["", "Комбинации вечера:", ""])
         lines.extend(
-            f"{combination.display_name} — {combination_label(combination.combination_type)}"
+            f"{combination.display_name} — "
+            f"{combination_label(combination.combination_type, rank=combination.rank)}"
             for combination in view.combinations
         )
     lines.extend(["", RESULTS_FOOTER])
@@ -129,8 +146,14 @@ def schedule_publication_summary(summary: object) -> str:
     return "\n".join(lines)
 
 
-def combination_label(value: str) -> str:
-    return COMBINATION_LABELS.get(value, value)
+def combination_label(value: str, *, rank: str | None = None) -> str:
+    label = COMBINATION_LABELS.get(value, value)
+    if value != "four_of_a_kind" or rank is None:
+        return label
+    rank_label = FOUR_OF_A_KIND_RANK_LABELS.get(rank)
+    if rank_label is None:
+        return label
+    return f"{label} {rank_label}"
 
 
 def _publication_place_name(place: object) -> str:

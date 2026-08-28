@@ -73,7 +73,7 @@ def combinations_root(view: object) -> str:
     lines = ["🃏 Комбинации вечера", ""]
     lines.extend(
         f"{combination.display_name} — "
-        f"{publication_fmt.combination_label(combination.combination_type)}"
+        f"{publication_fmt.combination_label(combination.combination_type, rank=combination.rank)}"
         for combination in view.combinations
     )
     if lines[-1] == "":

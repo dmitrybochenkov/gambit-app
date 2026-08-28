@@ -1,6 +1,8 @@
 from datetime import date
 from decimal import Decimal
 
+import pytest
+
 from app.bot.telegram.formatters import publications as publication_fmt
 from app.db.models.enums import UserGender
 from app.services.dto.results import (
@@ -74,7 +76,8 @@ def test_result_publication_report_uses_saved_points_and_evening_combinations() 
                 tournament_id=1,
                 player_id=100,
                 display_name="Агафонов Павел",
-                combination_type="straight_flush",
+                combination_type="four_of_a_kind",
+                rank="A",
             )
         ],
         photos=[
@@ -107,8 +110,30 @@ def test_result_publication_report_uses_saved_points_and_evening_combinations() 
     assert "Мария 🌸" not in text
     assert "Агафонов Павел — 7 K.O. + 1 BOSS" in text
     assert "Рыжов Евгений — 2 BOSS" in text
-    assert "Агафонов Павел — Стрит-флеш" in text
+    assert "Агафонов Павел — Каре тузов" in text
     assert "Игра ведётся исключительно на рейтинг" in text
+
+
+@pytest.mark.parametrize(
+    ("rank", "expected"),
+    [
+        ("A", "Каре тузов"),
+        ("K", "Каре королей"),
+        ("Q", "Каре дам"),
+        ("J", "Каре валетов"),
+        ("T", "Каре десяток"),
+        ("10", "Каре десяток"),
+        ("7", "Каре семёрок"),
+    ],
+)
+def test_four_of_a_kind_combination_label_includes_rank(rank: str, expected: str) -> None:
+    assert publication_fmt.combination_label("four_of_a_kind", rank=rank) == expected
+
+
+def test_non_four_of_a_kind_combination_labels_are_unchanged() -> None:
+    assert publication_fmt.combination_label("straight_flush") == "Стрит-флеш"
+    assert publication_fmt.combination_label("royal_flush") == "Роял-флеш"
+    assert publication_fmt.combination_label("straight_flush", rank="A") == "Стрит-флеш"
 
 
 def test_schedule_publication_report_is_full_db_driven_poster() -> None:
