@@ -5,6 +5,7 @@ from aiogram.types import InlineKeyboardMarkup
 from aiogram.utils.keyboard import InlineKeyboardBuilder
 
 from app.bot.telegram.formatters import common as fmt_common
+from app.bot.telegram.formatters import tournaments as tournament_fmt
 from app.bot.telegram.keyboards import labels
 from app.bot.telegram.keyboards.admin.common import _admin_candidate_page_label
 from app.services.dto.check_in import CheckInCandidateView, TournamentCheckInView
@@ -108,7 +109,7 @@ def admin_check_in_tournament_list_keyboard(
     builder = InlineKeyboardBuilder()
     for tournament in page.items:
         builder.button(
-            text=str(tournament.id),
+            text=_tournament_picker_label(tournament),
             callback_data=AdminCheckInCallback(
                 action=AdminCheckInAction.OPEN_TOURNAMENT,
                 tournament_id=tournament.id,
@@ -149,12 +150,20 @@ def admin_check_in_tournament_list_keyboard(
             tournament_id=0,
         ),
     )
-    item_rows = [3] * (len(page.items) // 3)
-    if len(page.items) % 3:
-        item_rows.append(len(page.items) % 3)
-    footer_rows = ([3] if page.total_pages > 1 else []) + [1]
+    item_rows = [1] * len(page.items)
+    footer_rows = []
+    if page.total_pages > 1:
+        footer_rows.append(1 + int(page.has_previous) + int(page.has_next))
+    footer_rows.append(1)
     builder.adjust(*item_rows, *footer_rows)
     return builder.as_markup()
+
+
+def _tournament_picker_label(tournament: TournamentView) -> str:
+    return (
+        f"{tournament.date.day:02d}.{tournament.date.month:02d} — "
+        f"{tournament_fmt.type_name(tournament)}"
+    )
 
 
 def admin_checked_in_players_keyboard(tournament_id: int) -> InlineKeyboardMarkup:

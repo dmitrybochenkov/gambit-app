@@ -3,9 +3,7 @@ from app.bot.telegram.formatters import tournaments as tournament_fmt
 
 
 def tournament_list(page: object) -> str:
-    lines = ["Выбери турнир:", ""]
-    for tournament in page.items:
-        lines.append(f"{tournament.id} — {tournament_fmt.label(tournament)}")
+    lines = ["Выбери турнир:"]
     if page.total_pages > 1:
         lines.extend(["", fmt_common.page_line(page)])
     return "\n".join(lines)

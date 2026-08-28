@@ -1545,6 +1545,75 @@ def test_check_in_success_message_is_shared_and_hides_internal_ids() -> None:
     assert "1001" not in rendered
 
 
+def test_check_in_tournament_picker_message_hides_listing_and_ids() -> None:
+    page = Page(
+        items=[
+            tournament_view(139, date(2026, 8, 26), 1, "Классика"),
+            tournament_view(155, date(2026, 8, 25), 2, "Mystery Bounty"),
+        ],
+        page=0,
+        page_size=6,
+        total_items=2,
+    )
+
+    rendered = check_in_fmt.tournament_list(page)
+
+    assert rendered == "Выбери турнир:"
+    assert "139" not in rendered
+    assert "155" not in rendered
+    assert "Классика" not in rendered
+    assert "Mystery Bounty" not in rendered
+
+
+def test_check_in_tournament_picker_buttons_use_date_and_type_not_id() -> None:
+    page = Page(
+        items=[
+            tournament_view(139, date(2026, 8, 26), 1, "Классика"),
+            tournament_view(155, date(2026, 8, 25), 2, "Mystery Bounty"),
+        ],
+        page=0,
+        page_size=6,
+        total_items=2,
+    )
+
+    keyboard = admin_check_in_kb.admin_check_in_tournament_list_keyboard(page)
+
+    assert inline_keyboard_texts(keyboard) == [
+        "26.08 — Классика",
+        "25.08 — Mystery Bounty",
+        "❌ Отмена",
+    ]
+    assert [len(row) for row in keyboard.inline_keyboard] == [1, 1, 1]
+    first_callback = admin_check_in_kb.AdminCheckInCallback.unpack(
+        keyboard.inline_keyboard[0][0].callback_data or ""
+    )
+    assert first_callback.action == admin_check_in_kb.AdminCheckInAction.OPEN_TOURNAMENT
+    assert first_callback.tournament_id == 139
+
+
+def test_check_in_tournament_picker_pagination_stays_functional() -> None:
+    page = Page(
+        items=[
+            tournament_view(index, date(2026, 8, index), 1, f"Турнир {index}")
+            for index in range(7, 13)
+        ],
+        page=1,
+        page_size=6,
+        total_items=12,
+    )
+
+    rendered = check_in_fmt.tournament_list(page)
+    keyboard = admin_check_in_kb.admin_check_in_tournament_list_keyboard(page)
+
+    assert rendered == "Выбери турнир:\n\n7-12 из 12"
+    assert inline_keyboard_texts(keyboard)[-3:] == ["⬅️", "7-12 из 12", "❌ Отмена"]
+    previous_callback = admin_check_in_kb.AdminCheckInCallback.unpack(
+        keyboard.inline_keyboard[-2][0].callback_data or ""
+    )
+    assert previous_callback.action == admin_check_in_kb.AdminCheckInAction.PAGE_TOURNAMENTS
+    assert previous_callback.page == 0
+
+
 def test_check_in_main_keyboard_labels_and_checked_in_count() -> None:
     view = SimpleNamespace(
         tournament=tournament_view(125, date(2026, 8, 9), 1, "Баунти турнир"),
