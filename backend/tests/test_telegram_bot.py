@@ -2881,7 +2881,7 @@ async def test_admin_result_dispatcher_flow_reassigns_occupied_place(
         await engine.dispose()
 
 
-async def test_superadmin_close_tournament_dispatcher_replaces_fund_preview(
+async def test_superadmin_close_tournament_dispatcher_sends_short_success_after_close(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -3063,10 +3063,15 @@ async def test_superadmin_close_tournament_dispatcher_replaces_fund_preview(
             if call.__class__.__name__ == "SendMessage"
             and call.text.startswith("🎁 Ты получил бонус!")
         ]
-        control_calls = [
+        duplicate_preview_controls = [
             call
             for call in bot.calls
             if call.__class__.__name__ == "SendMessage" and call.text == "Турнир закрыт ✅"
+        ]
+        success_calls = [
+            call
+            for call in bot.calls
+            if call.__class__.__name__ == "SendMessage" and call.text == "✅ Турнир закрыт."
         ]
         edited_texts = [
             call.text for call in bot.calls if call.__class__.__name__ == "EditMessageText"
@@ -3084,15 +3089,13 @@ async def test_superadmin_close_tournament_dispatcher_replaces_fund_preview(
         assert any(
             "Фонд турнира составил 15 000 очков!" in (call.caption or "") for call in photo_calls
         )
-        assert photo_calls
+        assert len(photo_calls) == 2
         assert all(call.chat_id == 300 for call in photo_calls)
         assert any(call.photo == "close-file-1" for call in photo_calls)
-        assert len(control_calls) == 1
-        assert inline_keyboard_texts(control_calls[0].reply_markup) == [
-            "📣 Опубликовать результаты",
-            "❌ Закрыть",
-        ]
-        assert bot.calls.index(photo_calls[-1]) < bot.calls.index(control_calls[0])
+        assert duplicate_preview_controls == []
+        assert len(success_calls) == 1
+        assert success_calls[0].reply_markup is None
+        assert bot.calls.index(photo_calls[-1]) < bot.calls.index(success_calls[0])
         assert [call.chat_id for call in reward_calls] == [301, 302, 303]
         assert "+40 000 фишек к первому стеку." in reward_calls[0].text
         assert "+30 000 фишек к первому стеку." in reward_calls[1].text

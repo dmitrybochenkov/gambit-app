@@ -254,10 +254,7 @@ async def select_close_tournament_action(
                     callback,
                     results.tournament.date,
                 )
-                await _send_post_close_publication_preview(
-                    callback,
-                    results.tournament.id,
-                )
+                await callback.message.answer("✅ Турнир закрыт.")
             return
 
         if (
@@ -1049,35 +1046,6 @@ async def _send_calendar_planning_notification_after_close(
             schedule_fmt.plan_preview(planning.plan),
             reply_markup=admin_schedule_kb.manual_tournaments_plan_keyboard(planning.plan),
         )
-
-
-async def _send_post_close_publication_preview(
-    callback: CallbackQuery,
-    tournament_id: int,
-) -> None:
-    if callback.message is None:
-        return
-    chat_id = callback.message.chat.id
-    preview = await tournament_publication_service.get_result_publication_content_preview(
-        callback.from_user.id,
-        tournament_id,
-    )
-    report = publication_fmt.result_publication_report(preview)
-    try:
-        await _send_publication_media(
-            callback.bot,
-            chat_id=chat_id,
-            photos=preview.photos,
-            report=report,
-        )
-    except TelegramAPIError:
-        logger.exception("Failed to send post-close tournament result preview")
-    await callback.message.answer(
-        "Турнир закрыт ✅",
-        reply_markup=superadmin_tournament_close_kb.admin_publish_results_action_keyboard(
-            tournament_id
-        ),
-    )
 
 
 async def _publish_result_report(callback: CallbackQuery, preview: object) -> object:
