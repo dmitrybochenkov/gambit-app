@@ -154,10 +154,8 @@ def test_schedule_publication_report_is_full_db_driven_poster() -> None:
 
     assert text.startswith("🔥 РАСПИСАНИЕ ТУРНИРОВ ПОКЕРНОГО КЛУБА «ГАМБИТ»")
     assert "🔥♠️♥️♣️♦️" in text
-    assert "🗓 СРЕДА — MYSTERY BOUNTY" in text
-    assert "🗓 ЧЕТВЕРГ — КЛАССИКА" in text
-    assert "26 августа" not in text
-    assert "27 августа" not in text
+    assert "🗓 26 АВГУСТА — СРЕДА — MYSTERY BOUNTY" in text
+    assert "🗓 27 АВГУСТА — ЧЕТВЕРГ — КЛАССИКА" in text
     assert "🎁 Награды за нокауты" in text
     assert "Вход: 600 ₽ — 20 000 фишек" in text
     assert "600 / 800 ₽" in text
@@ -166,7 +164,7 @@ def test_schedule_publication_report_is_full_db_driven_poster() -> None:
     assert "Вход: 1 000 ₽ — 40 000 фишек" in text
     assert text.count("━━━━━━━━━━━━━━") == 1
     assert "Аддон:" in text
-    assert text.rfind("Аддон:") < text.find("🗓 ЧЕТВЕРГ")
+    assert text.rfind("Аддон:") < text.find("🗓 27 АВГУСТА")
 
 
 def test_schedule_publication_messages_split_without_losing_content() -> None:

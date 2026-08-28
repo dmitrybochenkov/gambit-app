@@ -53,6 +53,16 @@ def admin_check_in_keyboard(
     view: TournamentCheckInView,
 ) -> InlineKeyboardMarkup:
     builder = InlineKeyboardBuilder()
+    registered_candidates = getattr(view, "registered_candidates", None) or []
+    for player in registered_candidates:
+        builder.button(
+            text=player.display_name,
+            callback_data=AdminCheckInCallback(
+                action=AdminCheckInAction.CONFIRM_REGISTERED,
+                tournament_id=view.tournament.id,
+                player_id=player.user_id,
+            ),
+        )
     builder.button(
         text="✅ Зарегистрированный",
         callback_data=AdminCheckInCallback(
@@ -88,7 +98,7 @@ def admin_check_in_keyboard(
             tournament_id=view.tournament.id,
         ),
     )
-    builder.adjust(1)
+    builder.adjust(*([1] * len(registered_candidates)), 1)
     return builder.as_markup()
 
 

@@ -171,6 +171,37 @@ class TournamentRegistrationRepository:
         )
         return list(result.scalars())
 
+    async def list_registered_between_dates(
+        self,
+        *,
+        player_id: int,
+        start_date: date,
+        end_date: date,
+    ) -> list[Tournament]:
+        result = await self.session.execute(
+            select(Tournament)
+            .options(selectinload(Tournament.tournament_type))
+            .join(
+                TournamentRegistration,
+                TournamentRegistration.tournament_id == Tournament.id,
+            )
+            .where(
+                TournamentRegistration.player_id == player_id,
+                Tournament.status == TournamentStatus.ACTIVE,
+                Tournament.registration_open.is_(True),
+                Tournament.date >= start_date,
+                Tournament.date <= end_date,
+                ~select(TournamentResult.id)
+                .where(
+                    TournamentResult.tournament_id == Tournament.id,
+                    TournamentResult.player_id == player_id,
+                )
+                .exists(),
+            )
+            .order_by(Tournament.date, Tournament.tournament_type_id)
+        )
+        return list(result.scalars())
+
     async def list_active_tournament_registration_counts(
         self,
         from_date: date,

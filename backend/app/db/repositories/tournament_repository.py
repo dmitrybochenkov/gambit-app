@@ -93,6 +93,30 @@ class TournamentRepository:
         result = await self.session.execute(statement)
         return list(result.scalars())
 
+    async def list_active_between_dates(
+        self,
+        *,
+        start_date: date,
+        end_date: date,
+        limit: int = 20,
+        registration_open_only: bool = False,
+    ) -> list[Tournament]:
+        statement = (
+            select(Tournament)
+            .options(selectinload(Tournament.tournament_type))
+            .where(
+                Tournament.status == TournamentStatus.ACTIVE,
+                Tournament.date >= start_date,
+                Tournament.date <= end_date,
+            )
+            .order_by(Tournament.date, Tournament.tournament_type_id)
+            .limit(limit)
+        )
+        if registration_open_only:
+            statement = statement.where(Tournament.registration_open.is_(True))
+        result = await self.session.execute(statement)
+        return list(result.scalars())
+
     async def list_active_on_date(self, tournament_date: date) -> list[Tournament]:
         result = await self.session.execute(
             select(Tournament)

@@ -48,6 +48,7 @@ from app.services.tournament_check_in_service import (
 from app.services.tournament_service import (
     TournamentRegistrationAlreadyCheckedInError,
     TournamentService,
+    TournamentUnavailableError,
 )
 
 
@@ -179,7 +180,7 @@ async def test_schedule_tournament_details_are_db_driven(tmp_path: Path) -> None
         await session.commit()
         tournament_id = tournament.id
 
-    service = TournamentService(session_factory, clock=FixedClock(datetime(2026, 8, 1)))
+    service = TournamentService(session_factory, clock=FixedClock(datetime(2026, 8, 22)))
     try:
         details = await service.get_schedule_tournament_details_for_player(123, tournament_id)
         text = tournament_fmt.schedule_detail(details)
@@ -195,6 +196,204 @@ async def test_schedule_tournament_details_are_db_driven(tmp_path: Path) -> None
         assert "Множитель призовых мест: ×1.5 (1, 3)" in text
         assert "Нокауты: КО и БКО" in text
         assert "Бонусные очки" in text
+    finally:
+        await engine.dispose()
+
+
+async def test_player_schedule_is_limited_to_current_business_week(tmp_path: Path) -> None:
+    engine = create_async_engine(f"sqlite+aiosqlite:///{tmp_path / 'current_week_schedule.db'}")
+    async with engine.begin() as connection:
+        await connection.run_sync(Base.metadata.create_all)
+
+    session_factory = async_sessionmaker(engine, expire_on_commit=False)
+    async with session_factory() as session:
+        config = ScoringConfig()
+        session.add(config)
+        await session.flush()
+        await seed_tournament_types_async(session)
+        season = Season(
+            name="Test season",
+            scoring_config_id=config.id,
+            starts_at=date(2026, 8, 1),
+            ends_at=None,
+        )
+        player = build_player(
+            telegram_id=100,
+            display_name="Игрок",
+            status=UserStatus.ACTIVE,
+        )
+        session.add_all([season, player])
+        await session.flush()
+        tournaments = [
+            Tournament(
+                season_id=season.id,
+                tournament_type_id=tournament_type_id("classic"),
+                date=date(2026, 8, 2),
+                status=TournamentStatus.ACTIVE,
+                registration_open=True,
+            ),
+            Tournament(
+                season_id=season.id,
+                tournament_type_id=tournament_type_id("bounty"),
+                date=date(2026, 8, 3),
+                status=TournamentStatus.ACTIVE,
+                registration_open=True,
+            ),
+            Tournament(
+                season_id=season.id,
+                tournament_type_id=tournament_type_id("freezeout"),
+                date=date(2026, 8, 9),
+                status=TournamentStatus.ACTIVE,
+                registration_open=True,
+            ),
+            Tournament(
+                season_id=season.id,
+                tournament_type_id=tournament_type_id("classic"),
+                date=date(2026, 8, 10),
+                status=TournamentStatus.ACTIVE,
+                registration_open=True,
+            ),
+            Tournament(
+                season_id=season.id,
+                tournament_type_id=tournament_type_id("bounty"),
+                date=date(2026, 8, 5),
+                status=TournamentStatus.CLOSED,
+                registration_open=True,
+                tournament_fund=None,
+            ),
+        ]
+        session.add_all(tournaments)
+        await session.commit()
+
+    service = TournamentService(
+        session_factory,
+        clock=FixedClock(datetime(2026, 8, 7, 12, tzinfo=ZoneInfo("Europe/Moscow"))),
+    )
+    try:
+        schedule = await service.get_schedule_for_player(100)
+
+        assert [item.date for item in schedule] == [
+            date(2026, 8, 3),
+            date(2026, 8, 9),
+        ]
+    finally:
+        await engine.dispose()
+
+
+async def test_player_registration_is_limited_to_current_business_week(
+    tmp_path: Path,
+) -> None:
+    engine = create_async_engine(f"sqlite+aiosqlite:///{tmp_path / 'current_week_registration.db'}")
+    async with engine.begin() as connection:
+        await connection.run_sync(Base.metadata.create_all)
+
+    session_factory = async_sessionmaker(engine, expire_on_commit=False)
+    async with session_factory() as session:
+        config = ScoringConfig()
+        session.add(config)
+        await session.flush()
+        await seed_tournament_types_async(session)
+        season = Season(
+            name="Test season",
+            scoring_config_id=config.id,
+            starts_at=date(2026, 8, 1),
+            ends_at=None,
+        )
+        player = build_player(
+            telegram_id=100,
+            display_name="Игрок",
+            status=UserStatus.ACTIVE,
+        )
+        session.add_all([season, player])
+        await session.flush()
+        approved_current = Tournament(
+            season_id=season.id,
+            tournament_type_id=tournament_type_id("bounty"),
+            date=date(2026, 8, 5),
+            status=TournamentStatus.ACTIVE,
+            registration_open=True,
+        )
+        unapproved_current = Tournament(
+            season_id=season.id,
+            tournament_type_id=tournament_type_id("freezeout"),
+            date=date(2026, 8, 7),
+            status=TournamentStatus.ACTIVE,
+            registration_open=False,
+        )
+        next_week = Tournament(
+            season_id=season.id,
+            tournament_type_id=tournament_type_id("classic"),
+            date=date(2026, 8, 10),
+            status=TournamentStatus.ACTIVE,
+            registration_open=True,
+        )
+        session.add_all([approved_current, unapproved_current, next_week])
+        await session.commit()
+        approved_current_id = approved_current.id
+        next_week_id = next_week.id
+
+    service = TournamentService(
+        session_factory,
+        clock=FixedClock(datetime(2026, 8, 7, 12, tzinfo=ZoneInfo("Europe/Moscow"))),
+    )
+    try:
+        options = await service.get_registration_options_for_player(100)
+
+        assert [item.id for item in options] == [approved_current_id]
+        with pytest.raises(TournamentUnavailableError):
+            await service.register_player_for_tournaments(100, [next_week_id])
+    finally:
+        await engine.dispose()
+
+
+async def test_next_week_registration_becomes_available_after_business_week_boundary(
+    tmp_path: Path,
+) -> None:
+    engine = create_async_engine(f"sqlite+aiosqlite:///{tmp_path / 'week_boundary.db'}")
+    async with engine.begin() as connection:
+        await connection.run_sync(Base.metadata.create_all)
+
+    session_factory = async_sessionmaker(engine, expire_on_commit=False)
+    async with session_factory() as session:
+        config = ScoringConfig()
+        session.add(config)
+        await session.flush()
+        await seed_tournament_types_async(session)
+        season = Season(
+            name="Test season",
+            scoring_config_id=config.id,
+            starts_at=date(2026, 8, 1),
+            ends_at=None,
+        )
+        player = build_player(
+            telegram_id=100,
+            display_name="Игрок",
+            status=UserStatus.ACTIVE,
+        )
+        session.add_all([season, player])
+        await session.flush()
+        tournament = Tournament(
+            season_id=season.id,
+            tournament_type_id=tournament_type_id("classic"),
+            date=date(2026, 8, 10),
+            status=TournamentStatus.ACTIVE,
+            registration_open=True,
+        )
+        session.add(tournament)
+        await session.commit()
+
+    before_boundary = TournamentService(
+        session_factory,
+        clock=FixedClock(datetime(2026, 8, 10, 10, 59, tzinfo=ZoneInfo("Europe/Moscow"))),
+    )
+    after_boundary = TournamentService(
+        session_factory,
+        clock=FixedClock(datetime(2026, 8, 10, 11, 0, tzinfo=ZoneInfo("Europe/Moscow"))),
+    )
+    try:
+        assert await before_boundary.get_registration_options_for_player(100) == []
+        available_after_boundary = await after_boundary.get_registration_options_for_player(100)
+        assert [item.date for item in available_after_boundary] == [date(2026, 8, 10)]
     finally:
         await engine.dispose()
 
@@ -366,7 +565,7 @@ async def test_active_player_can_register_for_multiple_tournaments(tmp_path: Pat
             Tournament(
                 season_id=season.id,
                 tournament_type_id=tournament_type_id("classic"),
-                date=date(2026, 7, 31),
+                date=date(2026, 7, 10),
                 status=TournamentStatus.ACTIVE,
             ),
         ]
@@ -473,7 +672,7 @@ async def test_active_admin_roles_can_use_player_tournament_flows_after_new_sess
         tournament = Tournament(
             season_id=season.id,
             tournament_type_id=tournament_type_id("classic"),
-            date=date(2026, 7, 31),
+            date=date(2026, 7, 10),
             status=TournamentStatus.ACTIVE,
         )
         session.add(tournament)
@@ -1309,6 +1508,8 @@ async def test_check_in_summary_counters_use_sources_and_include_admin_players(
         assert view.walk_in_count == 2
         assert view.checked_in_count == 3
         assert view.checked_in_count == view.registered_checked_in_count + view.walk_in_count
+        assert view.registered_candidates is not None
+        assert [player.display_name for player in view.registered_candidates] == ["Супер Игрок"]
         assert view.checked_in_count == checked_in_players.total_count
         assert [player.display_name for player in checked_in_players.players] == [
             "Гость Из Базы",

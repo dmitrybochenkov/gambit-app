@@ -157,7 +157,10 @@ def _join_schedule_blocks(blocks: list[str]) -> str:
 
 def _schedule_tournament_block(tournament: object) -> str:
     weekday = common_texts.WEEKDAYS[tournament.date.weekday()].upper()
-    lines = [f"🗓 {weekday} — {tournament.tournament_type_name.upper()}"]
+    month = common_texts.MONTHS[tournament.date.month].upper()
+    lines = [
+        f"🗓 {tournament.date.day} {month} — {weekday} — {tournament.tournament_type_name.upper()}"
+    ]
     if tournament.description:
         lines.extend(["", str(tournament.description).strip()])
     if tournament.economy is not None:

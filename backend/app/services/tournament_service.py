@@ -1,8 +1,9 @@
-from datetime import date
+from datetime import date, timedelta
 
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from app.common.clock import Clock, club_clock
+from app.config import settings
 from app.db.models import Tournament, TournamentRegistration
 from app.db.models.enums import TournamentStatus
 from app.db.repositories.tournament_registration_repository import (
@@ -12,6 +13,7 @@ from app.db.repositories.tournament_repository import TournamentRepository
 from app.db.repositories.tournament_result_repository import TournamentResultRepository
 from app.db.repositories.tournament_type_repository import TournamentTypeRepository
 from app.db.session import SessionFactory
+from app.domain.tournament_day import resolve_tournament_day
 from app.services.access_policy import ActiveUserRequiredError, access_policy
 from app.services.dto.schedules import TournamentRebuyView
 from app.services.dto.tournaments import (
@@ -47,17 +49,21 @@ class TournamentService:
         self,
         session_factory: async_sessionmaker[AsyncSession],
         clock: Clock = club_clock,
+        tournament_day_start_hour: int = settings.tournament_day_start_hour,
     ) -> None:
         self.session_factory = session_factory
         self.clock = clock
+        self.tournament_day_start_hour = tournament_day_start_hour
 
     async def get_upcoming_schedule(
         self,
         from_date: date | None = None,
     ) -> list[TournamentView]:
         async with self.session_factory() as session:
-            tournaments = await TournamentRepository(session).list_upcoming_active(
-                from_date=from_date or self.clock.today(),
+            week_start, week_end = self._current_week_range(from_date)
+            tournaments = await TournamentRepository(session).list_active_between_dates(
+                start_date=week_start,
+                end_date=week_end,
                 registration_open_only=True,
             )
             return [tournament_view(tournament) for tournament in tournaments]
@@ -72,8 +78,10 @@ class TournamentService:
                 await access_policy.require_active_user(session, telegram_id)
             except ActiveUserRequiredError as exc:
                 raise TournamentScheduleNotAllowedError from exc
-            tournaments = await TournamentRepository(session).list_upcoming_active(
-                from_date=from_date or self.clock.today(),
+            week_start, week_end = self._current_week_range(from_date)
+            tournaments = await TournamentRepository(session).list_active_between_dates(
+                start_date=week_start,
+                end_date=week_end,
                 registration_open_only=True,
             )
             return [tournament_view(tournament) for tournament in tournaments]
@@ -90,12 +98,13 @@ class TournamentService:
             except ActiveUserRequiredError as exc:
                 raise TournamentScheduleNotAllowedError from exc
 
-            today = from_date or self.clock.today()
+            week_start, week_end = self._current_week_range(from_date)
             tournament = await TournamentRepository(session).get_by_id(tournament_id)
             if (
                 tournament is None
                 or tournament.status != TournamentStatus.ACTIVE
-                or tournament.date < today
+                or tournament.date < week_start
+                or tournament.date > week_end
                 or not tournament.registration_open
             ):
                 raise TournamentUnavailableError
@@ -112,8 +121,10 @@ class TournamentService:
                 await access_policy.require_active_user(session, telegram_id)
             except ActiveUserRequiredError as exc:
                 raise TournamentRegistrationNotAllowedError from exc
-            tournaments = await TournamentRepository(session).list_upcoming_active(
-                from_date=from_date or self.clock.today(),
+            week_start, week_end = self._current_week_range(from_date)
+            tournaments = await TournamentRepository(session).list_active_between_dates(
+                start_date=week_start,
+                end_date=week_end,
                 registration_open_only=True,
             )
             return [tournament_view(tournament) for tournament in tournaments]
@@ -128,9 +139,13 @@ class TournamentService:
                 player = await access_policy.require_active_user(session, telegram_id)
             except ActiveUserRequiredError as exc:
                 raise TournamentRegistrationNotAllowedError from exc
-            tournaments = await TournamentRegistrationRepository(session).list_registered_upcoming(
+            week_start, week_end = self._current_week_range(from_date)
+            tournaments = await TournamentRegistrationRepository(
+                session
+            ).list_registered_between_dates(
                 player_id=player.id,
-                from_date=from_date or self.clock.today(),
+                start_date=week_start,
+                end_date=week_end,
             )
             return [tournament_view(tournament) for tournament in tournaments]
 
@@ -150,7 +165,7 @@ class TournamentService:
             except ActiveUserRequiredError as exc:
                 raise TournamentRegistrationNotAllowedError from exc
 
-            today = from_date or self.clock.today()
+            week_start, week_end = self._current_week_range(from_date)
             tournament_repository = TournamentRepository(session)
             registration_repository = TournamentRegistrationRepository(session)
             selected: list[tuple[Tournament, TournamentRegistration | None]] = []
@@ -160,7 +175,8 @@ class TournamentService:
                 if (
                     tournament is None
                     or tournament.status != TournamentStatus.ACTIVE
-                    or tournament.date < today
+                    or tournament.date < week_start
+                    or tournament.date > week_end
                     or not tournament.registration_open
                 ):
                     raise TournamentUnavailableError
@@ -197,7 +213,7 @@ class TournamentService:
             except ActiveUserRequiredError as exc:
                 raise TournamentRegistrationNotAllowedError from exc
 
-            today = from_date or self.clock.today()
+            week_start, week_end = self._current_week_range(from_date)
             tournament_repository = TournamentRepository(session)
             registration_repository = TournamentRegistrationRepository(session)
             tournaments_by_id: dict[int, Tournament] = {}
@@ -206,7 +222,8 @@ class TournamentService:
                 if (
                     tournament is None
                     or tournament.status != TournamentStatus.ACTIVE
-                    or tournament.date < today
+                    or tournament.date < week_start
+                    or tournament.date > week_end
                 ):
                     raise TournamentCancellationUnavailableError
                 tournaments_by_id[tournament.id] = tournament
@@ -229,6 +246,15 @@ class TournamentService:
                 tournament_view(tournaments_by_id[tournament_id])
                 for tournament_id in unique_tournament_ids
             ]
+
+    def _current_week_range(self, from_date: date | None = None) -> tuple[date, date]:
+        business_date = (
+            from_date
+            if from_date is not None
+            else resolve_tournament_day(self.clock, self.tournament_day_start_hour)
+        )
+        week_start = business_date - timedelta(days=business_date.weekday())
+        return week_start, week_start + timedelta(days=6)
 
 
 tournament_service = TournamentService(SessionFactory)

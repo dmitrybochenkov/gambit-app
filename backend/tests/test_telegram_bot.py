@@ -92,6 +92,7 @@ from app.db.models.enums import (
 )
 from app.db.repositories.tournament_photo_repository import TournamentPhotoRepository
 from app.services.access_policy import AdminAccessDeniedError
+from app.services.dto.check_in import CheckInCandidateView
 from app.services.dto.hall_of_fame import (
     HallOfFameCandidateView,
     HallOfFameEntryView,
@@ -1563,6 +1564,44 @@ def test_check_in_main_keyboard_labels_and_checked_in_count() -> None:
         keyboard.inline_keyboard[3][0].callback_data or ""
     )
     assert checked_in_callback.action == admin_check_in_kb.AdminCheckInAction.SHOW_CHECKED_IN
+
+
+def test_check_in_main_keyboard_shows_unchecked_registered_players_first() -> None:
+    view = SimpleNamespace(
+        tournament=tournament_view(125, date(2026, 8, 9), 1, "Баунти турнир"),
+        checked_in_count=1,
+        registered_candidates=[
+            CheckInCandidateView(
+                user_id=10,
+                display_name="Анна",
+                is_pre_registered=True,
+                is_checked_in=False,
+            ),
+            CheckInCandidateView(
+                user_id=11,
+                display_name="Иван",
+                is_pre_registered=True,
+                is_checked_in=False,
+            ),
+        ],
+    )
+
+    keyboard = admin_check_in_kb.admin_check_in_keyboard(view)
+
+    assert inline_keyboard_texts(keyboard) == [
+        "Анна",
+        "Иван",
+        "✅ Зарегистрированный",
+        "👤 Играл ранее",
+        "🆕 Новый игрок",
+        "👥 Уже отметились (1)",
+        "❌ Отмена",
+    ]
+    first_callback = admin_check_in_kb.AdminCheckInCallback.unpack(
+        keyboard.inline_keyboard[0][0].callback_data or ""
+    )
+    assert first_callback.action == admin_check_in_kb.AdminCheckInAction.CONFIRM_REGISTERED
+    assert first_callback.player_id == 10
 
 
 def test_check_in_main_keyboard_shows_zero_checked_in_count() -> None:

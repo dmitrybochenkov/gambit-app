@@ -598,6 +598,7 @@ class TournamentCheckInService:
             registered_checked_in_count=registered_checked_in_count,
             checked_in_count=len(checked_results),
             walk_in_count=walk_in_count,
+            registered_candidates=await self._registered_candidates(session, tournament_id),
             is_superadmin_late_override=is_superadmin_late_open_tournament_override(
                 actor_role=actor_role,
                 tournament_status=tournament.status,
