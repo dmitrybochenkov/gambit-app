@@ -212,7 +212,7 @@ def calendar_type_keyboard(
     builder = InlineKeyboardBuilder()
     for option in options:
         builder.button(
-            text=option.name,
+            text=_tournament_type_picker_label(option),
             callback_data=SuperadminTournamentCalendarCallback(
                 action=action,
                 year=year,
@@ -341,6 +341,17 @@ def calendar_occupied_tournament_keyboard(
     )
     builder.adjust(1)
     return builder.as_markup()
+
+
+def _tournament_type_picker_label(option: object) -> str:
+    code = getattr(option, "code", None)
+    if code == "bounty_v2":
+        return "Bounty v2"
+    if code == "classic_v2":
+        return "Classic v2"
+    if code == "freezeout_v2":
+        return "Freezeout v2"
+    return str(option.name)
 
 
 def _confirmation_keyboard(

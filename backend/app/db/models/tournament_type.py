@@ -29,6 +29,12 @@ class TournamentType(TimestampMixin, Base):
     name: Mapped[str] = mapped_column(String(100), nullable=False)
     short_name: Mapped[str] = mapped_column(String(32), nullable=False)
     description: Mapped[str | None] = mapped_column(Text, nullable=True)
+    is_creatable: Mapped[bool] = mapped_column(
+        Boolean,
+        default=True,
+        nullable=False,
+        index=True,
+    )
     status: Mapped[TournamentTypeStatus] = mapped_column(
         database_enum(TournamentTypeStatus, "tournament_type_status"),
         default=TournamentTypeStatus.ACTIVE,

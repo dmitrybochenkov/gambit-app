@@ -55,6 +55,18 @@ class TournamentTypeRepository:
         )
         return list(result.scalars())
 
+    async def list_creatable_real_types(self) -> list[TournamentType]:
+        result = await self.session.execute(
+            select(TournamentType)
+            .where(
+                TournamentType.status == TournamentTypeStatus.ACTIVE,
+                TournamentType.is_creatable.is_(True),
+                TournamentType.code != "legacy_unknown",
+            )
+            .order_by(TournamentType.id)
+        )
+        return list(result.scalars())
+
     async def get_active_real_config(
         self,
         tournament_type_id: int,
@@ -66,6 +78,7 @@ class TournamentTypeRepository:
             return None
         if (
             config.tournament_type.status != TournamentTypeStatus.ACTIVE
+            or not config.tournament_type.is_creatable
             or config.tournament_type.code == legacy_unknown_code
             or config.economy is None
         ):

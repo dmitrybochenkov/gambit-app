@@ -161,6 +161,7 @@ from app.services.dto.tournaments import (
     SuperadminTournamentHubView,
     TournamentCalendarDayView,
     TournamentCalendarMonthView,
+    TournamentCalendarTypeOptionView,
     TournamentCalendarWeekView,
     TournamentEconomyView,
     TournamentRulesView,
@@ -539,6 +540,61 @@ def test_superadmin_calendar_month_uses_codes_without_registration_counts() -> N
                         ),
                         registrations_count=7,
                     ),
+                    TournamentCalendarDayView(
+                        date=date(2026, 8, 3),
+                        in_month=True,
+                        tournament=TournamentView(
+                            id=3,
+                            date=date(2026, 8, 3),
+                            tournament_type_id=8,
+                            tournament_type_name="Bounty",
+                            tournament_type_code="bounty_v2",
+                        ),
+                    ),
+                    TournamentCalendarDayView(
+                        date=date(2026, 8, 4),
+                        in_month=True,
+                        tournament=TournamentView(
+                            id=4,
+                            date=date(2026, 8, 4),
+                            tournament_type_id=9,
+                            tournament_type_name="Classic",
+                            tournament_type_code="classic_v2",
+                        ),
+                    ),
+                    TournamentCalendarDayView(
+                        date=date(2026, 8, 5),
+                        in_month=True,
+                        tournament=TournamentView(
+                            id=5,
+                            date=date(2026, 8, 5),
+                            tournament_type_id=10,
+                            tournament_type_name="Freezeout",
+                            tournament_type_code="freezeout_v2",
+                        ),
+                    ),
+                    TournamentCalendarDayView(
+                        date=date(2026, 8, 6),
+                        in_month=True,
+                        tournament=TournamentView(
+                            id=6,
+                            date=date(2026, 8, 6),
+                            tournament_type_id=11,
+                            tournament_type_name="Deep Stack",
+                            tournament_type_code="deep_stack",
+                        ),
+                    ),
+                    TournamentCalendarDayView(
+                        date=date(2026, 8, 7),
+                        in_month=True,
+                        tournament=TournamentView(
+                            id=7,
+                            date=date(2026, 8, 7),
+                            tournament_type_id=12,
+                            tournament_type_name="White Party Tournament",
+                            tournament_type_code="white_party",
+                        ),
+                    ),
                 ),
             ),
         ),
@@ -547,15 +603,57 @@ def test_superadmin_calendar_month_uses_codes_without_registration_counts() -> N
     rendered = tournament_fmt.superadmin_calendar_month(view)
 
     assert "B" in rendered
+    assert "B2" in rendered
+    assert "C2" in rendered
+    assert "F2" in rendered
+    assert "DS" in rendered
+    assert "WP" in rendered
     assert "?" in rendered
     assert "12" not in rendered
     assert "7)" not in rendered
     assert "B — Bounty" in rendered
+    assert "B2 — Bounty v2" in rendered
     assert "C — Classic" in rendered
+    assert "C2 — Classic v2" in rendered
     assert "F — Freezeout" in rendered
+    assert "F2 — Freezeout v2" in rendered
     assert "DD — Double Double" in rendered
+    assert "DS — Deep Stack" in rendered
     assert "MB — Mystery Bounty" in rendered
     assert "BB — Boss Bounty" in rendered
+    assert "WP — White Party" in rendered
+
+
+def test_superadmin_calendar_type_picker_uses_service_version_labels() -> None:
+    keyboard = superadmin_tournaments_kb.calendar_type_keyboard(
+        options=[
+            TournamentCalendarTypeOptionView(id=8, code="bounty_v2", name="Bounty"),
+            TournamentCalendarTypeOptionView(id=9, code="classic_v2", name="Classic"),
+            TournamentCalendarTypeOptionView(id=10, code="freezeout_v2", name="Freezeout"),
+            TournamentCalendarTypeOptionView(id=11, code="deep_stack", name="Deep Stack"),
+            TournamentCalendarTypeOptionView(
+                id=12,
+                code="white_party",
+                name="White Party Tournament",
+            ),
+        ],
+        action=superadmin_tournaments_kb.SuperadminTournamentCalendarAction.CREATE_TYPE,
+        year=2026,
+        month=9,
+        row=1,
+        day="2026-09-02",
+    )
+
+    labels_by_row = [[button.text for button in row] for row in keyboard.inline_keyboard]
+
+    assert labels_by_row[:5] == [
+        ["Bounty v2"],
+        ["Classic v2"],
+        ["Freezeout v2"],
+        ["Deep Stack"],
+        ["White Party Tournament"],
+    ]
+    assert all("_v2" not in label for row in labels_by_row for label in row)
 
 
 def test_superadmin_calendar_week_buttons_show_full_name_and_registration_count() -> None:

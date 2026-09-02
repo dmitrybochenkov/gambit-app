@@ -9,34 +9,6 @@ from app.domain.prize_multiplier_places import (
 TELEGRAM_MESSAGE_LIMIT = 4096
 WEEKLY_SCHEDULE_HEADER = "🔥 РАСПИСАНИЕ ТУРНИРОВ ПОКЕРНОГО КЛУБА «ГАМБИТ»\n🔥♠️♥️♣️♦️"
 WEEKLY_SCHEDULE_SEPARATOR = "━━━━━━━━━━━━━━"
-PUBLIC_TOURNAMENT_DESCRIPTIONS = {
-    "bounty": [
-        "💀 Динамические нокауты",
-        "• До финального стола — 15 очков за нокаут",
-        "• На финальном столе — 60 очков за нокаут",
-    ],
-    "classic": ["Дополнительные бонусы за комбинации"],
-    "freezeout": [
-        "🎯 Формат для самых скиловых игроков",
-        "• Бесплатный напиток из перечня",
-    ],
-    "double_double": [
-        "⚡️ Удвоенный рейтинг",
-        "⚡️ Увеличенные стартовые стеки",
-    ],
-    "mystery_bounty": [
-        "🎁 Награды за нокауты",
-        "• Очки в рейтинг",
-        "• Привилегии клуба",
-        "• Дополнительные фишки",
-    ],
-    "boss_bounty": [
-        "👑 Охота на Босса",
-        "• Нокаут Босса — 60 очков в рейтинг",
-        "• Босс получает +10 000 фишек к следующему ребаю",
-        "• Боссом становится лучший нокаутер предыдущего Баунти-турнира",
-    ],
-}
 
 
 def plan_preview(plan: object) -> str:
@@ -127,13 +99,10 @@ def _public_tournament(
 def _description_lines(
     tournament: object,
 ) -> list[str]:
-    lines = list(PUBLIC_TOURNAMENT_DESCRIPTIONS.get(tournament.tournament_type_code, []))
-    if not lines and tournament.description:
-        lines.append(tournament.description)
-    if tournament.tournament_type_code == "freezeout":
-        bonus_line = _prize_multiplier_line(tournament)
-        if bonus_line is not None:
-            lines.append(bonus_line)
+    lines = [line for line in str(tournament.description or "").splitlines() if line]
+    bonus_line = _prize_multiplier_line(tournament)
+    if bonus_line is not None:
+        lines.append(bonus_line)
     return lines
 
 

@@ -9,11 +9,16 @@ from app.domain.prize_multiplier_places import (
 
 CALENDAR_TYPE_ABBREVIATIONS = {
     "bounty": "B",
+    "bounty_v2": "B2",
     "classic": "C",
+    "classic_v2": "C2",
     "freezeout": "F",
+    "freezeout_v2": "F2",
     "double_double": "DD",
+    "deep_stack": "DS",
     "mystery_bounty": "MB",
     "boss_bounty": "BB",
+    "white_party": "WP",
     "legacy_unknown": "?",
 }
 _MONTH_CELL_WIDTH = 4
@@ -150,11 +155,16 @@ def superadmin_calendar_month(view: object) -> str:
             "```",
             "",
             "B — Bounty",
+            "B2 — Bounty v2",
             "C — Classic",
+            "C2 — Classic v2",
             "F — Freezeout",
+            "F2 — Freezeout v2",
             "DD — Double Double",
+            "DS — Deep Stack",
             "MB — Mystery Bounty",
             "BB — Boss Bounty",
+            "WP — White Party",
             "? — тип не определён",
         ]
     )

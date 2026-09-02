@@ -4,7 +4,12 @@ from pathlib import Path
 from zoneinfo import ZoneInfo
 
 import pytest
-from conftest import build_player, seed_tournament_types_async, tournament_type_id
+from conftest import (
+    build_player,
+    seed_tournament_rules_async,
+    seed_tournament_types_async,
+    tournament_type_id,
+)
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
@@ -880,6 +885,102 @@ async def test_result_rows_are_edited_directly_and_close_tournament(
     assert stored_results[0].knockout_points == Decimal("115.00")
     assert stored_results[1].tournament_points == Decimal("250.00")
     assert stored_results[1].knockout_points == Decimal("20.00")
+    await engine.dispose()
+
+
+async def test_deep_stack_uses_ordinary_multiplier_without_changing_double_double(
+    tmp_path: Path,
+) -> None:
+    engine = create_async_engine(f"sqlite+aiosqlite:///{tmp_path / 'format-multipliers.db'}")
+    async with engine.begin() as connection:
+        await connection.run_sync(Base.metadata.create_all)
+
+    session_factory = async_sessionmaker(engine, expire_on_commit=False)
+    async with session_factory() as session:
+        config = ScoringConfig()
+        session.add(config)
+        await session.flush()
+        await seed_tournament_types_async(session)
+        await seed_tournament_rules_async(session)
+        season = Season(
+            name="Test season",
+            scoring_config_id=config.id,
+            starts_at=date(2026, 9, 1),
+            ends_at=None,
+        )
+        superadmin = build_player(
+            telegram_id=100,
+            display_name="Superadmin",
+            status=UserStatus.ACTIVE,
+            role=UserRole.SUPERADMIN,
+        )
+        players = [
+            build_player(
+                telegram_id=telegram_id,
+                display_name=f"Player {telegram_id}",
+                status=UserStatus.ACTIVE,
+            )
+            for telegram_id in range(201, 211)
+        ]
+        session.add_all([season, superadmin, *players])
+        await session.flush()
+        double_double = Tournament(
+            season_id=season.id,
+            tournament_type_id=tournament_type_id("double_double"),
+            date=date(2026, 9, 5),
+            status=TournamentStatus.ACTIVE,
+        )
+        deep_stack = Tournament(
+            season_id=season.id,
+            tournament_type_id=tournament_type_id("deep_stack"),
+            date=date(2026, 9, 6),
+            status=TournamentStatus.ACTIVE,
+        )
+        session.add_all([double_double, deep_stack])
+        await session.flush()
+        for tournament, tournament_players in (
+            (double_double, players[:5]),
+            (deep_stack, players[5:]),
+        ):
+            session.add(
+                TournamentPhoto(
+                    tournament_id=tournament.id,
+                    telegram_file_id=f"file-{tournament.id}",
+                    telegram_file_unique_id=f"unique-{tournament.id}",
+                    uploaded_by_user_id=superadmin.id,
+                    position=0,
+                )
+            )
+            session.add_all(
+                TournamentResult(
+                    tournament_id=tournament.id,
+                    player_id=player.id,
+                    source=TournamentResultSource.WALK_IN_EXISTING,
+                    place=index,
+                    checked_in_by_user_id=superadmin.id,
+                )
+                for index, player in enumerate(tournament_players, start=1)
+            )
+        await session.commit()
+
+    service = ResultService(
+        session_factory,
+        clock=FixedClock(datetime(2026, 9, 7, 12, tzinfo=ZoneInfo("Europe/Moscow"))),
+    )
+
+    double_double_preview = await service.preview_tournament_close(
+        100,
+        double_double.id,
+        1000,
+    )
+    deep_stack_preview = await service.preview_tournament_close(
+        100,
+        deep_stack.id,
+        1000,
+    )
+
+    assert double_double_preview.players[0].tournament_points == Decimal("900.00")
+    assert deep_stack_preview.players[0].tournament_points == Decimal("450.00")
     await engine.dispose()
 
 

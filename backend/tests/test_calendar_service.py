@@ -5,6 +5,7 @@ import pytest
 from conftest import (
     build_player,
     seed_tournament_configs_async,
+    seed_tournament_rules_async,
     seed_tournament_types_async,
     seed_weekly_templates_async,
     tournament_type_id,
@@ -18,7 +19,11 @@ from app.db.models import (
     ScoringConfig,
     Season,
     Tournament,
+    TournamentEconomyConfig,
+    TournamentRebuyConfig,
     TournamentRegistration,
+    TournamentType,
+    TournamentTypeRule,
     User,
     WeeklyTournamentTemplate,
 )
@@ -29,6 +34,7 @@ from app.services.tournament_planning_service import (
     CalendarPlanStaleError,
     CalendarTournamentDateAlreadyExistsError,
     CalendarTournamentNotEditableError,
+    CalendarTournamentTypeNotFoundError,
     CalendarWeeklyPlanIntegrityError,
     TournamentPlanningService,
     WeeklyPlanningStatus,
@@ -65,6 +71,7 @@ async def seed_calendar_data(session_factory: async_sessionmaker) -> None:
         await session.flush()
         await seed_tournament_types_async(session)
         await seed_tournament_configs_async(session)
+        await seed_tournament_rules_async(session)
         await seed_weekly_templates_async(session)
         session.add_all(
             [
@@ -153,12 +160,229 @@ async def test_weekly_plan_uses_last_existing_tournament_regression(
             date(2026, 8, 16),
         ]
         assert [item.tournament_type.name for item in plan.tournaments] == [
-            "Баунти турнир",
-            "Классика",
-            "Фризаут",
-            "Double Double",
+            "Bounty",
+            "Classic",
+            "Freezeout",
+            "Deep Stack",
             "Boss Bounty",
         ]
+    finally:
+        await engine.dispose()
+
+
+async def test_calendar_type_options_include_only_creatable_formats(tmp_path: Path) -> None:
+    service, session_factory, engine = await create_planning_service(tmp_path / "creatable.db")
+    try:
+        await seed_calendar_data(session_factory)
+
+        options = await service.list_calendar_tournament_type_options(100)
+
+        assert [option.code for option in options] == [
+            "mystery_bounty",
+            "boss_bounty",
+            "bounty_v2",
+            "classic_v2",
+            "freezeout_v2",
+            "deep_stack",
+            "white_party",
+        ]
+    finally:
+        await engine.dispose()
+
+
+async def test_calendar_create_rejects_historical_non_creatable_type(tmp_path: Path) -> None:
+    service, session_factory, engine = await create_planning_service(tmp_path / "historical.db")
+    try:
+        await seed_calendar_data(session_factory)
+
+        with pytest.raises(CalendarTournamentTypeNotFoundError):
+            await service.create_calendar_tournament(
+                100,
+                tournament_date=date(2026, 8, 12),
+                tournament_type_id=tournament_type_id("bounty"),
+            )
+
+        async with session_factory() as session:
+            tournaments = list((await session.execute(select(Tournament))).scalars())
+        assert tournaments == []
+    finally:
+        await engine.dispose()
+
+
+async def test_versioned_format_configs_preserve_historical_rows(tmp_path: Path) -> None:
+    _service, session_factory, engine = await create_planning_service(tmp_path / "formats.db")
+    try:
+        await seed_calendar_data(session_factory)
+        async with session_factory() as session:
+            types = {
+                item.code: item
+                for item in (
+                    await session.execute(select(TournamentType).order_by(TournamentType.id))
+                ).scalars()
+            }
+            economies = {
+                item.tournament_type_id: item
+                for item in (await session.execute(select(TournamentEconomyConfig))).scalars()
+            }
+            rebuys_by_type: dict[int, list[TournamentRebuyConfig]] = {}
+            for rebuy in (
+                await session.execute(
+                    select(TournamentRebuyConfig).order_by(
+                        TournamentRebuyConfig.tournament_type_id,
+                        TournamentRebuyConfig.rebuy_order,
+                    )
+                )
+            ).scalars():
+                rebuys_by_type.setdefault(rebuy.tournament_type_id, []).append(rebuy)
+            rules = {
+                item.tournament_type_id: item
+                for item in (await session.execute(select(TournamentTypeRule))).scalars()
+            }
+
+        assert types["bounty"].is_creatable is False
+        assert types["classic"].is_creatable is False
+        assert types["freezeout"].is_creatable is False
+        assert types["double_double"].is_creatable is False
+        assert types["mystery_bounty"].is_creatable is True
+        assert types["boss_bounty"].is_creatable is True
+
+        bounty = economies[types["bounty"].id]
+        bounty_v2 = economies[types["bounty_v2"].id]
+        assert (
+            bounty_v2.entry_fee,
+            bounty_v2.entry_stack,
+            bounty_v2.addon_fee,
+            bounty_v2.addon_stack,
+        ) == (
+            bounty.entry_fee,
+            bounty.entry_stack,
+            bounty.addon_fee,
+            bounty.addon_stack,
+        )
+        assert [
+            (rebuy.rebuy_order, rebuy.fee, rebuy.stack)
+            for rebuy in rebuys_by_type[types["bounty"].id]
+        ] == [
+            (1, 600, 30_000),
+            (2, 800, 50_000),
+            (3, 800, 70_000),
+            (4, 800, 90_000),
+            (5, 1000, 100_000),
+            (6, 1000, 100_000),
+        ]
+        assert [
+            (rebuy.rebuy_order, rebuy.fee, rebuy.stack)
+            for rebuy in rebuys_by_type[types["bounty_v2"].id]
+        ] == [
+            (1, 800, 30_000),
+            (2, 800, 50_000),
+            (3, 800, 70_000),
+            (4, 800, 90_000),
+            (5, 1000, 100_000),
+            (6, 1000, 100_000),
+        ]
+        assert rules[types["bounty_v2"].id].knockout_mode == rules[types["bounty"].id].knockout_mode
+        assert (
+            rules[types["bounty_v2"].id].points_multiplier
+            == rules[types["bounty"].id].points_multiplier
+        )
+        assert types["bounty_v2"].description == types["bounty"].description
+
+        classic = economies[types["classic"].id]
+        classic_v2 = economies[types["classic_v2"].id]
+        assert (
+            classic_v2.entry_fee,
+            classic_v2.entry_stack,
+            classic_v2.addon_fee,
+            classic_v2.addon_stack,
+        ) == (
+            600,
+            classic.entry_stack,
+            classic.addon_fee,
+            classic.addon_stack,
+        )
+        assert [
+            (rebuy.rebuy_order, rebuy.fee, rebuy.stack)
+            for rebuy in rebuys_by_type[types["classic"].id]
+        ] == [
+            (1, 600, 30_000),
+            (2, 800, 50_000),
+            (3, 800, 70_000),
+            (4, 800, 90_000),
+            (5, 1000, 100_000),
+            (6, 1000, 100_000),
+        ]
+        assert [
+            (rebuy.rebuy_order, rebuy.fee, rebuy.stack)
+            for rebuy in rebuys_by_type[types["classic_v2"].id]
+        ] == [
+            (1, 800, 30_000),
+            (2, 800, 50_000),
+            (3, 800, 70_000),
+            (4, 800, 90_000),
+            (5, 1000, 100_000),
+            (6, 1000, 100_000),
+        ]
+        assert (
+            rules[types["classic_v2"].id].knockout_mode == rules[types["classic"].id].knockout_mode
+        )
+        assert (
+            rules[types["classic_v2"].id].points_multiplier
+            == rules[types["classic"].id].points_multiplier
+        )
+        assert types["classic_v2"].description == types["classic"].description
+
+        assert "На этот турнир не действуют привилегии клуба." in str(
+            types["freezeout_v2"].description
+        )
+        assert "На этот турнир не действуют привилегии клуба." not in str(
+            types["freezeout"].description
+        )
+
+        assert (
+            economies[types["deep_stack"].id].entry_stack
+            == economies[types["double_double"].id].entry_stack
+        )
+        assert rules[types["double_double"].id].points_multiplier == 2
+        assert rules[types["deep_stack"].id].points_multiplier == 1
+
+        assert economies[types["white_party"].id].entry_fee == 800
+        assert economies[types["white_party"].id].entry_stack == 30_000
+        assert [(rebuy.fee, rebuy.stack) for rebuy in rebuys_by_type[types["white_party"].id]] == [
+            (800, 40_000),
+            (800, 50_000),
+            (1000, 80_000),
+            (1000, 100_000),
+        ]
+        assert economies[types["white_party"].id].addon_fee == 1000
+        assert economies[types["white_party"].id].addon_stack == 150_000
+        assert "Приди в белом — получи фишки к стеку." in str(types["white_party"].description)
+        assert "10 000" not in str(types["white_party"].description)
+    finally:
+        await engine.dispose()
+
+
+async def test_deep_stack_guarantee_is_description_not_actual_tournament_fund(
+    tmp_path: Path,
+) -> None:
+    service, session_factory, engine = await create_planning_service(tmp_path / "deep-stack.db")
+    try:
+        await seed_calendar_data(session_factory)
+
+        tournament = await service.create_calendar_tournament(
+            100,
+            tournament_date=date(2026, 8, 12),
+            tournament_type_id=tournament_type_id("deep_stack"),
+        )
+
+        async with session_factory() as session:
+            stored = await session.get(Tournament, tournament.id)
+            deep_stack = await session.get(TournamentType, tournament_type_id("deep_stack"))
+
+        assert stored is not None
+        assert stored.tournament_fund is None
+        assert deep_stack is not None
+        assert deep_stack.description == "Гарантированный фонд турнира — 2500 очков."
     finally:
         await engine.dispose()
 
@@ -229,14 +453,14 @@ async def test_weekly_plan_can_be_edited_in_memory(tmp_path: Path) -> None:
             100,
             plan,
             date(2026, 8, 13),
-            3,
+            tournament_type_id("freezeout_v2"),
         )
 
         assert [item.tournament_type.name for item in updated.tournaments] == [
-            "Баунти турнир",
-            "Фризаут",
-            "Фризаут",
-            "Double Double",
+            "Bounty",
+            "Freezeout",
+            "Freezeout",
+            "Deep Stack",
             "Boss Bounty",
         ]
     finally:
@@ -659,20 +883,20 @@ async def test_repeated_calendar_create_callback_does_not_duplicate_tournament(
         await service.create_calendar_tournament(
             100,
             tournament_date=date(2026, 8, 12),
-            tournament_type_id=tournament_type_id("classic"),
+            tournament_type_id=tournament_type_id("classic_v2"),
         )
         with pytest.raises(CalendarTournamentDateAlreadyExistsError):
             await service.create_calendar_tournament(
                 100,
                 tournament_date=date(2026, 8, 12),
-                tournament_type_id=tournament_type_id("freezeout"),
+                tournament_type_id=tournament_type_id("freezeout_v2"),
             )
 
         async with session_factory() as session:
             tournaments = list((await session.execute(select(Tournament))).scalars())
         assert len(tournaments) == 1
         assert tournaments[0].date == date(2026, 8, 12)
-        assert tournaments[0].tournament_type_id == tournament_type_id("classic")
+        assert tournaments[0].tournament_type_id == tournament_type_id("classic_v2")
     finally:
         await engine.dispose()
 
@@ -704,14 +928,14 @@ async def test_week_approval_only_opens_unapproved_tournaments_and_can_be_repeat
         await service.create_calendar_tournament(
             100,
             tournament_date=date(2026, 8, 12),
-            tournament_type_id=tournament_type_id("bounty"),
+            tournament_type_id=tournament_type_id("bounty_v2"),
         )
         await service.approve_calendar_week(100, year=2026, month=8, row_number=3)
 
         await service.create_calendar_tournament(
             100,
             tournament_date=date(2026, 8, 13),
-            tournament_type_id=tournament_type_id("classic"),
+            tournament_type_id=tournament_type_id("classic_v2"),
         )
         async with session_factory() as session:
             before = list(
@@ -746,17 +970,17 @@ async def test_calendar_type_change_preserves_date_and_registration_open(
         tournament = await service.create_calendar_tournament(
             100,
             tournament_date=date(2026, 8, 12),
-            tournament_type_id=tournament_type_id("bounty"),
+            tournament_type_id=tournament_type_id("bounty_v2"),
         )
 
         changed = await service.change_calendar_tournament_type(
             100,
             tournament_id=tournament.id,
-            new_tournament_type_id=tournament_type_id("freezeout"),
+            new_tournament_type_id=tournament_type_id("freezeout_v2"),
         )
 
         assert changed.date == date(2026, 8, 12)
-        assert changed.tournament_type_id == tournament_type_id("freezeout")
+        assert changed.tournament_type_id == tournament_type_id("freezeout_v2")
         assert changed.registration_open is False
     finally:
         await engine.dispose()
@@ -771,13 +995,13 @@ async def test_calendar_delete_rejects_current_and_closed_tournaments_service_si
         async with session_factory() as session:
             current = Tournament(
                 season_id=1,
-                tournament_type_id=tournament_type_id("classic"),
+                tournament_type_id=tournament_type_id("classic_v2"),
                 date=date(2026, 8, 8),
                 status=TournamentStatus.ACTIVE,
             )
             closed = Tournament(
                 season_id=1,
-                tournament_type_id=tournament_type_id("classic"),
+                tournament_type_id=tournament_type_id("classic_v2"),
                 date=date(2026, 8, 12),
                 tournament_fund=10,
                 status=TournamentStatus.CLOSED,
@@ -804,7 +1028,7 @@ async def test_calendar_delete_removes_registrations_but_keeps_users(
         tournament = await service.create_calendar_tournament(
             100,
             tournament_date=date(2026, 8, 12),
-            tournament_type_id=tournament_type_id("classic"),
+            tournament_type_id=tournament_type_id("classic_v2"),
         )
         async with session_factory() as session:
             player = build_player(
@@ -858,12 +1082,12 @@ async def test_calendar_tournament_uses_season_for_its_own_date_after_boundary_c
         august = await service.create_calendar_tournament(
             100,
             tournament_date=date(2026, 8, 26),
-            tournament_type_id=tournament_type_id("classic"),
+            tournament_type_id=tournament_type_id("classic_v2"),
         )
         september = await service.create_calendar_tournament(
             100,
             tournament_date=date(2026, 9, 2),
-            tournament_type_id=tournament_type_id("classic"),
+            tournament_type_id=tournament_type_id("classic_v2"),
         )
 
         async with session_factory() as session:
@@ -1016,7 +1240,7 @@ async def test_created_weekly_schedule_reads_created_tournaments(tmp_path: Path)
         )
 
         assert len(schedule.tournaments) == 5
-        assert schedule.tournaments[0].tournament_type_name == "Баунти турнир"
+        assert schedule.tournaments[0].tournament_type_name == "Bounty"
         assert schedule.tournaments[-1].date == date(2026, 8, 16)
     finally:
         await engine.dispose()

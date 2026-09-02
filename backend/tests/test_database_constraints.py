@@ -141,9 +141,11 @@ def test_user_gender_is_nullable_and_accepts_known_values(session: Session) -> N
             "status",
             "weird",
             """
-            INSERT INTO tournament_types (code, name, status, created_at, updated_at)
+            INSERT INTO tournament_types (
+                code, name, short_name, is_creatable, status, created_at, updated_at
+            )
             VALUES (
-                'invalid_status', 'Invalid', :invalid_value,
+                'invalid_status', 'Invalid', 'Invalid', 0, :invalid_value,
                 CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
             )
             """,
@@ -232,9 +234,12 @@ def test_persisted_enums_reject_unknown_values(
             text(
                 """
                 INSERT OR IGNORE INTO tournament_types (
-                    id, code, name, status, created_at, updated_at
+                    id, code, name, short_name, is_creatable, status, created_at, updated_at
                 )
-                VALUES (1, 'enum_type', 'Enum type', 'active', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+                VALUES (
+                    1, 'enum_type', 'Enum type', 'Enum type', 0, 'active',
+                    CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
+                )
                 """
             )
         )
@@ -272,10 +277,10 @@ def test_persisted_enums_reject_unknown_values(
             text(
                 """
                 INSERT OR IGNORE INTO tournament_types (
-                    id, code, name, status, created_at, updated_at
+                    id, code, name, short_name, is_creatable, status, created_at, updated_at
                 )
                 VALUES (
-                    1, 'enum_rule_type', 'Enum rule type', 'active',
+                    1, 'enum_rule_type', 'Enum rule type', 'Enum rule type', 0, 'active',
                     CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
                 )
                 """

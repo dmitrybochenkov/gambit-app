@@ -116,10 +116,11 @@ WEEKLY_PLAYING_WEEKDAYS = (2, 3, 4, 5, 6)
 LEGACY_UNKNOWN_TOURNAMENT_TYPE_CODE = "legacy_unknown"
 SUPERADMIN_OPEN_TOURNAMENT_PAGE_SIZE = 6
 REAL_TOURNAMENT_TYPE_CODES = (
-    "bounty",
-    "classic",
-    "freezeout",
-    "double_double",
+    "bounty_v2",
+    "classic_v2",
+    "freezeout_v2",
+    "deep_stack",
+    "white_party",
     "mystery_bounty",
     "boss_bounty",
 )
@@ -845,7 +846,9 @@ class TournamentPlanningService:
                 code=tournament_type.code,
                 name=tournament_type.name,
             )
-            for tournament_type in await TournamentTypeRepository(session).list_active_real_types()
+            for tournament_type in await TournamentTypeRepository(
+                session
+            ).list_creatable_real_types()
             if tournament_type.code in REAL_TOURNAMENT_TYPE_CODES
         ]
 
@@ -1106,7 +1109,9 @@ class TournamentPlanningService:
     ) -> list[TournamentTypeOptionView]:
         return [
             TournamentTypeOptionView(id=tournament_type.id, name=tournament_type.name)
-            for tournament_type in await TournamentTypeRepository(session).list_active_real_types()
+            for tournament_type in await TournamentTypeRepository(
+                session
+            ).list_creatable_real_types()
         ]
 
     async def _tournament_type_detail(

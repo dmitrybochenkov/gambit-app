@@ -404,9 +404,12 @@ def test_public_weekly_schedule_formats_full_economy_and_special_rules() -> None
             WeeklyScheduleTournamentView(
                 id=1,
                 date=date(2026, 7, 22),
-                tournament_type_code="bounty",
-                tournament_type_name="Баунти турнир",
-                description=None,
+                tournament_type_code="bounty_v2",
+                tournament_type_name="Bounty",
+                description=(
+                    "Динамические нокауты: до финального стола малые КО, "
+                    "на финальном столе большие КО."
+                ),
                 entry_fee=600,
                 entry_stack=20_000,
                 addon_fee=800,
@@ -423,9 +426,12 @@ def test_public_weekly_schedule_formats_full_economy_and_special_rules() -> None
             WeeklyScheduleTournamentView(
                 id=2,
                 date=date(2026, 7, 24),
-                tournament_type_code="freezeout",
-                tournament_type_name="Фризаут",
-                description=None,
+                tournament_type_code="freezeout_v2",
+                tournament_type_name="Freezeout",
+                description=(
+                    "Формат для скилловых игроков. Рейтинг за 1 и 2 место умножается на 1.5.\n"
+                    "На этот турнир не действуют привилегии клуба."
+                ),
                 entry_fee=1000,
                 entry_stack=50_000,
                 addon_fee=1000,
@@ -445,10 +451,9 @@ def test_public_weekly_schedule_formats_full_economy_and_special_rules() -> None
     assert messages[0] == (
         "🔥 РАСПИСАНИЕ ТУРНИРОВ ПОКЕРНОГО КЛУБА «ГАМБИТ»\n"
         "🔥♠️♥️♣️♦️\n\n"
-        "🗓 СРЕДА — БАУНТИ ТУРНИР\n"
-        "💀 Динамические нокауты\n"
-        "• До финального стола — 15 очков за нокаут\n"
-        "• На финальном столе — 60 очков за нокаут\n\n"
+        "🗓 СРЕДА — BOUNTY\n"
+        "Динамические нокауты: до финального стола малые КО, "
+        "на финальном столе большие КО.\n\n"
         "💰 Условия участия\n"
         "Вход: 600 ₽ — 20 000 фишек\n\n"
         "Ребаи:\n"
@@ -457,9 +462,9 @@ def test_public_weekly_schedule_formats_full_economy_and_special_rules() -> None
         "Аддон:\n"
         "800 ₽ — 125 000 фишек\n\n"
         "━━━━━━━━━━━━━━\n\n"
-        "🗓 ПЯТНИЦА — ФРИЗАУТ\n"
-        "🎯 Формат для самых скиловых игроков\n"
-        "• Бесплатный напиток из перечня\n"
+        "🗓 ПЯТНИЦА — FREEZEOUT\n"
+        "Формат для скилловых игроков. Рейтинг за 1 и 2 место умножается на 1.5.\n"
+        "На этот турнир не действуют привилегии клуба.\n"
         "• Рейтинг за 1 и 2 место ×1.5\n\n"
         "💰 Условия участия\n"
         "Вход: 1 000 ₽ — 50 000 фишек\n"
@@ -499,6 +504,82 @@ def test_public_weekly_schedule_omits_empty_rebuy_and_addon_sections() -> None:
     assert "Ребаи:" not in message
     assert "Ребай:" not in message
     assert "Аддон:" not in message
+
+
+def test_public_weekly_schedule_renders_new_formats_without_version_leakage() -> None:
+    schedule = WeeklyScheduleView(
+        tournaments=[
+            WeeklyScheduleTournamentView(
+                id=1,
+                date=date(2026, 9, 2),
+                tournament_type_code="bounty_v2",
+                tournament_type_name="Bounty",
+                description="Динамические нокауты.",
+                entry_fee=600,
+                entry_stack=20_000,
+                addon_fee=800,
+                addon_stack=125_000,
+                rebuys=[TournamentRebuyView(fee=800, stack=30_000)],
+                knockout_mode="small_big",
+                points_multiplier=Decimal("1.00"),
+                prize_place_multiplier=Decimal("1.00"),
+                prize_place_multiplier_places=None,
+            ),
+            WeeklyScheduleTournamentView(
+                id=2,
+                date=date(2026, 9, 5),
+                tournament_type_code="deep_stack",
+                tournament_type_name="Deep Stack",
+                description="Гарантированный фонд турнира — 2500 очков.",
+                entry_fee=800,
+                entry_stack=40_000,
+                addon_fee=800,
+                addon_stack=200_000,
+                rebuys=[TournamentRebuyView(fee=800, stack=60_000)],
+                knockout_mode="none",
+                points_multiplier=Decimal("1.00"),
+                prize_place_multiplier=Decimal("1.00"),
+                prize_place_multiplier_places=None,
+            ),
+            WeeklyScheduleTournamentView(
+                id=3,
+                date=date(2026, 9, 6),
+                tournament_type_code="white_party",
+                tournament_type_name="White Party Tournament",
+                description=(
+                    "Приди в белом — получи фишки к стеку.\n"
+                    "Приди в тёмных очках — получи фишки к стеку."
+                ),
+                entry_fee=800,
+                entry_stack=30_000,
+                addon_fee=1000,
+                addon_stack=150_000,
+                rebuys=[
+                    TournamentRebuyView(fee=800, stack=40_000),
+                    TournamentRebuyView(fee=800, stack=50_000),
+                    TournamentRebuyView(fee=1000, stack=80_000),
+                    TournamentRebuyView(fee=1000, stack=100_000),
+                ],
+                knockout_mode="none",
+                points_multiplier=Decimal("1.00"),
+                prize_place_multiplier=Decimal("1.00"),
+                prize_place_multiplier_places=None,
+            ),
+        ]
+    )
+
+    message = schedule_fmt.public_weekly(schedule)[0]
+
+    assert "BOUNTY V2" not in message
+    assert "B2" not in message
+    assert "🗓 СРЕДА — BOUNTY" in message
+    assert "🗓 СУББОТА — DEEP STACK" in message
+    assert "Гарантированный фонд турнира — 2500 очков." in message
+    assert "🗓 ВОСКРЕСЕНЬЕ — WHITE PARTY TOURNAMENT" in message
+    assert "Приди в белом — получи фишки к стеку." in message
+    assert "Приди в тёмных очках — получи фишки к стеку." in message
+    assert "800 / 800 / 1 000 / 1 000 ₽" in message
+    assert "40 000 / 50 000 / 80 000 / 100 000 фишек" in message
 
 
 def test_public_weekly_schedule_splits_long_messages_on_tournament_blocks() -> None:
