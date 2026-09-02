@@ -21,7 +21,6 @@ from app.services.dto.statistics.profile import (
     PlayerProfileHonourView,
     PlayerProfileView,
 )
-from app.services.dto.statistics.titles import PlayerTitleKind
 from app.services.player_reward_service import PlayerRewardService
 from app.services.season_options import list_started_season_options
 from app.services.user_statistics_service import historical_tournament_display_name
@@ -303,10 +302,9 @@ async def _player_honours(
     rows = await repository.list_player_honours(player_id)
     return tuple(
         PlayerProfileHonourView(
-            season_id=row.season_id,
             season_name=row.season_name,
             season_starts_at=row.starts_at,
-            kind=PlayerTitleKind(row.kind),
+            kind=row.kind,
         )
         for row in rows
     )

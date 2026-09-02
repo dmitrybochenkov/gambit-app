@@ -1,5 +1,4 @@
 from app.bot.telegram.formatters import common as fmt_common
-from app.bot.telegram.formatters.statistics import titles as title_fmt
 
 PROFILE_UNAVAILABLE = "Профиль доступен зарегистрированным игрокам. Нажми /start."
 PROFILE_MENU_PROMPT = "За какой период ты хочешь посмотреть свои достижения?"
@@ -29,9 +28,9 @@ def message(title: str, stats: object | None) -> str:
             f"🥊 {stats.total_knockouts_count} | 🎲 {stats.tournaments_count}"
         ),
     ]
-    title_sequence = title_fmt.title_emojis(stats.honours)
-    if title_sequence:
-        lines.extend(["", f"Достижения: {title_sequence}"])
+    title_summary = _honour_summary_lines(stats)
+    if title_summary:
+        lines.extend(["", *title_summary])
     prize_place_lines = _prize_place_lines(stats)
     reward_lines = _reward_lines(stats)
     if reward_lines:
@@ -81,6 +80,17 @@ def _honour_lines(stats: object) -> list[str]:
             lines.append(f"💍 Победитель сезона «{honour.season_name}»")
         elif honour.kind == "knockout":
             lines.append(f"💥 Лучший нокаутер сезона «{honour.season_name}»")
+    return lines
+
+
+def _honour_summary_lines(stats: object) -> list[str]:
+    champion_count = sum(1 for honour in stats.honours if honour.kind == "champion")
+    knockout_count = sum(1 for honour in stats.honours if honour.kind == "knockout")
+    lines = []
+    if champion_count:
+        lines.append(f"Чемпионские титулы: {'💍' * champion_count}")
+    if knockout_count:
+        lines.append(f"Лучший нокаутер: {'💥' * knockout_count}")
     return lines
 
 

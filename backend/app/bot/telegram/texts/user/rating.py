@@ -1,5 +1,4 @@
 from app.bot.telegram.formatters import common as fmt_common
-from app.bot.telegram.formatters.statistics import titles as title_fmt
 
 RATING_UNAVAILABLE = (
     "Рейтинг доступен зарегистрированным игрокам. Нажми /start, чтобы зарегистрироваться!"
@@ -25,6 +24,7 @@ def message(
         lines.extend(
             [
                 "💥 - лучший нокаутер сезона",
+                "🥊 - количество K.O.",
                 "🎲 - количество турниров с нокаутами",
             ]
         )
@@ -72,7 +72,9 @@ def _display_name_with_honours(row: object) -> str:
 
 
 def _honours(row: object) -> str:
-    return title_fmt.title_emojis(getattr(row, "title_badges", ()))
+    if hasattr(row, "total_points"):
+        return "💍" * row.season_champion_titles_count
+    return "💥" * getattr(row, "season_knockout_leader_titles_count", 0)
 
 
 def _escape_markdown(value: str) -> str:

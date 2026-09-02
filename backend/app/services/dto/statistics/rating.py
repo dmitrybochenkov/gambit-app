@@ -1,8 +1,6 @@
 from dataclasses import dataclass
 from decimal import Decimal
 
-from app.services.dto.statistics.titles import PlayerTitleOccurrenceView
-
 
 @dataclass(frozen=True)
 class PointsRatingView:
@@ -10,7 +8,6 @@ class PointsRatingView:
     display_name: str
     total_points: Decimal
     tournaments_count: int
-    title_badges: tuple[PlayerTitleOccurrenceView, ...] = ()
     season_champion_titles_count: int = 0
 
 
@@ -21,7 +18,6 @@ class KnockoutsRatingView:
     knockouts_count: int
     big_knockouts_count: int
     knockout_tournaments_count: int
-    title_badges: tuple[PlayerTitleOccurrenceView, ...] = ()
     season_champion_titles_count: int = 0
     season_knockout_leader_titles_count: int = 0
 

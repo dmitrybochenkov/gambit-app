@@ -17,7 +17,6 @@ from app.db.models import (
 from app.db.models.enums import TournamentStatus, UserRole, UserStatus
 from app.services.dto.rewards import PlayerRewardView
 from app.services.dto.statistics.profile import PlayerProfileHonourView, PlayerProfileView
-from app.services.dto.statistics.titles import PlayerTitleKind
 from app.services.profile_service import ProfileFutureSeasonError, ProfileKind, ProfileService
 
 
@@ -75,24 +74,62 @@ def test_profile_formats_season_honours() -> None:
             display_name="Дима",
             honours=(
                 PlayerProfileHonourView(
-                    season_id=1,
                     season_name="Весна 2026",
                     season_starts_at=date(2026, 4, 1),
-                    kind=PlayerTitleKind.CHAMPION,
+                    kind="champion",
                 ),
                 PlayerProfileHonourView(
-                    season_id=2,
                     season_name="Лето 2026",
                     season_starts_at=date(2026, 7, 1),
-                    kind=PlayerTitleKind.KNOCKOUT,
+                    kind="knockout",
                 ),
             ),
         ),
     )
 
-    assert "Достижения: 💍💥" in message
+    assert "Чемпионские титулы: 💍" in message
+    assert "Лучший нокаутер: 💥" in message
+    assert "Достижения:" not in message
     assert "💍 Победитель сезона «Весна 2026»" in message
     assert "💥 Лучший нокаутер сезона «Лето 2026»" in message
+
+
+def test_profile_formats_champion_and_knockout_titles_separately() -> None:
+    message = profile_fmt.message(
+        "Твой профиль — за всё время",
+        profile_view(
+            display_name="Дима",
+            knockouts_count=17,
+            honours=(
+                PlayerProfileHonourView(
+                    season_name="Зима 2026",
+                    season_starts_at=date(2026, 1, 1),
+                    kind="champion",
+                ),
+                PlayerProfileHonourView(
+                    season_name="Весна 2026",
+                    season_starts_at=date(2026, 4, 1),
+                    kind="knockout",
+                ),
+                PlayerProfileHonourView(
+                    season_name="Лето 2026",
+                    season_starts_at=date(2026, 7, 1),
+                    kind="champion",
+                ),
+                PlayerProfileHonourView(
+                    season_name="Осень 2026",
+                    season_starts_at=date(2026, 10, 1),
+                    kind="knockout",
+                ),
+            ),
+        ),
+    )
+
+    assert "Чемпионские титулы: 💍💍" in message
+    assert "Лучший нокаутер: 💥💥" in message
+    assert "Достижения:" not in message
+    assert "💍💥💍💥" not in message
+    assert "🥊 17" in message
 
 
 def test_profile_formats_points_as_rounded_integer() -> None:

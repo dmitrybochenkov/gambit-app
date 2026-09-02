@@ -6,10 +6,7 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.models import Tournament, TournamentResult, User
-from app.db.repositories.hall_of_fame_repository import (
-    HallOfFameRepository,
-    PlayerTitleOccurrenceRow,
-)
+from app.db.repositories.hall_of_fame_repository import HallOfFameRepository
 from app.db.repositories.result_scopes import closed_tournament_filter
 
 
@@ -38,7 +35,6 @@ class KnockoutsRatingRow:
 class RatingHonours:
     season_champion_titles_by_player_id: dict[int, int]
     season_knockout_leader_titles_by_player_id: dict[int, int]
-    title_occurrences_by_player_id: dict[int, tuple[PlayerTitleOccurrenceRow, ...]]
 
 
 class RatingRepository:
@@ -143,52 +139,16 @@ class RatingRepository:
         rows = await HallOfFameRepository(self.session).list_completed_entries(today)
         champion_counts: dict[int, int] = {}
         knockout_counts: dict[int, int] = {}
-        occurrences: dict[int, list[PlayerTitleOccurrenceRow]] = {}
         for row in rows:
             if row.champion_player_id is not None:
                 champion_counts[row.champion_player_id] = (
                     champion_counts.get(row.champion_player_id, 0) + 1
                 )
-                occurrences.setdefault(row.champion_player_id, []).append(
-                    PlayerTitleOccurrenceRow(
-                        player_id=row.champion_player_id,
-                        season_id=row.season_id,
-                        season_name=row.season_name,
-                        starts_at=row.starts_at,
-                        kind="champion",
-                    )
-                )
             if row.knockout_leader_player_id is not None:
                 knockout_counts[row.knockout_leader_player_id] = (
                     knockout_counts.get(row.knockout_leader_player_id, 0) + 1
                 )
-                occurrences.setdefault(row.knockout_leader_player_id, []).append(
-                    PlayerTitleOccurrenceRow(
-                        player_id=row.knockout_leader_player_id,
-                        season_id=row.season_id,
-                        season_name=row.season_name,
-                        starts_at=row.starts_at,
-                        kind="knockout",
-                    )
-                )
         return RatingHonours(
             season_champion_titles_by_player_id=champion_counts,
             season_knockout_leader_titles_by_player_id=knockout_counts,
-            title_occurrences_by_player_id={
-                player_id: tuple(
-                    sorted(
-                        player_occurrences,
-                        key=lambda occurrence: (
-                            occurrence.starts_at,
-                            occurrence.season_id,
-                            _title_kind_order(occurrence.kind),
-                        ),
-                    )
-                )
-                for player_id, player_occurrences in occurrences.items()
-            },
         )
-
-
-def _title_kind_order(kind: str) -> int:
-    return 0 if kind == "champion" else 1

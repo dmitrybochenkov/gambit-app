@@ -20,7 +20,6 @@ from app.services.dto.statistics.rating import (
     PointsRatingView,
     RatingResultView,
 )
-from app.services.dto.statistics.titles import PlayerTitleKind, PlayerTitleOccurrenceView
 from app.services.season_options import list_started_season_options
 
 
@@ -187,7 +186,6 @@ def points_rating_view(row: PointsRatingRow, honours: RatingHonours) -> PointsRa
         display_name=row.display_name,
         total_points=row.total_points,
         tournaments_count=row.tournaments_count,
-        title_badges=_title_occurrences(honours, player_id),
         season_champion_titles_count=honours.season_champion_titles_by_player_id.get(
             player_id,
             0,
@@ -203,7 +201,6 @@ def knockouts_rating_view(row: KnockoutsRatingRow, honours: RatingHonours) -> Kn
         knockouts_count=row.knockouts_count,
         big_knockouts_count=row.big_knockouts_count,
         knockout_tournaments_count=row.knockout_tournaments_count,
-        title_badges=_title_occurrences(honours, player_id),
         season_champion_titles_count=honours.season_champion_titles_by_player_id.get(
             player_id,
             0,
@@ -211,21 +208,6 @@ def knockouts_rating_view(row: KnockoutsRatingRow, honours: RatingHonours) -> Kn
         season_knockout_leader_titles_count=(
             honours.season_knockout_leader_titles_by_player_id.get(player_id, 0)
         ),
-    )
-
-
-def _title_occurrences(
-    honours: RatingHonours,
-    player_id: int,
-) -> tuple[PlayerTitleOccurrenceView, ...]:
-    return tuple(
-        PlayerTitleOccurrenceView(
-            season_id=row.season_id,
-            season_name=row.season_name,
-            season_starts_at=row.starts_at,
-            kind=PlayerTitleKind(row.kind),
-        )
-        for row in honours.title_occurrences_by_player_id.get(player_id, ())
     )
 
 
