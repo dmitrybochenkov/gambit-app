@@ -1,4 +1,5 @@
 from app.bot.telegram.formatters import common as fmt_common
+from app.bot.telegram.formatters.statistics import titles as title_fmt
 
 PROFILE_UNAVAILABLE = "Профиль доступен зарегистрированным игрокам. Нажми /start."
 PROFILE_MENU_PROMPT = "За какой период ты хочешь посмотреть свои достижения?"
@@ -28,6 +29,9 @@ def message(title: str, stats: object | None) -> str:
             f"🥊 {stats.total_knockouts_count} | 🎲 {stats.tournaments_count}"
         ),
     ]
+    title_sequence = title_fmt.title_emojis(stats.honours)
+    if title_sequence:
+        lines.extend(["", f"Достижения: {title_sequence}"])
     prize_place_lines = _prize_place_lines(stats)
     reward_lines = _reward_lines(stats)
     if reward_lines:

@@ -29,6 +29,15 @@ class PlayerHallOfFameHonourRow:
     kind: str
 
 
+@dataclass(frozen=True)
+class PlayerTitleOccurrenceRow:
+    player_id: int
+    season_id: int
+    season_name: str
+    starts_at: date
+    kind: str
+
+
 class HallOfFameRepository:
     def __init__(self, session: AsyncSession) -> None:
         self.session = session
@@ -93,6 +102,24 @@ class HallOfFameRepository:
         ]
 
     async def list_player_honours(self, player_id: int) -> list[PlayerHallOfFameHonourRow]:
+        rows = await self.list_title_occurrences_for_players([player_id])
+        return [
+            PlayerHallOfFameHonourRow(
+                season_id=row.season_id,
+                season_name=row.season_name,
+                starts_at=row.starts_at,
+                kind=row.kind,
+            )
+            for row in rows.get(player_id, [])
+        ]
+
+    async def list_title_occurrences_for_players(
+        self,
+        player_ids: list[int],
+    ) -> dict[int, list[PlayerTitleOccurrenceRow]]:
+        if not player_ids:
+            return {}
+
         result = await self.session.execute(
             select(
                 Season.id.label("season_id"),
@@ -103,25 +130,29 @@ class HallOfFameRepository:
             )
             .join(SeasonHallOfFame, SeasonHallOfFame.season_id == Season.id)
             .where(
-                (SeasonHallOfFame.champion_player_id == player_id)
-                | (SeasonHallOfFame.knockout_player_id == player_id)
+                (SeasonHallOfFame.champion_player_id.in_(player_ids))
+                | (SeasonHallOfFame.knockout_player_id.in_(player_ids))
             )
             .order_by(Season.starts_at, Season.id)
         )
-        honours: list[PlayerHallOfFameHonourRow] = []
+        honours: dict[int, list[PlayerTitleOccurrenceRow]] = {
+            player_id: [] for player_id in player_ids
+        }
         for row in result:
-            if row.champion_player_id == player_id:
-                honours.append(
-                    PlayerHallOfFameHonourRow(
+            if row.champion_player_id is not None and row.champion_player_id in honours:
+                honours[row.champion_player_id].append(
+                    PlayerTitleOccurrenceRow(
+                        player_id=row.champion_player_id,
                         season_id=row.season_id,
                         season_name=row.season_name,
                         starts_at=row.starts_at,
                         kind="champion",
                     )
                 )
-            if row.knockout_player_id == player_id:
-                honours.append(
-                    PlayerHallOfFameHonourRow(
+            if row.knockout_player_id is not None and row.knockout_player_id in honours:
+                honours[row.knockout_player_id].append(
+                    PlayerTitleOccurrenceRow(
+                        player_id=row.knockout_player_id,
                         season_id=row.season_id,
                         season_name=row.season_name,
                         starts_at=row.starts_at,

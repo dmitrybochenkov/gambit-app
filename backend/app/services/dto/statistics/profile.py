@@ -3,13 +3,10 @@ from datetime import date
 from decimal import Decimal
 
 from app.services.dto.rewards import PlayerRewardView
+from app.services.dto.statistics.titles import PlayerTitleKind, PlayerTitleOccurrenceView
 
-
-@dataclass(frozen=True)
-class PlayerProfileHonourView:
-    season_name: str
-    season_starts_at: date
-    kind: str
+PlayerProfileHonourView = PlayerTitleOccurrenceView
+PlayerProfileHonourKind = PlayerTitleKind
 
 
 @dataclass(frozen=True)

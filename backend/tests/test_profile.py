@@ -17,6 +17,7 @@ from app.db.models import (
 from app.db.models.enums import TournamentStatus, UserRole, UserStatus
 from app.services.dto.rewards import PlayerRewardView
 from app.services.dto.statistics.profile import PlayerProfileHonourView, PlayerProfileView
+from app.services.dto.statistics.titles import PlayerTitleKind
 from app.services.profile_service import ProfileFutureSeasonError, ProfileKind, ProfileService
 
 
@@ -74,19 +75,22 @@ def test_profile_formats_season_honours() -> None:
             display_name="Дима",
             honours=(
                 PlayerProfileHonourView(
+                    season_id=1,
                     season_name="Весна 2026",
                     season_starts_at=date(2026, 4, 1),
-                    kind="champion",
+                    kind=PlayerTitleKind.CHAMPION,
                 ),
                 PlayerProfileHonourView(
+                    season_id=2,
                     season_name="Лето 2026",
                     season_starts_at=date(2026, 7, 1),
-                    kind="knockout",
+                    kind=PlayerTitleKind.KNOCKOUT,
                 ),
             ),
         ),
     )
 
+    assert "Достижения: 💍💥" in message
     assert "💍 Победитель сезона «Весна 2026»" in message
     assert "💥 Лучший нокаутер сезона «Лето 2026»" in message
 
