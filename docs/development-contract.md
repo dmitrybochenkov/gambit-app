@@ -134,10 +134,20 @@ The server verifies the initData signature with the Telegram bot token and
 checks `auth_date` freshness before extracting a trusted Telegram user id.
 Frontend-provided `telegram_id`, `user_id`, and role values are never trusted.
 
-`GET /api/v1/me` is the bootstrap endpoint for future WebApp UI. It resolves
-the current active user through `UserAccessService` and returns only
-JSON-safe fields needed by the frontend. It does not create users; registration
-continues to live in the existing Telegram flow.
+`GET /api/v1/me` is the bootstrap endpoint for future WebApp UI. Player
+tournament endpoints expose current-week schedule and self-registration:
+
+- `GET /api/v1/tournaments/week`
+- `GET /api/v1/tournaments/{tournament_id}`
+- `GET /api/v1/me/registrations`
+- `POST /api/v1/tournaments/{tournament_id}/registration`
+- `DELETE /api/v1/tournaments/{tournament_id}/registration`
+
+These endpoints resolve the current active user through `UserAccessService` and
+delegate registration rules to `TournamentService`. The HTTP layer must not
+duplicate current-week, `registration_open`, duplicate-registration, or
+ownership policy. Frontend input never selects another user; the actor always
+comes from verified initData.
 
 ## Naming Rules
 

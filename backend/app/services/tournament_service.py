@@ -17,6 +17,7 @@ from app.domain.tournament_day import resolve_tournament_day
 from app.services.access_policy import ActiveUserRequiredError, access_policy
 from app.services.dto.schedules import TournamentRebuyView
 from app.services.dto.tournaments import (
+    PlayerTournamentView,
     TournamentEconomyView,
     TournamentRulesView,
     TournamentScheduleDetailsView,
@@ -149,6 +150,71 @@ class TournamentService:
             )
             return [tournament_view(tournament) for tournament in tournaments]
 
+    async def get_current_week_tournaments_for_player(
+        self,
+        telegram_id: int,
+        from_date: date | None = None,
+    ) -> list[PlayerTournamentView]:
+        async with self.session_factory() as session:
+            try:
+                player = await access_policy.require_active_user(session, telegram_id)
+            except ActiveUserRequiredError as exc:
+                raise TournamentScheduleNotAllowedError from exc
+
+            week_start, week_end = self._current_week_range(from_date)
+            tournaments = await TournamentRepository(session).list_active_between_dates(
+                start_date=week_start,
+                end_date=week_end,
+                registration_open_only=True,
+            )
+            return await self._player_tournament_views(session, player.id, tournaments)
+
+    async def get_current_week_tournament_for_player(
+        self,
+        telegram_id: int,
+        tournament_id: int,
+        from_date: date | None = None,
+    ) -> PlayerTournamentView:
+        async with self.session_factory() as session:
+            try:
+                player = await access_policy.require_active_user(session, telegram_id)
+            except ActiveUserRequiredError as exc:
+                raise TournamentScheduleNotAllowedError from exc
+
+            week_start, week_end = self._current_week_range(from_date)
+            tournament = await TournamentRepository(session).get_by_id(tournament_id)
+            if (
+                tournament is None
+                or tournament.status != TournamentStatus.ACTIVE
+                or tournament.date < week_start
+                or tournament.date > week_end
+                or not tournament.registration_open
+            ):
+                raise TournamentUnavailableError
+
+            views = await self._player_tournament_views(session, player.id, [tournament])
+            return views[0]
+
+    async def get_current_week_registrations_for_player(
+        self,
+        telegram_id: int,
+        from_date: date | None = None,
+    ) -> list[PlayerTournamentView]:
+        async with self.session_factory() as session:
+            try:
+                player = await access_policy.require_active_user(session, telegram_id)
+            except ActiveUserRequiredError as exc:
+                raise TournamentRegistrationNotAllowedError from exc
+            week_start, week_end = self._current_week_range(from_date)
+            tournaments = await TournamentRegistrationRepository(
+                session
+            ).list_registered_between_dates(
+                player_id=player.id,
+                start_date=week_start,
+                end_date=week_end,
+            )
+            return await self._player_tournament_views(session, player.id, tournaments)
+
     async def register_player_for_tournaments(
         self,
         telegram_id: int,
@@ -256,6 +322,43 @@ class TournamentService:
         week_start = business_date - timedelta(days=business_date.weekday())
         return week_start, week_start + timedelta(days=6)
 
+    async def _player_tournament_views(
+        self,
+        session: AsyncSession,
+        player_id: int,
+        tournaments: list[Tournament],
+    ) -> list[PlayerTournamentView]:
+        registration_repository = TournamentRegistrationRepository(session)
+        result_repository = TournamentResultRepository(session)
+        views: list[PlayerTournamentView] = []
+        for tournament in tournaments:
+            registration = await registration_repository.get(tournament.id, player_id)
+            checked_in = await result_repository.exists_for_tournament_and_player(
+                tournament.id,
+                player_id,
+            )
+            details = await build_tournament_schedule_details(session, tournament)
+            is_registered = registration is not None
+            views.append(
+                PlayerTournamentView(
+                    id=tournament.id,
+                    date=tournament.date,
+                    tournament_type_code=details.tournament_type_code,
+                    tournament_type_name=details.tournament_type_name,
+                    description=details.description,
+                    registration_open=tournament.registration_open,
+                    is_registered=is_registered,
+                    can_register=tournament.registration_open and not is_registered,
+                    can_cancel_registration=is_registered and not checked_in,
+                    my_registration_status=(
+                        "checked_in" if checked_in else "registered" if is_registered else "none"
+                    ),
+                    economy=details.economy,
+                    rules=details.rules,
+                )
+            )
+        return views
+
 
 tournament_service = TournamentService(SessionFactory)
 
@@ -306,6 +409,7 @@ async def build_tournament_schedule_details(
         id=tournament.id,
         date=tournament.date,
         tournament_type_name=config.tournament_type.name,
+        tournament_type_code=config.tournament_type.code,
         description=config.tournament_type.description,
         economy=economy,
         rules=rules,

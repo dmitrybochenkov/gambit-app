@@ -42,6 +42,23 @@ class TournamentScheduleDetailsView:
     description: str | None
     economy: TournamentEconomyView | None
     rules: TournamentRulesView | None
+    tournament_type_code: str | None = None
+
+
+@dataclass(frozen=True)
+class PlayerTournamentView:
+    id: int
+    date: date
+    tournament_type_code: str | None
+    tournament_type_name: str
+    description: str | None
+    registration_open: bool
+    is_registered: bool
+    can_register: bool
+    can_cancel_registration: bool
+    my_registration_status: str
+    economy: TournamentEconomyView | None = None
+    rules: TournamentRulesView | None = None
 
 
 @dataclass(frozen=True)

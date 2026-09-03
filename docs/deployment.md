@@ -58,10 +58,15 @@ to configured destinations.
 
 ## WebApp API
 
-The Telegram WebApp bootstrap endpoint is:
+The Telegram WebApp player endpoints are:
 
 ```text
 GET /api/v1/me
+GET /api/v1/tournaments/week
+GET /api/v1/tournaments/{tournament_id}
+GET /api/v1/me/registrations
+POST /api/v1/tournaments/{tournament_id}/registration
+DELETE /api/v1/tournaments/{tournament_id}/registration
 ```
 
 It requires signed Telegram Mini App initData in one header:
@@ -84,6 +89,11 @@ curl --fail --silent http://127.0.0.1:8100/api/v1/me
 Expected result without the Authorization header is a JSON `unauthorized`
 error. A real WebApp request must provide fresh Telegram initData from the
 Telegram client.
+
+Tournament registration endpoints use the same current club business week and
+`registration_open` rules as the Telegram bot. Requests do not include
+`user_id`, `telegram_id`, or role; the backend derives the actor only from the
+signed Telegram initData.
 
 ## Fresh DB Bootstrap
 

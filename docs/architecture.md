@@ -204,8 +204,14 @@ dependency aggregators.
 ## WebApp API
 
 The WebApp API is a second transport adapter over the same services, not a
-separate business layer. The minimal authenticated bootstrap endpoint is
-`GET /api/v1/me`.
+separate business layer. Player-facing endpoints currently include:
+
+- `GET /api/v1/me`
+- `GET /api/v1/tournaments/week`
+- `GET /api/v1/tournaments/{tournament_id}`
+- `GET /api/v1/me/registrations`
+- `POST /api/v1/tournaments/{tournament_id}/registration`
+- `DELETE /api/v1/tournaments/{tournament_id}/registration`
 
 Authentication contract:
 
@@ -223,6 +229,16 @@ Current `/me` response contains only bootstrap-safe fields: internal user id,
 display name, role, gender, and active status. It intentionally omits
 `telegram_id`, normalized names, timestamps, and statistics.
 
+Tournament endpoints use `TournamentService`, the same player registration
+use-cases used by Telegram. The current week is derived from the configured
+club business day through `resolve_tournament_day()`, not from frontend state.
+Only active tournaments in the current business week with
+`registration_open=true` are shown or accepted for registration. Duplicate
+registration requests are idempotent; stale or unavailable tournament actions
+are rejected by the service. Player-facing responses expose public schedule
+data and the authenticated user's own registration state, but not admin-only
+readiness, result-entry, or fund fields.
+
 Application/auth API errors use a top-level JSON contract:
 
 ```json
@@ -238,6 +254,6 @@ CORS is not enabled yet because no cross-origin frontend deployment has been
 chosen. If the WebApp frontend is served from another origin, add an explicit
 allowlist setting instead of using `*`.
 
-Read-only bootstrap endpoints do not need a separate CSRF mechanism. Future
-state-changing WebApp endpoints must use the same verified-auth boundary and a
-deliberate session/CSRF decision before they are exposed.
+WebApp endpoints rely on verified Telegram initData for the current actor.
+If future endpoints are exposed outside Telegram WebApp context, make an
+explicit session/CSRF decision before enabling those transports.
