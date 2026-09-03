@@ -13,6 +13,7 @@ class HallOfFameSeasonRow:
     season_id: int
     season_name: str
     starts_at: date
+    ends_at: date
     champion_player_id: int | None
     champion_display_name: str | None
     knockout_leader_player_id: int | None
@@ -64,6 +65,7 @@ class HallOfFameRepository:
                 Season.id.label("season_id"),
                 Season.name.label("season_name"),
                 Season.starts_at,
+                Season.ends_at,
                 SeasonHallOfFame.champion_player_id,
                 champion.display_name.label("champion_display_name"),
                 SeasonHallOfFame.knockout_player_id.label("knockout_leader_player_id"),
@@ -82,6 +84,7 @@ class HallOfFameRepository:
                 season_id=row.season_id,
                 season_name=row.season_name,
                 starts_at=row.starts_at,
+                ends_at=row.ends_at,
                 champion_player_id=row.champion_player_id,
                 champion_display_name=row.champion_display_name,
                 knockout_leader_player_id=row.knockout_leader_player_id,

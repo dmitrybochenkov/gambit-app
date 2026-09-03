@@ -142,12 +142,25 @@ tournament endpoints expose current-week schedule and self-registration:
 - `GET /api/v1/me/registrations`
 - `POST /api/v1/tournaments/{tournament_id}/registration`
 - `DELETE /api/v1/tournaments/{tournament_id}/registration`
+- `GET /api/v1/ratings`
+- `GET /api/v1/ratings/knockouts`
+- `GET /api/v1/me/profile`
+- `GET /api/v1/me/history`
+- `GET /api/v1/me/history/{tournament_id}`
+- `GET /api/v1/hall-of-fame`
+- `GET /api/v1/me/rewards`
 
 These endpoints resolve the current active user through `UserAccessService` and
 delegate registration rules to `TournamentService`. The HTTP layer must not
 duplicate current-week, `registration_open`, duplicate-registration, or
 ownership policy. Frontend input never selects another user; the actor always
 comes from verified initData.
+
+Read-heavy player endpoints must keep transport-specific presentation out of
+the API contract. Return semantic achievement fields, persisted point values,
+and reward lifecycle fields; do not return Telegram emoji strings as the only
+source of meaning. WebApp media URLs require a separate media endpoint or proxy;
+Telegram `file_id` values are not exposed as browser URLs.
 
 ## Naming Rules
 

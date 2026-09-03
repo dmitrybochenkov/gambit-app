@@ -1,6 +1,7 @@
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from app.common.clock import Clock, club_clock
+from app.db.models import User
 from app.db.repositories.hall_of_fame_repository import HallOfFameRepository
 from app.db.repositories.tournament_repository import (
     HistoricalTournamentResultRow,
@@ -15,6 +16,7 @@ from app.services.dto.statistics.history import (
     HistoricalTournamentView,
     HistoryMonthView,
     HistoryYearView,
+    PlayerHistoryTournamentView,
 )
 
 MONTH_LABELS = {
@@ -120,6 +122,28 @@ class UserStatisticsService:
                 raise HistoricalTournamentNotFoundError
             return historical_tournament_result_view(rows)
 
+    async def list_player_history(self, telegram_id: int) -> list[PlayerHistoryTournamentView]:
+        async with self.session_factory() as session:
+            player = await self._ensure_user_can_view_statistics(
+                session, telegram_id, HistoryNotAllowedError
+            )
+            rows = await TournamentRepository(session).list_player_result_tournaments(player.id)
+            return [player_history_tournament_view(row) for row in rows]
+
+    async def get_player_history_tournament_result(
+        self,
+        telegram_id: int,
+        tournament_id: int,
+    ) -> HistoricalTournamentResultView:
+        async with self.session_factory() as session:
+            player = await self._ensure_user_can_view_statistics(
+                session, telegram_id, HistoryNotAllowedError
+            )
+            rows = await TournamentRepository(session).get_tournament_result(tournament_id)
+            if not rows or all(row.player_id != player.id for row in rows):
+                raise HistoricalTournamentNotFoundError
+            return historical_tournament_result_view(rows)
+
     async def get_hall_of_fame(self, telegram_id: int) -> list[HallOfFameSeasonView]:
         async with self.session_factory() as session:
             await self._ensure_user_can_view_statistics(
@@ -131,6 +155,7 @@ class UserStatisticsService:
                     season_id=row.season_id,
                     season_name=row.season_name,
                     starts_at=row.starts_at,
+                    ends_at=row.ends_at,
                     champion_player_id=row.champion_player_id,
                     champion_display_name=row.champion_display_name,
                     knockout_leader_player_id=row.knockout_leader_player_id,
@@ -146,9 +171,9 @@ class UserStatisticsService:
         session: AsyncSession,
         telegram_id: int,
         error_class: type[ValueError],
-    ) -> None:
+    ) -> User:
         try:
-            await access_policy.require_active_user(session, telegram_id)
+            return await access_policy.require_active_user(session, telegram_id)
         except ActiveUserRequiredError as exc:
             raise error_class from exc
 
@@ -167,6 +192,8 @@ def historical_tournament_result_view(
                 tournament_type_code=first_row.tournament_type_code,
                 has_knockouts=first_row.tournament_has_knockouts,
             ),
+            tournament_type_code=first_row.tournament_type_code,
+            tournament_type_name=first_row.tournament_name,
         ),
         rows=[
             HistoricalTournamentResultRowView(
@@ -175,11 +202,36 @@ def historical_tournament_result_view(
                 place=row.place,
                 knockouts_count=row.knockouts_count,
                 big_knockouts_count=row.big_knockouts_count,
+                tournament_points=row.tournament_points,
+                knockout_points=row.knockout_points,
                 bonus_points=row.bonus_points,
                 total_points=row.total_points,
             )
             for row in rows
         ],
+    )
+
+
+def player_history_tournament_view(
+    row: HistoricalTournamentResultRow,
+) -> PlayerHistoryTournamentView:
+    return PlayerHistoryTournamentView(
+        tournament_id=row.tournament_id,
+        date=row.tournament_date,
+        tournament_type_code=row.tournament_type_code,
+        tournament_type_name=historical_tournament_display_name(
+            tournament_name=row.tournament_name,
+            tournament_short_name=row.tournament_short_name,
+            tournament_type_code=row.tournament_type_code,
+            has_knockouts=row.tournament_has_knockouts,
+        ),
+        place=row.place,
+        tournament_points=row.tournament_points,
+        knockout_points=row.knockout_points,
+        bonus_points=row.bonus_points,
+        total_points=row.total_points,
+        knockouts_count=row.knockouts_count,
+        big_knockouts_count=row.big_knockouts_count,
     )
 
 

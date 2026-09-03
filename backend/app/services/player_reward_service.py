@@ -72,6 +72,16 @@ class PlayerRewardService:
         async with self.session_factory() as session:
             return await self._list_active_reward_views(session, player_id, business_date)
 
+    async def list_current_active_rewards_for_player(
+        self,
+        *,
+        player_id: int,
+    ) -> tuple[PlayerRewardView, ...]:
+        return await self.list_active_rewards_for_player(
+            player_id=player_id,
+            business_date=self._tournament_day(),
+        )
+
     async def list_due_expiration_reminder_groups(
         self,
         *,
@@ -530,6 +540,7 @@ class PlayerRewardService:
 
 
 def _reward_view(row: PlayerRewardSourceRow) -> PlayerRewardView:
+    reward_type = row.reward.reward_type
     return PlayerRewardView(
         reward_id=row.reward.id,
         player_id=row.reward.player_id,
@@ -539,6 +550,9 @@ def _reward_view(row: PlayerRewardSourceRow) -> PlayerRewardView:
         source_tournament_date=row.tournament.date,
         source_tournament_name=row.tournament_type.name,
         valid_through=row.reward.valid_through,
+        issued_at=row.reward.issued_at,
+        reward_type=reward_type.value if hasattr(reward_type, "value") else str(reward_type),
+        status="active",
     )
 
 

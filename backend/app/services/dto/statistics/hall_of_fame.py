@@ -13,3 +13,4 @@ class HallOfFameSeasonView:
     knockout_leader_display_name: str | None
     champion_photo_file_id: str | None = None
     knockout_photo_file_id: str | None = None
+    ends_at: date | None = None

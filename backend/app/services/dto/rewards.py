@@ -1,5 +1,5 @@
 from dataclasses import dataclass
-from datetime import date
+from datetime import date, datetime
 
 
 @dataclass(frozen=True)
@@ -12,6 +12,9 @@ class PlayerRewardView:
     source_tournament_date: date
     source_tournament_name: str
     valid_through: date
+    issued_at: datetime | None = None
+    reward_type: str = "prize_stack_bonus"
+    status: str = "active"
 
 
 @dataclass(frozen=True)

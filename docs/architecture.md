@@ -212,6 +212,13 @@ separate business layer. Player-facing endpoints currently include:
 - `GET /api/v1/me/registrations`
 - `POST /api/v1/tournaments/{tournament_id}/registration`
 - `DELETE /api/v1/tournaments/{tournament_id}/registration`
+- `GET /api/v1/ratings`
+- `GET /api/v1/ratings/knockouts`
+- `GET /api/v1/me/profile`
+- `GET /api/v1/me/history`
+- `GET /api/v1/me/history/{tournament_id}`
+- `GET /api/v1/hall-of-fame`
+- `GET /api/v1/me/rewards`
 
 Authentication contract:
 
@@ -238,6 +245,13 @@ registration requests are idempotent; stale or unavailable tournament actions
 are rejected by the service. Player-facing responses expose public schedule
 data and the authenticated user's own registration state, but not admin-only
 readiness, result-entry, or fund fields.
+
+Rating, profile, history, Hall of Fame, and reward endpoints expose semantic
+data from the existing read services. Achievement meaning is returned as counts
+such as `champion_titles_count` and `knockout_titles_count`; Unicode emoji are
+Telegram presentation, not API meaning. Hall of Fame photos are not exposed in
+the WebApp API yet because the current stored values are Telegram `file_id`
+values, not browser-ready media URLs.
 
 Application/auth API errors use a top-level JSON contract:
 

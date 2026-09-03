@@ -38,6 +38,7 @@ class HistoricalTournamentResultRow:
     tournament_id: int
     tournament_date: date
     tournament_name: str
+    tournament_short_name: str
     tournament_type_code: str
     tournament_has_knockouts: bool
     player_id: int
@@ -45,6 +46,8 @@ class HistoricalTournamentResultRow:
     place: int | None
     knockouts_count: int
     big_knockouts_count: int
+    tournament_points: Decimal
+    knockout_points: Decimal
     bonus_points: int
     total_points: Decimal
 
@@ -452,6 +455,7 @@ class TournamentRepository:
                 Tournament.id.label("tournament_id"),
                 Tournament.date.label("tournament_date"),
                 TournamentType.name.label("tournament_name"),
+                TournamentType.short_name.label("tournament_short_name"),
                 TournamentType.code.label("tournament_type_code"),
                 func.sum(total_knockouts)
                 .over(partition_by=Tournament.id)
@@ -463,6 +467,8 @@ class TournamentRepository:
                 TournamentResult.place,
                 TournamentResult.knockouts_count,
                 TournamentResult.big_knockouts_count,
+                TournamentResult.tournament_points,
+                TournamentResult.knockout_points,
                 TournamentResult.bonus_points,
                 total_points.label("total_points"),
             )
@@ -486,6 +492,7 @@ class TournamentRepository:
                 tournament_id=row.tournament_id,
                 tournament_date=row.tournament_date,
                 tournament_name=row.tournament_name,
+                tournament_short_name=row.tournament_short_name,
                 tournament_type_code=row.tournament_type_code,
                 tournament_has_knockouts=int(row.tournament_knockouts) > 0,
                 player_id=row.player_id,
@@ -493,6 +500,72 @@ class TournamentRepository:
                 place=row.place,
                 knockouts_count=row.knockouts_count,
                 big_knockouts_count=row.big_knockouts_count,
+                tournament_points=Decimal(row.tournament_points),
+                knockout_points=Decimal(row.knockout_points),
+                bonus_points=row.bonus_points,
+                total_points=row.total_points,
+            )
+            for row in result
+        ]
+
+    async def list_player_result_tournaments(
+        self,
+        player_id: int,
+    ) -> list[HistoricalTournamentResultRow]:
+        total_knockouts = TournamentResult.knockouts_count + TournamentResult.big_knockouts_count
+        total_points = (
+            TournamentResult.tournament_points
+            + TournamentResult.knockout_points
+            + TournamentResult.bonus_points
+        )
+        tournament_knockouts = (
+            select(func.coalesce(func.sum(total_knockouts), 0))
+            .where(TournamentResult.tournament_id == Tournament.id)
+            .correlate(Tournament)
+            .scalar_subquery()
+        )
+        result = await self.session.execute(
+            select(
+                Tournament.id.label("tournament_id"),
+                Tournament.date.label("tournament_date"),
+                TournamentType.name.label("tournament_name"),
+                TournamentType.short_name.label("tournament_short_name"),
+                TournamentType.code.label("tournament_type_code"),
+                tournament_knockouts.label("tournament_knockouts"),
+                User.id.label("player_id"),
+                User.display_name,
+                TournamentResult.place,
+                TournamentResult.knockouts_count,
+                TournamentResult.big_knockouts_count,
+                TournamentResult.tournament_points,
+                TournamentResult.knockout_points,
+                TournamentResult.bonus_points,
+                total_points.label("total_points"),
+            )
+            .join(TournamentType, TournamentType.id == Tournament.tournament_type_id)
+            .join(TournamentResult, TournamentResult.tournament_id == Tournament.id)
+            .join(User, User.id == TournamentResult.player_id)
+            .where(
+                TournamentResult.player_id == player_id,
+                closed_tournament_filter(),
+            )
+            .order_by(Tournament.date.desc(), Tournament.id.desc())
+        )
+        return [
+            HistoricalTournamentResultRow(
+                tournament_id=row.tournament_id,
+                tournament_date=row.tournament_date,
+                tournament_name=row.tournament_name,
+                tournament_short_name=row.tournament_short_name,
+                tournament_type_code=row.tournament_type_code,
+                tournament_has_knockouts=int(row.tournament_knockouts) > 0,
+                player_id=row.player_id,
+                display_name=row.display_name,
+                place=row.place,
+                knockouts_count=row.knockouts_count,
+                big_knockouts_count=row.big_knockouts_count,
+                tournament_points=Decimal(row.tournament_points),
+                knockout_points=Decimal(row.knockout_points),
                 bonus_points=row.bonus_points,
                 total_points=row.total_points,
             )

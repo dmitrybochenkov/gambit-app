@@ -67,6 +67,13 @@ GET /api/v1/tournaments/{tournament_id}
 GET /api/v1/me/registrations
 POST /api/v1/tournaments/{tournament_id}/registration
 DELETE /api/v1/tournaments/{tournament_id}/registration
+GET /api/v1/ratings
+GET /api/v1/ratings/knockouts
+GET /api/v1/me/profile
+GET /api/v1/me/history
+GET /api/v1/me/history/{tournament_id}
+GET /api/v1/hall-of-fame
+GET /api/v1/me/rewards
 ```
 
 It requires signed Telegram Mini App initData in one header:
@@ -94,6 +101,10 @@ Tournament registration endpoints use the same current club business week and
 `registration_open` rules as the Telegram bot. Requests do not include
 `user_id`, `telegram_id`, or role; the backend derives the actor only from the
 signed Telegram initData.
+
+Read-heavy endpoints return structured semantic data for ratings, profile,
+history, Hall of Fame, and current active rewards. Hall of Fame photo file ids
+remain Telegram-only storage and are not exposed as WebApp media URLs.
 
 ## Fresh DB Bootstrap
 
