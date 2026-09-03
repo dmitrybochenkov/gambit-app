@@ -9,6 +9,7 @@ Runtime code follows this direction:
 
 ```text
 Telegram handler -> DTO -> Service -> Repository -> ORM / SQLite
+HTTP API dependency/router -> DTO -> Service -> Repository -> ORM / SQLite
 ```
 
 Handlers:
@@ -18,6 +19,14 @@ Handlers:
 - map expected service/domain errors to Telegram messages;
 - format DTOs with concrete formatter/text/keyboard modules;
 - do not query SQLAlchemy, create ORM objects, or decide domain policy.
+
+HTTP API routes and dependencies:
+
+- verify transport credentials at the HTTP boundary;
+- call application services to resolve users and execute use-cases;
+- return API schemas rather than ORM models;
+- do not import repositories or ORM models directly;
+- do not pass frontend-provided identity or role into domain decisions.
 
 Services:
 
@@ -111,6 +120,24 @@ keyboard/formatter/text facades.
 All message edits should use the shared safe edit helpers. The Telegram server
 is the authoritative source for whether a message changed; local message
 snapshots may be stale.
+
+## WebApp API
+
+The Telegram WebApp API lives under `/api/v1` and is another transport adapter
+over existing services. The current auth contract is:
+
+```http
+Authorization: tma <raw Telegram WebApp initData>
+```
+
+The server verifies the initData signature with the Telegram bot token and
+checks `auth_date` freshness before extracting a trusted Telegram user id.
+Frontend-provided `telegram_id`, `user_id`, and role values are never trusted.
+
+`GET /api/v1/me` is the bootstrap endpoint for future WebApp UI. It resolves
+the current active user through `UserAccessService` and returns only
+JSON-safe fields needed by the frontend. It does not create users; registration
+continues to live in the existing Telegram flow.
 
 ## Naming Rules
 

@@ -12,6 +12,15 @@ Telegram handler
 -> ORM / SQLite
 ```
 
+HTTP WebApp routes follow the same application boundary:
+
+```text
+HTTP router/dependency
+-> Service use-case
+-> Repository
+-> ORM / SQLite
+```
+
 ## Responsibilities
 
 ### Telegram Handler
@@ -21,6 +30,15 @@ Telegram handler
 - Maps expected domain errors to Telegram messages.
 - Uses formatter and scenario keyboard modules.
 - Does not run SQLAlchemy queries or make business decisions.
+
+### HTTP API
+
+- Exposes versioned routes under `/api/v1`.
+- Authenticates Telegram Mini App requests by verifying signed initData from
+  `Authorization: tma <raw_init_data>`.
+- Resolves the trusted Telegram identity through application services.
+- Returns API schemas, not ORM models.
+- Does not import repositories or ORM models directly.
 
 ### Service
 
@@ -173,9 +191,53 @@ dependency aggregators.
 
 - aiogram dispatches Telegram updates through FastAPI webhook endpoint
   `POST /webhooks/tg`.
+- Telegram WebApp bootstrap uses `GET /api/v1/me`; frontend-provided
+  `telegram_id`, `user_id`, and role values are ignored because identity comes
+  only from verified Telegram initData.
 - Expected domain errors are handled near the scenario and mapped to Telegram
   text.
 - Unexpected errors are logged by the Telegram error boundary and receive a
   safe fallback.
 - Stale callbacks must not repeat mutations; services validate prompt/result
   lifecycle before applying changes.
+
+## WebApp API
+
+The WebApp API is a second transport adapter over the same services, not a
+separate business layer. The minimal authenticated bootstrap endpoint is
+`GET /api/v1/me`.
+
+Authentication contract:
+
+```http
+Authorization: tma <raw Telegram WebApp initData>
+```
+
+The backend verifies the Telegram signature server-side using the configured
+bot token, checks `auth_date` against
+`TELEGRAM_WEBAPP_AUTH_MAX_AGE_SECONDS`, and extracts the trusted Telegram user
+id only after signature validation. The API never trusts identity or role from
+request bodies, query parameters, or frontend state.
+
+Current `/me` response contains only bootstrap-safe fields: internal user id,
+display name, role, gender, and active status. It intentionally omits
+`telegram_id`, normalized names, timestamps, and statistics.
+
+Application/auth API errors use a top-level JSON contract:
+
+```json
+{
+  "error": {
+    "code": "unauthorized",
+    "message": "Invalid Telegram WebApp initData"
+  }
+}
+```
+
+CORS is not enabled yet because no cross-origin frontend deployment has been
+chosen. If the WebApp frontend is served from another origin, add an explicit
+allowlist setting instead of using `*`.
+
+Read-only bootstrap endpoints do not need a separate CSRF mechanism. Future
+state-changing WebApp endpoints must use the same verified-auth boundary and a
+deliberate session/CSRF decision before they are exposed.

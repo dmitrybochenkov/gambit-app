@@ -24,6 +24,7 @@ class Settings(BaseSettings):
     database_url: str = ""
     telegram_bot_token: str = ""
     telegram_webhook_secret: str = ""
+    telegram_webapp_auth_max_age_seconds: int = 86_400
     telegram_club_chat_id: int | None = None
     telegram_club_channel_id: int | None = None
 
@@ -46,6 +47,13 @@ class Settings(BaseSettings):
     def _reward_reminder_run_hour_is_valid(cls, value: int) -> int:
         if not 0 <= value <= 23:
             raise ValueError("reward_reminder_run_hour must be between 0 and 23")
+        return value
+
+    @field_validator("telegram_webapp_auth_max_age_seconds")
+    @classmethod
+    def _telegram_webapp_auth_max_age_seconds_is_valid(cls, value: int) -> int:
+        if value <= 0:
+            raise ValueError("telegram_webapp_auth_max_age_seconds must be positive")
         return value
 
     model_config = SettingsConfigDict(

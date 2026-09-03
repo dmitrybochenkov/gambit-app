@@ -49,11 +49,41 @@ TOURNAMENT_DAY_START_HOUR=11
 REWARD_REMINDER_RUN_HOUR=12
 TELEGRAM_CLUB_CHAT_ID=
 TELEGRAM_CLUB_CHANNEL_ID=
+TELEGRAM_WEBAPP_AUTH_MAX_AGE_SECONDS=86400
 ```
 
 Empty values mean that the destination is not configured. These settings only
 prepare the runtime configuration; schedule/result publication flows send only
 to configured destinations.
+
+## WebApp API
+
+The Telegram WebApp bootstrap endpoint is:
+
+```text
+GET /api/v1/me
+```
+
+It requires signed Telegram Mini App initData in one header:
+
+```http
+Authorization: tma <raw Telegram WebApp initData>
+```
+
+The backend verifies the initData signature with `TELEGRAM_BOT_TOKEN` and
+rejects stale auth data older than `TELEGRAM_WEBAPP_AUTH_MAX_AGE_SECONDS`
+seconds. The endpoint does not trust Telegram ids, user ids, or roles supplied
+in request bodies or query parameters.
+
+Example health-style check for routing only, without real auth:
+
+```bash
+curl --fail --silent http://127.0.0.1:8100/api/v1/me
+```
+
+Expected result without the Authorization header is a JSON `unauthorized`
+error. A real WebApp request must provide fresh Telegram initData from the
+Telegram client.
 
 ## Fresh DB Bootstrap
 

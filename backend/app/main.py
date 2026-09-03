@@ -3,8 +3,10 @@ from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
 
+from app.api.errors import ApiError, api_error_handler
 from app.api.health import router as health_router
 from app.api.telegram_webhook import router as telegram_webhook_router
+from app.api.v1 import router as api_v1_router
 from app.bot.telegram.reward_reminder_scheduler import (
     shutdown_reward_reminder_scheduler,
     start_reward_reminder_scheduler,
@@ -26,5 +28,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
 
 
 app = FastAPI(title=settings.app_name, lifespan=lifespan)
+app.add_exception_handler(ApiError, api_error_handler)
 app.include_router(health_router)
+app.include_router(api_v1_router)
 app.include_router(telegram_webhook_router)

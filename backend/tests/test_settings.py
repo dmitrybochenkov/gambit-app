@@ -45,6 +45,7 @@ def test_tournament_day_start_hour_defaults_to_11() -> None:
     settings = Settings(_env_file=None)
 
     assert settings.tournament_day_start_hour == 11
+    assert settings.telegram_webapp_auth_max_age_seconds == 86_400
 
 
 def test_tournament_day_start_hour_must_be_valid() -> None:
@@ -52,3 +53,8 @@ def test_tournament_day_start_hour_must_be_valid() -> None:
         Settings(_env_file=None, tournament_day_start_hour=-1)
     with pytest.raises(ValueError):
         Settings(_env_file=None, tournament_day_start_hour=24)
+
+
+def test_telegram_webapp_auth_max_age_must_be_positive() -> None:
+    with pytest.raises(ValueError):
+        Settings(_env_file=None, telegram_webapp_auth_max_age_seconds=0)
