@@ -57,6 +57,7 @@ from app.services.result_service import (
     TournamentResultsEditingUnavailableError,
     result_service,
 )
+from app.services.tournament_photo_service import tournament_photo_service
 from app.services.tournament_planning_service import (
     CalendarDefaultTournamentTypeNotFoundError,
     CalendarWeeklyPlanIntegrityError,
@@ -1765,7 +1766,7 @@ async def _send_tournament_photos(
     tournament_id: int,
 ) -> None:
     try:
-        photos = await result_service.list_tournament_photos(
+        photos = await tournament_photo_service.list_for_tournament(
             admin_telegram_id=callback.from_user.id,
             tournament_id=tournament_id,
         )

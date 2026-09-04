@@ -51,6 +51,8 @@ from app.services.tournament_check_in_service import (
     TournamentCheckInNotFoundError,
     TournamentCheckInUserNotFoundError,
 )
+from app.services.tournament_combination_service import tournament_combination_service
+from app.services.tournament_photo_service import tournament_photo_service
 from app.services.user_access_service import user_access_service
 
 logger = logging.getLogger(__name__)
@@ -190,7 +192,7 @@ async def select_result_menu_action(
             await _show_photo_menu_from_callback(callback, results)
             return
         if callback_data.action == admin_results_kb.AdminResultMenuAction.COMBINATIONS:
-            combinations = await result_service.get_tournament_combinations(
+            combinations = await tournament_combination_service.list_for_tournament(
                 admin_telegram_id=callback.from_user.id,
                 tournament_id=callback_data.tournament_id,
             )
@@ -218,7 +220,7 @@ async def select_combination_action(
             await _return_to_admin_menu(callback, result_text.ADMIN_RESULTS_CANCELLED)
             return
         if callback_data.action == admin_results_kb.AdminCombinationAction.BACK:
-            combinations = await result_service.get_tournament_combinations(
+            combinations = await tournament_combination_service.list_for_tournament(
                 admin_telegram_id=callback.from_user.id,
                 tournament_id=callback_data.tournament_id,
             )
@@ -226,7 +228,7 @@ async def select_combination_action(
             await _show_combinations_from_callback(callback, combinations)
             return
         if callback_data.action == admin_results_kb.AdminCombinationAction.ADD:
-            combinations = await result_service.get_tournament_combinations(
+            combinations = await tournament_combination_service.list_for_tournament(
                 admin_telegram_id=callback.from_user.id,
                 tournament_id=callback_data.tournament_id,
             )
@@ -239,7 +241,7 @@ async def select_combination_action(
                 )
             return
         if callback_data.action == admin_results_kb.AdminCombinationAction.SELECT_PLAYER:
-            combinations = await result_service.get_tournament_combinations(
+            combinations = await tournament_combination_service.list_for_tournament(
                 admin_telegram_id=callback.from_user.id,
                 tournament_id=callback_data.tournament_id,
             )
@@ -266,7 +268,7 @@ async def select_combination_action(
                 )
             return
         if callback_data.action == admin_results_kb.AdminCombinationAction.SELECT_RANK:
-            combinations = await result_service.get_tournament_combinations(
+            combinations = await tournament_combination_service.list_for_tournament(
                 admin_telegram_id=callback.from_user.id,
                 tournament_id=callback_data.tournament_id,
             )
@@ -294,7 +296,7 @@ async def select_combination_action(
                 )
             return
         if callback_data.action == admin_results_kb.AdminCombinationAction.SAVE:
-            combinations = await result_service.add_tournament_combination(
+            combinations = await tournament_combination_service.add_combination(
                 admin_telegram_id=callback.from_user.id,
                 tournament_id=callback_data.tournament_id,
                 player_id=callback_data.player_id,
@@ -305,7 +307,7 @@ async def select_combination_action(
             await _show_combinations_from_callback(callback, combinations)
             return
         if callback_data.action == admin_results_kb.AdminCombinationAction.DELETE_MENU:
-            combinations = await result_service.get_tournament_combinations(
+            combinations = await tournament_combination_service.list_for_tournament(
                 admin_telegram_id=callback.from_user.id,
                 tournament_id=callback_data.tournament_id,
             )
@@ -318,7 +320,7 @@ async def select_combination_action(
                 )
             return
         if callback_data.action == admin_results_kb.AdminCombinationAction.DELETE:
-            combinations = await result_service.delete_tournament_combination(
+            combinations = await tournament_combination_service.delete_combination(
                 admin_telegram_id=callback.from_user.id,
                 tournament_id=callback_data.tournament_id,
                 combination_id=callback_data.combination_id,
@@ -379,7 +381,7 @@ async def select_result_player(
         if callback_data.action == admin_results_kb.AdminResultPlayerAction.ADD_PHOTO:
             await state.set_state(AdminResultStates.collecting_tournament_photos)
             await state.update_data(result_photo_tournament_id=callback_data.tournament_id)
-            photo_count = await result_service.count_tournament_photos(
+            photo_count = await tournament_photo_service.count_for_tournament(
                 admin_telegram_id=callback.from_user.id,
                 tournament_id=callback_data.tournament_id,
             )
@@ -685,7 +687,11 @@ async def select_result_photo_action(
             await _show_photo_menu_from_callback(callback, results)
             return
         if callback_data.action == admin_results_kb.AdminResultPhotoAction.DELETE_ALL:
-            results = await result_service.delete_tournament_photos(
+            await tournament_photo_service.delete_photos(
+                admin_telegram_id=callback.from_user.id,
+                tournament_id=callback_data.tournament_id,
+            )
+            results = await result_service.get_tournament_results(
                 admin_telegram_id=callback.from_user.id,
                 tournament_id=callback_data.tournament_id,
             )
@@ -714,7 +720,7 @@ async def collect_tournament_photo(message: Message, state: FSMContext) -> None:
     tournament_id = int(data["result_photo_tournament_id"])
     photo = message.photo[-1]
     try:
-        result = await result_service.add_tournament_photo(
+        result = await tournament_photo_service.add_photo(
             admin_telegram_id=message.from_user.id,
             tournament_id=tournament_id,
             telegram_file_id=photo.file_id,
@@ -738,7 +744,7 @@ async def collect_tournament_photo(message: Message, state: FSMContext) -> None:
             message,
             state,
             context,
-            count_provider=lambda: result_service.count_tournament_photos(
+            count_provider=lambda: tournament_photo_service.count_for_tournament(
                 admin_telegram_id=message.from_user.id,
                 tournament_id=tournament_id,
             ),
@@ -821,7 +827,7 @@ async def _send_tournament_photos(
     context: PhotoControlContext,
 ) -> None:
     try:
-        photos = await result_service.list_tournament_photos(
+        photos = await tournament_photo_service.list_for_tournament(
             admin_telegram_id=callback.from_user.id,
             tournament_id=tournament_id,
         )

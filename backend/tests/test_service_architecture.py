@@ -39,3 +39,18 @@ def test_services_do_not_use_dunder_dict_as_dto_mapping() -> None:
                 violations.append(f"{path.relative_to(SERVICES_DIR.parent)} uses .__dict__")
 
     assert violations == []
+
+
+def test_result_service_does_not_own_photo_or_combination_repositories() -> None:
+    result_service = SERVICES_DIR / "result_service.py"
+    source = result_service.read_text()
+
+    assert "TournamentPhotoRepository" not in source
+    assert "TournamentCombinationRepository" not in source
+    assert (
+        "class TournamentPhotoService" in (SERVICES_DIR / "tournament_photo_service.py").read_text()
+    )
+    assert (
+        "class TournamentCombinationService"
+        in (SERVICES_DIR / "tournament_combination_service.py").read_text()
+    )

@@ -178,6 +178,7 @@ from app.services.result_service import (
     ResultUserNotFoundError,
 )
 from app.services.tournament_check_in_service import CheckInResultView, TournamentCheckInService
+from app.services.tournament_photo_service import TournamentPhotoService
 from app.services.tournament_planning_service import (
     WeeklyPlanningCheckView,
     WeeklyPlanningStatus,
@@ -3890,7 +3891,9 @@ async def test_admin_photo_collection_reissues_single_control_message(
         telegram_id=100,
         role=UserRole.ADMIN,
     )
+    photo_service = TournamentPhotoService(service.session_factory, clock=service.clock)
     monkeypatch.setattr(admin_result_handlers, "result_service", service)
+    monkeypatch.setattr(admin_result_handlers, "tournament_photo_service", photo_service)
     bot = RecordingBot()
 
     try:
@@ -3940,7 +3943,9 @@ async def test_admin_photo_collection_album_refreshes_control_once(
         telegram_id=100,
         role=UserRole.ADMIN,
     )
+    photo_service = TournamentPhotoService(service.session_factory, clock=service.clock)
     monkeypatch.setattr(admin_result_handlers, "result_service", service)
+    monkeypatch.setattr(admin_result_handlers, "tournament_photo_service", photo_service)
     bot = RecordingBot()
 
     try:
@@ -4014,7 +4019,9 @@ async def test_admin_photo_collection_duplicate_and_limit_use_control_message(
         telegram_id=100,
         role=UserRole.ADMIN,
     )
+    photo_service = TournamentPhotoService(service.session_factory, clock=service.clock)
     monkeypatch.setattr(admin_result_handlers, "result_service", service)
+    monkeypatch.setattr(admin_result_handlers, "tournament_photo_service", photo_service)
     bot = RecordingBot()
 
     try:
@@ -4076,13 +4083,15 @@ async def test_admin_view_single_photo_restores_control_after_photo(
         telegram_id=100,
         role=UserRole.ADMIN,
     )
-    await service.add_tournament_photo(
+    photo_service = TournamentPhotoService(service.session_factory, clock=service.clock)
+    await photo_service.add_photo(
         admin_telegram_id=100,
         tournament_id=tournament_id,
         telegram_file_id="view-file-1",
         telegram_file_unique_id="view-unique-1",
     )
     monkeypatch.setattr(admin_result_handlers, "result_service", service)
+    monkeypatch.setattr(admin_result_handlers, "tournament_photo_service", photo_service)
     bot = RecordingBot()
 
     try:
@@ -4120,14 +4129,16 @@ async def test_admin_view_album_restores_one_control_after_album(
         telegram_id=100,
         role=UserRole.ADMIN,
     )
+    photo_service = TournamentPhotoService(service.session_factory, clock=service.clock)
     for index in range(2):
-        await service.add_tournament_photo(
+        await photo_service.add_photo(
             admin_telegram_id=100,
             tournament_id=tournament_id,
             telegram_file_id=f"view-album-file-{index}",
             telegram_file_unique_id=f"view-album-unique-{index}",
         )
     monkeypatch.setattr(admin_result_handlers, "result_service", service)
+    monkeypatch.setattr(admin_result_handlers, "tournament_photo_service", photo_service)
     bot = RecordingBot()
 
     try:

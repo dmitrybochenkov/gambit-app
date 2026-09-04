@@ -54,6 +54,8 @@ from app.services.result_service import (
     ResultUserNotFoundError,
     TournamentResultsEditingUnavailableError,
 )
+from app.services.tournament_combination_service import TournamentCombinationService
+from app.services.tournament_photo_service import TournamentPhotoService
 
 
 @pytest.mark.parametrize("fund", [None, 0, -10, 105, Decimal("10.5")])
@@ -467,11 +469,11 @@ async def test_tournament_combinations_can_be_added_deleted_and_deduplicated(
         first_id = first.id
         await session.commit()
 
-    service = ResultService(
+    combination_service = TournamentCombinationService(
         session_factory,
         clock=FixedClock(datetime(2026, 7, 19, 12, tzinfo=ZoneInfo("Europe/Moscow"))),
     )
-    view = await service.add_tournament_combination(
+    view = await combination_service.add_combination(
         admin_telegram_id=100,
         tournament_id=tournament_id,
         player_id=first_id,
@@ -483,14 +485,14 @@ async def test_tournament_combinations_can_be_added_deleted_and_deduplicated(
     ]
     assert [player.display_name for player in view.players] == ["Алексей", "Борис"]
     with pytest.raises(ResultCombinationAlreadyExistsError):
-        await service.add_tournament_combination(
+        await combination_service.add_combination(
             admin_telegram_id=100,
             tournament_id=tournament_id,
             player_id=first_id,
             combination_type=TournamentCombinationType.STRAIGHT_FLUSH,
         )
     combination_id = view.combinations[0].id
-    empty = await service.delete_tournament_combination(
+    empty = await combination_service.delete_combination(
         admin_telegram_id=100,
         tournament_id=tournament_id,
         combination_id=combination_id,
@@ -1640,30 +1642,34 @@ async def test_tournament_photos_limit_duplicates_and_delete_all(tmp_path: Path)
         await session.commit()
         tournament_id = tournament.id
 
-    service = ResultService(
+    result_service = ResultService(
         session_factory,
         clock=FixedClock(datetime(2026, 7, 20, 12, tzinfo=ZoneInfo("Europe/Moscow"))),
     )
-    first = await service.add_tournament_photo(
+    photo_service = TournamentPhotoService(
+        session_factory,
+        clock=FixedClock(datetime(2026, 7, 20, 12, tzinfo=ZoneInfo("Europe/Moscow"))),
+    )
+    first = await photo_service.add_photo(
         100,
         tournament_id,
         telegram_file_id="file-1",
         telegram_file_unique_id="unique-1",
     )
-    duplicate = await service.add_tournament_photo(
+    duplicate = await photo_service.add_photo(
         100,
         tournament_id,
         telegram_file_id="file-1-again",
         telegram_file_unique_id="unique-1",
     )
     for index in range(2, 11):
-        await service.add_tournament_photo(
+        await photo_service.add_photo(
             100,
             tournament_id,
             telegram_file_id=f"file-{index}",
             telegram_file_unique_id=f"unique-{index}",
         )
-    over_limit = await service.add_tournament_photo(
+    over_limit = await photo_service.add_photo(
         100,
         tournament_id,
         telegram_file_id="file-11",
@@ -1673,12 +1679,14 @@ async def test_tournament_photos_limit_duplicates_and_delete_all(tmp_path: Path)
     assert first.created is True
     assert duplicate.created is False
     assert over_limit.limit_reached is True
-    assert len(await service.list_tournament_photos(100, tournament_id)) == 10
+    assert len(await photo_service.list_for_tournament(100, tournament_id)) == 10
 
-    results = await service.delete_tournament_photos(100, tournament_id)
+    deleted = await photo_service.delete_photos(100, tournament_id)
+    results = await result_service.get_tournament_results(100, tournament_id)
 
+    assert deleted == 10
     assert results.photo_count == 0
-    assert await service.list_tournament_photos(100, tournament_id) == []
+    assert await photo_service.list_for_tournament(100, tournament_id) == []
     await engine.dispose()
 
 
@@ -2059,6 +2067,14 @@ async def test_superadmin_can_edit_previous_open_tournament_results_photos_and_c
         session_factory,
         clock=FixedClock(datetime(2026, 7, 20, 12, tzinfo=ZoneInfo("Europe/Moscow"))),
     )
+    photo_service = TournamentPhotoService(
+        session_factory,
+        clock=FixedClock(datetime(2026, 7, 20, 12, tzinfo=ZoneInfo("Europe/Moscow"))),
+    )
+    combination_service = TournamentCombinationService(
+        session_factory,
+        clock=FixedClock(datetime(2026, 7, 20, 12, tzinfo=ZoneInfo("Europe/Moscow"))),
+    )
 
     results = await service.update_player_result_field(
         100,
@@ -2067,13 +2083,13 @@ async def test_superadmin_can_edit_previous_open_tournament_results_photos_and_c
         ResultField.PLACE,
         1,
     )
-    photo = await service.add_tournament_photo(
+    photo = await photo_service.add_photo(
         100,
         tournament_id,
         telegram_file_id="file-1",
         telegram_file_unique_id="unique-1",
     )
-    combinations = await service.add_tournament_combination(
+    combinations = await combination_service.add_combination(
         100,
         tournament_id,
         player_id,
