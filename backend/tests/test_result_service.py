@@ -37,7 +37,7 @@ from app.db.models.enums import (
     UserStatus,
 )
 from app.db.repositories.tournament_result_repository import TournamentResultRepository
-from app.services.access_policy import AdminAccessDeniedError
+from app.services.access_policy import ActiveUserRequiredError, AdminAccessDeniedError
 from app.services.result_fields import ResultField
 from app.services.result_service import (
     ClosedTournamentCorrectionStaleError,
@@ -55,6 +55,7 @@ from app.services.result_service import (
     TournamentResultsEditingUnavailableError,
 )
 from app.services.tournament_combination_service import TournamentCombinationService
+from app.services.tournament_participant_service import TournamentParticipantService
 from app.services.tournament_photo_service import TournamentPhotoService
 
 
@@ -73,7 +74,7 @@ async def _build_open_delete_service(
     *,
     tournament_status: TournamentStatus = TournamentStatus.ACTIVE,
     tournament_date: date = date(2026, 8, 26),
-) -> tuple[ResultService, async_sessionmaker, object, dict[str, int]]:
+) -> tuple[TournamentParticipantService, async_sessionmaker, object, dict[str, int]]:
     engine = create_async_engine(f"sqlite+aiosqlite:///{database_path}")
     async with engine.begin() as connection:
         await connection.run_sync(Base.metadata.create_all)
@@ -101,6 +102,12 @@ async def _build_open_delete_service(
             status=UserStatus.ACTIVE,
             role=UserRole.ADMIN,
         )
+        player_actor = build_player(
+            telegram_id=102,
+            display_name="Player Actor",
+            status=UserStatus.ACTIVE,
+            role=UserRole.PLAYER,
+        )
         first = build_player(telegram_id=201, display_name="Первый", status=UserStatus.ACTIVE)
         second = build_player(telegram_id=202, display_name="Второй", status=UserStatus.ACTIVE)
         other_only = build_player(
@@ -108,7 +115,7 @@ async def _build_open_delete_service(
             display_name="Только другой",
             status=UserStatus.ACTIVE,
         )
-        session.add_all([season, superadmin, admin, first, second, other_only])
+        session.add_all([season, superadmin, admin, player_actor, first, second, other_only])
         await session.flush()
         tournament = Tournament(
             season_id=season.id,
@@ -179,7 +186,7 @@ async def _build_open_delete_service(
             "other_only": other_only.id,
         }
         await session.commit()
-    service = ResultService(
+    service = TournamentParticipantService(
         session_factory,
         clock=FixedClock(datetime(2026, 8, 26, 12, tzinfo=ZoneInfo("Europe/Moscow"))),
     )
@@ -235,15 +242,19 @@ async def test_delete_player_from_open_tournament_refreshes_readiness(
     tmp_path: Path,
 ) -> None:
     service, _, engine, ids = await _build_open_delete_service(tmp_path / "readiness.db")
+    result_service = ResultService(
+        service.session_factory,
+        clock=FixedClock(datetime(2026, 8, 26, 12, tzinfo=ZoneInfo("Europe/Moscow"))),
+    )
     try:
-        before = await service.get_close_readiness(100, ids["tournament"])
+        before = await result_service.get_close_readiness(100, ids["tournament"])
 
         await service.delete_player_from_open_tournament(
             superadmin_telegram_id=100,
             tournament_id=ids["tournament"],
             player_id=ids["first"],
         )
-        after = await service.get_close_readiness(100, ids["tournament"])
+        after = await result_service.get_close_readiness(100, ids["tournament"])
 
         assert before.players_count == 2
         assert after.players_count == 1
@@ -1425,9 +1436,13 @@ async def test_closed_correction_stale_draft_is_rejected(tmp_path: Path) -> None
 
 
 async def test_closed_correction_add_delete_and_fund_are_draft_only(tmp_path: Path) -> None:
-    service, session_factory, engine, ids = await _build_open_delete_service(
+    participant_service, session_factory, engine, ids = await _build_open_delete_service(
         tmp_path / "closed-draft-only.db",
         tournament_status=TournamentStatus.CLOSED,
+    )
+    service = ResultService(
+        participant_service.session_factory,
+        clock=FixedClock(datetime(2026, 8, 26, 12, tzinfo=ZoneInfo("Europe/Moscow"))),
     )
     try:
         draft = await service.begin_closed_tournament_correction(100, ids["tournament"])
@@ -1477,9 +1492,13 @@ async def test_closed_correction_add_delete_and_fund_are_draft_only(tmp_path: Pa
 
 
 async def test_closed_correction_duplicate_draft_player_is_rejected(tmp_path: Path) -> None:
-    service, _session_factory, engine, ids = await _build_open_delete_service(
+    participant_service, _session_factory, engine, ids = await _build_open_delete_service(
         tmp_path / "closed-duplicate-player.db",
         tournament_status=TournamentStatus.CLOSED,
+    )
+    service = ResultService(
+        participant_service.session_factory,
+        clock=FixedClock(datetime(2026, 8, 26, 12, tzinfo=ZoneInfo("Europe/Moscow"))),
     )
     try:
         draft = await service.begin_closed_tournament_correction(100, ids["tournament"])
@@ -1533,7 +1552,7 @@ async def test_add_existing_player_to_past_tournament_creates_zero_result(
         tournament_id = tournament.id
         player_id = player.id
 
-    service = ResultService(
+    service = TournamentParticipantService(
         session_factory,
         clock=FixedClock(datetime(2026, 7, 20, 12, tzinfo=ZoneInfo("Europe/Moscow"))),
     )
@@ -1554,6 +1573,97 @@ async def test_add_existing_player_to_past_tournament_creates_zero_result(
     assert stored.knockout_points == Decimal("0.00")
     assert stored.bonus_points == 0
     await engine.dispose()
+
+
+async def test_add_existing_player_to_tournament_rejects_duplicate_and_missing_user(
+    tmp_path: Path,
+) -> None:
+    engine = create_async_engine(f"sqlite+aiosqlite:///{tmp_path / 'participant_add_errors.db'}")
+    async with engine.begin() as connection:
+        await connection.run_sync(Base.metadata.create_all)
+
+    session_factory = async_sessionmaker(engine, expire_on_commit=False)
+    async with session_factory() as session:
+        config = ScoringConfig()
+        session.add(config)
+        await session.flush()
+        await seed_tournament_types_async(session)
+        season = Season(
+            name="Test season",
+            scoring_config_id=config.id,
+            starts_at=date(2026, 7, 1),
+            ends_at=None,
+        )
+        admin = build_player(
+            telegram_id=100,
+            display_name="Admin",
+            status=UserStatus.ACTIVE,
+            role=UserRole.ADMIN,
+        )
+        player = build_player(telegram_id=101, display_name="Past Player")
+        session.add_all([season, admin, player])
+        await session.flush()
+        tournament = Tournament(
+            season_id=season.id,
+            tournament_type_id=tournament_type_id("classic"),
+            date=date(2026, 7, 18),
+            status=TournamentStatus.ACTIVE,
+        )
+        session.add(tournament)
+        await session.flush()
+        session.add(
+            TournamentResult(
+                tournament_id=tournament.id,
+                player_id=player.id,
+                source=TournamentResultSource.WALK_IN_EXISTING,
+                checked_in_by_user_id=admin.id,
+            )
+        )
+        await session.commit()
+        tournament_id = tournament.id
+        player_id = player.id
+
+    service = TournamentParticipantService(
+        session_factory,
+        clock=FixedClock(datetime(2026, 7, 20, 12, tzinfo=ZoneInfo("Europe/Moscow"))),
+    )
+    try:
+        with pytest.raises(ResultPlayerAlreadyAddedError):
+            await service.add_existing_player_to_tournament(100, tournament_id, player_id)
+        with pytest.raises(ResultUserNotFoundError):
+            await service.add_existing_player_to_tournament(100, tournament_id, 999)
+    finally:
+        await engine.dispose()
+
+
+async def test_add_existing_player_to_tournament_enforces_auth_and_editable_scope(
+    tmp_path: Path,
+) -> None:
+    service, _, engine, ids = await _build_open_delete_service(
+        tmp_path / "participant_add_auth.db",
+        tournament_date=date(2026, 8, 27),
+    )
+    try:
+        with pytest.raises(ActiveUserRequiredError):
+            await service.add_existing_player_to_tournament(
+                admin_telegram_id=999,
+                tournament_id=ids["tournament"],
+                user_id=ids["other_only"],
+            )
+        with pytest.raises(AdminAccessDeniedError):
+            await service.add_existing_player_to_tournament(
+                admin_telegram_id=102,
+                tournament_id=ids["tournament"],
+                user_id=ids["other_only"],
+            )
+        with pytest.raises(TournamentResultsEditingUnavailableError):
+            await service.add_existing_player_to_tournament(
+                admin_telegram_id=101,
+                tournament_id=ids["tournament"],
+                user_id=ids["other_only"],
+            )
+    finally:
+        await engine.dispose()
 
 
 async def test_add_new_player_to_past_tournament_rejects_duplicate_name(
@@ -1594,7 +1704,7 @@ async def test_add_new_player_to_past_tournament_rejects_duplicate_name(
         await session.commit()
         tournament_id = tournament.id
 
-    service = ResultService(
+    service = TournamentParticipantService(
         session_factory,
         clock=FixedClock(datetime(2026, 7, 20, 12, tzinfo=ZoneInfo("Europe/Moscow"))),
     )

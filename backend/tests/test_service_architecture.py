@@ -54,3 +54,25 @@ def test_result_service_does_not_own_photo_or_combination_repositories() -> None
         "class TournamentCombinationService"
         in (SERVICES_DIR / "tournament_combination_service.py").read_text()
     )
+
+
+def test_result_service_does_not_own_open_participant_roster_use_cases() -> None:
+    result_service_source = (SERVICES_DIR / "result_service.py").read_text()
+    participant_service_source = (SERVICES_DIR / "tournament_participant_service.py").read_text()
+
+    for method_name in (
+        "search_existing_users_for_tournament",
+        "get_existing_player_add_confirmation",
+        "get_new_player_add_confirmation",
+        "add_existing_player_to_tournament",
+        "add_new_player_to_tournament",
+        "get_open_tournament_player_delete_preview",
+        "list_open_tournament_players_for_delete",
+        "delete_player_from_open_tournament",
+    ):
+        assert method_name not in result_service_source
+        assert method_name in participant_service_source
+
+    assert "app.bot" not in participant_service_source
+    assert "fastapi" not in participant_service_source
+    assert "TournamentCheckInService" not in participant_service_source

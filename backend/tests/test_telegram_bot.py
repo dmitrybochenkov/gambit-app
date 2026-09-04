@@ -6753,9 +6753,16 @@ async def test_superadmin_open_tournament_delete_player_lists_players(
     )
     service = SimpleNamespace(
         get_close_readiness=AsyncMock(return_value=readiness),
+    )
+    participant_service = SimpleNamespace(
         list_open_tournament_players_for_delete=AsyncMock(return_value=players),
     )
     monkeypatch.setattr(superadmin_tournament_handlers, "result_service", service)
+    monkeypatch.setattr(
+        superadmin_tournament_handlers,
+        "tournament_participant_service",
+        participant_service,
+    )
     state = MutableState()
     message = SimpleNamespace(edit_text=AsyncMock())
     callback = SimpleNamespace(
@@ -6775,7 +6782,7 @@ async def test_superadmin_open_tournament_delete_player_lists_players(
     )
 
     service.get_close_readiness.assert_awaited_once()
-    service.list_open_tournament_players_for_delete.assert_awaited_once_with(
+    participant_service.list_open_tournament_players_for_delete.assert_awaited_once_with(
         superadmin_telegram_id=100,
         tournament_id=12,
         page=0,
@@ -6810,10 +6817,14 @@ async def test_superadmin_open_tournament_delete_player_confirmation(
         ),
         combinations_count=1,
     )
-    service = SimpleNamespace(
+    participant_service = SimpleNamespace(
         get_open_tournament_player_delete_preview=AsyncMock(return_value=preview)
     )
-    monkeypatch.setattr(superadmin_tournament_handlers, "result_service", service)
+    monkeypatch.setattr(
+        superadmin_tournament_handlers,
+        "tournament_participant_service",
+        participant_service,
+    )
     state = MutableState()
     message = SimpleNamespace(edit_text=AsyncMock())
     callback = SimpleNamespace(
@@ -6833,7 +6844,7 @@ async def test_superadmin_open_tournament_delete_player_confirmation(
         state,
     )
 
-    service.get_open_tournament_player_delete_preview.assert_awaited_once_with(
+    participant_service.get_open_tournament_player_delete_preview.assert_awaited_once_with(
         superadmin_telegram_id=100,
         tournament_id=12,
         player_id=7,
@@ -6875,10 +6886,15 @@ async def test_superadmin_open_tournament_delete_player_confirm_refreshes_card(
         players_count=6,
     )
     service = SimpleNamespace(
-        delete_player_from_open_tournament=AsyncMock(),
         get_close_readiness=AsyncMock(return_value=refreshed),
     )
+    participant_service = SimpleNamespace(delete_player_from_open_tournament=AsyncMock())
     monkeypatch.setattr(superadmin_tournament_handlers, "result_service", service)
+    monkeypatch.setattr(
+        superadmin_tournament_handlers,
+        "tournament_participant_service",
+        participant_service,
+    )
     state = MutableState()
     message = SimpleNamespace(edit_text=AsyncMock())
     callback = SimpleNamespace(
@@ -6898,7 +6914,7 @@ async def test_superadmin_open_tournament_delete_player_confirm_refreshes_card(
         state,
     )
 
-    service.delete_player_from_open_tournament.assert_awaited_once_with(
+    participant_service.delete_player_from_open_tournament.assert_awaited_once_with(
         superadmin_telegram_id=100,
         tournament_id=12,
         player_id=7,
@@ -6910,10 +6926,14 @@ async def test_superadmin_open_tournament_delete_player_confirm_refreshes_card(
 async def test_superadmin_open_tournament_stale_player_callback_is_alert(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    service = SimpleNamespace(
+    participant_service = SimpleNamespace(
         get_open_tournament_player_delete_preview=AsyncMock(side_effect=ResultUserNotFoundError)
     )
-    monkeypatch.setattr(superadmin_tournament_handlers, "result_service", service)
+    monkeypatch.setattr(
+        superadmin_tournament_handlers,
+        "tournament_participant_service",
+        participant_service,
+    )
     state = MutableState()
     callback = SimpleNamespace(
         from_user=SimpleNamespace(id=100),

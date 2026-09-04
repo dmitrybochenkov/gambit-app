@@ -3,12 +3,10 @@ from dataclasses import replace
 from datetime import date
 from decimal import ROUND_HALF_UP, Decimal
 
-from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from app.common.clock import Clock, club_clock
 from app.config import settings
-from app.db.factories import create_user
 from app.db.models import (
     ScoringConfig,
     Tournament,
@@ -16,15 +14,12 @@ from app.db.models import (
 )
 from app.db.models.enums import (
     KnockoutMode,
-    PlayerRewardType,
     TournamentResultSource,
     TournamentStatus,
     UserRole,
 )
-from app.db.repositories.player_reward_repository import PlayerRewardRepository
 from app.db.repositories.scoring_config_repository import ScoringConfigRepository
 from app.db.repositories.season_repository import SeasonRepository
-from app.db.repositories.tournament_registration_repository import TournamentRegistrationRepository
 from app.db.repositories.tournament_repository import TournamentRepository
 from app.db.repositories.tournament_result_repository import TournamentResultRepository
 from app.db.repositories.tournament_type_repository import TournamentTypeRepository
@@ -41,8 +36,6 @@ from app.services.access_policy import access_policy
 from app.services.dto.results import (
     ClosedTournamentCorrectionDraftView,
     ClosedTournamentCorrectionResultView,
-    OpenTournamentPlayerDeletePreviewView,
-    OpenTournamentPlayerDeleteResultView,
     TournamentCloseReadinessView,
     TournamentResultFieldChangeView,
     TournamentResultPlayerChangeView,
@@ -56,9 +49,8 @@ from app.services.dto.rewards import (
 )
 from app.services.dto.tournaments import TournamentView
 from app.services.dto.users import UserView
-from app.services.pagination import Page, pagination_service
 from app.services.player_reward_service import PlayerRewardService
-from app.services.player_search import rank_player_candidates, validate_display_name
+from app.services.player_search import rank_player_candidates
 from app.services.result_errors import (
     ClosedTournamentCorrectionStaleError,
     FutureTournamentCannotBeClosedError,
@@ -83,7 +75,7 @@ from app.services.result_fields import ResultField
 from app.services.tournament_combination_service import TournamentCombinationService
 from app.services.tournament_photo_service import TournamentPhotoService
 from app.services.tournament_service import tournament_view
-from app.services.user_common import IdentityAlreadyExistsError, required_user_view
+from app.services.user_common import required_user_view
 
 logger = logging.getLogger(__name__)
 
@@ -109,7 +101,6 @@ __all__ = [
     "result_service",
 ]
 
-OPEN_TOURNAMENT_DELETE_PLAYER_PAGE_SIZE = 6
 _USE_PERSISTED_TOURNAMENT_FUND = object()
 
 
@@ -822,95 +813,6 @@ class ResultService:
             tournament = await self._require_closeable_tournament(session, tournament_id)
             return await self._readiness_view(session, tournament)
 
-    async def get_open_tournament_player_delete_preview(
-        self,
-        superadmin_telegram_id: int,
-        tournament_id: int,
-        player_id: int,
-    ) -> OpenTournamentPlayerDeletePreviewView:
-        async with self.session_factory() as session:
-            await access_policy.require_superadmin(session, superadmin_telegram_id)
-            tournament = await self._require_closeable_tournament(session, tournament_id)
-            player = await self._require_tournament_result_player(
-                session,
-                tournament_id=tournament.id,
-                player_id=player_id,
-            )
-            combinations_count = await self._combination_service.count_for_player_in_session(
-                session,
-                tournament_id=tournament.id,
-                player_id=player_id,
-            )
-            return OpenTournamentPlayerDeletePreviewView(
-                tournament=tournament_view(tournament),
-                player=player,
-                combinations_count=combinations_count,
-            )
-
-    async def list_open_tournament_players_for_delete(
-        self,
-        superadmin_telegram_id: int,
-        tournament_id: int,
-        *,
-        page: int,
-        page_size: int = OPEN_TOURNAMENT_DELETE_PLAYER_PAGE_SIZE,
-    ) -> Page[TournamentResultPlayerView]:
-        async with self.session_factory() as session:
-            await access_policy.require_superadmin(session, superadmin_telegram_id)
-            tournament = await self._require_closeable_tournament(session, tournament_id)
-            results = await self._results_view(session, tournament.id)
-            return pagination_service.paginate(results.players, page=page, page_size=page_size)
-
-    async def delete_player_from_open_tournament(
-        self,
-        superadmin_telegram_id: int,
-        tournament_id: int,
-        player_id: int,
-    ) -> OpenTournamentPlayerDeleteResultView:
-        async with self.session_factory() as session:
-            try:
-                await access_policy.require_superadmin(session, superadmin_telegram_id)
-                tournament = await self._require_closeable_tournament(session, tournament_id)
-                player = await self._require_tournament_result_player(
-                    session,
-                    tournament_id=tournament.id,
-                    player_id=player_id,
-                )
-                if await PlayerRewardRepository(session).exists_for_source(
-                    source_tournament_id=tournament.id,
-                    player_id=player_id,
-                    reward_type=PlayerRewardType.PRIZE_STACK_BONUS,
-                ):
-                    raise ResultPlayerRewardConflictError
-
-                deleted_combinations_count = (
-                    await self._combination_service.delete_for_player_in_session(
-                        session,
-                        tournament_id=tournament.id,
-                        player_id=player_id,
-                    )
-                )
-                deleted_registration = await TournamentRegistrationRepository(
-                    session
-                ).delete_by_tournament_and_player(tournament.id, player_id)
-                result = await TournamentResultRepository(session).get_by_tournament_and_player(
-                    tournament.id,
-                    player_id,
-                )
-                if result is None:
-                    raise ResultUserNotFoundError
-                await TournamentResultRepository(session).delete(result)
-                await session.commit()
-                return OpenTournamentPlayerDeleteResultView(
-                    tournament=tournament_view(tournament),
-                    player=player,
-                    deleted_registration=deleted_registration,
-                    deleted_combinations_count=deleted_combinations_count,
-                )
-            except Exception:
-                await session.rollback()
-                raise
-
     async def validate_results(
         self,
         admin_telegram_id: int,
@@ -925,135 +827,6 @@ class ResultService:
             )
             view = await self._results_view(session, tournament.id)
             return self._validate_game_results(view)
-
-    async def search_existing_users_for_tournament(
-        self,
-        admin_telegram_id: int,
-        tournament_id: int,
-        query: str,
-    ) -> list[UserView]:
-        async with self.session_factory() as session:
-            actor = await access_policy.require_admin(session, admin_telegram_id)
-            tournament = await self._require_editable_tournament_for_actor(
-                session,
-                tournament_id,
-                actor_role=actor.role,
-            )
-            existing_player_ids = await TournamentResultRepository(
-                session
-            ).list_checked_in_player_ids(tournament.id)
-            users = [
-                user
-                for user in await UserRepository(session).list_active_users_for_play()
-                if user.id not in existing_player_ids
-            ]
-            return [
-                required_user_view(candidate.user)
-                for candidate in rank_player_candidates(users, query, limit=10)
-            ]
-
-    async def get_existing_player_add_confirmation(
-        self,
-        admin_telegram_id: int,
-        tournament_id: int,
-        user_id: int,
-    ) -> tuple[TournamentView, UserView]:
-        async with self.session_factory() as session:
-            actor = await access_policy.require_admin(session, admin_telegram_id)
-            tournament = await self._require_editable_tournament_for_actor(
-                session,
-                tournament_id,
-                actor_role=actor.role,
-            )
-            user = await UserRepository(session).get_active_by_id(user_id)
-            if user is None:
-                raise ResultUserNotFoundError
-            return tournament_view(tournament), required_user_view(user)
-
-    async def get_new_player_add_confirmation(
-        self,
-        admin_telegram_id: int,
-        tournament_id: int,
-        display_name: str,
-    ) -> tuple[TournamentView, str]:
-        normalized = validate_display_name(display_name)
-        async with self.session_factory() as session:
-            actor = await access_policy.require_admin(session, admin_telegram_id)
-            tournament = await self._require_editable_tournament_for_actor(
-                session,
-                tournament_id,
-                actor_role=actor.role,
-            )
-            existing_names = await UserRepository(session).list_by_display_name_normalized(
-                normalized
-            )
-            if existing_names:
-                raise ResultDuplicateNameError
-            return tournament_view(tournament), display_name
-
-    async def add_existing_player_to_tournament(
-        self,
-        admin_telegram_id: int,
-        tournament_id: int,
-        user_id: int,
-    ) -> TournamentResultsView:
-        async with self.session_factory() as session:
-            admin = await access_policy.require_admin(session, admin_telegram_id)
-            tournament = await self._require_editable_tournament_for_actor(
-                session,
-                tournament_id,
-                actor_role=admin.role,
-            )
-            user = await UserRepository(session).get_active_by_id(user_id)
-            if user is None:
-                raise ResultUserNotFoundError
-            created = await self._create_result(
-                TournamentResultRepository(session),
-                tournament_id=tournament.id,
-                player_id=user.id,
-                source=TournamentResultSource.WALK_IN_EXISTING,
-                checked_in_by_user_id=admin.id,
-            )
-            if not created:
-                raise ResultPlayerAlreadyAddedError
-            await session.commit()
-            return await self._results_view(session, tournament.id)
-
-    async def add_new_player_to_tournament(
-        self,
-        admin_telegram_id: int,
-        tournament_id: int,
-        display_name: str,
-    ) -> TournamentResultsView:
-        normalized = validate_display_name(display_name)
-        async with self.session_factory() as session:
-            admin = await access_policy.require_admin(session, admin_telegram_id)
-            tournament = await self._require_editable_tournament_for_actor(
-                session,
-                tournament_id,
-                actor_role=admin.role,
-            )
-            existing_names = await UserRepository(session).list_by_display_name_normalized(
-                normalized
-            )
-            if existing_names:
-                raise ResultDuplicateNameError
-            user = create_user(display_name=display_name)
-            UserRepository(session).add(user)
-            try:
-                await session.flush()
-                await self._create_result(
-                    TournamentResultRepository(session),
-                    tournament_id=tournament.id,
-                    player_id=user.id,
-                    source=TournamentResultSource.WALK_IN_NEW,
-                    checked_in_by_user_id=admin.id,
-                )
-                await session.commit()
-            except IntegrityError as exc:
-                await session.rollback()
-                raise IdentityAlreadyExistsError("display_name") from exc
-            return await self._results_view(session, tournament.id)
 
     async def _require_active_tournament(
         self,

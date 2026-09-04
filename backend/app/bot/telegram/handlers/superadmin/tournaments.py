@@ -21,6 +21,7 @@ from app.services.result_service import (
     ResultUserNotFoundError,
     result_service,
 )
+from app.services.tournament_participant_service import tournament_participant_service
 from app.services.tournament_planning_service import (
     CalendarDefaultTournamentTypeNotFoundError,
     CalendarNoUnapprovedTournamentsError,
@@ -470,7 +471,7 @@ async def select_open_tournament_action(
             callback_data.action
             == superadmin_tournaments_kb.SuperadminOpenTournamentAction.DELETE_PLAYER_CONFIRM
         ):
-            await result_service.delete_player_from_open_tournament(
+            await tournament_participant_service.delete_player_from_open_tournament(
                 superadmin_telegram_id=callback.from_user.id,
                 tournament_id=callback_data.tournament_id,
                 player_id=callback_data.player_id,
@@ -715,7 +716,7 @@ async def _edit_open_tournament_delete_player_list(
         superadmin_telegram_id=callback.from_user.id,
         tournament_id=tournament_id,
     )
-    players = await result_service.list_open_tournament_players_for_delete(
+    players = await tournament_participant_service.list_open_tournament_players_for_delete(
         superadmin_telegram_id=callback.from_user.id,
         tournament_id=tournament_id,
         page=0,
@@ -741,7 +742,7 @@ async def _edit_open_tournament_delete_player_confirmation(
     player_id: int,
     page: int,
 ) -> None:
-    preview = await result_service.get_open_tournament_player_delete_preview(
+    preview = await tournament_participant_service.get_open_tournament_player_delete_preview(
         superadmin_telegram_id=callback.from_user.id,
         tournament_id=tournament_id,
         player_id=player_id,
