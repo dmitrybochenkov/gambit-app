@@ -170,6 +170,7 @@ async def test_user_rename_confirmation_updates_name_only_and_keeps_relations(
             )
             tournament = Tournament(
                 season_id=1,
+                scoring_config_id=1,
                 tournament_type_id=1,
                 date=date(2026, 7, 1),
                 status=TournamentStatus.CLOSED,

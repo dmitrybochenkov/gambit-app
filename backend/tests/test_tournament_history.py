@@ -87,6 +87,7 @@ async def test_history_lists_only_periods_and_tournaments_with_results(
         await session.flush()
         july_tournament = Tournament(
             season_id=season.id,
+            scoring_config_id=season.scoring_config_id,
             tournament_type_id=tournament_type_id("classic"),
             date=date(2026, 7, 17),
             tournament_fund=1000,
@@ -94,6 +95,7 @@ async def test_history_lists_only_periods_and_tournaments_with_results(
         )
         august_tournament = Tournament(
             season_id=season.id,
+            scoring_config_id=season.scoring_config_id,
             tournament_type_id=tournament_type_id("bounty"),
             date=date(2026, 8, 3),
             tournament_fund=1000,
@@ -101,12 +103,14 @@ async def test_history_lists_only_periods_and_tournaments_with_results(
         )
         empty_tournament = Tournament(
             season_id=season.id,
+            scoring_config_id=season.scoring_config_id,
             tournament_type_id=tournament_type_id("double_double"),
             date=date(2024, 1, 10),
             status=TournamentStatus.ACTIVE,
         )
         active_with_result_tournament = Tournament(
             season_id=season.id,
+            scoring_config_id=season.scoring_config_id,
             tournament_type_id=tournament_type_id("bounty"),
             date=date(2026, 9, 1),
             status=TournamentStatus.ACTIVE,
@@ -331,6 +335,7 @@ async def test_history_result_sorting_and_formatter(tmp_path: Path) -> None:
         await session.flush()
         tournament = Tournament(
             season_id=season.id,
+            scoring_config_id=season.scoring_config_id,
             tournament_type_id=tournament_type_id("classic"),
             date=date(2026, 7, 17),
             tournament_fund=1000,
@@ -449,6 +454,7 @@ async def test_history_chronological_order_and_legacy_display_names(tmp_path: Pa
         await session.flush()
         first = Tournament(
             season_id=season.id,
+            scoring_config_id=season.scoring_config_id,
             tournament_type_id=legacy_type.id,
             date=date(2025, 12, 30),
             status=TournamentStatus.CLOSED,
@@ -456,6 +462,7 @@ async def test_history_chronological_order_and_legacy_display_names(tmp_path: Pa
         )
         second = Tournament(
             season_id=season.id,
+            scoring_config_id=season.scoring_config_id,
             tournament_type_id=legacy_type.id,
             date=date(2026, 1, 2),
             status=TournamentStatus.CLOSED,
@@ -463,6 +470,7 @@ async def test_history_chronological_order_and_legacy_display_names(tmp_path: Pa
         )
         third = Tournament(
             season_id=season.id,
+            scoring_config_id=season.scoring_config_id,
             tournament_type_id=classic_type.id,
             date=date(2026, 1, 5),
             status=TournamentStatus.CLOSED,
@@ -540,6 +548,7 @@ async def test_history_tournament_list_uses_short_names_for_real_types(
         tournaments = [
             Tournament(
                 season_id=season.id,
+                scoring_config_id=season.scoring_config_id,
                 tournament_type_id=tournament_type_id(code),
                 date=date(2026, 1, day),
                 status=TournamentStatus.CLOSED,

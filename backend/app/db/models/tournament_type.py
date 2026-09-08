@@ -13,11 +13,7 @@ from sqlalchemy import (
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.base import Base
-from app.db.models.enums import (
-    KnockoutMode,
-    TournamentTypeStatus,
-    database_enum,
-)
+from app.db.models.enums import KnockoutMode, database_enum
 from app.db.models.mixins import TimestampMixin
 
 
@@ -34,19 +30,6 @@ class TournamentType(TimestampMixin, Base):
         default=True,
         nullable=False,
         index=True,
-    )
-    status: Mapped[TournamentTypeStatus] = mapped_column(
-        database_enum(TournamentTypeStatus, "tournament_type_status"),
-        default=TournamentTypeStatus.ACTIVE,
-        nullable=False,
-        index=True,
-    )
-
-    __table_args__ = (
-        CheckConstraint(
-            "status IN ('active', 'archived')",
-            name="tournament_types_status_values",
-        ),
     )
 
 
@@ -88,7 +71,7 @@ class TournamentTypeRule(TimestampMixin, Base):
             name="prize_place_multiplier_positive",
         ),
         CheckConstraint(
-            "knockout_mode IN ('none', 'small', 'small_big')",
+            "knockout_mode IN ('none', 'small', 'small_big', 'main_ko')",
             name="tournament_type_rules_knockout_mode_values",
         ),
         UniqueConstraint(

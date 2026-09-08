@@ -92,6 +92,7 @@ async def test_close_tournament_issues_prize_stack_bonuses_once(
         await session.flush()
         tournament = Tournament(
             season_id=season.id,
+            scoring_config_id=season.scoring_config_id,
             tournament_type_id=tournament_type_id("classic"),
             date=date(2026, 8, 22),
             status=TournamentStatus.ACTIVE,
@@ -204,6 +205,7 @@ async def test_closed_tournament_correction_reconciles_rewards_and_preserves_val
         await session.flush()
         tournament = Tournament(
             season_id=season.id,
+            scoring_config_id=season.scoring_config_id,
             tournament_type_id=tournament_type_id("classic"),
             date=date(2026, 8, 22),
             status=TournamentStatus.ACTIVE,
@@ -349,6 +351,7 @@ async def test_closed_tournament_correction_warns_about_redeemed_reward(
         ]
         redemption_tournament = Tournament(
             season_id=1,
+            scoring_config_id=1,
             tournament_type_id=tournament_type_id("classic"),
             date=date(2026, 8, 23),
             status=TournamentStatus.ACTIVE,
@@ -358,6 +361,7 @@ async def test_closed_tournament_correction_warns_about_redeemed_reward(
         redemption_tournament.season_id = season.id
         tournament = Tournament(
             season_id=season.id,
+            scoring_config_id=season.scoring_config_id,
             tournament_type_id=tournament_type_id("classic"),
             date=date(2026, 8, 22),
             status=TournamentStatus.ACTIVE,
@@ -459,6 +463,7 @@ async def test_closed_tournament_correction_requires_superadmin(tmp_path: Path) 
         await session.flush()
         tournament = Tournament(
             season_id=season.id,
+            scoring_config_id=season.scoring_config_id,
             tournament_type_id=tournament_type_id("classic"),
             date=date(2026, 8, 22),
             status=TournamentStatus.CLOSED,
@@ -518,6 +523,7 @@ async def test_closed_tournament_correction_replaces_player_and_preserves_result
         await session.flush()
         tournament = Tournament(
             season_id=season.id,
+            scoring_config_id=season.scoring_config_id,
             tournament_type_id=tournament_type_id("classic"),
             date=date(2026, 8, 22),
             status=TournamentStatus.CLOSED,
@@ -625,6 +631,7 @@ async def test_closed_tournament_correction_player_replacement_moves_top_reward(
         await session.flush()
         tournament = Tournament(
             season_id=season.id,
+            scoring_config_id=season.scoring_config_id,
             tournament_type_id=tournament_type_id("classic"),
             date=date(2026, 8, 22),
             status=TournamentStatus.ACTIVE,
@@ -736,6 +743,7 @@ async def test_closed_tournament_correction_restores_original_lifecycle_without_
         await session.flush()
         tournament = Tournament(
             season_id=season.id,
+            scoring_config_id=season.scoring_config_id,
             tournament_type_id=tournament_type_id("classic"),
             date=date(2026, 8, 10),
             status=TournamentStatus.CLOSED,
@@ -813,6 +821,7 @@ async def test_reward_expiration_is_inclusive_and_redemption_is_one_per_tourname
         await session.flush()
         first_source = Tournament(
             season_id=season.id,
+            scoring_config_id=season.scoring_config_id,
             tournament_type_id=tournament_type_id("classic"),
             date=date(2026, 8, 19),
             status=TournamentStatus.CLOSED,
@@ -820,6 +829,7 @@ async def test_reward_expiration_is_inclusive_and_redemption_is_one_per_tourname
         )
         second_source = Tournament(
             season_id=season.id,
+            scoring_config_id=season.scoring_config_id,
             tournament_type_id=tournament_type_id("classic"),
             date=date(2026, 8, 20),
             status=TournamentStatus.CLOSED,
@@ -827,12 +837,14 @@ async def test_reward_expiration_is_inclusive_and_redemption_is_one_per_tourname
         )
         today = Tournament(
             season_id=season.id,
+            scoring_config_id=season.scoring_config_id,
             tournament_type_id=tournament_type_id("classic"),
             date=date(2026, 8, 26),
             status=TournamentStatus.ACTIVE,
         )
         tomorrow = Tournament(
             season_id=season.id,
+            scoring_config_id=season.scoring_config_id,
             tournament_type_id=tournament_type_id("classic"),
             date=date(2026, 8, 27),
             status=TournamentStatus.ACTIVE,
@@ -933,6 +945,7 @@ async def test_check_in_reward_decision_precedes_atomic_check_in(tmp_path: Path)
         await session.flush()
         source = Tournament(
             season_id=season.id,
+            scoring_config_id=season.scoring_config_id,
             tournament_type_id=tournament_type_id("classic"),
             date=date(2026, 8, 19),
             status=TournamentStatus.CLOSED,
@@ -940,6 +953,7 @@ async def test_check_in_reward_decision_precedes_atomic_check_in(tmp_path: Path)
         )
         today = Tournament(
             season_id=season.id,
+            scoring_config_id=season.scoring_config_id,
             tournament_type_id=tournament_type_id("classic"),
             date=date(2026, 8, 26),
             status=TournamentStatus.ACTIVE,
@@ -1025,6 +1039,7 @@ async def test_check_in_reward_failure_creates_no_result(tmp_path: Path) -> None
         await session.flush()
         today = Tournament(
             season_id=season.id,
+            scoring_config_id=season.scoring_config_id,
             tournament_type_id=tournament_type_id("classic"),
             date=date(2026, 8, 26),
             status=TournamentStatus.ACTIVE,
@@ -1145,6 +1160,7 @@ async def test_expiration_reminder_due_window_grouping_and_sent_mark(
         sources = [
             Tournament(
                 season_id=season.id,
+                scoring_config_id=season.scoring_config_id,
                 tournament_type_id=tournament_type_id("classic"),
                 date=date(2026, 8, 1 + index),
                 status=TournamentStatus.CLOSED,

@@ -50,11 +50,6 @@ class PlayerRewardType(StrEnum):
     PRIZE_STACK_BONUS = "prize_stack_bonus"
 
 
-class TournamentTypeStatus(StrEnum):
-    ACTIVE = "active"
-    ARCHIVED = "archived"
-
-
 class RegistrationRequestType(StrEnum):
     NEW_PLAYER = "new_player"
     LINK_EXISTING_PLAYER = "link_existing_player"
@@ -70,6 +65,7 @@ class KnockoutMode(StrEnum):
     NONE = "none"
     SMALL = "small"
     SMALL_BIG = "small_big"
+    MAIN_KO = "main_ko"
 
 
 def database_enum[EnumType: StrEnum](

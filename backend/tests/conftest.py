@@ -10,7 +10,7 @@ from app.db.models import (
     User,
     WeeklyTournamentTemplate,
 )
-from app.db.models.enums import KnockoutMode, TournamentTypeStatus
+from app.db.models.enums import KnockoutMode
 
 TOURNAMENT_TYPE_IDS = {
     "bounty": 1,
@@ -24,6 +24,10 @@ TOURNAMENT_TYPE_IDS = {
     "freezeout_v2": 10,
     "deep_stack": 11,
     "white_party": 12,
+    "bounty_v3": 13,
+    "classic_v3": 14,
+    "deep_stack_v2": 15,
+    "main_ko": 16,
 }
 
 TOURNAMENT_TYPE_NAMES = {
@@ -38,6 +42,10 @@ TOURNAMENT_TYPE_NAMES = {
     "freezeout_v2": "Freezeout",
     "deep_stack": "Deep Stack",
     "white_party": "White Party Tournament",
+    "bounty_v3": "Bounty",
+    "classic_v3": "Classic",
+    "deep_stack_v2": "Deep Stack",
+    "main_ko": "MAIN KO",
 }
 
 TOURNAMENT_TYPE_SHORT_NAMES = {
@@ -52,6 +60,10 @@ TOURNAMENT_TYPE_SHORT_NAMES = {
     "freezeout_v2": "Freezeout",
     "deep_stack": "Deep Stack",
     "white_party": "White Party",
+    "bounty_v3": "Bounty",
+    "classic_v3": "Classic",
+    "deep_stack_v2": "Deep Stack",
+    "main_ko": "MAIN KO",
 }
 TOURNAMENT_TYPE_DESCRIPTIONS = {
     "bounty": (
@@ -80,15 +92,25 @@ TOURNAMENT_TYPE_DESCRIPTIONS = {
     "white_party": (
         "Приди в белом — получи фишки к стеку.\nПриди в тёмных очках — получи фишки к стеку."
     ),
+    "bounty_v3": (
+        "Динамические нокауты: до финального стола малые КО, на финальном столе большие КО."
+    ),
+    "classic_v3": (
+        "Классический турнир. Комбо-бонусы выплачиваются фишками "
+        "во время игры и не влияют на рейтинг."
+    ),
+    "deep_stack_v2": "Гарантированный фонд турнира — 2500 очков.",
+    "main_ko": "MAIN KO: увеличенные нокауты до финального стола и на финальном столе.",
 }
 CREATABLE_TOURNAMENT_TYPE_CODES = {
-    "bounty_v2",
-    "classic_v2",
     "freezeout_v2",
-    "deep_stack",
+    "bounty_v3",
+    "classic_v3",
+    "deep_stack_v2",
     "white_party",
     "mystery_bounty",
     "boss_bounty",
+    "main_ko",
 }
 STANDARD_REBUYS = [
     (1, 600, 30_000),
@@ -123,6 +145,10 @@ TOURNAMENT_TYPE_RULES = {
     "freezeout_v2": ("1.00", "1.50", "[1,2]", KnockoutMode.NONE, False),
     "deep_stack": ("1.00", "1.00", None, KnockoutMode.NONE, False),
     "white_party": ("1.00", "1.00", None, KnockoutMode.NONE, False),
+    "bounty_v3": ("1.00", "1.00", None, KnockoutMode.SMALL_BIG, False),
+    "classic_v3": ("1.00", "1.00", None, KnockoutMode.NONE, False),
+    "deep_stack_v2": ("1.00", "1.00", None, KnockoutMode.NONE, False),
+    "main_ko": ("1.00", "1.00", None, KnockoutMode.MAIN_KO, False),
 }
 
 
@@ -151,7 +177,6 @@ def build_tournament_types() -> list[TournamentType]:
             name=name,
             short_name=TOURNAMENT_TYPE_SHORT_NAMES[code],
             description=TOURNAMENT_TYPE_DESCRIPTIONS[code],
-            status=TournamentTypeStatus.ACTIVE,
             is_creatable=code in CREATABLE_TOURNAMENT_TYPE_CODES,
         )
         for code, name in TOURNAMENT_TYPE_NAMES.items()
@@ -245,6 +270,34 @@ def build_tournament_economy_configs() -> list[TournamentEconomyConfig]:
                 addon_fee=1000,
                 addon_stack=150_000,
             ),
+            TournamentEconomyConfig(
+                tournament_type_id=tournament_type_id("bounty_v3"),
+                entry_fee=600,
+                entry_stack=20_000,
+                addon_fee=800,
+                addon_stack=125_000,
+            ),
+            TournamentEconomyConfig(
+                tournament_type_id=tournament_type_id("classic_v3"),
+                entry_fee=0,
+                entry_stack=15_000,
+                addon_fee=800,
+                addon_stack=125_000,
+            ),
+            TournamentEconomyConfig(
+                tournament_type_id=tournament_type_id("deep_stack_v2"),
+                entry_fee=800,
+                entry_stack=40_000,
+                addon_fee=800,
+                addon_stack=150_000,
+            ),
+            TournamentEconomyConfig(
+                tournament_type_id=tournament_type_id("main_ko"),
+                entry_fee=800,
+                entry_stack=30_000,
+                addon_fee=1000,
+                addon_stack=150_000,
+            ),
         ]
     )
     return configs
@@ -271,6 +324,22 @@ def build_tournament_rebuy_configs() -> list[TournamentRebuyConfig]:
                 stack=stack,
             )
             for rebuy_order, fee, stack in STANDARD_REBUYS
+        )
+    for code in {"bounty_v3", "classic_v3"}:
+        configs.extend(
+            TournamentRebuyConfig(
+                tournament_type_id=tournament_type_id(code),
+                rebuy_order=rebuy_order,
+                fee=fee,
+                stack=stack,
+            )
+            for rebuy_order, fee, stack in [
+                (1, 800, 30_000),
+                (2, 800, 50_000),
+                (3, 800, 60_000),
+                (4, 1000, 80_000),
+                (5, 1000, 80_000),
+            ]
         )
     configs.append(
         TournamentRebuyConfig(
@@ -305,6 +374,33 @@ def build_tournament_rebuy_configs() -> list[TournamentRebuyConfig]:
             stack=stack,
         )
         for rebuy_order, fee, stack in DOUBLE_DOUBLE_REBUYS
+    )
+    configs.extend(
+        TournamentRebuyConfig(
+            tournament_type_id=tournament_type_id("deep_stack_v2"),
+            rebuy_order=rebuy_order,
+            fee=fee,
+            stack=stack,
+        )
+        for rebuy_order, fee, stack in [
+            (1, 800, 50_000),
+            (2, 800, 70_000),
+            (3, 1000, 90_000),
+            (4, 1000, 90_000),
+            (5, 1000, 100_000),
+        ]
+    )
+    configs.extend(
+        TournamentRebuyConfig(
+            tournament_type_id=tournament_type_id("main_ko"),
+            rebuy_order=rebuy_order,
+            fee=fee,
+            stack=stack,
+        )
+        for rebuy_order, fee, stack in [
+            (1, 1000, 40_000),
+            (2, 1000, 60_000),
+        ]
     )
     configs.extend(
         TournamentRebuyConfig(

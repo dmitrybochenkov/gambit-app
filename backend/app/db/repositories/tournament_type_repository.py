@@ -9,7 +9,6 @@ from app.db.models import (
     TournamentType,
     TournamentTypeRule,
 )
-from app.db.models.enums import TournamentTypeStatus
 
 
 @dataclass(frozen=True)
@@ -26,6 +25,12 @@ class TournamentTypeRepository:
 
     async def get_by_id(self, tournament_type_id: int) -> TournamentType | None:
         return await self.session.get(TournamentType, tournament_type_id)
+
+    async def get_by_code(self, code: str) -> TournamentType | None:
+        result = await self.session.execute(
+            select(TournamentType).where(TournamentType.code == code)
+        )
+        return result.scalar_one_or_none()
 
     async def get_rule(self, tournament_type_id: int) -> TournamentTypeRule | None:
         result = await self.session.execute(
@@ -48,7 +53,6 @@ class TournamentTypeRepository:
         result = await self.session.execute(
             select(TournamentType)
             .where(
-                TournamentType.status == TournamentTypeStatus.ACTIVE,
                 TournamentType.code != "legacy_unknown",
             )
             .order_by(TournamentType.id)
@@ -59,7 +63,6 @@ class TournamentTypeRepository:
         result = await self.session.execute(
             select(TournamentType)
             .where(
-                TournamentType.status == TournamentTypeStatus.ACTIVE,
                 TournamentType.is_creatable.is_(True),
                 TournamentType.code != "legacy_unknown",
             )
@@ -77,11 +80,23 @@ class TournamentTypeRepository:
         if config is None:
             return None
         if (
-            config.tournament_type.status != TournamentTypeStatus.ACTIVE
-            or not config.tournament_type.is_creatable
+            not config.tournament_type.is_creatable
             or config.tournament_type.code == legacy_unknown_code
             or config.economy is None
         ):
+            return None
+        return config
+
+    async def get_real_config(
+        self,
+        tournament_type_id: int,
+        *,
+        legacy_unknown_code: str,
+    ) -> TournamentTypeConfigRecord | None:
+        config = await self.get_config(tournament_type_id)
+        if config is None:
+            return None
+        if config.tournament_type.code == legacy_unknown_code or config.economy is None:
             return None
         return config
 

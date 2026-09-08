@@ -64,6 +64,7 @@ async def test_schedule_publication_uses_detail_dto_and_hash_changes_with_econom
         await session.flush()
         tournament = Tournament(
             season_id=season.id,
+            scoring_config_id=season.scoring_config_id,
             tournament_type_id=tournament_type_id("classic"),
             date=date(2026, 8, 26),
             status=TournamentStatus.ACTIVE,
@@ -134,6 +135,7 @@ async def test_schedule_publication_does_not_modify_registration_open(
         await session.flush()
         tournament = Tournament(
             season_id=season.id,
+            scoring_config_id=season.scoring_config_id,
             tournament_type_id=tournament_type_id("classic"),
             date=date(2026, 8, 26),
             status=TournamentStatus.ACTIVE,
@@ -213,6 +215,7 @@ async def test_mystery_bounty_result_publication_includes_top_knockouters(
         await session.flush()
         tournament = Tournament(
             season_id=season.id,
+            scoring_config_id=season.scoring_config_id,
             tournament_type_id=tournament_type_id("mystery_bounty"),
             date=date(2026, 8, 22),
             status=TournamentStatus.CLOSED,

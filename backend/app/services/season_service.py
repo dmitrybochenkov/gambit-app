@@ -485,6 +485,8 @@ def scoring_config_view(config: ScoringConfig) -> ScoringConfigView:
         place_5_coefficient=config.place_5_coefficient,
         knockout_small_points=config.knockout_small_points,
         knockout_big_points=config.knockout_big_points,
+        knockout_main_points=config.knockout_main_points,
+        knockout_main_final_points=config.knockout_main_final_points,
     )
 
 

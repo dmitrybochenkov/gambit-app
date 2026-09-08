@@ -62,6 +62,8 @@ class ScoringConfigView:
     place_5_coefficient: Decimal
     knockout_small_points: int
     knockout_big_points: int
+    knockout_main_points: int | None
+    knockout_main_final_points: int | None
 
 
 @dataclass(frozen=True)

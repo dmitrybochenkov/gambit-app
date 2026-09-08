@@ -10,12 +10,16 @@ from app.domain.prize_multiplier_places import (
 CALENDAR_TYPE_ABBREVIATIONS = {
     "bounty": "B",
     "bounty_v2": "B2",
+    "bounty_v3": "B3",
     "classic": "C",
     "classic_v2": "C2",
+    "classic_v3": "C3",
     "freezeout": "F",
     "freezeout_v2": "F2",
     "double_double": "DD",
     "deep_stack": "DS",
+    "deep_stack_v2": "DS2",
+    "main_ko": "MK",
     "mystery_bounty": "MB",
     "boss_bounty": "BB",
     "white_party": "WP",
@@ -368,6 +372,6 @@ def _prize_places_label(raw_places: str | None) -> str | None:
 def _knockout_mode_label(knockout_mode: str) -> str:
     if knockout_mode == "small":
         return "КО"
-    if knockout_mode == "small_big":
+    if knockout_mode in {"small_big", "main_ko"}:
         return "КО и БКО"
     return knockout_mode

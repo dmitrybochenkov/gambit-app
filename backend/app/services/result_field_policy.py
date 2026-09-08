@@ -12,7 +12,7 @@ def is_result_field_allowed(
     if field == ResultField.BONUS:
         return supports_bonus_points
     if field == ResultField.KNOCKOUTS:
-        return knockout_mode in {"small", "small_big"}
+        return knockout_mode in {"small", "small_big", "main_ko"}
     if field == ResultField.BIG_KNOCKOUTS:
-        return knockout_mode == "small_big"
+        return knockout_mode in {"small_big", "main_ko"}
     return False

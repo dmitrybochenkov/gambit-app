@@ -19,7 +19,7 @@ from app.db.models import (
     User,
     WeeklyTournamentTemplate,
 )
-from app.db.models.enums import TournamentStatus, TournamentTypeStatus
+from app.db.models.enums import TournamentStatus
 from app.db.repositories.result_scopes import closed_tournament_filter
 
 
@@ -344,7 +344,7 @@ class TournamentRepository:
         result = await self.session.execute(
             select(TournamentType).where(
                 TournamentType.code == code,
-                TournamentType.status == TournamentTypeStatus.ACTIVE,
+                TournamentType.is_creatable.is_(True),
             )
         )
         return result.scalar_one_or_none()
@@ -357,7 +357,6 @@ class TournamentRepository:
             .where(
                 WeeklyTournamentTemplate.tournament_type.has(
                     and_(
-                        TournamentType.status == TournamentTypeStatus.ACTIVE,
                         TournamentType.code != "legacy_unknown",
                     )
                 )

@@ -247,6 +247,7 @@ async def _build_photo_collection_service(
         await session.flush()
         tournament = Tournament(
             season_id=season.id,
+            scoring_config_id=season.scoring_config_id,
             tournament_type_id=tournament_type_id("classic"),
             date=date(2026, 7, 9),
             status=TournamentStatus.ACTIVE,
@@ -331,6 +332,8 @@ def scoring_config_view(config_id: int = 1) -> ScoringConfigView:
         place_5_coefficient=Decimal("0.05"),
         knockout_small_points=15,
         knockout_big_points=60,
+        knockout_main_points=None,
+        knockout_main_final_points=None,
     )
 
 
@@ -2217,6 +2220,7 @@ async def test_admin_check_in_registered_user_flow_creates_result(
         await session.flush()
         tournament = Tournament(
             season_id=season.id,
+            scoring_config_id=season.scoring_config_id,
             tournament_type_id=tournament_type_id("classic"),
             date=date(2026, 7, 9),
             status=TournamentStatus.ACTIVE,
@@ -2898,6 +2902,7 @@ async def test_admin_check_in_registered_user_dispatcher_flow_creates_result(
         await session.flush()
         tournament = Tournament(
             season_id=season.id,
+            scoring_config_id=season.scoring_config_id,
             tournament_type_id=tournament_type_id("classic"),
             date=date(2026, 7, 9),
             status=TournamentStatus.ACTIVE,
@@ -3048,6 +3053,7 @@ async def test_admin_result_dispatcher_flow_reassigns_occupied_place(
         await session.flush()
         tournament = Tournament(
             season_id=season.id,
+            scoring_config_id=season.scoring_config_id,
             tournament_type_id=tournament_type_id("classic"),
             date=date(2026, 7, 9),
             status=TournamentStatus.ACTIVE,
@@ -3229,6 +3235,7 @@ async def test_superadmin_close_tournament_dispatcher_sends_short_success_after_
         await session.flush()
         tournament = Tournament(
             season_id=season.id,
+            scoring_config_id=season.scoring_config_id,
             tournament_type_id=tournament_type_id("classic"),
             date=date(2026, 7, 9),
             status=TournamentStatus.ACTIVE,

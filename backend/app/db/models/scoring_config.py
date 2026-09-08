@@ -37,6 +37,8 @@ class ScoringConfig(TimestampMixin, Base):
         default=TournamentScoring.BIG_KNOCKOUT_POINTS,
         nullable=False,
     )
+    knockout_main_points: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    knockout_main_final_points: Mapped[int | None] = mapped_column(Integer, nullable=True)
 
     __table_args__ = (
         CheckConstraint(
@@ -60,18 +62,19 @@ class ScoringConfig(TimestampMixin, Base):
             name="place_5_coefficient_range",
         ),
         CheckConstraint(
-            """
-            place_1_coefficient + place_2_coefficient + place_3_coefficient
-            + place_4_coefficient + place_5_coefficient = 1
-            """,
-            name="place_coefficients_sum",
-        ),
-        CheckConstraint(
             "knockout_small_points >= 0",
             name="knockout_small_points_nonnegative",
         ),
         CheckConstraint(
             "knockout_big_points >= 0",
             name="knockout_big_points_nonnegative",
+        ),
+        CheckConstraint(
+            "knockout_main_points IS NULL OR knockout_main_points >= 0",
+            name="knockout_main_points_nonnegative",
+        ),
+        CheckConstraint(
+            "knockout_main_final_points IS NULL OR knockout_main_final_points >= 0",
+            name="knockout_main_final_points_nonnegative",
         ),
     )

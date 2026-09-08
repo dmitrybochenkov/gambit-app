@@ -131,21 +131,11 @@ def test_user_gender_is_nullable_and_accepts_known_values(session: Session) -> N
             "weird",
             """
             INSERT INTO tournaments (
-                season_id, tournament_type_id, date, status, tournament_fund, created_at, updated_at
-            )
-            VALUES (1, 1, '2026-07-20', :invalid_value, NULL, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
-            """,
-        ),
-        (
-            "tournament_types",
-            "status",
-            "weird",
-            """
-            INSERT INTO tournament_types (
-                code, name, short_name, is_creatable, status, created_at, updated_at
+                season_id, scoring_config_id, tournament_type_id, date, status, tournament_fund,
+                created_at, updated_at
             )
             VALUES (
-                'invalid_status', 'Invalid', 'Invalid', 0, :invalid_value,
+                1, 1, 1, '2026-07-20', :invalid_value, NULL,
                 CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
             )
             """,
@@ -234,11 +224,11 @@ def test_persisted_enums_reject_unknown_values(
             text(
                 """
                 INSERT OR IGNORE INTO tournament_types (
-                    id, code, name, short_name, is_creatable, status, created_at, updated_at
+                    id, code, name, short_name, is_creatable, created_at, updated_at
                 )
                 VALUES (
-                    1, 'enum_type', 'Enum type', 'Enum type', 0, 'active',
-                    CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
+                    1, 'enum_type', 'Enum type', 'Enum type', 0, CURRENT_TIMESTAMP,
+                    CURRENT_TIMESTAMP
                 )
                 """
             )
@@ -249,11 +239,11 @@ def test_persisted_enums_reject_unknown_values(
                 text(
                     """
                     INSERT INTO tournaments (
-                        id, season_id, tournament_type_id, date, status, tournament_fund,
-                        created_at, updated_at
+                        id, season_id, scoring_config_id, tournament_type_id, date, status,
+                        tournament_fund, created_at, updated_at
                     )
                     VALUES (
-                        1, 1, 1, '2026-07-20', 'active', NULL,
+                        1, 1, 1, 1, '2026-07-20', 'active', NULL,
                         CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
                     )
                     """
@@ -277,10 +267,10 @@ def test_persisted_enums_reject_unknown_values(
             text(
                 """
                 INSERT OR IGNORE INTO tournament_types (
-                    id, code, name, short_name, is_creatable, status, created_at, updated_at
+                    id, code, name, short_name, is_creatable, created_at, updated_at
                 )
                 VALUES (
-                    1, 'enum_rule_type', 'Enum rule type', 'Enum rule type', 0, 'active',
+                    1, 'enum_rule_type', 'Enum rule type', 'Enum rule type', 0,
                     CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
                 )
                 """
@@ -355,6 +345,7 @@ def test_imported_closed_tournament_allows_null_fund(session: Session) -> None:
     session.add(
         Tournament(
             season_id=season.id,
+            scoring_config_id=season.scoring_config_id,
             tournament_type_id=tournament_type_id("bounty"),
             date=date(2026, 7, 4),
             tournament_fund=None,
@@ -383,12 +374,14 @@ def test_tournament_date_must_be_unique(session: Session) -> None:
         [
             Tournament(
                 season_id=season.id,
+                scoring_config_id=season.scoring_config_id,
                 tournament_type_id=tournament_type_id("bounty"),
                 date=date(2026, 7, 4),
                 status=TournamentStatus.ACTIVE,
             ),
             Tournament(
                 season_id=season.id,
+                scoring_config_id=season.scoring_config_id,
                 tournament_type_id=tournament_type_id("classic"),
                 date=date(2026, 7, 4),
                 status=TournamentStatus.ACTIVE,
@@ -400,19 +393,20 @@ def test_tournament_date_must_be_unique(session: Session) -> None:
         session.commit()
 
 
-def test_scoring_coefficients_must_total_one(session: Session) -> None:
+def test_scoring_coefficients_do_not_need_to_total_one(session: Session) -> None:
     session.add(
         ScoringConfig(
-            place_1_coefficient=Decimal("0.40"),
-            place_2_coefficient=Decimal("0.25"),
-            place_3_coefficient=Decimal("0.15"),
-            place_4_coefficient=Decimal("0.10"),
-            place_5_coefficient=Decimal("0.05"),
+            place_1_coefficient=Decimal("0.45"),
+            place_2_coefficient=Decimal("0.30"),
+            place_3_coefficient=Decimal("0.20"),
+            place_4_coefficient=Decimal("0.15"),
+            place_5_coefficient=Decimal("0.10"),
+            knockout_main_points=30,
+            knockout_main_final_points=100,
         )
     )
 
-    with pytest.raises(IntegrityError):
-        session.commit()
+    session.commit()
 
 
 def test_season_may_have_valid_end_date(session: Session) -> None:
@@ -518,6 +512,7 @@ def test_tournament_result_bonus_points_must_be_nonnegative(
     session.flush()
     tournament = Tournament(
         season_id=season.id,
+        scoring_config_id=season.scoring_config_id,
         tournament_type_id=tournament_type_id("bounty"),
         date=date(2026, 7, 4),
         status=TournamentStatus.ACTIVE,
@@ -595,6 +590,7 @@ def _seed_result_context(session: Session, tournament_date: date = date(2026, 7,
     session.flush()
     tournament = Tournament(
         season_id=season.id,
+        scoring_config_id=season.scoring_config_id,
         tournament_type_id=tournament_type_id("bounty"),
         date=tournament_date,
         status=TournamentStatus.ACTIVE,
@@ -717,6 +713,7 @@ def test_tournament_result_same_place_is_allowed_in_different_tournaments(sessio
     session.flush()
     second = Tournament(
         season_id=first.season_id,
+        scoring_config_id=first.scoring_config_id,
         tournament_type_id=tournament_type_id("classic"),
         date=date(2026, 7, 5),
         status=TournamentStatus.ACTIVE,
@@ -750,6 +747,7 @@ def test_closed_tournament_accepts_valid_integer_fund(session: Session, fund: in
     session.add(
         Tournament(
             season_id=season.id,
+            scoring_config_id=season.scoring_config_id,
             tournament_type_id=tournament_type_id("bounty"),
             date=date(2026, 8, 1),
             tournament_fund=fund,
@@ -777,6 +775,7 @@ def test_tournament_rejects_invalid_fund(session: Session, fund: int) -> None:
     session.add(
         Tournament(
             season_id=season.id,
+            scoring_config_id=season.scoring_config_id,
             tournament_type_id=tournament_type_id("bounty"),
             date=date(2026, 8, 1),
             tournament_fund=fund,
@@ -806,15 +805,16 @@ def test_cancelled_tournament_status_is_rejected(session: Session) -> None:
             text(
                 """
                 INSERT INTO tournaments (
-                    season_id, tournament_type_id, date, status, tournament_fund,
+                    season_id, scoring_config_id, tournament_type_id, date, status, tournament_fund,
                     created_at, updated_at
                 )
-                VALUES (:season_id, :type_id, '2026-08-01', 'cancelled', NULL,
+                VALUES (:season_id, :scoring_config_id, :type_id, '2026-08-01', 'cancelled', NULL,
                         CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
                 """
             ),
             {
                 "season_id": season.id,
+                "scoring_config_id": scoring_config.id,
                 "type_id": tournament_type_id("bounty"),
             },
         )

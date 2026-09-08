@@ -18,6 +18,7 @@ from app.db.models.enums import TournamentStatus, database_enum
 from app.db.models.mixins import TimestampMixin
 
 if TYPE_CHECKING:
+    from app.db.models.scoring_config import ScoringConfig
     from app.db.models.tournament_type import TournamentType
 
 
@@ -32,6 +33,11 @@ class Tournament(TimestampMixin, Base):
     )
     tournament_type_id: Mapped[int] = mapped_column(
         ForeignKey("tournament_types.id", ondelete="RESTRICT"),
+        nullable=False,
+        index=True,
+    )
+    scoring_config_id: Mapped[int] = mapped_column(
+        ForeignKey("scoring_configs.id", ondelete="RESTRICT"),
         nullable=False,
         index=True,
     )
@@ -51,6 +57,7 @@ class Tournament(TimestampMixin, Base):
         index=True,
     )
     tournament_type: Mapped[TournamentType] = relationship()
+    scoring_config: Mapped[ScoringConfig] = relationship()
 
     __table_args__ = (
         UniqueConstraint("date", name="uq_tournaments_date"),

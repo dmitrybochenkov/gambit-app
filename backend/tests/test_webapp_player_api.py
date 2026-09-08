@@ -128,6 +128,7 @@ async def seed_player_api_data(session_factory: async_sessionmaker) -> dict[str,
         await session.flush()
         previous = Tournament(
             season_id=previous_season.id,
+            scoring_config_id=previous_season.scoring_config_id,
             tournament_type_id=tournament_type_id("classic_v2"),
             date=date(2026, 6, 15),
             status=TournamentStatus.CLOSED,
@@ -135,6 +136,7 @@ async def seed_player_api_data(session_factory: async_sessionmaker) -> dict[str,
         )
         current = Tournament(
             season_id=current_season.id,
+            scoring_config_id=current_season.scoring_config_id,
             tournament_type_id=tournament_type_id("bounty_v2"),
             date=date(2026, 8, 20),
             status=TournamentStatus.CLOSED,
@@ -142,6 +144,7 @@ async def seed_player_api_data(session_factory: async_sessionmaker) -> dict[str,
         )
         other = Tournament(
             season_id=current_season.id,
+            scoring_config_id=current_season.scoring_config_id,
             tournament_type_id=tournament_type_id("freezeout_v2"),
             date=date(2026, 8, 21),
             status=TournamentStatus.CLOSED,

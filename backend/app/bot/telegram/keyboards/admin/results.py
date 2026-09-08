@@ -546,9 +546,9 @@ def _admin_result_player_button_text(
     result_parts = []
     if player.place is not None:
         result_parts.append(PLACE_EMOJIS.get(player.place, str(player.place)))
-    if results.knockout_mode == "small_big" and player.big_knockouts_count > 0:
+    if results.knockout_mode in {"small_big", "main_ko"} and player.big_knockouts_count > 0:
         result_parts.append(f"👑🥊 х{player.big_knockouts_count}")
-    if results.knockout_mode in {"small", "small_big"} and player.knockouts_count > 0:
+    if results.knockout_mode in {"small", "small_big", "main_ko"} and player.knockouts_count > 0:
         result_parts.append(f"🥊 х{player.knockouts_count}")
     if results.supports_bonus_points and player.bonus_points > 0:
         result_parts.append(f"{results.bonus_points_label} {player.bonus_points}")

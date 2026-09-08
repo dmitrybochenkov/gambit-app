@@ -109,9 +109,9 @@ class TournamentResultsView:
     def has_entered_result(self, player: TournamentResultPlayerView) -> bool:
         if player.place is not None:
             return True
-        if self.knockout_mode in {"small", "small_big"} and player.knockouts_count > 0:
+        if self.knockout_mode in {"small", "small_big", "main_ko"} and player.knockouts_count > 0:
             return True
-        if self.knockout_mode == "small_big" and player.big_knockouts_count > 0:
+        if self.knockout_mode in {"small_big", "main_ko"} and player.big_knockouts_count > 0:
             return True
         return self.supports_bonus_points and player.bonus_points > 0
 

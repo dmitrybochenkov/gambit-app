@@ -134,12 +134,14 @@ async def test_registrations_overview_counts_only_active_tournament_registration
             await session.flush()
             active = Tournament(
                 season_id=season.id,
+                scoring_config_id=season.scoring_config_id,
                 tournament_type_id=tournament_type_id("bounty"),
                 date=date(2026, 8, 19),
                 status=TournamentStatus.ACTIVE,
             )
             closed = Tournament(
                 season_id=season.id,
+                scoring_config_id=season.scoring_config_id,
                 tournament_type_id=tournament_type_id("classic"),
                 date=date(2026, 8, 20),
                 status=TournamentStatus.CLOSED,
@@ -201,6 +203,7 @@ async def test_tournament_registrations_detail_uses_registration_rows_and_player
             await session.flush()
             tournament = Tournament(
                 season_id=season.id,
+                scoring_config_id=season.scoring_config_id,
                 tournament_type_id=tournament_type_id("double_double"),
                 date=date(2026, 8, 22),
                 status=TournamentStatus.ACTIVE,
@@ -261,6 +264,7 @@ async def test_tournament_registrations_detail_rejects_unavailable_tournament(
             await session.flush()
             closed = Tournament(
                 season_id=season.id,
+                scoring_config_id=season.scoring_config_id,
                 tournament_type_id=tournament_type_id("classic"),
                 date=date(2026, 8, 22),
                 status=TournamentStatus.CLOSED,
@@ -268,6 +272,7 @@ async def test_tournament_registrations_detail_rejects_unavailable_tournament(
             )
             empty = Tournament(
                 season_id=season.id,
+                scoring_config_id=season.scoring_config_id,
                 tournament_type_id=tournament_type_id("bounty"),
                 date=date(2026, 8, 23),
                 status=TournamentStatus.ACTIVE,
@@ -327,24 +332,28 @@ async def test_registrations_overview_uses_tournament_day_boundary(
             await session.flush()
             past_active = Tournament(
                 season_id=season.id,
+                scoring_config_id=season.scoring_config_id,
                 tournament_type_id=tournament_type_id("classic"),
                 date=date(2026, 8, 18),
                 status=TournamentStatus.ACTIVE,
             )
             previous_game_day = Tournament(
                 season_id=season.id,
+                scoring_config_id=season.scoring_config_id,
                 tournament_type_id=tournament_type_id("bounty"),
                 date=date(2026, 8, 19),
                 status=TournamentStatus.ACTIVE,
             )
             future_active = Tournament(
                 season_id=season.id,
+                scoring_config_id=season.scoring_config_id,
                 tournament_type_id=tournament_type_id("freezeout"),
                 date=date(2026, 8, 21),
                 status=TournamentStatus.ACTIVE,
             )
             closed_future = Tournament(
                 season_id=season.id,
+                scoring_config_id=season.scoring_config_id,
                 tournament_type_id=tournament_type_id("classic"),
                 date=date(2026, 8, 22),
                 status=TournamentStatus.CLOSED,

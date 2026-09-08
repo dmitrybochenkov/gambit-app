@@ -73,6 +73,7 @@ Relevant database/runtime environment values:
 | `f5c6d7e8f9a0` | Add reward expiration reminders | Yes | No | No | Adds `expiration_reminder_sent_at`. |
 | `f6d7e8f9a0b1` | Enable Mystery Bounty knockouts | Yes | No | Yes | Sets `mystery_bounty` to `knockout_mode = small`. |
 | `3b4c5d6e7f8a` | Add user gender | Yes | No | Yes | Adds nullable `users.gender`; existing users remain unknown. |
+| `5d6e7f8a9b0c` | Add tournament-bound scoring v2 | Yes | No | Yes | Adds `tournaments.scoring_config_id`, MAIN KO config fields, v2 tournament formats, assigns old tournaments to v1, assigns the 2026-09-02..2026-09-06 tournaments and current season default to v2, and removes `tournament_types.status`. It does not create concrete calendar tournaments or recalculate result points. |
 
 Pre-production destructive resets were intentional for the current development
 stage. They are not a permanent production rule: future destructive migrations
@@ -82,10 +83,10 @@ must be reviewed independently and backed up.
 
 - `users`: identity, roles, statuses, Telegram binding.
 - `registration_requests`: pending/approved/rejected user registration review.
-- `scoring_configs`: season scoring coefficients and knockout point values.
+- `scoring_configs`: versioned scoring coefficients and knockout point values.
 - `seasons`: date ranges, scoring config, statistics visibility.
 - `season_hall_of_fame`: manual season champion/knockout leader and photos.
-- `tournament_types`: tournament names, short names, descriptions, status.
+- `tournament_types`: tournament names, short names, descriptions, creatability.
 - `tournament_type_rules`: scoring capabilities, KO mode, bonus support.
 - `tournament_economy_configs`: buy-in/addon/stacks by tournament type.
 - `tournament_rebuy_configs`: rebuy rows by tournament type.
@@ -110,9 +111,14 @@ Removed runtime tables include `players`, `admin_prompts`,
 - `seasons.name` is unique.
 - `uq_seasons_open_ended` allows at most one open-ended season.
 - `tournaments.date` is unique through `uq_tournaments_date`.
+- `tournaments.scoring_config_id` stores the scoring config fixed for that
+  tournament.
 - `tournaments.status` is restricted to `active` and `closed`.
 - `tournament_fund` may be `NULL`; when set, it must be positive and divisible
   by `10`.
+- Place coefficients are independent per-place multipliers of
+  `tournament_fund`; they are not a 100% prize-pool distribution and are not
+  required to sum to `1`.
 - `tournament_results` has unique `(tournament_id, player_id)`.
 - `tournament_results.place` may duplicate across players at DB level.
 - `tournament_registrations` has unique `(tournament_id, player_id)`.
@@ -132,3 +138,13 @@ requires and records a valid fund when closing a live tournament.
 
 Historical result rows preserve authoritative imported points. The importer
 must not reconstruct tournament funds or recalculate old result points.
+
+Scoring v2 one-off operational changes are intentionally outside Alembic:
+
+- `scripts/create_september_2026_tournaments.py` previews/applies the concrete
+  2026-09-09..2026-09-13 week.
+- `scripts/recalculate_september_2026_points.py` previews/applies
+  `tournament_points` recalculation for 2026-09-02..2026-09-06 using the
+  runtime scoring logic.
+
+Both scripts default to dry-run and require explicit `--apply` to write.

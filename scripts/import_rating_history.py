@@ -130,6 +130,7 @@ class TournamentPlanItem:
     tournament_date: date
     season_id: int
     season_name: str
+    scoring_config_id: int
     tournament_type_id: int
     tournament_fund: int | None
     action: str
@@ -907,7 +908,8 @@ def build_tournament_plan(
         tournament_fund = None
         existing = connection.execute(
             """
-            SELECT id, season_id, tournament_type_id, date, tournament_fund, status
+            SELECT id, season_id, scoring_config_id, tournament_type_id, date,
+                   tournament_fund, status
             FROM tournaments
             WHERE date = ?
             """,
@@ -920,12 +922,14 @@ def build_tournament_plan(
             existing_id = int(existing["id"])
             expected = {
                 "season_id": int(season["id"]),
+                "scoring_config_id": int(season["scoring_config_id"]),
                 "tournament_type_id": legacy_type_id,
                 "tournament_fund": None,
                 "status": "closed",
             }
             actual = {
                 "season_id": int(existing["season_id"]),
+                "scoring_config_id": int(existing["scoring_config_id"]),
                 "tournament_type_id": int(existing["tournament_type_id"]),
                 "tournament_fund": (
                     None
@@ -944,6 +948,7 @@ def build_tournament_plan(
                 tournament_date=tournament_date,
                 season_id=int(season["id"]),
                 season_name=str(season["name"]),
+                scoring_config_id=int(season["scoring_config_id"]),
                 tournament_type_id=legacy_type_id,
                 tournament_fund=tournament_fund,
                 action=action,
@@ -1109,6 +1114,7 @@ def apply_tournaments(
             """
             INSERT INTO tournaments (
                 season_id,
+                scoring_config_id,
                 tournament_type_id,
                 date,
                 tournament_fund,
@@ -1116,10 +1122,11 @@ def apply_tournaments(
                 created_at,
                 updated_at
             )
-            VALUES (?, ?, ?, ?, 'closed', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+            VALUES (?, ?, ?, ?, ?, 'closed', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
             """,
             (
                 item.season_id,
+                item.scoring_config_id,
                 item.tournament_type_id,
                 item.tournament_date.isoformat(),
                 item.tournament_fund,
@@ -1287,7 +1294,8 @@ def verify_post_import(db_path: Path, plan: ImportPlan) -> dict[str, Any]:
             "seasons": [
                 dict(row)
                 for row in connection.execute(
-                    "SELECT id, name, starts_at, ends_at FROM seasons ORDER BY starts_at"
+                    "SELECT id, name, scoring_config_id, starts_at, ends_at FROM seasons "
+                    "ORDER BY starts_at"
                 )
             ],
             "tournament_count": scalar(connection, "SELECT COUNT(*) FROM tournaments"),
@@ -1407,7 +1415,7 @@ def get_required_tournament_type_id(connection: sqlite3.Connection, code: str) -
 def find_season_for_date(connection: sqlite3.Connection, value: date) -> sqlite3.Row | None:
     return connection.execute(
         """
-        SELECT id, name, starts_at, ends_at
+        SELECT id, name, scoring_config_id, starts_at, ends_at
         FROM seasons
         WHERE starts_at <= ? AND (ends_at IS NULL OR ends_at >= ?)
         ORDER BY starts_at DESC, id DESC
@@ -1548,6 +1556,7 @@ def export_report(directory: Path, plan: ImportPlan) -> None:
                 "date": item.tournament_date.isoformat(),
                 "season_id": item.season_id,
                 "season_name": item.season_name,
+                "scoring_config_id": item.scoring_config_id,
                 "tournament_type_id": item.tournament_type_id,
                 "tournament_fund": ""
                 if item.tournament_fund is None

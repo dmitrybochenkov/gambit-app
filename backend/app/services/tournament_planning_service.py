@@ -17,7 +17,10 @@ from app.db.repositories.tournament_registration_repository import (
     TournamentRegistrationRepository,
 )
 from app.db.repositories.tournament_repository import TournamentRepository
-from app.db.repositories.tournament_type_repository import TournamentTypeRepository
+from app.db.repositories.tournament_type_repository import (
+    TournamentTypeConfigRecord,
+    TournamentTypeRepository,
+)
 from app.db.session import SessionFactory
 from app.domain.tournament_day import resolve_tournament_day
 from app.services.access_policy import access_policy
@@ -116,13 +119,14 @@ WEEKLY_PLAYING_WEEKDAYS = (2, 3, 4, 5, 6)
 LEGACY_UNKNOWN_TOURNAMENT_TYPE_CODE = "legacy_unknown"
 SUPERADMIN_OPEN_TOURNAMENT_PAGE_SIZE = 6
 REAL_TOURNAMENT_TYPE_CODES = (
-    "bounty_v2",
-    "classic_v2",
+    "bounty_v3",
+    "classic_v3",
     "freezeout_v2",
-    "deep_stack",
+    "deep_stack_v2",
     "white_party",
     "mystery_bounty",
     "boss_bounty",
+    "main_ko",
 )
 
 
@@ -409,6 +413,7 @@ class TournamentPlanningService:
                     Tournament(
                         season_id=season.id,
                         tournament_type_id=tournament_type_id,
+                        scoring_config_id=season.scoring_config_id,
                         date=tournament_date,
                         status=TournamentStatus.ACTIVE,
                         registration_open=False,
@@ -483,6 +488,7 @@ class TournamentPlanningService:
                         Tournament(
                             season_id=season.id,
                             tournament_type_id=item.tournament_type_id,
+                            scoring_config_id=season.scoring_config_id,
                             date=item.date,
                             status=TournamentStatus.ACTIVE,
                             registration_open=False,
@@ -675,7 +681,7 @@ class TournamentPlanningService:
     ) -> WeeklyTournamentPlanView:
         async with self.session_factory() as session:
             await access_policy.require_superadmin(session, actor_telegram_id)
-            if await self._tournament_type_detail(session, tournament_type_id) is None:
+            if await self._creatable_tournament_type_detail(session, tournament_type_id) is None:
                 raise CalendarTournamentTypeNotFoundError
             updated_plan = plan.with_tournament_type(tournament_date, tournament_type_id)
             return await self.plan_view(session, updated_plan)
@@ -719,6 +725,7 @@ class TournamentPlanningService:
                         Tournament(
                             season_id=season.id,
                             tournament_type_id=item.tournament_type_id,
+                            scoring_config_id=season.scoring_config_id,
                             date=item.date,
                             status=TournamentStatus.ACTIVE,
                             registration_open=False,
@@ -863,6 +870,23 @@ class TournamentPlanningService:
                 return option
         raise CalendarTournamentTypeNotFoundError
 
+    async def _calendar_real_type_option(
+        self,
+        session: AsyncSession,
+        tournament_type_id: int,
+    ) -> TournamentCalendarTypeOptionView:
+        config = await TournamentTypeRepository(session).get_real_config(
+            tournament_type_id,
+            legacy_unknown_code=LEGACY_UNKNOWN_TOURNAMENT_TYPE_CODE,
+        )
+        if config is None:
+            raise CalendarTournamentTypeNotFoundError
+        return TournamentCalendarTypeOptionView(
+            id=config.tournament_type.id,
+            code=config.tournament_type.code,
+            name=config.tournament_type.name,
+        )
+
     async def _autofill_preview(
         self,
         session: AsyncSession,
@@ -870,13 +894,14 @@ class TournamentPlanningService:
     ) -> TournamentCalendarAutofillPreviewView:
         items = []
         for item in plan.tournaments:
+            tournament_type = await self._calendar_real_type_option(
+                session,
+                item.tournament_type_id,
+            )
             items.append(
                 TournamentCalendarCreatePreviewView(
                     tournament_date=item.date,
-                    tournament_type=await self._calendar_type_option(
-                        session,
-                        item.tournament_type_id,
-                    ),
+                    tournament_type=tournament_type,
                 )
             )
         return TournamentCalendarAutofillPreviewView(
@@ -1119,25 +1144,40 @@ class TournamentPlanningService:
         session: AsyncSession,
         tournament_type_id: int,
     ) -> TournamentTypeDetailView | None:
+        config = await TournamentTypeRepository(session).get_real_config(
+            tournament_type_id,
+            legacy_unknown_code=LEGACY_UNKNOWN_TOURNAMENT_TYPE_CODE,
+        )
+        return _tournament_type_detail_view(config)
+
+    async def _creatable_tournament_type_detail(
+        self,
+        session: AsyncSession,
+        tournament_type_id: int,
+    ) -> TournamentTypeDetailView | None:
         config = await TournamentTypeRepository(session).get_active_real_config(
             tournament_type_id,
             legacy_unknown_code=LEGACY_UNKNOWN_TOURNAMENT_TYPE_CODE,
         )
-        if config is None:
-            return None
-        return TournamentTypeDetailView(
-            id=config.tournament_type.id,
-            name=config.tournament_type.name,
-            description=config.tournament_type.description,
-            entry_fee=config.economy.entry_fee,
-            entry_stack=config.economy.entry_stack,
-            addon_fee=config.economy.addon_fee,
-            addon_stack=config.economy.addon_stack,
-            rebuys=[
-                TournamentRebuyView(fee=rebuy.fee, stack=rebuy.stack) for rebuy in config.rebuys
-            ],
-            knockout_mode=(config.rule.knockout_mode.value if config.rule is not None else "none"),
-        )
+        return _tournament_type_detail_view(config)
+
+
+def _tournament_type_detail_view(
+    config: TournamentTypeConfigRecord | None,
+) -> TournamentTypeDetailView | None:
+    if config is None:
+        return None
+    return TournamentTypeDetailView(
+        id=config.tournament_type.id,
+        name=config.tournament_type.name,
+        description=config.tournament_type.description,
+        entry_fee=config.economy.entry_fee,
+        entry_stack=config.economy.entry_stack,
+        addon_fee=config.economy.addon_fee,
+        addon_stack=config.economy.addon_stack,
+        rebuys=[TournamentRebuyView(fee=rebuy.fee, stack=rebuy.stack) for rebuy in config.rebuys],
+        knockout_mode=(config.rule.knockout_mode.value if config.rule is not None else "none"),
+    )
 
 
 def next_complete_game_week(today: date) -> tuple[date, ...]:

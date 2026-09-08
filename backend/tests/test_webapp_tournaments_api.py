@@ -116,6 +116,7 @@ async def seed_player_week(session_factory: async_sessionmaker) -> dict[str, int
         await session.flush()
         current_open = Tournament(
             season_id=season.id,
+            scoring_config_id=season.scoring_config_id,
             tournament_type_id=tournament_type_id("bounty_v2"),
             date=date(2026, 9, 3),
             status=TournamentStatus.ACTIVE,
@@ -123,6 +124,7 @@ async def seed_player_week(session_factory: async_sessionmaker) -> dict[str, int
         )
         current_unapproved = Tournament(
             season_id=season.id,
+            scoring_config_id=season.scoring_config_id,
             tournament_type_id=tournament_type_id("classic_v2"),
             date=date(2026, 9, 4),
             status=TournamentStatus.ACTIVE,
@@ -130,6 +132,7 @@ async def seed_player_week(session_factory: async_sessionmaker) -> dict[str, int
         )
         closed_current = Tournament(
             season_id=season.id,
+            scoring_config_id=season.scoring_config_id,
             tournament_type_id=tournament_type_id("freezeout_v2"),
             date=date(2026, 9, 5),
             status=TournamentStatus.CLOSED,
@@ -138,6 +141,7 @@ async def seed_player_week(session_factory: async_sessionmaker) -> dict[str, int
         )
         next_week = Tournament(
             season_id=season.id,
+            scoring_config_id=season.scoring_config_id,
             tournament_type_id=tournament_type_id("deep_stack"),
             date=date(2026, 9, 10),
             status=TournamentStatus.ACTIVE,

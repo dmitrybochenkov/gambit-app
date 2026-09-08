@@ -19,7 +19,6 @@ from app.db.models.enums import (
     UserRole,
 )
 from app.db.repositories.scoring_config_repository import ScoringConfigRepository
-from app.db.repositories.season_repository import SeasonRepository
 from app.db.repositories.tournament_repository import TournamentRepository
 from app.db.repositories.tournament_result_repository import TournamentResultRepository
 from app.db.repositories.tournament_type_repository import TournamentTypeRepository
@@ -713,7 +712,7 @@ class ResultService:
             players = [
                 replace(
                     player,
-                    tournament_points=self._tournament_points(
+                    tournament_points=self.calculate_tournament_points(
                         tournament_fund=Decimal(fund),
                         place=player.place,
                         scoring_config=scoring_config,
@@ -755,7 +754,7 @@ class ResultService:
             tournament.status = TournamentStatus.CLOSED
             results = await TournamentResultRepository(session).list_by_tournament(tournament.id)
             for item in results:
-                item.tournament_points = self._tournament_points(
+                item.tournament_points = self.calculate_tournament_points(
                     tournament_fund=Decimal(fund),
                     place=item.place,
                     scoring_config=scoring_config,
@@ -1042,7 +1041,7 @@ class ResultService:
         players = [
             replace(
                 player,
-                tournament_points=self._tournament_points(
+                tournament_points=self.calculate_tournament_points(
                     tournament_fund=Decimal(effective_fund),
                     place=player.place,
                     scoring_config=scoring_config,
@@ -1298,7 +1297,7 @@ class ResultService:
         scoring_config, rule = await self._scoring(session, tournament)
         results = await TournamentResultRepository(session).list_by_tournament(tournament.id)
         for item in results:
-            item.tournament_points = self._tournament_points(
+            item.tournament_points = self.calculate_tournament_points(
                 tournament_fund=Decimal(tournament.tournament_fund),
                 place=item.place,
                 scoring_config=scoring_config,
@@ -1582,7 +1581,11 @@ class ResultService:
         if results.knockout_mode == KnockoutMode.SMALL.value and small_knockouts <= 0:
             errors.append("Введи хотя бы один 🥊.")
         if (
-            results.knockout_mode == KnockoutMode.SMALL_BIG.value
+            results.knockout_mode
+            in {
+                KnockoutMode.SMALL_BIG.value,
+                KnockoutMode.MAIN_KO.value,
+            }
             and (small_knockouts + big_knockouts) <= 0
         ):
             errors.append("Введи хотя бы один 🥊 или 👑🥊.")
@@ -1603,10 +1606,9 @@ class ResultService:
         session: AsyncSession,
         tournament: Tournament,
     ) -> tuple[ScoringConfig, TournamentTypeRule | None]:
-        season = await SeasonRepository(session).get_by_id(tournament.season_id)
-        if season is None:
-            raise ResultTournamentNotFoundError
-        scoring_config = await ScoringConfigRepository(session).get_by_id(season.scoring_config_id)
+        scoring_config = await ScoringConfigRepository(session).get_by_id(
+            tournament.scoring_config_id
+        )
         if scoring_config is None:
             raise ResultTournamentNotFoundError
         return scoring_config, await TournamentTypeRepository(session).get_rule(
@@ -1614,7 +1616,7 @@ class ResultService:
         )
 
     @staticmethod
-    def _tournament_points(
+    def calculate_tournament_points(
         tournament_fund: Decimal,
         place: int | None,
         scoring_config: ScoringConfig,
@@ -1647,11 +1649,23 @@ class ResultService:
             return Decimal("0")
         if rule.knockout_mode == KnockoutMode.SMALL:
             points = knockouts_count * scoring_config.knockout_small_points
-        else:
+        elif rule.knockout_mode == KnockoutMode.SMALL_BIG:
             points = (
                 knockouts_count * scoring_config.knockout_small_points
                 + big_knockouts_count * scoring_config.knockout_big_points
             )
+        elif rule.knockout_mode == KnockoutMode.MAIN_KO:
+            if (
+                scoring_config.knockout_main_points is None
+                or scoring_config.knockout_main_final_points is None
+            ):
+                raise ResultInvalidTournamentTypeRuleError
+            points = (
+                knockouts_count * scoring_config.knockout_main_points
+                + big_knockouts_count * scoring_config.knockout_main_final_points
+            )
+        else:
+            raise ResultInvalidTournamentTypeRuleError
         return Decimal(points).quantize(Decimal("0.01"))
 
     @staticmethod

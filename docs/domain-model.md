@@ -101,7 +101,7 @@ Rules:
 
 ## ScoringConfig
 
-Scoring rules linked from a season.
+Versioned scoring rules linked from seasons and copied to tournaments.
 
 Fields:
 
@@ -113,15 +113,23 @@ Fields:
 - `place_5_coefficient`
 - `knockout_small_points`
 - `knockout_big_points`
+- `knockout_main_points`
+- `knockout_main_final_points`
 - `created_at`
 - `updated_at`
 
 Rules:
 
 - Coefficients are stored as decimals.
-- Knockout values are stored in the season's `ScoringConfig`; calculations use
-  the tournament season config, not hardcoded defaults.
-- New scoring rules require a new configuration.
+- Place coefficients are not required to sum to `1`; v2 uses
+  `0.45/0.30/0.20/0.15/0.10`.
+- `knockout_main_points` and `knockout_main_final_points` are nullable for v1
+  configurations.
+- New tournament creation copies `Season.scoring_config_id` into
+  `Tournament.scoring_config_id`.
+- Tournament calculation and recalculation use `Tournament.scoring_config_id`;
+  later season-default changes do not affect existing tournaments.
+- New scoring rules require a new configuration row.
 
 ## Tournament
 
@@ -132,6 +140,7 @@ Fields:
 - `id`
 - `season_id`
 - `tournament_type_id`
+- `scoring_config_id`
 - `date`
 - `tournament_fund`
 - `status`: `active`, `closed`
@@ -142,6 +151,8 @@ Rules:
 
 - `active` is editable/operational.
 - `closed` is the only published result state.
+- `scoring_config_id` is fixed when the tournament is created and is the
+  authoritative scoring configuration for that tournament.
 - Cancelled tournaments are deleted rather than status-tracked.
 - Live close workflow requires a positive integer `tournament_fund` divisible by
   `10` before moving a tournament to `closed`.
@@ -222,7 +233,14 @@ Fields:
 - `name`
 - `short_name`
 - `description`
-- `status`: `active`, `archived`
+- `is_creatable`
+
+Rules:
+
+- `is_creatable = true` means administrators may create new tournaments of
+  this type.
+- `is_creatable = false` keeps historical/existing tournaments readable and
+  correctable, but removes the type from new tournament creation choices.
 
 ## TournamentTypeRule
 
@@ -235,7 +253,7 @@ Fields:
 - `points_multiplier`
 - `prize_place_multiplier`
 - `prize_place_multiplier_places`
-- `knockout_mode`: `none`, `small`, `small_big`
+- `knockout_mode`: `none`, `small`, `small_big`, `main_ko`
 - `supports_bonus_points`
 
 Rules:
@@ -250,6 +268,9 @@ Rules:
   points.
 - Mystery Bounty scoring uses saved result fields:
   `total_points = tournament_points + knockout_points + bonus_points`.
+- `main_ko` uses the same result fields as `small_big`, but reads
+  `ScoringConfig.knockout_main_points` and
+  `ScoringConfig.knockout_main_final_points`.
 
 ## TournamentEconomyConfig / TournamentRebuyConfig
 

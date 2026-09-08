@@ -259,7 +259,7 @@ class TournamentPublicationService:
         places.sort(key=lambda item: item.place)
         top_knockouters: list[TournamentPublicationKnockoutView] = []
         knockout_mode = await self._knockout_mode(session, tournament)
-        if knockout_mode in {KnockoutMode.SMALL, KnockoutMode.SMALL_BIG}:
+        if knockout_mode in {KnockoutMode.SMALL, KnockoutMode.SMALL_BIG, KnockoutMode.MAIN_KO}:
             knockout_rows = [
                 row
                 for row in result_rows

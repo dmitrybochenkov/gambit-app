@@ -46,6 +46,7 @@ from app.services.result_service import (
     ResultDuplicateNameError,
     ResultInvalidFundError,
     ResultInvalidPlayerDataError,
+    ResultInvalidTournamentTypeRuleError,
     ResultPlayerAlreadyAddedError,
     ResultPlayerRewardConflictError,
     ResultService,
@@ -119,6 +120,7 @@ async def _build_open_delete_service(
         await session.flush()
         tournament = Tournament(
             season_id=season.id,
+            scoring_config_id=season.scoring_config_id,
             tournament_type_id=tournament_type_id("mystery_bounty"),
             date=tournament_date,
             status=tournament_status,
@@ -126,6 +128,7 @@ async def _build_open_delete_service(
         )
         other_tournament = Tournament(
             season_id=season.id,
+            scoring_config_id=season.scoring_config_id,
             tournament_type_id=tournament_type_id("classic"),
             date=date(2026, 8, 25),
             status=TournamentStatus.ACTIVE,
@@ -454,6 +457,7 @@ async def test_tournament_combinations_can_be_added_deleted_and_deduplicated(
         await session.flush()
         tournament = Tournament(
             season_id=season.id,
+            scoring_config_id=season.scoring_config_id,
             tournament_type_id=tournament_type_id("classic"),
             date=date(2026, 7, 19),
             status=TournamentStatus.ACTIVE,
@@ -547,18 +551,21 @@ async def test_today_result_entry_uses_only_today_active_tournament(
             [
                 Tournament(
                     season_id=season.id,
+                    scoring_config_id=season.scoring_config_id,
                     tournament_type_id=tournament_type_id("classic"),
                     date=date(2026, 7, 19),
                     status=TournamentStatus.ACTIVE,
                 ),
                 Tournament(
                     season_id=season.id,
+                    scoring_config_id=season.scoring_config_id,
                     tournament_type_id=tournament_type_id("freezeout"),
                     date=date(2026, 7, 20),
                     status=TournamentStatus.ACTIVE,
                 ),
                 Tournament(
                     season_id=season.id,
+                    scoring_config_id=season.scoring_config_id,
                     tournament_type_id=tournament_type_id("double_double"),
                     date=date(2026, 7, 18),
                     tournament_fund=1000,
@@ -610,12 +617,14 @@ async def test_today_result_entry_uses_tournament_day_boundary(
             [
                 Tournament(
                     season_id=season.id,
+                    scoring_config_id=season.scoring_config_id,
                     tournament_type_id=tournament_type_id("classic"),
                     date=date(2026, 7, 19),
                     status=TournamentStatus.ACTIVE,
                 ),
                 Tournament(
                     season_id=season.id,
+                    scoring_config_id=season.scoring_config_id,
                     tournament_type_id=tournament_type_id("freezeout"),
                     date=date(2026, 7, 20),
                     status=TournamentStatus.ACTIVE,
@@ -677,12 +686,14 @@ async def test_superadmin_close_horizon_uses_tournament_day_boundary(
         await session.flush()
         previous_tournament = Tournament(
             season_id=season.id,
+            scoring_config_id=season.scoring_config_id,
             tournament_type_id=tournament_type_id("classic"),
             date=date(2026, 7, 19),
             status=TournamentStatus.ACTIVE,
         )
         current_tournament = Tournament(
             season_id=season.id,
+            scoring_config_id=season.scoring_config_id,
             tournament_type_id=tournament_type_id("freezeout"),
             date=date(2026, 7, 20),
             status=TournamentStatus.ACTIVE,
@@ -745,12 +756,14 @@ async def test_today_result_entry_rejects_when_today_has_no_active_tournament(
             [
                 Tournament(
                     season_id=season.id,
+                    scoring_config_id=season.scoring_config_id,
                     tournament_type_id=tournament_type_id("classic"),
                     date=date(2026, 7, 19),
                     status=TournamentStatus.ACTIVE,
                 ),
                 Tournament(
                     season_id=season.id,
+                    scoring_config_id=season.scoring_config_id,
                     tournament_type_id=tournament_type_id("freezeout"),
                     date=date(2026, 7, 20),
                     tournament_fund=1000,
@@ -817,6 +830,7 @@ async def test_result_rows_are_edited_directly_and_close_tournament(
         await session.flush()
         tournament = Tournament(
             season_id=season.id,
+            scoring_config_id=season.scoring_config_id,
             tournament_type_id=tournament_type_id("boss_bounty"),
             date=date(2026, 7, 18),
             status=TournamentStatus.ACTIVE,
@@ -901,6 +915,277 @@ async def test_result_rows_are_edited_directly_and_close_tournament(
     await engine.dispose()
 
 
+async def test_tournament_scoring_config_is_bound_to_tournament_not_mutable_season_default(
+    tmp_path: Path,
+) -> None:
+    engine = create_async_engine(f"sqlite+aiosqlite:///{tmp_path / 'bound-scoring.db'}")
+    async with engine.begin() as connection:
+        await connection.run_sync(Base.metadata.create_all)
+
+    session_factory = async_sessionmaker(engine, expire_on_commit=False)
+    async with session_factory() as session:
+        v1_config = ScoringConfig()
+        v2_config = ScoringConfig(
+            place_1_coefficient=Decimal("0.45"),
+            place_2_coefficient=Decimal("0.30"),
+            place_3_coefficient=Decimal("0.20"),
+            place_4_coefficient=Decimal("0.15"),
+            place_5_coefficient=Decimal("0.10"),
+            knockout_main_points=30,
+            knockout_main_final_points=100,
+        )
+        session.add_all([v1_config, v2_config])
+        await session.flush()
+        await seed_tournament_types_async(session)
+        await seed_tournament_rules_async(session)
+        season = Season(
+            name="Test season",
+            scoring_config_id=v1_config.id,
+            starts_at=date(2026, 9, 1),
+            ends_at=None,
+        )
+        admin = build_player(
+            telegram_id=100,
+            display_name="Superadmin",
+            status=UserStatus.ACTIVE,
+            role=UserRole.SUPERADMIN,
+        )
+        players = [
+            build_player(
+                telegram_id=101 + index,
+                display_name=f"Player {index + 1}",
+                status=UserStatus.ACTIVE,
+            )
+            for index in range(5)
+        ]
+        session.add_all([season, admin, *players])
+        await session.flush()
+        tournament = Tournament(
+            season_id=season.id,
+            scoring_config_id=season.scoring_config_id,
+            tournament_type_id=tournament_type_id("classic_v3"),
+            date=date(2026, 9, 10),
+            status=TournamentStatus.ACTIVE,
+        )
+        session.add(tournament)
+        await session.flush()
+        session.add_all(
+            TournamentResult(
+                tournament_id=tournament.id,
+                player_id=player.id,
+                source=TournamentResultSource.WALK_IN_EXISTING,
+                checked_in_by_user_id=admin.id,
+                place=index,
+            )
+            for index, player in enumerate(players, start=1)
+        )
+        session.add(
+            TournamentPhoto(
+                tournament_id=tournament.id,
+                telegram_file_id="file-1",
+                telegram_file_unique_id="unique-1",
+                uploaded_by_user_id=admin.id,
+                position=0,
+            )
+        )
+        season.scoring_config_id = v2_config.id
+        await session.commit()
+        tournament_id = tournament.id
+        v1_config_id = v1_config.id
+
+    service = ResultService(
+        session_factory,
+        clock=FixedClock(datetime(2026, 9, 10, 12, tzinfo=ZoneInfo("Europe/Moscow"))),
+    )
+    await service.close_tournament(100, tournament_id, 1000)
+
+    async with session_factory() as session:
+        tournament = await session.get(Tournament, tournament_id)
+        rows = list(
+            (
+                await session.execute(select(TournamentResult).order_by(TournamentResult.place))
+            ).scalars()
+        )
+
+    assert tournament is not None
+    assert tournament.scoring_config_id == v1_config_id
+    assert [row.tournament_points for row in rows[:5]] == [
+        Decimal("450.00"),
+        Decimal("250.00"),
+        Decimal("150.00"),
+        Decimal("100.00"),
+        Decimal("50.00"),
+    ]
+    await engine.dispose()
+
+
+async def test_main_ko_uses_main_knockout_coefficients(
+    tmp_path: Path,
+) -> None:
+    engine = create_async_engine(f"sqlite+aiosqlite:///{tmp_path / 'main-ko.db'}")
+    async with engine.begin() as connection:
+        await connection.run_sync(Base.metadata.create_all)
+
+    session_factory = async_sessionmaker(engine, expire_on_commit=False)
+    async with session_factory() as session:
+        config = ScoringConfig(knockout_main_points=30, knockout_main_final_points=100)
+        session.add(config)
+        await session.flush()
+        await seed_tournament_types_async(session)
+        await seed_tournament_rules_async(session)
+        season = Season(
+            name="Test season",
+            scoring_config_id=config.id,
+            starts_at=date(2026, 9, 1),
+            ends_at=None,
+        )
+        admin = build_player(
+            telegram_id=100,
+            display_name="Superadmin",
+            status=UserStatus.ACTIVE,
+            role=UserRole.SUPERADMIN,
+        )
+        players = [
+            build_player(
+                telegram_id=101 + index,
+                display_name=f"Player {index + 1}",
+                status=UserStatus.ACTIVE,
+            )
+            for index in range(5)
+        ]
+        session.add_all([season, admin, *players])
+        await session.flush()
+        tournament = Tournament(
+            season_id=season.id,
+            scoring_config_id=season.scoring_config_id,
+            tournament_type_id=tournament_type_id("main_ko"),
+            date=date(2026, 9, 13),
+            status=TournamentStatus.ACTIVE,
+        )
+        session.add(tournament)
+        await session.flush()
+        session.add_all(
+            TournamentResult(
+                tournament_id=tournament.id,
+                player_id=player.id,
+                source=TournamentResultSource.WALK_IN_EXISTING,
+                checked_in_by_user_id=admin.id,
+                place=index,
+                knockouts_count=2 if index == 1 else 0,
+                big_knockouts_count=1 if index == 1 else 0,
+            )
+            for index, player in enumerate(players, start=1)
+        )
+        session.add(
+            TournamentPhoto(
+                tournament_id=tournament.id,
+                telegram_file_id="file-1",
+                telegram_file_unique_id="unique-1",
+                uploaded_by_user_id=admin.id,
+                position=0,
+            )
+        )
+        await session.commit()
+        tournament_id = tournament.id
+        player_id = players[0].id
+
+    service = ResultService(
+        session_factory,
+        clock=FixedClock(datetime(2026, 9, 13, 12, tzinfo=ZoneInfo("Europe/Moscow"))),
+    )
+    await service.close_tournament(100, tournament_id, 1000)
+
+    async with session_factory() as session:
+        result = (
+            await session.execute(
+                select(TournamentResult).where(
+                    TournamentResult.tournament_id == tournament_id,
+                    TournamentResult.player_id == player_id,
+                )
+            )
+        ).scalar_one()
+
+    assert result.knockout_points == Decimal("160.00")
+    await engine.dispose()
+
+
+async def test_main_ko_with_v1_config_fails_explicitly(
+    tmp_path: Path,
+) -> None:
+    engine = create_async_engine(f"sqlite+aiosqlite:///{tmp_path / 'main-ko-v1.db'}")
+    async with engine.begin() as connection:
+        await connection.run_sync(Base.metadata.create_all)
+
+    session_factory = async_sessionmaker(engine, expire_on_commit=False)
+    async with session_factory() as session:
+        config = ScoringConfig()
+        session.add(config)
+        await session.flush()
+        await seed_tournament_types_async(session)
+        await seed_tournament_rules_async(session)
+        season = Season(
+            name="Test season",
+            scoring_config_id=config.id,
+            starts_at=date(2026, 9, 1),
+            ends_at=None,
+        )
+        admin = build_player(
+            telegram_id=100,
+            display_name="Superadmin",
+            status=UserStatus.ACTIVE,
+            role=UserRole.SUPERADMIN,
+        )
+        players = [
+            build_player(
+                telegram_id=101 + index,
+                display_name=f"Player {index + 1}",
+                status=UserStatus.ACTIVE,
+            )
+            for index in range(5)
+        ]
+        session.add_all([season, admin, *players])
+        await session.flush()
+        tournament = Tournament(
+            season_id=season.id,
+            scoring_config_id=season.scoring_config_id,
+            tournament_type_id=tournament_type_id("main_ko"),
+            date=date(2026, 9, 13),
+            status=TournamentStatus.ACTIVE,
+        )
+        session.add(tournament)
+        await session.flush()
+        session.add_all(
+            TournamentResult(
+                tournament_id=tournament.id,
+                player_id=player.id,
+                source=TournamentResultSource.WALK_IN_EXISTING,
+                checked_in_by_user_id=admin.id,
+                place=index,
+                knockouts_count=1 if index == 1 else 0,
+            )
+            for index, player in enumerate(players, start=1)
+        )
+        session.add(
+            TournamentPhoto(
+                tournament_id=tournament.id,
+                telegram_file_id="file-1",
+                telegram_file_unique_id="unique-1",
+                uploaded_by_user_id=admin.id,
+                position=0,
+            )
+        )
+        await session.commit()
+        tournament_id = tournament.id
+
+    service = ResultService(
+        session_factory,
+        clock=FixedClock(datetime(2026, 9, 13, 12, tzinfo=ZoneInfo("Europe/Moscow"))),
+    )
+    with pytest.raises(ResultInvalidTournamentTypeRuleError):
+        await service.close_tournament(100, tournament_id, 1000)
+    await engine.dispose()
+
+
 async def test_deep_stack_uses_ordinary_multiplier_without_changing_double_double(
     tmp_path: Path,
 ) -> None:
@@ -939,12 +1224,14 @@ async def test_deep_stack_uses_ordinary_multiplier_without_changing_double_doubl
         await session.flush()
         double_double = Tournament(
             season_id=season.id,
+            scoring_config_id=season.scoring_config_id,
             tournament_type_id=tournament_type_id("double_double"),
             date=date(2026, 9, 5),
             status=TournamentStatus.ACTIVE,
         )
         deep_stack = Tournament(
             season_id=season.id,
+            scoring_config_id=season.scoring_config_id,
             tournament_type_id=tournament_type_id("deep_stack"),
             date=date(2026, 9, 6),
             status=TournamentStatus.ACTIVE,
@@ -1034,30 +1321,35 @@ async def test_closeable_tournaments_use_business_date_and_status(
         await session.flush()
         not_ready_active = Tournament(
             season_id=season.id,
+            scoring_config_id=season.scoring_config_id,
             tournament_type_id=tournament_type_id("classic"),
             date=date(2026, 7, 17),
             status=TournamentStatus.ACTIVE,
         )
         old_active = Tournament(
             season_id=season.id,
+            scoring_config_id=season.scoring_config_id,
             tournament_type_id=tournament_type_id("classic"),
             date=date(2026, 7, 18),
             status=TournamentStatus.ACTIVE,
         )
         today_active = Tournament(
             season_id=season.id,
+            scoring_config_id=season.scoring_config_id,
             tournament_type_id=tournament_type_id("bounty"),
             date=date(2026, 7, 20),
             status=TournamentStatus.ACTIVE,
         )
         future_active = Tournament(
             season_id=season.id,
+            scoring_config_id=season.scoring_config_id,
             tournament_type_id=tournament_type_id("freezeout"),
             date=date(2026, 7, 21),
             status=TournamentStatus.ACTIVE,
         )
         closed = Tournament(
             season_id=season.id,
+            scoring_config_id=season.scoring_config_id,
             tournament_type_id=tournament_type_id("double_double"),
             date=date(2026, 7, 19),
             status=TournamentStatus.CLOSED,
@@ -1146,6 +1438,7 @@ async def test_mystery_bounty_uses_places_knockouts_and_bonus_without_big_knocko
         await session.flush()
         tournament = Tournament(
             season_id=season.id,
+            scoring_config_id=season.scoring_config_id,
             tournament_type_id=tournament_type_id("mystery_bounty"),
             date=date(2026, 7, 18),
             status=TournamentStatus.ACTIVE,
@@ -1277,6 +1570,7 @@ async def test_closed_mystery_bounty_correction_updates_knockouts_without_big_kn
         await session.flush()
         tournament = Tournament(
             season_id=season.id,
+            scoring_config_id=season.scoring_config_id,
             tournament_type_id=tournament_type_id("mystery_bounty"),
             date=date(2026, 7, 18),
             status=TournamentStatus.ACTIVE,
@@ -1389,6 +1683,7 @@ async def test_closed_correction_stale_draft_is_rejected(tmp_path: Path) -> None
         await session.flush()
         tournament = Tournament(
             season_id=season.id,
+            scoring_config_id=season.scoring_config_id,
             tournament_type_id=tournament_type_id("classic"),
             date=date(2026, 7, 18),
             status=TournamentStatus.CLOSED,
@@ -1543,6 +1838,7 @@ async def test_add_existing_player_to_past_tournament_creates_zero_result(
         await session.flush()
         tournament = Tournament(
             season_id=season.id,
+            scoring_config_id=season.scoring_config_id,
             tournament_type_id=tournament_type_id("classic"),
             date=date(2026, 7, 18),
             status=TournamentStatus.ACTIVE,
@@ -1605,6 +1901,7 @@ async def test_add_existing_player_to_tournament_rejects_duplicate_and_missing_u
         await session.flush()
         tournament = Tournament(
             season_id=season.id,
+            scoring_config_id=season.scoring_config_id,
             tournament_type_id=tournament_type_id("classic"),
             date=date(2026, 7, 18),
             status=TournamentStatus.ACTIVE,
@@ -1696,6 +1993,7 @@ async def test_add_new_player_to_past_tournament_rejects_duplicate_name(
         await session.flush()
         tournament = Tournament(
             season_id=season.id,
+            scoring_config_id=season.scoring_config_id,
             tournament_type_id=tournament_type_id("classic"),
             date=date(2026, 7, 18),
             status=TournamentStatus.ACTIVE,
@@ -1744,6 +2042,7 @@ async def test_tournament_photos_limit_duplicates_and_delete_all(tmp_path: Path)
         await session.flush()
         tournament = Tournament(
             season_id=season.id,
+            scoring_config_id=season.scoring_config_id,
             tournament_type_id=tournament_type_id("classic"),
             date=date(2026, 7, 18),
             status=TournamentStatus.ACTIVE,
@@ -1834,6 +2133,7 @@ async def test_close_tournament_rejects_future_tournament_without_mutation(
         await session.flush()
         tournament = Tournament(
             season_id=season.id,
+            scoring_config_id=season.scoring_config_id,
             tournament_type_id=tournament_type_id("classic"),
             date=date(2026, 7, 21),
             status=TournamentStatus.ACTIVE,
@@ -1908,6 +2208,7 @@ async def test_result_reassigns_occupied_place_for_live_edit(
         await session.flush()
         tournament = Tournament(
             season_id=season.id,
+            scoring_config_id=season.scoring_config_id,
             tournament_type_id=tournament_type_id("classic"),
             date=date(2026, 7, 18),
             status=TournamentStatus.ACTIVE,
@@ -2006,6 +2307,7 @@ async def test_results_use_checked_in_rows_not_pre_registrations(tmp_path: Path)
         await session.flush()
         tournament = Tournament(
             season_id=season.id,
+            scoring_config_id=season.scoring_config_id,
             tournament_type_id=tournament_type_id("classic"),
             date=date(2026, 7, 18),
             status=TournamentStatus.ACTIVE,
@@ -2080,6 +2382,7 @@ async def test_admin_previous_open_result_callback_uses_existing_result_policy(
         await session.flush()
         tournament = Tournament(
             season_id=season.id,
+            scoring_config_id=season.scoring_config_id,
             tournament_type_id=tournament_type_id("classic"),
             date=date(2026, 7, 19),
             status=TournamentStatus.ACTIVE,
@@ -2155,6 +2458,7 @@ async def test_superadmin_can_edit_previous_open_tournament_results_photos_and_c
         await session.flush()
         tournament = Tournament(
             season_id=season.id,
+            scoring_config_id=season.scoring_config_id,
             tournament_type_id=tournament_type_id("classic"),
             date=date(2026, 7, 19),
             status=TournamentStatus.ACTIVE,
@@ -2247,18 +2551,21 @@ async def test_result_tournament_navigation_preserves_admin_scope_and_expands_su
         await session.flush()
         previous = Tournament(
             season_id=season.id,
+            scoring_config_id=season.scoring_config_id,
             tournament_type_id=tournament_type_id("classic"),
             date=date(2026, 7, 19),
             status=TournamentStatus.ACTIVE,
         )
         current = Tournament(
             season_id=season.id,
+            scoring_config_id=season.scoring_config_id,
             tournament_type_id=tournament_type_id("freezeout"),
             date=date(2026, 7, 20),
             status=TournamentStatus.ACTIVE,
         )
         future = Tournament(
             season_id=season.id,
+            scoring_config_id=season.scoring_config_id,
             tournament_type_id=tournament_type_id("bounty"),
             date=date(2026, 7, 21),
             status=TournamentStatus.ACTIVE,
@@ -2314,6 +2621,7 @@ async def test_superadmin_open_edit_rejects_future_and_closed_tournaments(
         await session.flush()
         closed = Tournament(
             season_id=season.id,
+            scoring_config_id=season.scoring_config_id,
             tournament_type_id=tournament_type_id("classic"),
             date=date(2026, 7, 19),
             status=TournamentStatus.CLOSED,
@@ -2321,6 +2629,7 @@ async def test_superadmin_open_edit_rejects_future_and_closed_tournaments(
         )
         future = Tournament(
             season_id=season.id,
+            scoring_config_id=season.scoring_config_id,
             tournament_type_id=tournament_type_id("classic"),
             date=date(2026, 7, 21),
             status=TournamentStatus.ACTIVE,

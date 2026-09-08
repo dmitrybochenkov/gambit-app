@@ -190,9 +190,9 @@ def closed_delete_player_confirmation(results: object, player: object) -> str:
         "",
         f"Место: {_place_label(player.place) if player.place is not None else '—'}",
     ]
-    if results.knockout_mode in {"small", "small_big"}:
+    if results.knockout_mode in {"small", "small_big", "main_ko"}:
         lines.append(f"KO: {player.knockouts_count}")
-    if results.knockout_mode == "small_big":
+    if results.knockout_mode in {"small_big", "main_ko"}:
         lines.append(f"BKO: {player.big_knockouts_count}")
     if results.supports_bonus_points:
         lines.append(f"{results.bonus_points_label}: {player.bonus_points}")
@@ -417,10 +417,10 @@ def player_detail(
         "",
         f"Место: {_place_label(player.place) if player.place is not None else '—'}",
     ]
-    if results.knockout_mode in {"small", "small_big"}:
+    if results.knockout_mode in {"small", "small_big", "main_ko"}:
         label = "🥊"
         lines.append(f"{label}: {player.knockouts_count}")
-    if results.knockout_mode == "small_big":
+    if results.knockout_mode in {"small_big", "main_ko"}:
         lines.append(f"👑🥊: {player.big_knockouts_count}")
     if results.supports_bonus_points:
         lines.append(f"{results.bonus_points_label}: {player.bonus_points}")
@@ -523,7 +523,7 @@ def player_parts(
     parts = []
     if place is not None:
         parts.append(_place_label(place))
-    if knockout_mode == "small_big":
+    if knockout_mode in {"small_big", "main_ko"}:
         if big_knockouts_count > 0:
             parts.append(f"👑🥊 х{big_knockouts_count}")
         if knockouts_count > 0:
@@ -573,8 +573,8 @@ def _game_table_lines(
             player.display_name.casefold(),
         ),
     )
-    show_knockouts = force_all_columns or results.knockout_mode in {"small", "small_big"}
-    show_big_knockouts = force_all_columns or results.knockout_mode == "small_big"
+    show_knockouts = force_all_columns or results.knockout_mode in {"small", "small_big", "main_ko"}
+    show_big_knockouts = force_all_columns or results.knockout_mode in {"small_big", "main_ko"}
     show_bonus = force_all_columns or results.supports_bonus_points
     columns = _game_table_columns(
         show_knockouts=show_knockouts,
@@ -686,7 +686,7 @@ def _places_table_lines(results: object) -> list[str]:
 
 
 def _knockout_lines(results: object) -> list[str]:
-    if results.knockout_mode not in {"small", "small_big"}:
+    if results.knockout_mode not in {"small", "small_big", "main_ko"}:
         return []
 
     players = sorted(

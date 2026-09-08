@@ -32,7 +32,6 @@ from app.db.models.enums import (
     KnockoutMode,
     TournamentResultSource,
     TournamentStatus,
-    TournamentTypeStatus,
     UserRole,
     UserStatus,
 )
@@ -75,18 +74,21 @@ async def test_upcoming_schedule_uses_active_tournaments(tmp_path: Path) -> None
             [
                 Tournament(
                     season_id=season.id,
+                    scoring_config_id=season.scoring_config_id,
                     tournament_type_id=tournament_type_id("freezeout"),
                     date=date(2026, 7, 10),
                     status=TournamentStatus.ACTIVE,
                 ),
                 Tournament(
                     season_id=season.id,
+                    scoring_config_id=season.scoring_config_id,
                     tournament_type_id=tournament_type_id("bounty"),
                     date=date(2026, 7, 8),
                     status=TournamentStatus.ACTIVE,
                 ),
                 Tournament(
                     season_id=season.id,
+                    scoring_config_id=season.scoring_config_id,
                     tournament_type_id=tournament_type_id("classic"),
                     date=date(2026, 7, 9),
                     status=TournamentStatus.ACTIVE,
@@ -130,7 +132,6 @@ async def test_schedule_tournament_details_are_db_driven(tmp_path: Path) -> None
             name="Тестовый DB-турнир",
             short_name="Test DB",
             description="Уникальное описание из базы",
-            status=TournamentTypeStatus.ACTIVE,
         )
         season = Season(
             name="Test season",
@@ -147,6 +148,7 @@ async def test_schedule_tournament_details_are_db_driven(tmp_path: Path) -> None
         await session.flush()
         tournament = Tournament(
             season_id=season.id,
+            scoring_config_id=season.scoring_config_id,
             tournament_type_id=tournament_type.id,
             date=date(2026, 8, 22),
             status=TournamentStatus.ACTIVE,
@@ -227,6 +229,7 @@ async def test_player_schedule_is_limited_to_current_business_week(tmp_path: Pat
         tournaments = [
             Tournament(
                 season_id=season.id,
+                scoring_config_id=season.scoring_config_id,
                 tournament_type_id=tournament_type_id("classic"),
                 date=date(2026, 8, 2),
                 status=TournamentStatus.ACTIVE,
@@ -234,6 +237,7 @@ async def test_player_schedule_is_limited_to_current_business_week(tmp_path: Pat
             ),
             Tournament(
                 season_id=season.id,
+                scoring_config_id=season.scoring_config_id,
                 tournament_type_id=tournament_type_id("bounty"),
                 date=date(2026, 8, 3),
                 status=TournamentStatus.ACTIVE,
@@ -241,6 +245,7 @@ async def test_player_schedule_is_limited_to_current_business_week(tmp_path: Pat
             ),
             Tournament(
                 season_id=season.id,
+                scoring_config_id=season.scoring_config_id,
                 tournament_type_id=tournament_type_id("freezeout"),
                 date=date(2026, 8, 9),
                 status=TournamentStatus.ACTIVE,
@@ -248,6 +253,7 @@ async def test_player_schedule_is_limited_to_current_business_week(tmp_path: Pat
             ),
             Tournament(
                 season_id=season.id,
+                scoring_config_id=season.scoring_config_id,
                 tournament_type_id=tournament_type_id("classic"),
                 date=date(2026, 8, 10),
                 status=TournamentStatus.ACTIVE,
@@ -255,6 +261,7 @@ async def test_player_schedule_is_limited_to_current_business_week(tmp_path: Pat
             ),
             Tournament(
                 season_id=season.id,
+                scoring_config_id=season.scoring_config_id,
                 tournament_type_id=tournament_type_id("bounty"),
                 date=date(2026, 8, 5),
                 status=TournamentStatus.CLOSED,
@@ -308,6 +315,7 @@ async def test_player_registration_is_limited_to_current_business_week(
         await session.flush()
         approved_current = Tournament(
             season_id=season.id,
+            scoring_config_id=season.scoring_config_id,
             tournament_type_id=tournament_type_id("bounty"),
             date=date(2026, 8, 5),
             status=TournamentStatus.ACTIVE,
@@ -315,6 +323,7 @@ async def test_player_registration_is_limited_to_current_business_week(
         )
         unapproved_current = Tournament(
             season_id=season.id,
+            scoring_config_id=season.scoring_config_id,
             tournament_type_id=tournament_type_id("freezeout"),
             date=date(2026, 8, 7),
             status=TournamentStatus.ACTIVE,
@@ -322,6 +331,7 @@ async def test_player_registration_is_limited_to_current_business_week(
         )
         next_week = Tournament(
             season_id=season.id,
+            scoring_config_id=season.scoring_config_id,
             tournament_type_id=tournament_type_id("classic"),
             date=date(2026, 8, 10),
             status=TournamentStatus.ACTIVE,
@@ -374,6 +384,7 @@ async def test_next_week_registration_becomes_available_after_business_week_boun
         await session.flush()
         tournament = Tournament(
             season_id=season.id,
+            scoring_config_id=season.scoring_config_id,
             tournament_type_id=tournament_type_id("classic"),
             date=date(2026, 8, 10),
             status=TournamentStatus.ACTIVE,
@@ -639,12 +650,14 @@ async def test_active_player_can_register_for_multiple_tournaments(tmp_path: Pat
         tournaments = [
             Tournament(
                 season_id=season.id,
+                scoring_config_id=season.scoring_config_id,
                 tournament_type_id=tournament_type_id("bounty"),
                 date=date(2026, 7, 8),
                 status=TournamentStatus.ACTIVE,
             ),
             Tournament(
                 season_id=season.id,
+                scoring_config_id=season.scoring_config_id,
                 tournament_type_id=tournament_type_id("classic"),
                 date=date(2026, 7, 10),
                 status=TournamentStatus.ACTIVE,
@@ -752,6 +765,7 @@ async def test_active_admin_roles_can_use_player_tournament_flows_after_new_sess
         await session.flush()
         tournament = Tournament(
             season_id=season.id,
+            scoring_config_id=season.scoring_config_id,
             tournament_type_id=tournament_type_id("classic"),
             date=date(2026, 7, 10),
             status=TournamentStatus.ACTIVE,
@@ -849,6 +863,7 @@ async def test_check_in_registered_player_creates_result_without_new_registratio
         await session.flush()
         tournament = Tournament(
             season_id=season.id,
+            scoring_config_id=season.scoring_config_id,
             tournament_type_id=tournament_type_id("classic"),
             date=date(2026, 7, 9),
             status=TournamentStatus.ACTIVE,
@@ -932,12 +947,14 @@ async def test_check_in_uses_tournament_day_before_start_hour(
         await session.flush()
         previous_tournament = Tournament(
             season_id=season.id,
+            scoring_config_id=season.scoring_config_id,
             tournament_type_id=tournament_type_id("classic"),
             date=date(2026, 7, 9),
             status=TournamentStatus.ACTIVE,
         )
         current_tournament = Tournament(
             season_id=season.id,
+            scoring_config_id=season.scoring_config_id,
             tournament_type_id=tournament_type_id("freezeout"),
             date=date(2026, 7, 10),
             status=TournamentStatus.ACTIVE,
@@ -1012,6 +1029,7 @@ async def test_admin_cannot_check_in_previous_open_tournament_after_business_day
         await session.flush()
         tournament = Tournament(
             season_id=season.id,
+            scoring_config_id=season.scoring_config_id,
             tournament_type_id=tournament_type_id("classic"),
             date=date(2026, 7, 9),
             status=TournamentStatus.ACTIVE,
@@ -1068,6 +1086,7 @@ async def test_superadmin_can_check_in_previous_open_tournament_with_late_hint(
         await session.flush()
         tournament = Tournament(
             season_id=season.id,
+            scoring_config_id=season.scoring_config_id,
             tournament_type_id=tournament_type_id("classic"),
             date=date(2026, 7, 9),
             status=TournamentStatus.ACTIVE,
@@ -1133,6 +1152,7 @@ async def test_cannot_cancel_tournament_registration_after_check_in(
         )
         tournament = Tournament(
             season_id=season.id,
+            scoring_config_id=season.scoring_config_id,
             tournament_type_id=tournament_type_id("classic"),
             date=date(2026, 7, 9),
             status=TournamentStatus.ACTIVE,
@@ -1205,6 +1225,7 @@ async def test_check_in_new_offline_player_creates_active_user_without_review(
         )
         tournament = Tournament(
             season_id=season.id,
+            scoring_config_id=season.scoring_config_id,
             tournament_type_id=tournament_type_id("classic"),
             date=date(2026, 7, 9),
             status=TournamentStatus.ACTIVE,
@@ -1270,6 +1291,7 @@ async def test_check_in_new_player_similarity_search_does_not_mutate_database(
         )
         tournament = Tournament(
             season_id=season.id,
+            scoring_config_id=season.scoring_config_id,
             tournament_type_id=tournament_type_id("classic"),
             date=date(2026, 7, 9),
             status=TournamentStatus.ACTIVE,
@@ -1335,6 +1357,7 @@ async def test_check_in_existing_player_search_is_sorted_and_excludes_checked_in
         )
         tournament = Tournament(
             season_id=season.id,
+            scoring_config_id=season.scoring_config_id,
             tournament_type_id=tournament_type_id("classic"),
             date=date(2026, 7, 9),
             status=TournamentStatus.ACTIVE,
@@ -1436,6 +1459,7 @@ async def test_check_in_existing_user_search_includes_admin_roles(
         )
         tournament = Tournament(
             season_id=season.id,
+            scoring_config_id=season.scoring_config_id,
             tournament_type_id=tournament_type_id("classic"),
             date=date(2026, 7, 9),
             status=TournamentStatus.ACTIVE,
@@ -1520,12 +1544,14 @@ async def test_check_in_registered_search_scope_is_tournament_registrations_minu
         )
         tournament = Tournament(
             season_id=season.id,
+            scoring_config_id=season.scoring_config_id,
             tournament_type_id=tournament_type_id("classic"),
             date=date(2026, 7, 9),
             status=TournamentStatus.ACTIVE,
         )
         other_tournament = Tournament(
             season_id=season.id,
+            scoring_config_id=season.scoring_config_id,
             tournament_type_id=tournament_type_id("classic"),
             date=date(2026, 7, 10),
             status=TournamentStatus.ACTIVE,
@@ -1637,6 +1663,7 @@ async def test_check_in_summary_counters_use_sources_and_include_admin_players(
         await session.flush()
         tournament = Tournament(
             season_id=season.id,
+            scoring_config_id=season.scoring_config_id,
             tournament_type_id=tournament_type_id("classic"),
             date=date(2026, 7, 9),
             status=TournamentStatus.ACTIVE,

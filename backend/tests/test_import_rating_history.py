@@ -65,9 +65,9 @@ def create_database(path: Path) -> None:
               (2, 'Сезон 2', 1, '2026-01-27', '2026-05-31'),
               (3, 'Лето 2026', 1, '2026-06-01', NULL);
             INSERT INTO tournament_types (
-                id, code, name, short_name, status, is_creatable, created_at, updated_at
+                id, code, name, short_name, is_creatable, created_at, updated_at
             )
-            VALUES (7, 'legacy_unknown', 'Неопределенный турнир', 'Турнир', 'active',
+            VALUES (7, 'legacy_unknown', 'Неопределенный турнир', 'Турнир',
                     0, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP);
             """
         )
@@ -588,18 +588,18 @@ def test_existing_tournament_conflict_blocks_import(tmp_path: Path) -> None:
         connection.execute(
             """
             INSERT INTO tournament_types (
-                id, code, name, short_name, status, is_creatable, created_at, updated_at
+                id, code, name, short_name, is_creatable, created_at, updated_at
             )
-            VALUES (8, 'classic', 'Классика', 'Classic', 'active',
-                    0, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+            VALUES (8, 'classic', 'Классика', 'Classic', 0, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
             """
         )
         connection.execute(
             """
             INSERT INTO tournaments (
-                season_id, tournament_type_id, date, tournament_fund, status, created_at, updated_at
+                season_id, scoring_config_id, tournament_type_id, date, tournament_fund, status,
+                created_at, updated_at
             )
-            VALUES (2, 8, '2026-01-28', 10, 'closed', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+            VALUES (2, 1, 8, '2026-01-28', 10, 'closed', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
             """
         )
         connection.commit()

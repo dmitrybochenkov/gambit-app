@@ -214,6 +214,7 @@ async def test_profile_filters_current_season_and_all_time(tmp_path: Path) -> No
         await session.flush()
         current_tournament = Tournament(
             season_id=current_season.id,
+            scoring_config_id=current_season.scoring_config_id,
             tournament_type_id=tournament_type_id("bounty"),
             date=date(2026, 7, 8),
             status=TournamentStatus.CLOSED,
@@ -221,6 +222,7 @@ async def test_profile_filters_current_season_and_all_time(tmp_path: Path) -> No
         )
         previous_tournament = Tournament(
             season_id=previous_season.id,
+            scoring_config_id=previous_season.scoring_config_id,
             tournament_type_id=tournament_type_id("classic"),
             date=date(2026, 6, 20),
             status=TournamentStatus.CLOSED,
@@ -228,6 +230,7 @@ async def test_profile_filters_current_season_and_all_time(tmp_path: Path) -> No
         )
         active_tournament = Tournament(
             season_id=current_season.id,
+            scoring_config_id=current_season.scoring_config_id,
             tournament_type_id=tournament_type_id("bounty"),
             date=date(2026, 7, 9),
             status=TournamentStatus.ACTIVE,
@@ -355,6 +358,7 @@ async def test_profile_rating_position_and_prize_percent_use_scope(
         tournaments = [
             Tournament(
                 season_id=season.id,
+                scoring_config_id=season.scoring_config_id,
                 tournament_type_id=tournament_type_id("classic"),
                 date=date(2026, 7, day),
                 status=TournamentStatus.CLOSED,
@@ -440,6 +444,7 @@ async def test_profile_prize_tournaments_scope_order_and_labels(
         await session.flush()
         current_old = Tournament(
             season_id=current.id,
+            scoring_config_id=current.scoring_config_id,
             tournament_type_id=tournament_type_id("classic"),
             date=date(2026, 7, 3),
             status=TournamentStatus.CLOSED,
@@ -447,6 +452,7 @@ async def test_profile_prize_tournaments_scope_order_and_labels(
         )
         current_new = Tournament(
             season_id=current.id,
+            scoring_config_id=current.scoring_config_id,
             tournament_type_id=tournament_type_id("double_double"),
             date=date(2026, 7, 10),
             status=TournamentStatus.CLOSED,
@@ -454,12 +460,14 @@ async def test_profile_prize_tournaments_scope_order_and_labels(
         )
         active_prize = Tournament(
             season_id=current.id,
+            scoring_config_id=current.scoring_config_id,
             tournament_type_id=tournament_type_id("bounty"),
             date=date(2026, 7, 11),
             status=TournamentStatus.ACTIVE,
         )
         previous_prize = Tournament(
             season_id=previous.id,
+            scoring_config_id=previous.scoring_config_id,
             tournament_type_id=tournament_type_id("bounty"),
             date=date(2026, 6, 20),
             status=TournamentStatus.CLOSED,
@@ -579,6 +587,7 @@ async def test_profile_current_season_switches_on_transition_date(tmp_path: Path
         await session.flush()
         old_tournament = Tournament(
             season_id=old_season.id,
+            scoring_config_id=old_season.scoring_config_id,
             tournament_type_id=tournament_type_id("classic"),
             date=date(2026, 8, 9),
             status=TournamentStatus.CLOSED,
@@ -586,6 +595,7 @@ async def test_profile_current_season_switches_on_transition_date(tmp_path: Path
         )
         future_tournament = Tournament(
             season_id=future_season.id,
+            scoring_config_id=future_season.scoring_config_id,
             tournament_type_id=tournament_type_id("bounty"),
             date=date(2026, 8, 10),
             status=TournamentStatus.CLOSED,
@@ -716,6 +726,7 @@ async def test_profile_selected_season_and_picker_exclude_future(tmp_path: Path)
         await session.flush()
         hidden_tournament = Tournament(
             season_id=hidden.id,
+            scoring_config_id=hidden.scoring_config_id,
             tournament_type_id=tournament_type_id("classic"),
             date=date(2026, 1, 10),
             status=TournamentStatus.CLOSED,
@@ -723,6 +734,7 @@ async def test_profile_selected_season_and_picker_exclude_future(tmp_path: Path)
         )
         completed_tournament = Tournament(
             season_id=completed.id,
+            scoring_config_id=completed.scoring_config_id,
             tournament_type_id=tournament_type_id("classic"),
             date=date(2026, 4, 10),
             status=TournamentStatus.CLOSED,
@@ -730,6 +742,7 @@ async def test_profile_selected_season_and_picker_exclude_future(tmp_path: Path)
         )
         current_tournament = Tournament(
             season_id=current.id,
+            scoring_config_id=current.scoring_config_id,
             tournament_type_id=tournament_type_id("bounty"),
             date=date(2026, 7, 10),
             status=TournamentStatus.CLOSED,
