@@ -72,9 +72,16 @@ def _display_name_with_honours(row: object) -> str:
 
 
 def _honours(row: object) -> str:
-    if hasattr(row, "total_points"):
-        return "💍" * row.season_champion_titles_count
-    return "💥" * getattr(row, "season_knockout_leader_titles_count", 0)
+    achievements = getattr(row, "hall_of_fame_achievements", ())
+    return "".join(_achievement_marker(achievement.kind) for achievement in achievements)
+
+
+def _achievement_marker(kind: str) -> str:
+    if kind == "champion":
+        return "💍"
+    if kind == "knockout":
+        return "💥"
+    return ""
 
 
 def _escape_markdown(value: str) -> str:

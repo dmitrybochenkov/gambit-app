@@ -35,6 +35,7 @@ class KnockoutsRatingRow:
 class RatingHonours:
     season_champion_titles_by_player_id: dict[int, int]
     season_knockout_leader_titles_by_player_id: dict[int, int]
+    achievements_by_player_id: dict[int, tuple[str, ...]]
 
 
 class RatingRepository:
@@ -139,16 +140,23 @@ class RatingRepository:
         rows = await HallOfFameRepository(self.session).list_completed_entries(today)
         champion_counts: dict[int, int] = {}
         knockout_counts: dict[int, int] = {}
-        for row in rows:
+        achievements: dict[int, list[str]] = {}
+        for row in sorted(rows, key=lambda item: (item.starts_at, item.season_id)):
             if row.champion_player_id is not None:
                 champion_counts[row.champion_player_id] = (
                     champion_counts.get(row.champion_player_id, 0) + 1
                 )
+                achievements.setdefault(row.champion_player_id, []).append("champion")
             if row.knockout_leader_player_id is not None:
                 knockout_counts[row.knockout_leader_player_id] = (
                     knockout_counts.get(row.knockout_leader_player_id, 0) + 1
                 )
+                achievements.setdefault(row.knockout_leader_player_id, []).append("knockout")
         return RatingHonours(
             season_champion_titles_by_player_id=champion_counts,
             season_knockout_leader_titles_by_player_id=knockout_counts,
+            achievements_by_player_id={
+                player_id: tuple(player_achievements)
+                for player_id, player_achievements in achievements.items()
+            },
         )

@@ -18,6 +18,7 @@ from app.services.dto.seasons import SeasonOptionView
 from app.services.dto.statistics.rating import (
     KnockoutsRatingView,
     PointsRatingView,
+    RatingAchievementView,
     RatingResultView,
 )
 from app.services.season_options import list_started_season_options
@@ -190,6 +191,7 @@ def points_rating_view(row: PointsRatingRow, honours: RatingHonours) -> PointsRa
             player_id,
             0,
         ),
+        hall_of_fame_achievements=rating_achievement_views(honours, player_id),
     )
 
 
@@ -208,6 +210,17 @@ def knockouts_rating_view(row: KnockoutsRatingRow, honours: RatingHonours) -> Kn
         season_knockout_leader_titles_count=(
             honours.season_knockout_leader_titles_by_player_id.get(player_id, 0)
         ),
+        hall_of_fame_achievements=rating_achievement_views(honours, player_id),
+    )
+
+
+def rating_achievement_views(
+    honours: RatingHonours,
+    player_id: int,
+) -> tuple[RatingAchievementView, ...]:
+    return tuple(
+        RatingAchievementView(kind=kind)
+        for kind in honours.achievements_by_player_id.get(player_id, ())
     )
 
 

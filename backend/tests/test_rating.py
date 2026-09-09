@@ -16,7 +16,11 @@ from app.db.models import (
     TournamentResult,
 )
 from app.db.models.enums import TournamentStatus, UserRole, UserStatus
-from app.services.dto.statistics.rating import KnockoutsRatingView, PointsRatingView
+from app.services.dto.statistics.rating import (
+    KnockoutsRatingView,
+    PointsRatingView,
+    RatingAchievementView,
+)
 from app.services.pagination import pagination_service
 from app.services.rating_service import (
     RatingFutureSeasonError,
@@ -246,7 +250,7 @@ async def test_rating_filters_current_season_and_all_time(tmp_path: Path) -> Non
             "🥊 - количество K.O.\n"
             "🎲 - количество турниров с нокаутами\n\n"
         ) in knockout_message
-        assert "👉 1. *Игрок Первый* 💥 — 6 | 🎲 2" in knockout_message
+        assert "👉 1. *Игрок Первый* 💍💥 — 6 | 🎲 2" in knockout_message
         assert "⭐" not in knockout_message
         assert "✅" not in knockout_message
     finally:
@@ -332,6 +336,7 @@ def test_points_rating_format_uses_half_up_rounding_and_current_marker() -> None
                 total_points=Decimal("120.5"),
                 tournaments_count=3,
                 season_champion_titles_count=1,
+                hall_of_fame_achievements=(RatingAchievementView(kind="champion"),),
             ),
             PointsRatingView(
                 player_id=2,
@@ -368,6 +373,11 @@ def test_knockout_rating_format_hides_points_and_repeats_titles() -> None:
                 knockout_tournaments_count=2,
                 season_champion_titles_count=1,
                 season_knockout_leader_titles_count=2,
+                hall_of_fame_achievements=(
+                    RatingAchievementView(kind="champion"),
+                    RatingAchievementView(kind="knockout"),
+                    RatingAchievementView(kind="knockout"),
+                ),
             )
         ],
         page=0,
@@ -383,10 +393,9 @@ def test_knockout_rating_format_hides_points_and_repeats_titles() -> None:
         "💥 - лучший нокаутер сезона\n"
         "🥊 - количество K.O.\n"
         "🎲 - количество турниров с нокаутами\n\n"
-        "🥇 King 💥💥 — 6 | 🎲 2"
+        "🥇 King 💍💥💥 — 6 | 🎲 2"
     ) == message
     assert "×2" not in message
-    assert "💍" not in message
 
 
 def test_points_rating_format_marks_current_player_without_honours() -> None:
@@ -439,6 +448,10 @@ def test_knockout_rating_format_marks_current_player_with_ring_and_knockout_titl
                 knockout_tournaments_count=18,
                 season_champion_titles_count=1,
                 season_knockout_leader_titles_count=1,
+                hall_of_fame_achievements=(
+                    RatingAchievementView(kind="champion"),
+                    RatingAchievementView(kind="knockout"),
+                ),
             ),
         ],
         page=4,
@@ -447,7 +460,7 @@ def test_knockout_rating_format_marks_current_player_with_ring_and_knockout_titl
 
     message = rating_fmt.message("Рейтинг по нокаутам — за всё время", page, current_player_id=5)
 
-    assert "👉 5. *Дима* 💥 — 12 | 🎲 18" in message
+    assert "👉 5. *Дима* 💍💥 — 12 | 🎲 18" in message
     assert "✅" not in message
 
 
@@ -466,6 +479,7 @@ def test_points_rating_format_repeats_only_champion_badges() -> None:
                 total_points=Decimal("90"),
                 tournaments_count=3,
                 season_champion_titles_count=1,
+                hall_of_fame_achievements=(RatingAchievementView(kind="champion"),),
             ),
             PointsRatingView(
                 player_id=3,
@@ -473,6 +487,10 @@ def test_points_rating_format_repeats_only_champion_badges() -> None:
                 total_points=Decimal("80"),
                 tournaments_count=3,
                 season_champion_titles_count=2,
+                hall_of_fame_achievements=(
+                    RatingAchievementView(kind="champion"),
+                    RatingAchievementView(kind="champion"),
+                ),
             ),
             PointsRatingView(
                 player_id=4,
@@ -480,6 +498,11 @@ def test_points_rating_format_repeats_only_champion_badges() -> None:
                 total_points=Decimal("70"),
                 tournaments_count=3,
                 season_champion_titles_count=3,
+                hall_of_fame_achievements=(
+                    RatingAchievementView(kind="champion"),
+                    RatingAchievementView(kind="champion"),
+                    RatingAchievementView(kind="champion"),
+                ),
             ),
         ],
         page=0,
@@ -492,7 +515,6 @@ def test_points_rating_format_repeats_only_champion_badges() -> None:
     assert "🥈 One Champion 💍 — 90 | 🎲 3" in message
     assert "🥉 Two Champions 💍💍 — 80 | 🎲 3" in message
     assert "4. Three Champions 💍💍💍 — 70 | 🎲 3" in message
-    assert "💥" not in message
     assert "x2" not in message
     assert "×2" not in message
     assert "(2)" not in message
@@ -515,6 +537,7 @@ def test_knockout_rating_format_repeats_only_knockout_title_badges() -> None:
                 big_knockouts_count=0,
                 knockout_tournaments_count=3,
                 season_knockout_leader_titles_count=1,
+                hall_of_fame_achievements=(RatingAchievementView(kind="knockout"),),
             ),
             KnockoutsRatingView(
                 player_id=3,
@@ -523,6 +546,10 @@ def test_knockout_rating_format_repeats_only_knockout_title_badges() -> None:
                 big_knockouts_count=0,
                 knockout_tournaments_count=3,
                 season_knockout_leader_titles_count=2,
+                hall_of_fame_achievements=(
+                    RatingAchievementView(kind="knockout"),
+                    RatingAchievementView(kind="knockout"),
+                ),
             ),
             KnockoutsRatingView(
                 player_id=4,
@@ -532,6 +559,14 @@ def test_knockout_rating_format_repeats_only_knockout_title_badges() -> None:
                 knockout_tournaments_count=3,
                 season_champion_titles_count=3,
                 season_knockout_leader_titles_count=3,
+                hall_of_fame_achievements=(
+                    RatingAchievementView(kind="champion"),
+                    RatingAchievementView(kind="champion"),
+                    RatingAchievementView(kind="champion"),
+                    RatingAchievementView(kind="knockout"),
+                    RatingAchievementView(kind="knockout"),
+                    RatingAchievementView(kind="knockout"),
+                ),
             ),
         ],
         page=0,
@@ -543,15 +578,14 @@ def test_knockout_rating_format_repeats_only_knockout_title_badges() -> None:
     assert "🥇 No Titles — 10 | 🎲 3" in message
     assert "🥈 One Knockout Title 💥 — 9 | 🎲 3" in message
     assert "🥉 Two Knockout Titles 💥💥 — 8 | 🎲 3" in message
-    assert "4. Three Knockout Titles 💥💥💥 — 7 | 🎲 3" in message
-    assert "💍" not in message
+    assert "4. Three Knockout Titles 💍💍💍💥💥💥 — 7 | 🎲 3" in message
     assert "🥊 - количество K.O." in message
     assert "x2" not in message
     assert "×2" not in message
     assert "(2)" not in message
 
 
-async def test_rating_badges_are_specific_to_rating_kind(tmp_path: Path) -> None:
+async def test_rating_badges_are_shared_across_rating_kinds(tmp_path: Path) -> None:
     engine = create_async_engine(f"sqlite+aiosqlite:///{tmp_path / 'rating_badges.db'}")
     async with engine.begin() as connection:
         await connection.run_sync(Base.metadata.create_all)
@@ -637,10 +671,158 @@ async def test_rating_badges_are_specific_to_rating_kind(tmp_path: Path) -> None
             current_player_id=999,
         )
 
-        assert "Title Collector 💍 — 110 | 🎲 1" in points_message
-        assert "💥" not in points_message
-        assert "Title Collector 💥 — 1 | 🎲 1" in knockout_message
-        assert "💍" not in knockout_message
+        assert "Title Collector 💍💥 — 110 | 🎲 1" in points_message
+        assert "Title Collector 💍💥 — 1 | 🎲 1" in knockout_message
+    finally:
+        await engine.dispose()
+
+
+async def test_rating_achievements_are_ordered_chronologically_across_all_ratings(
+    tmp_path: Path,
+) -> None:
+    engine = create_async_engine(f"sqlite+aiosqlite:///{tmp_path / 'rating_achievements.db'}")
+    async with engine.begin() as connection:
+        await connection.run_sync(Base.metadata.create_all)
+
+    session_factory = async_sessionmaker(engine, expire_on_commit=False)
+    async with session_factory() as session:
+        config = ScoringConfig()
+        session.add(config)
+        await session.flush()
+        await seed_tournament_types_async(session)
+        seasons = [
+            Season(
+                name="Winter",
+                scoring_config_id=config.id,
+                starts_at=date(2026, 1, 1),
+                ends_at=date(2026, 3, 31),
+            ),
+            Season(
+                name="Spring",
+                scoring_config_id=config.id,
+                starts_at=date(2026, 4, 1),
+                ends_at=date(2026, 6, 30),
+            ),
+            Season(
+                name="Summer",
+                scoring_config_id=config.id,
+                starts_at=date(2026, 7, 1),
+                ends_at=date(2026, 8, 31),
+            ),
+            Season(
+                name="Current",
+                scoring_config_id=config.id,
+                starts_at=date(2026, 9, 1),
+                ends_at=None,
+            ),
+        ]
+        player = build_player(
+            telegram_id=100,
+            display_name="Chrono",
+            status=UserStatus.ACTIVE,
+        )
+        session.add_all([*seasons, player])
+        await session.flush()
+        tournaments = [
+            Tournament(
+                season_id=season.id,
+                scoring_config_id=season.scoring_config_id,
+                tournament_type_id=tournament_type_id("bounty"),
+                date=season.starts_at,
+                status=TournamentStatus.CLOSED,
+                tournament_fund=1000,
+            )
+            for season in seasons[:3]
+        ]
+        session.add_all(tournaments)
+        await session.flush()
+        session.add_all(
+            [
+                TournamentResult(
+                    tournament_id=tournaments[0].id,
+                    player_id=player.id,
+                    place=1,
+                    knockouts_count=1,
+                    tournament_points=Decimal("100"),
+                    knockout_points=Decimal("15"),
+                    bonus_points=0,
+                ),
+                TournamentResult(
+                    tournament_id=tournaments[1].id,
+                    player_id=player.id,
+                    place=1,
+                    knockouts_count=1,
+                    tournament_points=Decimal("100"),
+                    knockout_points=Decimal("15"),
+                    bonus_points=0,
+                ),
+                TournamentResult(
+                    tournament_id=tournaments[2].id,
+                    player_id=player.id,
+                    place=1,
+                    knockouts_count=1,
+                    tournament_points=Decimal("100"),
+                    knockout_points=Decimal("15"),
+                    bonus_points=0,
+                ),
+                SeasonHallOfFame(
+                    season_id=seasons[0].id,
+                    knockout_player_id=player.id,
+                    updated_by_user_id=player.id,
+                ),
+                SeasonHallOfFame(
+                    season_id=seasons[1].id,
+                    champion_player_id=player.id,
+                    updated_by_user_id=player.id,
+                ),
+                SeasonHallOfFame(
+                    season_id=seasons[2].id,
+                    champion_player_id=player.id,
+                    knockout_player_id=player.id,
+                    updated_by_user_id=player.id,
+                ),
+            ]
+        )
+        await session.commit()
+
+    service = RatingService(session_factory)
+    try:
+        points_rating = await service.get_rating_for_player(
+            telegram_id=100,
+            kind=RatingKind.ALL_TIME,
+            today=date(2026, 9, 2),
+        )
+        knockout_rating = await service.get_rating_for_player(
+            telegram_id=100,
+            kind=RatingKind.KNOCKOUTS_ALL_TIME,
+            today=date(2026, 9, 2),
+        )
+        points_row = points_rating.rows[0]
+        knockouts_row = knockout_rating.rows[0]
+
+        assert [achievement.kind for achievement in points_row.hall_of_fame_achievements] == [
+            "knockout",
+            "champion",
+            "champion",
+            "knockout",
+        ]
+        assert points_row.hall_of_fame_achievements == knockouts_row.hall_of_fame_achievements
+        assert points_row.season_champion_titles_count == 2
+        assert knockouts_row.season_champion_titles_count == 2
+        assert knockouts_row.season_knockout_leader_titles_count == 2
+
+        points_message = rating_fmt.message(
+            points_rating.title,
+            pagination_service.paginate(points_rating.rows, page=0, page_size=10),
+            current_player_id=999,
+        )
+        knockout_message = rating_fmt.message(
+            knockout_rating.title,
+            pagination_service.paginate(knockout_rating.rows, page=0, page_size=10),
+            current_player_id=player.id,
+        )
+        assert "Chrono 💥💍💍💥 — 345 | 🎲 3" in points_message
+        assert "👉 1. *Chrono* 💥💍💍💥 — 3 | 🎲 3" in knockout_message
     finally:
         await engine.dispose()
 
@@ -654,6 +836,10 @@ def test_points_rating_format_repeats_champion_badges_without_counter_suffix() -
                 total_points=Decimal("100"),
                 tournaments_count=3,
                 season_champion_titles_count=2,
+                hall_of_fame_achievements=(
+                    RatingAchievementView(kind="champion"),
+                    RatingAchievementView(kind="champion"),
+                ),
             ),
         ],
         page=0,

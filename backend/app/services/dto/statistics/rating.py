@@ -1,5 +1,13 @@
 from dataclasses import dataclass
 from decimal import Decimal
+from typing import Literal
+
+RatingAchievementKind = Literal["champion", "knockout"]
+
+
+@dataclass(frozen=True)
+class RatingAchievementView:
+    kind: RatingAchievementKind
 
 
 @dataclass(frozen=True)
@@ -9,6 +17,7 @@ class PointsRatingView:
     total_points: Decimal
     tournaments_count: int
     season_champion_titles_count: int = 0
+    hall_of_fame_achievements: tuple[RatingAchievementView, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -20,6 +29,7 @@ class KnockoutsRatingView:
     knockout_tournaments_count: int
     season_champion_titles_count: int = 0
     season_knockout_leader_titles_count: int = 0
+    hall_of_fame_achievements: tuple[RatingAchievementView, ...] = ()
 
     @property
     def total_knockouts_count(self) -> int:
