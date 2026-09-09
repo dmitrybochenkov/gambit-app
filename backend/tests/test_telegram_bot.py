@@ -7344,7 +7344,7 @@ async def test_superadmin_tournament_hub_closed_shows_closed_list(
             return_value=SuperadminTournamentHubView(open_tournaments_count=2)
         )
     )
-    result_service_mock = SimpleNamespace(
+    correction_service_mock = SimpleNamespace(
         list_closed_tournaments_for_superadmin=AsyncMock(return_value=[tournament])
     )
     monkeypatch.setattr(
@@ -7352,7 +7352,7 @@ async def test_superadmin_tournament_hub_closed_shows_closed_list(
         "tournament_planning_service",
         planning_service,
     )
-    monkeypatch.setattr(superadmin_close_handlers, "result_service", result_service_mock)
+    monkeypatch.setattr(superadmin_close_handlers, "correction_service", correction_service_mock)
     state = MutableState()
     message = SimpleNamespace(edit_text=AsyncMock())
     callback = SimpleNamespace(
@@ -7370,7 +7370,7 @@ async def test_superadmin_tournament_hub_closed_shows_closed_list(
     )
 
     planning_service.get_superadmin_tournament_hub.assert_awaited_once_with(100)
-    result_service_mock.list_closed_tournaments_for_superadmin.assert_awaited_once_with(100)
+    correction_service_mock.list_closed_tournaments_for_superadmin.assert_awaited_once_with(100)
     assert message.edit_text.await_args.args[0] == (
         "🔒 Закрытые турниры\n\nСреда, 26 августа — Mystery Bounty"
     )

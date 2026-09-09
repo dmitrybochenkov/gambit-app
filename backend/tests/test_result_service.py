@@ -38,6 +38,7 @@ from app.db.models.enums import (
 )
 from app.db.repositories.tournament_result_repository import TournamentResultRepository
 from app.services.access_policy import ActiveUserRequiredError, AdminAccessDeniedError
+from app.services.closed_tournament_correction_service import ClosedTournamentCorrectionService
 from app.services.result_fields import ResultField
 from app.services.result_service import (
     ClosedTournamentCorrectionStaleError,
@@ -1608,7 +1609,11 @@ async def test_closed_mystery_bounty_correction_updates_knockouts_without_big_kn
         clock=FixedClock(datetime(2026, 7, 18, 12, tzinfo=ZoneInfo("Europe/Moscow"))),
     )
     await service.close_tournament(100, tournament_id, 1000)
-    results = await service.get_closed_tournament_results(100, tournament_id)
+    correction_service = ClosedTournamentCorrectionService(
+        session_factory,
+        clock=FixedClock(datetime(2026, 7, 18, 12, tzinfo=ZoneInfo("Europe/Moscow"))),
+    )
+    results = await correction_service.get_closed_tournament_results(100, tournament_id)
 
     assert results.knockout_mode == KnockoutMode.SMALL.value
     assert ResultService.editable_result_fields(results) == [
@@ -1618,33 +1623,33 @@ async def test_closed_mystery_bounty_correction_updates_knockouts_without_big_kn
     ]
     assert ResultField.BIG_KNOCKOUTS not in ResultService.editable_result_fields(results)
 
-    draft = await service.begin_closed_tournament_correction(100, tournament_id)
-    draft = await service.update_closed_tournament_draft_result_field(
+    draft = await correction_service.begin_closed_tournament_correction(100, tournament_id)
+    draft = await correction_service.update_closed_tournament_draft_result_field(
         100,
         draft,
         first_player_id,
         ResultField.KNOCKOUTS,
         5,
     )
-    updated = await service.get_closed_tournament_draft_results(100, draft)
+    updated = await correction_service.get_closed_tournament_draft_results(100, draft)
     player = ResultService.find_result_player(updated, first_player_id)
     assert player is not None
     assert player.knockout_points == Decimal("75.00")
     persisted = ResultService.find_result_player(
-        await service.get_closed_tournament_results(100, tournament_id),
+        await correction_service.get_closed_tournament_results(100, tournament_id),
         first_player_id,
     )
     assert persisted is not None
     assert persisted.knockouts_count == 3
 
-    correction = await service.build_closed_tournament_correction_preview(100, draft)
+    correction = await correction_service.build_closed_tournament_correction_preview(100, draft)
 
     assert [
         (change.display_name, [(field.label, field.before, field.after) for field in change.fields])
         for change in correction.result_changes
     ] == [("Player 1", [("КО", "3", "5")])]
     assert correction.reward_changes == ()
-    await service.apply_closed_tournament_correction(100, draft)
+    await correction_service.apply_closed_tournament_correction(100, draft)
     await engine.dispose()
 
 
@@ -1707,7 +1712,7 @@ async def test_closed_correction_stale_draft_is_rejected(tmp_path: Path) -> None
         tournament_id = tournament.id
         first_player_id = players[0].id
 
-    service = ResultService(session_factory)
+    service = ClosedTournamentCorrectionService(session_factory)
     draft = await service.begin_closed_tournament_correction(100, tournament_id)
     draft = await service.update_closed_tournament_draft_result_field(
         100,
@@ -1735,7 +1740,7 @@ async def test_closed_correction_add_delete_and_fund_are_draft_only(tmp_path: Pa
         tmp_path / "closed-draft-only.db",
         tournament_status=TournamentStatus.CLOSED,
     )
-    service = ResultService(
+    service = ClosedTournamentCorrectionService(
         participant_service.session_factory,
         clock=FixedClock(datetime(2026, 8, 26, 12, tzinfo=ZoneInfo("Europe/Moscow"))),
     )
@@ -1791,7 +1796,7 @@ async def test_closed_correction_duplicate_draft_player_is_rejected(tmp_path: Pa
         tmp_path / "closed-duplicate-player.db",
         tournament_status=TournamentStatus.CLOSED,
     )
-    service = ResultService(
+    service = ClosedTournamentCorrectionService(
         participant_service.session_factory,
         clock=FixedClock(datetime(2026, 8, 26, 12, tzinfo=ZoneInfo("Europe/Moscow"))),
     )

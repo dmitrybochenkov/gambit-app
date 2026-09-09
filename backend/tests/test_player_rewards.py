@@ -23,6 +23,7 @@ from app.db.models import (
 )
 from app.db.models.enums import TournamentResultSource, TournamentStatus, UserRole, UserStatus
 from app.services.access_policy import AdminAccessDeniedError
+from app.services.closed_tournament_correction_service import ClosedTournamentCorrectionService
 from app.services.player_reward_service import (
     PlayerRewardAlreadyRedeemedTodayError,
     PlayerRewardNotFoundError,
@@ -35,7 +36,7 @@ from app.services.user_access_service import UserAccessService
 
 
 async def _closed_correction_draft(
-    service: ResultService,
+    service: ClosedTournamentCorrectionService,
     telegram_id: int,
     tournament_id: int,
     updates: tuple[tuple[int, ResultField, int], ...] = (),
@@ -243,7 +244,7 @@ async def test_closed_tournament_correction_reconciles_rewards_and_preserves_val
     )
     await close_service.close_tournament(100, tournament_id, 1000)
 
-    correction_service = ResultService(
+    correction_service = ClosedTournamentCorrectionService(
         session_factory,
         clock=FixedClock(datetime(2026, 8, 23, 12, tzinfo=ZoneInfo("Europe/Moscow"))),
     )
@@ -412,7 +413,7 @@ async def test_closed_tournament_correction_warns_about_redeemed_reward(
         reward.redeemed_tournament_day = date(2026, 8, 23)
         await session.commit()
 
-    correction_service = ResultService(
+    correction_service = ClosedTournamentCorrectionService(
         session_factory,
         clock=FixedClock(datetime(2026, 8, 23, 13, tzinfo=ZoneInfo("Europe/Moscow"))),
     )
@@ -483,7 +484,7 @@ async def test_closed_tournament_correction_requires_superadmin(tmp_path: Path) 
         tournament_id = tournament.id
         await session.commit()
 
-    service = ResultService(session_factory)
+    service = ClosedTournamentCorrectionService(session_factory)
 
     with pytest.raises(AdminAccessDeniedError):
         await service.get_closed_tournament_results(100, tournament_id)
@@ -560,7 +561,7 @@ async def test_closed_tournament_correction_replaces_player_and_preserves_result
         correct_id = correct.id
         await session.commit()
 
-    service = ResultService(
+    service = ClosedTournamentCorrectionService(
         session_factory,
         clock=FixedClock(datetime(2026, 8, 23, 12, tzinfo=ZoneInfo("Europe/Moscow"))),
     )
@@ -668,7 +669,7 @@ async def test_closed_tournament_correction_player_replacement_moves_top_reward(
         clock=FixedClock(datetime(2026, 8, 22, 12, tzinfo=ZoneInfo("Europe/Moscow"))),
     )
     await close_service.close_tournament(100, tournament_id, 1000)
-    correction_service = ResultService(
+    correction_service = ClosedTournamentCorrectionService(
         session_factory,
         clock=FixedClock(datetime(2026, 8, 24, 12, tzinfo=ZoneInfo("Europe/Moscow"))),
     )
@@ -767,7 +768,7 @@ async def test_closed_tournament_correction_restores_original_lifecycle_without_
         player_ids = [player.id for player in players]
         await session.commit()
 
-    service = ResultService(
+    service = ClosedTournamentCorrectionService(
         session_factory,
         clock=FixedClock(datetime(2026, 8, 24, 12, tzinfo=ZoneInfo("Europe/Moscow"))),
     )
