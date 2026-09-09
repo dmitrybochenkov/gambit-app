@@ -73,6 +73,7 @@ Relevant database/runtime environment values:
 | `f5c6d7e8f9a0` | Add reward expiration reminders | Yes | No | No | Adds `expiration_reminder_sent_at`. |
 | `f6d7e8f9a0b1` | Enable Mystery Bounty knockouts | Yes | No | Yes | Sets `mystery_bounty` to `knockout_mode = small`. |
 | `3b4c5d6e7f8a` | Add user gender | Yes | No | Yes | Adds nullable `users.gender`; existing users remain unknown. |
+| `6e7f8a9b0c1d` | Add tournament type calendar codes | Yes | No | No | Adds DB-driven compact calendar codes without changing `short_name`. |
 | `5d6e7f8a9b0c` | Add tournament-bound scoring v2 | Yes | No | Yes | Adds `tournaments.scoring_config_id`, MAIN KO config fields, v2 tournament formats, assigns old tournaments to v1, assigns the 2026-09-02..2026-09-06 tournaments and current season default to v2, and removes `tournament_types.status`. It does not create concrete calendar tournaments or recalculate result points. |
 
 Pre-production destructive resets were intentional for the current development

@@ -435,12 +435,14 @@ async def test_history_chronological_order_and_legacy_display_names(tmp_path: Pa
             code="legacy_unknown",
             name="Неопределенный турнир",
             short_name="Турнир",
+            calendar_code="?",
         )
         classic_type = TournamentType(
             id=101,
             code="classic",
             name="Классика",
             short_name="Classic",
+            calendar_code="C",
         )
         season = Season(
             name="История",

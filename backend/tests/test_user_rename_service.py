@@ -167,6 +167,7 @@ async def test_user_rename_confirmation_updates_name_only_and_keeps_relations(
                 code="classic",
                 name="Классика",
                 short_name="Classic",
+                calendar_code="C",
             )
             tournament = Tournament(
                 season_id=1,

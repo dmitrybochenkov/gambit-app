@@ -224,11 +224,12 @@ def test_persisted_enums_reject_unknown_values(
             text(
                 """
                 INSERT OR IGNORE INTO tournament_types (
-                    id, code, name, short_name, is_creatable, created_at, updated_at
+                    id, code, name, short_name, calendar_code, is_creatable,
+                    created_at, updated_at
                 )
                 VALUES (
-                    1, 'enum_type', 'Enum type', 'Enum type', 0, CURRENT_TIMESTAMP,
-                    CURRENT_TIMESTAMP
+                    1, 'enum_type', 'Enum type', 'Enum type', 'E', 0,
+                    CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
                 )
                 """
             )
@@ -267,10 +268,11 @@ def test_persisted_enums_reject_unknown_values(
             text(
                 """
                 INSERT OR IGNORE INTO tournament_types (
-                    id, code, name, short_name, is_creatable, created_at, updated_at
+                    id, code, name, short_name, calendar_code, is_creatable,
+                    created_at, updated_at
                 )
                 VALUES (
-                    1, 'enum_rule_type', 'Enum rule type', 'Enum rule type', 0,
+                    1, 'enum_rule_type', 'Enum rule type', 'Enum rule type', 'E', 0,
                     CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
                 )
                 """

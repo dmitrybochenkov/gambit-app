@@ -24,6 +24,7 @@ class TournamentType(TimestampMixin, Base):
     code: Mapped[str] = mapped_column(String(50), unique=True, nullable=False)
     name: Mapped[str] = mapped_column(String(100), nullable=False)
     short_name: Mapped[str] = mapped_column(String(32), nullable=False)
+    calendar_code: Mapped[str] = mapped_column(String(8), nullable=False)
     description: Mapped[str | None] = mapped_column(Text, nullable=True)
     is_creatable: Mapped[bool] = mapped_column(
         Boolean,

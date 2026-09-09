@@ -232,11 +232,16 @@ Fields:
 - `code`
 - `name`
 - `short_name`
+- `calendar_code`
 - `description`
 - `is_creatable`
 
 Rules:
 
+- `short_name` is a compact human-readable tournament name used in history,
+  profile, and API presentation.
+- `calendar_code` is the compact DB-driven code used only by calendar cells
+  and calendar legends.
 - `is_creatable = true` means administrators may create new tournaments of
   this type.
 - `is_creatable = false` keeps historical/existing tournaments readable and

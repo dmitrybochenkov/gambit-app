@@ -60,6 +60,14 @@ class SuperadminTournamentCalendarAction(StrEnum):
     CANCEL = "cancel"
 
 
+class SuperadminTournamentCalendarFormatAction(StrEnum):
+    LIST = "list"
+    PAGE = "page"
+    DETAIL = "detail"
+    BACK_LIST = "back_list"
+    BACK_CALENDAR = "back_calendar"
+
+
 class SuperadminTournamentCalendarCallback(
     CallbackData,
     prefix="superadmin_tour_cal",
@@ -71,6 +79,22 @@ class SuperadminTournamentCalendarCallback(
     day: str = ""
     tournament_id: int = 0
     tournament_type_id: int = 0
+
+
+class SuperadminTournamentCalendarFormatCallback(
+    CallbackData,
+    prefix="superadmin_tour_fmt",
+):
+    action: SuperadminTournamentCalendarFormatAction
+    year: int
+    month: int
+    page: int = 0
+    tournament_type_id: int = 0
+
+
+CALENDAR_FORMATS_PAGE_SIZE = 5
+CALENDAR_FORMAT_HELP_LABEL = "💡 Подсказка по форматам"
+CALENDAR_FORMAT_BACK_LABEL = "◀️ Назад в календарь"
 
 
 def tournament_hub_keyboard(open_tournaments_count: int) -> InlineKeyboardMarkup:
@@ -128,12 +152,98 @@ def calendar_month_keyboard(view: object) -> InlineKeyboardMarkup:
         ),
     )
     builder.button(
+        text=CALENDAR_FORMAT_HELP_LABEL,
+        callback_data=SuperadminTournamentCalendarFormatCallback(
+            action=SuperadminTournamentCalendarFormatAction.LIST,
+            year=view.year,
+            month=view.month,
+            page=0,
+        ),
+    )
+    builder.button(
         text=labels.ADMIN_CALENDAR_BACK,
         callback_data=SuperadminTournamentCalendarCallback(
             action=SuperadminTournamentCalendarAction.BACK_HUB,
         ),
     )
-    builder.adjust(len(view.weeks), 2, 1)
+    week_rows = [len(view.weeks)] if view.weeks else []
+    builder.adjust(*week_rows, 2, 1, 1)
+    return builder.as_markup()
+
+
+def calendar_format_help_keyboard(view: object, *, page: int = 0) -> InlineKeyboardMarkup:
+    builder = InlineKeyboardBuilder()
+    total_items = len(view.tournament_types)
+    total_pages = max(
+        1, (total_items + CALENDAR_FORMATS_PAGE_SIZE - 1) // CALENDAR_FORMATS_PAGE_SIZE
+    )
+    current_page = min(max(page, 0), total_pages - 1)
+    start = current_page * CALENDAR_FORMATS_PAGE_SIZE
+    items = view.tournament_types[start : start + CALENDAR_FORMATS_PAGE_SIZE]
+    for tournament_type in items:
+        builder.button(
+            text=tournament_type.name,
+            callback_data=SuperadminTournamentCalendarFormatCallback(
+                action=SuperadminTournamentCalendarFormatAction.DETAIL,
+                year=view.year,
+                month=view.month,
+                page=current_page,
+                tournament_type_id=tournament_type.id,
+            ),
+        )
+    if total_pages > 1:
+        previous_page = current_page - 1 if current_page > 0 else current_page
+        next_page = current_page + 1 if current_page < total_pages - 1 else current_page
+        builder.button(
+            text="◀️",
+            callback_data=SuperadminTournamentCalendarFormatCallback(
+                action=SuperadminTournamentCalendarFormatAction.PAGE,
+                year=view.year,
+                month=view.month,
+                page=previous_page,
+            ),
+        )
+        builder.button(
+            text=f"{current_page + 1}/{total_pages}",
+            callback_data=SuperadminTournamentCalendarFormatCallback(
+                action=SuperadminTournamentCalendarFormatAction.PAGE,
+                year=view.year,
+                month=view.month,
+                page=current_page,
+            ),
+        )
+        builder.button(
+            text="▶️",
+            callback_data=SuperadminTournamentCalendarFormatCallback(
+                action=SuperadminTournamentCalendarFormatAction.PAGE,
+                year=view.year,
+                month=view.month,
+                page=next_page,
+            ),
+        )
+    builder.button(
+        text=CALENDAR_FORMAT_BACK_LABEL,
+        callback_data=SuperadminTournamentCalendarFormatCallback(
+            action=SuperadminTournamentCalendarFormatAction.BACK_LIST,
+            year=view.year,
+            month=view.month,
+        ),
+    )
+    builder.adjust(*([1] * len(items)), 3 if total_pages > 1 else 1, 1)
+    return builder.as_markup()
+
+
+def calendar_format_detail_keyboard(*, year: int, month: int) -> InlineKeyboardMarkup:
+    builder = InlineKeyboardBuilder()
+    builder.button(
+        text=CALENDAR_FORMAT_BACK_LABEL,
+        callback_data=SuperadminTournamentCalendarFormatCallback(
+            action=SuperadminTournamentCalendarFormatAction.BACK_CALENDAR,
+            year=year,
+            month=month,
+        ),
+    )
+    builder.adjust(1)
     return builder.as_markup()
 
 

@@ -13,6 +13,7 @@ class TournamentView:
     tournament_type_id: int
     tournament_type_name: str | None
     tournament_type_code: str | None = None
+    tournament_type_calendar_code: str | None = None
     registration_open: bool = True
 
 
@@ -94,6 +95,14 @@ class TournamentCalendarMonthView:
     year: int
     month: int
     weeks: tuple[TournamentCalendarWeekView, ...]
+    tournament_types: tuple["TournamentCalendarMonthTypeView", ...] = ()
+
+
+@dataclass(frozen=True)
+class TournamentCalendarMonthTypeView:
+    id: int
+    name: str
+    calendar_code: str
 
 
 @dataclass(frozen=True)
@@ -114,6 +123,16 @@ class TournamentCalendarTypeOptionView:
     id: int
     code: str
     name: str
+    calendar_code: str | None = None
+
+
+@dataclass(frozen=True)
+class TournamentCalendarFormatDetailView:
+    id: int
+    name: str
+    description: str | None
+    economy: TournamentEconomyView | None
+    rules: TournamentRulesView | None
 
 
 @dataclass(frozen=True)

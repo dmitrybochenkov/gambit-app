@@ -65,6 +65,24 @@ TOURNAMENT_TYPE_SHORT_NAMES = {
     "deep_stack_v2": "Deep Stack",
     "main_ko": "MAIN KO",
 }
+TOURNAMENT_TYPE_CALENDAR_CODES = {
+    "bounty": "B",
+    "classic": "C",
+    "freezeout": "F",
+    "double_double": "DD",
+    "mystery_bounty": "MB",
+    "boss_bounty": "BB",
+    "legacy_unknown": "?",
+    "bounty_v2": "B2",
+    "classic_v2": "C2",
+    "freezeout_v2": "F2",
+    "deep_stack": "D",
+    "white_party": "WP",
+    "bounty_v3": "B3",
+    "classic_v3": "C3",
+    "deep_stack_v2": "D2",
+    "main_ko": "MK",
+}
 TOURNAMENT_TYPE_DESCRIPTIONS = {
     "bounty": (
         "Динамические нокауты: до финального стола малые КО, на финальном столе большие КО."
@@ -176,6 +194,7 @@ def build_tournament_types() -> list[TournamentType]:
             code=code,
             name=name,
             short_name=TOURNAMENT_TYPE_SHORT_NAMES[code],
+            calendar_code=TOURNAMENT_TYPE_CALENDAR_CODES[code],
             description=TOURNAMENT_TYPE_DESCRIPTIONS[code],
             is_creatable=code in CREATABLE_TOURNAMENT_TYPE_CODES,
         )

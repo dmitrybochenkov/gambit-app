@@ -370,6 +370,7 @@ def tournament_view(tournament: Tournament) -> TournamentView:
         tournament_type_id=tournament.tournament_type_id,
         tournament_type_name=tournament.tournament_type.name,
         tournament_type_code=tournament.tournament_type.code,
+        tournament_type_calendar_code=tournament.tournament_type.calendar_code,
         registration_open=tournament.registration_open,
     )
 

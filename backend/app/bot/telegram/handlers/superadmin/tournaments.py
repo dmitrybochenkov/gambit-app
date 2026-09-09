@@ -10,7 +10,7 @@ from app.bot.telegram.formatters import tournaments as tournament_fmt
 from app.bot.telegram.handlers.superadmin.navigation import send_superadmin_panel
 from app.bot.telegram.keyboards import labels
 from app.bot.telegram.keyboards.superadmin import tournaments as superadmin_tournaments_kb
-from app.bot.telegram.message_edit import edit_message_if_changed
+from app.bot.telegram.message_edit import edit_message_if_changed, edit_reply_markup_if_changed
 from app.bot.telegram.texts.superadmin import panel as panel_text
 from app.bot.telegram.texts.superadmin import tournaments as text
 from app.services.access_policy import AdminAccessDeniedError
@@ -397,6 +397,91 @@ async def select_tournament_calendar_action(
         return
     except (CalendarTournamentNotEditableError, CalendarTournamentNotFoundError):
         await callback.answer(text.CALENDAR_TOURNAMENT_NOT_EDITABLE, show_alert=True)
+        return
+
+
+@router.callback_query(
+    superadmin_tournaments_kb.SuperadminTournamentCalendarFormatCallback.filter()
+)
+async def select_tournament_calendar_format_action(
+    callback: CallbackQuery,
+    callback_data: superadmin_tournaments_kb.SuperadminTournamentCalendarFormatCallback,
+    state: FSMContext,
+) -> None:
+    try:
+        if (
+            callback_data.action
+            == superadmin_tournaments_kb.SuperadminTournamentCalendarFormatAction.BACK_LIST
+        ):
+            view = await tournament_planning_service.get_calendar_month(
+                callback.from_user.id,
+                year=callback_data.year,
+                month=callback_data.month,
+            )
+            await callback.answer()
+            if callback.message is not None:
+                await edit_reply_markup_if_changed(
+                    callback.message,
+                    reply_markup=superadmin_tournaments_kb.calendar_month_keyboard(view),
+                )
+            return
+        if (
+            callback_data.action
+            == superadmin_tournaments_kb.SuperadminTournamentCalendarFormatAction.BACK_CALENDAR
+        ):
+            await _edit_calendar_month(
+                callback,
+                state=state,
+                year=callback_data.year,
+                month=callback_data.month,
+            )
+            return
+        if callback_data.action in {
+            superadmin_tournaments_kb.SuperadminTournamentCalendarFormatAction.LIST,
+            superadmin_tournaments_kb.SuperadminTournamentCalendarFormatAction.PAGE,
+        }:
+            view = await tournament_planning_service.get_calendar_month(
+                callback.from_user.id,
+                year=callback_data.year,
+                month=callback_data.month,
+            )
+            await callback.answer()
+            if callback.message is not None:
+                await edit_reply_markup_if_changed(
+                    callback.message,
+                    reply_markup=superadmin_tournaments_kb.calendar_format_help_keyboard(
+                        view,
+                        page=callback_data.page,
+                    ),
+                )
+            return
+        if (
+            callback_data.action
+            == superadmin_tournaments_kb.SuperadminTournamentCalendarFormatAction.DETAIL
+        ):
+            detail = await tournament_planning_service.get_calendar_format_detail(
+                callback.from_user.id,
+                year=callback_data.year,
+                month=callback_data.month,
+                tournament_type_id=callback_data.tournament_type_id,
+            )
+            await callback.answer()
+            if callback.message is not None:
+                await edit_message_if_changed(
+                    callback.message,
+                    text=tournament_fmt.superadmin_calendar_format_detail(detail),
+                    reply_markup=superadmin_tournaments_kb.calendar_format_detail_keyboard(
+                        year=callback_data.year,
+                        month=callback_data.month,
+                    ),
+                )
+            return
+    except AdminAccessDeniedError:
+        await state.clear()
+        await callback.answer(panel_text.INSUFFICIENT_RIGHTS, show_alert=True)
+        return
+    except CalendarTournamentTypeNotFoundError:
+        await callback.answer(text.CALENDAR_UNAVAILABLE, show_alert=True)
         return
 
 

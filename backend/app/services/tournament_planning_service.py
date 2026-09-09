@@ -43,12 +43,16 @@ from app.services.dto.tournaments import (
     TournamentCalendarCreatePreviewView,
     TournamentCalendarDayView,
     TournamentCalendarDeletePreviewView,
+    TournamentCalendarFormatDetailView,
+    TournamentCalendarMonthTypeView,
     TournamentCalendarMonthView,
     TournamentCalendarTypeChangePreviewView,
     TournamentCalendarTypeOptionView,
     TournamentCalendarWeekDetailView,
     TournamentCalendarWeekView,
     TournamentCancellationNotificationView,
+    TournamentEconomyView,
+    TournamentRulesView,
     TournamentView,
 )
 from app.services.pagination import pagination_service
@@ -376,6 +380,26 @@ class TournamentPlanningService:
             await access_policy.require_superadmin(session, actor_telegram_id)
             return await self._calendar_type_options(session)
 
+    async def get_calendar_format_detail(
+        self,
+        actor_telegram_id: int,
+        *,
+        year: int,
+        month: int,
+        tournament_type_id: int,
+    ) -> TournamentCalendarFormatDetailView:
+        async with self.session_factory() as session:
+            await access_policy.require_superadmin(session, actor_telegram_id)
+            month_view = await self._calendar_month_view(session, year, month)
+            if tournament_type_id not in {
+                tournament_type.id for tournament_type in month_view.tournament_types
+            }:
+                raise CalendarTournamentTypeNotFoundError
+            config = await TournamentTypeRepository(session).get_config(tournament_type_id)
+            if config is None:
+                raise CalendarTournamentTypeNotFoundError
+            return _calendar_format_detail_view(config)
+
     async def get_calendar_create_preview(
         self,
         actor_telegram_id: int,
@@ -425,6 +449,7 @@ class TournamentPlanningService:
                     tournament_type_id=tournament.tournament_type_id,
                     tournament_type_name=tournament_type.name,
                     tournament_type_code=tournament_type.code,
+                    tournament_type_calendar_code=tournament_type.calendar_code,
                     registration_open=tournament.registration_open,
                 )
                 await session.commit()
@@ -790,6 +815,13 @@ class TournamentPlanningService:
                 )
                 for index, week in enumerate(weeks, start=1)
             ),
+            tournament_types=_calendar_month_tournament_types(
+                [
+                    tournament
+                    for tournament in tournaments
+                    if tournament.date.year == year and tournament.date.month == month
+                ]
+            ),
         )
 
     async def _calendar_week_view(
@@ -852,6 +884,7 @@ class TournamentPlanningService:
                 id=tournament_type.id,
                 code=tournament_type.code,
                 name=tournament_type.name,
+                calendar_code=tournament_type.calendar_code,
             )
             for tournament_type in await TournamentTypeRepository(
                 session
@@ -885,6 +918,7 @@ class TournamentPlanningService:
             id=config.tournament_type.id,
             code=config.tournament_type.code,
             name=config.tournament_type.name,
+            calendar_code=config.tournament_type.calendar_code,
         )
 
     async def _autofill_preview(
@@ -1178,6 +1212,60 @@ def _tournament_type_detail_view(
         rebuys=[TournamentRebuyView(fee=rebuy.fee, stack=rebuy.stack) for rebuy in config.rebuys],
         knockout_mode=(config.rule.knockout_mode.value if config.rule is not None else "none"),
     )
+
+
+def _calendar_format_detail_view(
+    config: TournamentTypeConfigRecord,
+) -> TournamentCalendarFormatDetailView:
+    return TournamentCalendarFormatDetailView(
+        id=config.tournament_type.id,
+        name=config.tournament_type.name,
+        description=config.tournament_type.description,
+        economy=(
+            TournamentEconomyView(
+                entry_fee=config.economy.entry_fee,
+                entry_stack=config.economy.entry_stack,
+                addon_fee=config.economy.addon_fee,
+                addon_stack=config.economy.addon_stack,
+                rebuys=[
+                    TournamentRebuyView(fee=rebuy.fee, stack=rebuy.stack) for rebuy in config.rebuys
+                ],
+            )
+            if config.economy is not None
+            else None
+        ),
+        rules=(
+            TournamentRulesView(
+                points_multiplier=config.rule.points_multiplier,
+                prize_place_multiplier=config.rule.prize_place_multiplier,
+                prize_place_multiplier_places=config.rule.prize_place_multiplier_places,
+                knockout_mode=config.rule.knockout_mode.value,
+                supports_bonus_points=config.rule.supports_bonus_points,
+            )
+            if config.rule is not None
+            else None
+        ),
+    )
+
+
+def _calendar_month_tournament_types(
+    tournaments: list[Tournament],
+) -> tuple[TournamentCalendarMonthTypeView, ...]:
+    seen_type_ids: set[int] = set()
+    items: list[TournamentCalendarMonthTypeView] = []
+    for tournament in sorted(tournaments, key=lambda item: (item.date, item.id)):
+        tournament_type = tournament.tournament_type
+        if tournament_type.id in seen_type_ids:
+            continue
+        seen_type_ids.add(tournament_type.id)
+        items.append(
+            TournamentCalendarMonthTypeView(
+                id=tournament_type.id,
+                name=tournament_type.name,
+                calendar_code=tournament_type.calendar_code,
+            )
+        )
+    return tuple(items)
 
 
 def next_complete_game_week(today: date) -> tuple[date, ...]:

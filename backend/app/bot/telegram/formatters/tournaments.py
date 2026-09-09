@@ -7,25 +7,21 @@ from app.domain.prize_multiplier_places import (
     parse_prize_multiplier_places,
 )
 
-CALENDAR_TYPE_ABBREVIATIONS = {
-    "bounty": "B",
-    "bounty_v2": "B2",
-    "bounty_v3": "B3",
-    "classic": "C",
-    "classic_v2": "C2",
-    "classic_v3": "C3",
-    "freezeout": "F",
-    "freezeout_v2": "F2",
-    "double_double": "DD",
-    "deep_stack": "DS",
-    "deep_stack_v2": "DS2",
-    "main_ko": "MK",
-    "mystery_bounty": "MB",
-    "boss_bounty": "BB",
-    "white_party": "WP",
-    "legacy_unknown": "?",
-}
 _MONTH_CELL_WIDTH = 4
+CALENDAR_MONTHS_NOMINATIVE = {
+    1: "ЯНВАРЬ",
+    2: "ФЕВРАЛЬ",
+    3: "МАРТ",
+    4: "АПРЕЛЬ",
+    5: "МАЙ",
+    6: "ИЮНЬ",
+    7: "ИЮЛЬ",
+    8: "АВГУСТ",
+    9: "СЕНТЯБРЬ",
+    10: "ОКТЯБРЬ",
+    11: "НОЯБРЬ",
+    12: "ДЕКАБРЬ",
+}
 
 
 def label(tournament: object) -> str:
@@ -129,7 +125,7 @@ def superadmin_open_delete_confirmation(preview: object) -> str:
 
 
 def superadmin_calendar_month(view: object) -> str:
-    month_name = common_texts.MONTHS[view.month].upper()
+    month_name = CALENDAR_MONTHS_NOMINATIVE[view.month]
     title = f"{month_name} {view.year}".center(43)
     lines = [
         "📅 Календарь",
@@ -154,24 +150,22 @@ def superadmin_calendar_month(view: object) -> str:
         lines.append("")
     if lines[-1] == "":
         lines.pop()
-    lines.extend(
-        [
-            "```",
-            "",
-            "B — Bounty",
-            "B2 — Bounty v2",
-            "C — Classic",
-            "C2 — Classic v2",
-            "F — Freezeout",
-            "F2 — Freezeout v2",
-            "DD — Double Double",
-            "DS — Deep Stack",
-            "MB — Mystery Bounty",
-            "BB — Boss Bounty",
-            "WP — White Party",
-            "? — тип не определён",
-        ]
-    )
+    lines.append("```")
+    legend = _calendar_legend(view)
+    if legend:
+        lines.extend(["", *legend])
+    return "\n".join(lines)
+
+
+def superadmin_calendar_format_detail(view: object) -> str:
+    lines = [f"🏆 {view.name}"]
+    if view.description:
+        lines.extend(["", str(view.description)])
+    if view.economy is not None:
+        lines.extend(["", *_economy_lines(view.economy)])
+    rule_lines = _rule_lines(view.rules)
+    if rule_lines:
+        lines.extend(["", *rule_lines])
     return "\n".join(lines)
 
 
@@ -278,7 +272,20 @@ def short_label(tournament: object) -> str:
 def _calendar_day_code(day: object) -> str:
     if day.tournament is None:
         return ""
-    return CALENDAR_TYPE_ABBREVIATIONS.get(day.tournament.tournament_type_code, "?")
+    return day.tournament.tournament_type_calendar_code or "?"
+
+
+def _calendar_legend(view: object) -> list[str]:
+    return [
+        _calendar_legend_line(tournament_type)
+        for tournament_type in getattr(view, "tournament_types", ())
+    ]
+
+
+def _calendar_legend_line(tournament_type: object) -> str:
+    if tournament_type.calendar_code == "?":
+        return "? — тип не определён"
+    return f"{tournament_type.calendar_code} — {tournament_type.name}"
 
 
 def _date_with_weekday(value: object) -> str:

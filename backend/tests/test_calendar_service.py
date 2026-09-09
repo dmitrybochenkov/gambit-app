@@ -126,6 +126,125 @@ async def test_next_complete_game_week_uses_wednesday_to_sunday() -> None:
     )
 
 
+async def test_calendar_month_uses_db_calendar_codes_and_month_type_order(
+    tmp_path: Path,
+) -> None:
+    service, session_factory, engine = await create_planning_service(
+        tmp_path / "calendar_codes.db",
+        today=date(2026, 9, 1),
+    )
+    try:
+        await seed_calendar_data(session_factory)
+        async with session_factory() as session:
+            session.add_all(
+                [
+                    Tournament(
+                        season_id=1,
+                        scoring_config_id=1,
+                        tournament_type_id=tournament_type_id("classic_v3"),
+                        date=date(2026, 8, 31),
+                        status=TournamentStatus.ACTIVE,
+                    ),
+                    Tournament(
+                        season_id=1,
+                        scoring_config_id=1,
+                        tournament_type_id=tournament_type_id("deep_stack"),
+                        date=date(2026, 9, 5),
+                        status=TournamentStatus.ACTIVE,
+                    ),
+                    Tournament(
+                        season_id=1,
+                        scoring_config_id=1,
+                        tournament_type_id=tournament_type_id("bounty_v3"),
+                        date=date(2026, 9, 6),
+                        status=TournamentStatus.ACTIVE,
+                    ),
+                    Tournament(
+                        season_id=1,
+                        scoring_config_id=1,
+                        tournament_type_id=tournament_type_id("deep_stack"),
+                        date=date(2026, 9, 12),
+                        status=TournamentStatus.ACTIVE,
+                    ),
+                    Tournament(
+                        season_id=1,
+                        scoring_config_id=1,
+                        tournament_type_id=tournament_type_id("boss_bounty"),
+                        date=date(2026, 10, 1),
+                        status=TournamentStatus.ACTIVE,
+                    ),
+                ]
+            )
+            await session.commit()
+
+        view = await service.get_calendar_month(100, year=2026, month=9)
+
+        assert [(item.name, item.calendar_code) for item in view.tournament_types] == [
+            ("Deep Stack", "D"),
+            ("Bounty", "B3"),
+        ]
+        september_codes = [
+            day.tournament.tournament_type_calendar_code
+            for week in view.weeks
+            for day in week.days
+            if day.in_month and day.tournament is not None
+        ]
+        assert september_codes == ["D", "B3", "D"]
+    finally:
+        await engine.dispose()
+
+
+async def test_calendar_format_detail_is_restricted_to_selected_month(
+    tmp_path: Path,
+) -> None:
+    service, session_factory, engine = await create_planning_service(
+        tmp_path / "calendar_format_month.db",
+        today=date(2026, 9, 1),
+    )
+    try:
+        await seed_calendar_data(session_factory)
+        september_type_id = tournament_type_id("deep_stack")
+        october_type_id = tournament_type_id("boss_bounty")
+        async with session_factory() as session:
+            session.add_all(
+                [
+                    Tournament(
+                        season_id=1,
+                        scoring_config_id=1,
+                        tournament_type_id=september_type_id,
+                        date=date(2026, 9, 5),
+                        status=TournamentStatus.ACTIVE,
+                    ),
+                    Tournament(
+                        season_id=1,
+                        scoring_config_id=1,
+                        tournament_type_id=october_type_id,
+                        date=date(2026, 10, 1),
+                        status=TournamentStatus.ACTIVE,
+                    ),
+                ]
+            )
+            await session.commit()
+
+        detail = await service.get_calendar_format_detail(
+            100,
+            year=2026,
+            month=9,
+            tournament_type_id=september_type_id,
+        )
+
+        assert detail.name == "Deep Stack"
+        with pytest.raises(CalendarTournamentTypeNotFoundError):
+            await service.get_calendar_format_detail(
+                100,
+                year=2026,
+                month=9,
+                tournament_type_id=october_type_id,
+            )
+    finally:
+        await engine.dispose()
+
+
 async def test_weekly_plan_uses_last_existing_tournament_regression(
     tmp_path: Path,
 ) -> None:

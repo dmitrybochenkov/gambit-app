@@ -74,9 +74,9 @@ def create_database(path: Path) -> None:
               (2, 'Сезон 2', 1, '2026-01-27', '2026-05-31'),
               (3, 'Лето 2026', 1, '2026-06-01', NULL);
             INSERT INTO tournament_types (
-                id, code, name, short_name, is_creatable, created_at, updated_at
+                id, code, name, short_name, calendar_code, is_creatable, created_at, updated_at
             )
-            VALUES (7, 'legacy_unknown', 'Неопределенный турнир', 'Турнир',
+            VALUES (7, 'legacy_unknown', 'Неопределенный турнир', 'Турнир', '?',
                     0, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP);
             INSERT INTO tournaments (
                 id, season_id, scoring_config_id, tournament_type_id, date, tournament_fund, status,

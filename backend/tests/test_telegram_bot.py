@@ -160,6 +160,8 @@ from app.services.dto.tournaments import (
     SuperadminOpenTournamentListItemView,
     SuperadminTournamentHubView,
     TournamentCalendarDayView,
+    TournamentCalendarFormatDetailView,
+    TournamentCalendarMonthTypeView,
     TournamentCalendarMonthView,
     TournamentCalendarTypeOptionView,
     TournamentCalendarWeekView,
@@ -529,6 +531,7 @@ def test_superadmin_calendar_month_uses_codes_without_registration_counts() -> N
                             tournament_type_id=1,
                             tournament_type_name="Баунти турнир",
                             tournament_type_code="bounty",
+                            tournament_type_calendar_code="B",
                         ),
                         registrations_count=12,
                     ),
@@ -541,6 +544,7 @@ def test_superadmin_calendar_month_uses_codes_without_registration_counts() -> N
                             tournament_type_id=7,
                             tournament_type_name="Неопределенный турнир",
                             tournament_type_code="legacy_unknown",
+                            tournament_type_calendar_code="?",
                         ),
                         registrations_count=7,
                     ),
@@ -553,6 +557,7 @@ def test_superadmin_calendar_month_uses_codes_without_registration_counts() -> N
                             tournament_type_id=8,
                             tournament_type_name="Bounty",
                             tournament_type_code="bounty_v2",
+                            tournament_type_calendar_code="B2",
                         ),
                     ),
                     TournamentCalendarDayView(
@@ -564,6 +569,7 @@ def test_superadmin_calendar_month_uses_codes_without_registration_counts() -> N
                             tournament_type_id=9,
                             tournament_type_name="Classic",
                             tournament_type_code="classic_v2",
+                            tournament_type_calendar_code="C2",
                         ),
                     ),
                     TournamentCalendarDayView(
@@ -575,6 +581,7 @@ def test_superadmin_calendar_month_uses_codes_without_registration_counts() -> N
                             tournament_type_id=10,
                             tournament_type_name="Freezeout",
                             tournament_type_code="freezeout_v2",
+                            tournament_type_calendar_code="F2",
                         ),
                     ),
                     TournamentCalendarDayView(
@@ -586,6 +593,7 @@ def test_superadmin_calendar_month_uses_codes_without_registration_counts() -> N
                             tournament_type_id=11,
                             tournament_type_name="Deep Stack",
                             tournament_type_code="deep_stack",
+                            tournament_type_calendar_code="D",
                         ),
                     ),
                     TournamentCalendarDayView(
@@ -597,9 +605,27 @@ def test_superadmin_calendar_month_uses_codes_without_registration_counts() -> N
                             tournament_type_id=12,
                             tournament_type_name="White Party Tournament",
                             tournament_type_code="white_party",
+                            tournament_type_calendar_code="WP",
                         ),
                     ),
                 ),
+            ),
+        ),
+        tournament_types=(
+            TournamentCalendarMonthTypeView(id=1, name="Баунти турнир", calendar_code="B"),
+            TournamentCalendarMonthTypeView(
+                id=7,
+                name="Неопределенный турнир",
+                calendar_code="?",
+            ),
+            TournamentCalendarMonthTypeView(id=8, name="Bounty", calendar_code="B2"),
+            TournamentCalendarMonthTypeView(id=9, name="Classic", calendar_code="C2"),
+            TournamentCalendarMonthTypeView(id=10, name="Freezeout", calendar_code="F2"),
+            TournamentCalendarMonthTypeView(id=11, name="Deep Stack", calendar_code="D"),
+            TournamentCalendarMonthTypeView(
+                id=12,
+                name="White Party Tournament",
+                calendar_code="WP",
             ),
         ),
     )
@@ -610,22 +636,326 @@ def test_superadmin_calendar_month_uses_codes_without_registration_counts() -> N
     assert "B2" in rendered
     assert "C2" in rendered
     assert "F2" in rendered
-    assert "DS" in rendered
+    assert " D " in rendered
     assert "WP" in rendered
     assert "?" in rendered
     assert "12" not in rendered
     assert "7)" not in rendered
-    assert "B — Bounty" in rendered
-    assert "B2 — Bounty v2" in rendered
-    assert "C — Classic" in rendered
-    assert "C2 — Classic v2" in rendered
-    assert "F — Freezeout" in rendered
-    assert "F2 — Freezeout v2" in rendered
-    assert "DD — Double Double" in rendered
-    assert "DS — Deep Stack" in rendered
-    assert "MB — Mystery Bounty" in rendered
-    assert "BB — Boss Bounty" in rendered
-    assert "WP — White Party" in rendered
+    assert rendered.endswith(
+        "\n".join(
+            [
+                "B — Баунти турнир",
+                "? — тип не определён",
+                "B2 — Bounty",
+                "C2 — Classic",
+                "F2 — Freezeout",
+                "D — Deep Stack",
+                "WP — White Party Tournament",
+            ]
+        )
+    )
+    assert "C — Classic" not in rendered
+    assert "DD — Double Double" not in rendered
+    assert "MB — Mystery Bounty" not in rendered
+    assert "BB — Boss Bounty" not in rendered
+
+
+def test_superadmin_calendar_month_uses_nominative_month_names() -> None:
+    expected = {
+        1: "ЯНВАРЬ 2026",
+        2: "ФЕВРАЛЬ 2026",
+        3: "МАРТ 2026",
+        4: "АПРЕЛЬ 2026",
+        5: "МАЙ 2026",
+        6: "ИЮНЬ 2026",
+        7: "ИЮЛЬ 2026",
+        8: "АВГУСТ 2026",
+        9: "СЕНТЯБРЬ 2026",
+        10: "ОКТЯБРЬ 2026",
+        11: "НОЯБРЬ 2026",
+        12: "ДЕКАБРЬ 2026",
+    }
+    for month, title in expected.items():
+        view = TournamentCalendarMonthView(year=2026, month=month, weeks=())
+
+        assert title in tournament_fmt.superadmin_calendar_month(view)
+
+
+def test_superadmin_calendar_month_keyboard_has_format_help_above_back() -> None:
+    keyboard = superadmin_tournaments_kb.calendar_month_keyboard(tournament_calendar_month_view())
+
+    rows = [[button.text for button in row] for row in keyboard.inline_keyboard]
+
+    assert rows[-2] == [superadmin_tournaments_kb.CALENDAR_FORMAT_HELP_LABEL]
+    assert rows[-1] == ["⬅️ Назад"]
+
+
+def test_superadmin_calendar_format_help_keyboard_is_paged_with_full_names() -> None:
+    view = TournamentCalendarMonthView(
+        year=2026,
+        month=9,
+        weeks=(),
+        tournament_types=tuple(
+            TournamentCalendarMonthTypeView(
+                id=index,
+                name=name,
+                calendar_code=code,
+            )
+            for index, (name, code) in enumerate(
+                [
+                    ("Bounty v2", "B2"),
+                    ("Bounty v3", "B3"),
+                    ("Classic v2", "C2"),
+                    ("Classic v3", "C3"),
+                    ("Deep Stack", "D"),
+                    ("Deep Stack v2", "D2"),
+                    ("Freezeout v2", "F2"),
+                    ("MAIN KO", "MK"),
+                    ("White Party", "WP"),
+                ],
+                start=1,
+            )
+        ),
+    )
+
+    first_page = superadmin_tournaments_kb.calendar_format_help_keyboard(view, page=0)
+    second_page = superadmin_tournaments_kb.calendar_format_help_keyboard(view, page=1)
+
+    assert [[button.text for button in row] for row in first_page.inline_keyboard] == [
+        ["Bounty v2"],
+        ["Bounty v3"],
+        ["Classic v2"],
+        ["Classic v3"],
+        ["Deep Stack"],
+        ["◀️", "1/2", "▶️"],
+        [superadmin_tournaments_kb.CALENDAR_FORMAT_BACK_LABEL],
+    ]
+    assert [[button.text for button in row] for row in second_page.inline_keyboard] == [
+        ["Deep Stack v2"],
+        ["Freezeout v2"],
+        ["MAIN KO"],
+        ["White Party"],
+        ["◀️", "2/2", "▶️"],
+        [superadmin_tournaments_kb.CALENDAR_FORMAT_BACK_LABEL],
+    ]
+
+
+def test_superadmin_calendar_format_help_keyboard_clamps_out_of_range_pages() -> None:
+    view = TournamentCalendarMonthView(
+        year=2026,
+        month=9,
+        weeks=(),
+        tournament_types=tuple(
+            TournamentCalendarMonthTypeView(id=index, name=f"Type {index}", calendar_code="T")
+            for index in range(1, 8)
+        ),
+    )
+
+    negative_page = superadmin_tournaments_kb.calendar_format_help_keyboard(view, page=-1)
+    oversized_page = superadmin_tournaments_kb.calendar_format_help_keyboard(view, page=99)
+
+    assert [[button.text for button in row] for row in negative_page.inline_keyboard] == [
+        ["Type 1"],
+        ["Type 2"],
+        ["Type 3"],
+        ["Type 4"],
+        ["Type 5"],
+        ["◀️", "1/2", "▶️"],
+        [superadmin_tournaments_kb.CALENDAR_FORMAT_BACK_LABEL],
+    ]
+    assert [[button.text for button in row] for row in oversized_page.inline_keyboard] == [
+        ["Type 6"],
+        ["Type 7"],
+        ["◀️", "2/2", "▶️"],
+        [superadmin_tournaments_kb.CALENDAR_FORMAT_BACK_LABEL],
+    ]
+
+
+def test_superadmin_calendar_format_help_keyboard_omits_pagination_for_single_page() -> None:
+    view = TournamentCalendarMonthView(
+        year=2026,
+        month=9,
+        weeks=(),
+        tournament_types=(
+            TournamentCalendarMonthTypeView(id=1, name="Bounty", calendar_code="B"),
+            TournamentCalendarMonthTypeView(id=2, name="Classic", calendar_code="C"),
+        ),
+    )
+
+    keyboard = superadmin_tournaments_kb.calendar_format_help_keyboard(view, page=0)
+
+    assert [[button.text for button in row] for row in keyboard.inline_keyboard] == [
+        ["Bounty"],
+        ["Classic"],
+        [superadmin_tournaments_kb.CALENDAR_FORMAT_BACK_LABEL],
+    ]
+
+
+def test_superadmin_calendar_format_detail_is_db_driven() -> None:
+    detail = TournamentCalendarFormatDetailView(
+        id=1,
+        name="MAIN KO",
+        description="Описание из базы",
+        economy=TournamentEconomyView(
+            entry_fee=800,
+            entry_stack=30_000,
+            addon_fee=1000,
+            addon_stack=150_000,
+            rebuys=[TournamentRebuyView(fee=1000, stack=40_000)],
+        ),
+        rules=TournamentRulesView(
+            points_multiplier=Decimal("1.00"),
+            prize_place_multiplier=Decimal("1.00"),
+            prize_place_multiplier_places=None,
+            knockout_mode="main_ko",
+            supports_bonus_points=False,
+        ),
+    )
+
+    rendered = tournament_fmt.superadmin_calendar_format_detail(detail)
+
+    assert "🏆 MAIN KO" in rendered
+    assert "Описание из базы" in rendered
+    assert "Вход: 800 ₽ — 30 000 фишек" in rendered
+    assert "Ребай: 1 000 ₽ — 40 000 фишек" in rendered
+    assert "Аддон:" in rendered
+    assert "Нокауты: КО и БКО" in rendered
+
+
+async def test_superadmin_calendar_format_help_changes_markup_only(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    view = TournamentCalendarMonthView(
+        year=2026,
+        month=10,
+        weeks=(),
+        tournament_types=(TournamentCalendarMonthTypeView(id=1, name="Bounty", calendar_code="B"),),
+    )
+    planning_service = SimpleNamespace(get_calendar_month=AsyncMock(return_value=view))
+    monkeypatch.setattr(
+        superadmin_tournament_handlers,
+        "tournament_planning_service",
+        planning_service,
+    )
+    message = SimpleNamespace(edit_reply_markup=AsyncMock(), edit_text=AsyncMock())
+    callback = SimpleNamespace(
+        from_user=SimpleNamespace(id=100),
+        message=message,
+        answer=AsyncMock(),
+    )
+
+    await superadmin_tournament_handlers.select_tournament_calendar_format_action(
+        callback,
+        superadmin_tournaments_kb.SuperadminTournamentCalendarFormatCallback(
+            action=superadmin_tournaments_kb.SuperadminTournamentCalendarFormatAction.LIST,
+            year=2026,
+            month=10,
+        ),
+        MutableState(),
+    )
+
+    planning_service.get_calendar_month.assert_awaited_once_with(100, year=2026, month=10)
+    message.edit_reply_markup.assert_awaited_once()
+    message.edit_text.assert_not_awaited()
+    assert inline_keyboard_texts(message.edit_reply_markup.await_args.kwargs["reply_markup"]) == [
+        "Bounty",
+        superadmin_tournaments_kb.CALENDAR_FORMAT_BACK_LABEL,
+    ]
+
+
+async def test_superadmin_calendar_format_detail_and_back_keep_source_month(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    month_view = TournamentCalendarMonthView(year=2026, month=10, weeks=())
+    detail = TournamentCalendarFormatDetailView(
+        id=16,
+        name="MAIN KO",
+        description="Описание из базы",
+        economy=None,
+        rules=None,
+    )
+    planning_service = SimpleNamespace(
+        get_calendar_format_detail=AsyncMock(return_value=detail),
+        get_calendar_month=AsyncMock(return_value=month_view),
+    )
+    monkeypatch.setattr(
+        superadmin_tournament_handlers,
+        "tournament_planning_service",
+        planning_service,
+    )
+    message = SimpleNamespace(edit_text=AsyncMock(), edit_reply_markup=AsyncMock())
+    callback = SimpleNamespace(
+        from_user=SimpleNamespace(id=100),
+        message=message,
+        answer=AsyncMock(),
+    )
+    state = MutableState()
+
+    await superadmin_tournament_handlers.select_tournament_calendar_format_action(
+        callback,
+        superadmin_tournaments_kb.SuperadminTournamentCalendarFormatCallback(
+            action=superadmin_tournaments_kb.SuperadminTournamentCalendarFormatAction.DETAIL,
+            year=2026,
+            month=10,
+            page=1,
+            tournament_type_id=16,
+        ),
+        state,
+    )
+    await superadmin_tournament_handlers.select_tournament_calendar_format_action(
+        callback,
+        superadmin_tournaments_kb.SuperadminTournamentCalendarFormatCallback(
+            action=superadmin_tournaments_kb.SuperadminTournamentCalendarFormatAction.BACK_CALENDAR,
+            year=2026,
+            month=10,
+        ),
+        state,
+    )
+
+    planning_service.get_calendar_format_detail.assert_awaited_once_with(
+        100,
+        year=2026,
+        month=10,
+        tournament_type_id=16,
+    )
+    planning_service.get_calendar_month.assert_awaited_once_with(100, year=2026, month=10)
+    assert message.edit_text.await_args_list[0].args[0] == "🏆 MAIN KO\n\nОписание из базы"
+    assert "ОКТЯБРЬ 2026" in message.edit_text.await_args_list[1].args[0]
+
+
+async def test_superadmin_calendar_format_list_back_restores_calendar_keyboard_only(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    month_view = TournamentCalendarMonthView(year=2026, month=10, weeks=())
+    planning_service = SimpleNamespace(get_calendar_month=AsyncMock(return_value=month_view))
+    monkeypatch.setattr(
+        superadmin_tournament_handlers,
+        "tournament_planning_service",
+        planning_service,
+    )
+    message = SimpleNamespace(edit_reply_markup=AsyncMock(), edit_text=AsyncMock())
+    callback = SimpleNamespace(
+        from_user=SimpleNamespace(id=100),
+        message=message,
+        answer=AsyncMock(),
+    )
+
+    await superadmin_tournament_handlers.select_tournament_calendar_format_action(
+        callback,
+        superadmin_tournaments_kb.SuperadminTournamentCalendarFormatCallback(
+            action=superadmin_tournaments_kb.SuperadminTournamentCalendarFormatAction.BACK_LIST,
+            year=2026,
+            month=10,
+        ),
+        MutableState(),
+    )
+
+    planning_service.get_calendar_month.assert_awaited_once_with(100, year=2026, month=10)
+    message.edit_reply_markup.assert_awaited_once()
+    message.edit_text.assert_not_awaited()
+    assert superadmin_tournaments_kb.CALENDAR_FORMAT_HELP_LABEL in inline_keyboard_texts(
+        message.edit_reply_markup.await_args.kwargs["reply_markup"]
+    )
 
 
 def test_superadmin_calendar_type_picker_uses_service_version_labels() -> None:
@@ -6538,6 +6868,7 @@ async def test_superadmin_tournament_hub_calendar_opens_month(
         "2",
         "⬅️ Месяц",
         "Месяц ➡️",
+        superadmin_tournaments_kb.CALENDAR_FORMAT_HELP_LABEL,
         "⬅️ Назад",
     ]
 

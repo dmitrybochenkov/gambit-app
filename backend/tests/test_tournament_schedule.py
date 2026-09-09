@@ -131,6 +131,7 @@ async def test_schedule_tournament_details_are_db_driven(tmp_path: Path) -> None
             code="test_db_driven",
             name="Тестовый DB-турнир",
             short_name="Test DB",
+            calendar_code="T",
             description="Уникальное описание из базы",
         )
         season = Season(
