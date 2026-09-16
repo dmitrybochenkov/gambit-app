@@ -307,6 +307,9 @@ async def test_calendar_type_options_include_only_creatable_formats(tmp_path: Pa
             "classic_v3",
             "deep_stack_v2",
             "main_ko",
+            "slow_blinds",
+            "satellite",
+            "black_party",
         ]
     finally:
         await engine.dispose()
@@ -380,6 +383,9 @@ async def test_versioned_format_configs_preserve_historical_rows(tmp_path: Path)
         assert types["classic_v3"].is_creatable is True
         assert types["deep_stack_v2"].is_creatable is True
         assert types["main_ko"].is_creatable is True
+        assert types["slow_blinds"].is_creatable is True
+        assert types["satellite"].is_creatable is True
+        assert types["black_party"].is_creatable is True
 
         bounty = economies[types["bounty"].id]
         bounty_v2 = economies[types["bounty_v2"].id]
@@ -511,6 +517,10 @@ async def test_versioned_format_configs_preserve_historical_rows(tmp_path: Path)
         assert rules[types["bounty_v3"].id].knockout_mode == KnockoutMode.SMALL_BIG
 
         classic_v3 = economies[types["classic_v3"].id]
+        assert types["classic_v3"].code == "classic_v3"
+        assert types["classic_v3"].name == "Freeroll"
+        assert types["classic_v3"].short_name == "Freeroll"
+        assert types["classic_v3"].calendar_code == "FR"
         assert (
             classic_v3.entry_fee,
             classic_v3.entry_stack,
@@ -556,6 +566,66 @@ async def test_versioned_format_configs_preserve_historical_rows(tmp_path: Path)
             (1000, 60_000),
         ]
         assert rules[types["main_ko"].id].knockout_mode == KnockoutMode.MAIN_KO
+
+        slow_blinds = economies[types["slow_blinds"].id]
+        assert types["slow_blinds"].name == "Slow Blinds"
+        assert types["slow_blinds"].short_name == "Slow Blinds"
+        assert types["slow_blinds"].calendar_code == "SB"
+        assert (
+            slow_blinds.entry_fee,
+            slow_blinds.entry_stack,
+            slow_blinds.addon_fee,
+            slow_blinds.addon_stack,
+        ) == (800, 30_000, 800, 60_000)
+        assert [(rebuy.fee, rebuy.stack) for rebuy in rebuys_by_type[types["slow_blinds"].id]] == [
+            (800, 30_000),
+        ]
+        assert rules[types["slow_blinds"].id].knockout_mode == KnockoutMode.NONE
+
+        satellite = economies[types["satellite"].id]
+        assert types["satellite"].code == "satellite"
+        assert types["satellite"].name == "Satellite"
+        assert types["satellite"].short_name == "Satellite"
+        assert types["satellite"].calendar_code == "ST"
+        assert (
+            satellite.entry_fee,
+            satellite.entry_stack,
+            satellite.addon_fee,
+            satellite.addon_stack,
+        ) == (800, 30_000, 1000, 150_000)
+        assert [(rebuy.fee, rebuy.stack) for rebuy in rebuys_by_type[types["satellite"].id]] == [
+            (1000, 50_000),
+            (1000, 70_000),
+        ]
+        assert "1 и 2 место" in str(types["satellite"].description)
+        assert rules[types["satellite"].id].knockout_mode == KnockoutMode.NONE
+        assert rules[types["satellite"].id].points_multiplier == 1
+        assert rules[types["satellite"].id].prize_place_multiplier == 1
+
+        black_party = economies[types["black_party"].id]
+        assert types["black_party"].name == "Black Party"
+        assert types["black_party"].short_name == "Black Party"
+        assert types["black_party"].calendar_code == "BP"
+        assert (
+            black_party.entry_fee,
+            black_party.entry_stack,
+            black_party.addon_fee,
+            black_party.addon_stack,
+        ) == (
+            economies[types["white_party"].id].entry_fee,
+            economies[types["white_party"].id].entry_stack,
+            economies[types["white_party"].id].addon_fee,
+            economies[types["white_party"].id].addon_stack,
+        )
+        assert [(rebuy.fee, rebuy.stack) for rebuy in rebuys_by_type[types["black_party"].id]] == [
+            (rebuy.fee, rebuy.stack) for rebuy in rebuys_by_type[types["white_party"].id]
+        ]
+        assert (
+            rules[types["black_party"].id].knockout_mode
+            == rules[types["white_party"].id].knockout_mode
+        )
+        assert types["white_party"].name == "White Party Tournament"
+        assert types["white_party"].calendar_code == "WP"
     finally:
         await engine.dispose()
 

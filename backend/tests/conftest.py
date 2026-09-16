@@ -28,6 +28,9 @@ TOURNAMENT_TYPE_IDS = {
     "classic_v3": 14,
     "deep_stack_v2": 15,
     "main_ko": 16,
+    "slow_blinds": 17,
+    "satellite": 18,
+    "black_party": 19,
 }
 
 TOURNAMENT_TYPE_NAMES = {
@@ -43,9 +46,12 @@ TOURNAMENT_TYPE_NAMES = {
     "deep_stack": "Deep Stack",
     "white_party": "White Party Tournament",
     "bounty_v3": "Bounty",
-    "classic_v3": "Classic",
+    "classic_v3": "Freeroll",
     "deep_stack_v2": "Deep Stack",
     "main_ko": "MAIN KO",
+    "slow_blinds": "Slow Blinds",
+    "satellite": "Satellite",
+    "black_party": "Black Party",
 }
 
 TOURNAMENT_TYPE_SHORT_NAMES = {
@@ -61,9 +67,12 @@ TOURNAMENT_TYPE_SHORT_NAMES = {
     "deep_stack": "Deep Stack",
     "white_party": "White Party",
     "bounty_v3": "Bounty",
-    "classic_v3": "Classic",
+    "classic_v3": "Freeroll",
     "deep_stack_v2": "Deep Stack",
     "main_ko": "MAIN KO",
+    "slow_blinds": "Slow Blinds",
+    "satellite": "Satellite",
+    "black_party": "Black Party",
 }
 TOURNAMENT_TYPE_CALENDAR_CODES = {
     "bounty": "B",
@@ -79,9 +88,12 @@ TOURNAMENT_TYPE_CALENDAR_CODES = {
     "deep_stack": "D",
     "white_party": "WP",
     "bounty_v3": "B3",
-    "classic_v3": "C3",
+    "classic_v3": "FR",
     "deep_stack_v2": "D2",
     "main_ko": "MK",
+    "slow_blinds": "SB",
+    "satellite": "ST",
+    "black_party": "BP",
 }
 TOURNAMENT_TYPE_DESCRIPTIONS = {
     "bounty": (
@@ -119,6 +131,12 @@ TOURNAMENT_TYPE_DESCRIPTIONS = {
     ),
     "deep_stack_v2": "Гарантированный фонд турнира — 2500 очков.",
     "main_ko": "MAIN KO: увеличенные нокауты до финального стола и на финальном столе.",
+    "slow_blinds": "Плавная структура блайндов.",
+    "satellite": (
+        "Игроки, занявшие 1 и 2 место, отправляются на межклубный турнир.\n"
+        "Плавная структура блайндов."
+    ),
+    "black_party": "Тематическая вечеринка.\nВсе как в White Party.",
 }
 CREATABLE_TOURNAMENT_TYPE_CODES = {
     "freezeout_v2",
@@ -126,6 +144,9 @@ CREATABLE_TOURNAMENT_TYPE_CODES = {
     "classic_v3",
     "deep_stack_v2",
     "white_party",
+    "slow_blinds",
+    "satellite",
+    "black_party",
     "mystery_bounty",
     "boss_bounty",
     "main_ko",
@@ -167,6 +188,9 @@ TOURNAMENT_TYPE_RULES = {
     "classic_v3": ("1.00", "1.00", None, KnockoutMode.NONE, False),
     "deep_stack_v2": ("1.00", "1.00", None, KnockoutMode.NONE, False),
     "main_ko": ("1.00", "1.00", None, KnockoutMode.MAIN_KO, False),
+    "slow_blinds": ("1.00", "1.00", None, KnockoutMode.NONE, False),
+    "satellite": ("1.00", "1.00", None, KnockoutMode.NONE, False),
+    "black_party": ("1.00", "1.00", None, KnockoutMode.NONE, False),
 }
 
 
@@ -317,6 +341,27 @@ def build_tournament_economy_configs() -> list[TournamentEconomyConfig]:
                 addon_fee=1000,
                 addon_stack=150_000,
             ),
+            TournamentEconomyConfig(
+                tournament_type_id=tournament_type_id("slow_blinds"),
+                entry_fee=800,
+                entry_stack=30_000,
+                addon_fee=800,
+                addon_stack=60_000,
+            ),
+            TournamentEconomyConfig(
+                tournament_type_id=tournament_type_id("satellite"),
+                entry_fee=800,
+                entry_stack=30_000,
+                addon_fee=1000,
+                addon_stack=150_000,
+            ),
+            TournamentEconomyConfig(
+                tournament_type_id=tournament_type_id("black_party"),
+                entry_fee=800,
+                entry_stack=30_000,
+                addon_fee=1000,
+                addon_stack=150_000,
+            ),
         ]
     )
     return configs
@@ -424,6 +469,35 @@ def build_tournament_rebuy_configs() -> list[TournamentRebuyConfig]:
     configs.extend(
         TournamentRebuyConfig(
             tournament_type_id=tournament_type_id("white_party"),
+            rebuy_order=rebuy_order,
+            fee=fee,
+            stack=stack,
+        )
+        for rebuy_order, fee, stack in WHITE_PARTY_REBUYS
+    )
+    configs.append(
+        TournamentRebuyConfig(
+            tournament_type_id=tournament_type_id("slow_blinds"),
+            rebuy_order=1,
+            fee=800,
+            stack=30_000,
+        )
+    )
+    configs.extend(
+        TournamentRebuyConfig(
+            tournament_type_id=tournament_type_id("satellite"),
+            rebuy_order=rebuy_order,
+            fee=fee,
+            stack=stack,
+        )
+        for rebuy_order, fee, stack in [
+            (1, 1000, 50_000),
+            (2, 1000, 70_000),
+        ]
+    )
+    configs.extend(
+        TournamentRebuyConfig(
+            tournament_type_id=tournament_type_id("black_party"),
             rebuy_order=rebuy_order,
             fee=fee,
             stack=stack,

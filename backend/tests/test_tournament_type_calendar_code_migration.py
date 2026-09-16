@@ -10,7 +10,7 @@ EXPECTED_CODES = {
     "bounty_v3": ("Bounty", "B3"),
     "classic": ("Classic", "C"),
     "classic_v2": ("Classic", "C2"),
-    "classic_v3": ("Classic", "C3"),
+    "classic_v3": ("Freeroll", "FR"),
     "freezeout": ("Freezeout", "F"),
     "freezeout_v2": ("Freezeout", "F2"),
     "deep_stack": ("Deep Stack", "D"),
@@ -20,6 +20,9 @@ EXPECTED_CODES = {
     "boss_bounty": ("Boss", "BB"),
     "white_party": ("White Party", "WP"),
     "main_ko": ("MAIN KO", "MK"),
+    "slow_blinds": ("Slow Blinds", "SB"),
+    "satellite": ("Satellite", "ST"),
+    "black_party": ("Black Party", "BP"),
     "legacy_unknown": ("Турнир", "?"),
 }
 
@@ -73,4 +76,7 @@ def test_tournament_type_calendar_code_migration_upgrade_and_downgrade(
 
     assert "calendar_code" not in columns
     for code, (short_name, _calendar_code) in EXPECTED_CODES.items():
+        if code in {"classic_v3", "slow_blinds", "satellite", "black_party"}:
+            continue
         assert short_names[code] == short_name
+    assert short_names["classic_v3"] == "Classic"

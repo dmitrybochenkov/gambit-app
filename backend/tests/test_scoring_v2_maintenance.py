@@ -39,6 +39,19 @@ create_week = importlib.util.module_from_spec(create_week_spec)
 sys.modules[create_week_spec.name] = create_week
 create_week_spec.loader.exec_module(create_week)
 
+CREATE_NEXT_WEEK_SCRIPT = (
+    Path(__file__).resolve().parents[2] / "scripts" / ("create_september_16_2026_tournaments.py")
+)
+create_next_week_spec = importlib.util.spec_from_file_location(
+    "create_next_week_maintenance",
+    CREATE_NEXT_WEEK_SCRIPT,
+)
+assert create_next_week_spec is not None
+assert create_next_week_spec.loader is not None
+create_next_week = importlib.util.module_from_spec(create_next_week_spec)
+sys.modules[create_next_week_spec.name] = create_next_week
+create_next_week_spec.loader.exec_module(create_next_week)
+
 RECALC_SCRIPT = (
     Path(__file__).resolve().parents[2] / "scripts" / ("recalculate_september_2026_points.py")
 )
@@ -173,6 +186,84 @@ async def test_create_week_conflict_blocks_apply_without_partial_rows(tmp_path: 
             plan = await create_week.build_plan(session)
             assert plan[0].action == "conflict"
             assert create_week.has_conflicts(plan)
+    finally:
+        await engine.dispose()
+
+
+async def test_create_next_week_dry_run_does_not_create_tournaments(tmp_path: Path) -> None:
+    session_factory, engine = await create_session_factory(tmp_path / "next-week-dry-run.db")
+    try:
+        await seed_scoring_v2_data(session_factory)
+        async with session_factory() as session:
+            plan = await create_next_week.build_plan(session)
+            assert [item.action for item in plan] == ["create"] * 5
+
+        async with session_factory() as session:
+            tournaments = list((await session.execute(select(Tournament))).scalars())
+        assert tournaments == []
+    finally:
+        await engine.dispose()
+
+
+async def test_create_next_week_apply_is_idempotent_and_uses_season_scoring_config(
+    tmp_path: Path,
+) -> None:
+    session_factory, engine = await create_session_factory(tmp_path / "next-week-apply.db")
+    try:
+        await seed_scoring_v2_data(session_factory)
+        async with session_factory() as session:
+            plan = await create_next_week.build_plan(session)
+            await create_next_week.apply_plan(session, plan)
+            await session.commit()
+
+        async with session_factory() as session:
+            tournaments = list(
+                (await session.execute(select(Tournament).order_by(Tournament.date))).scalars()
+            )
+            assert [
+                (item.date, item.tournament_type_id, item.tournament_fund) for item in tournaments
+            ] == [
+                (date(2026, 9, 16), tournament_type_id("slow_blinds"), None),
+                (date(2026, 9, 17), tournament_type_id("bounty_v3"), None),
+                (date(2026, 9, 18), tournament_type_id("classic_v3"), None),
+                (date(2026, 9, 19), tournament_type_id("satellite"), None),
+                (date(2026, 9, 20), tournament_type_id("black_party"), None),
+            ]
+            season = (await session.execute(select(Season))).scalar_one()
+            assert {item.scoring_config_id for item in tournaments} == {season.scoring_config_id}
+            assert {item.registration_open for item in tournaments} == {False}
+
+        async with session_factory() as session:
+            second_plan = await create_next_week.build_plan(session)
+            assert [item.action for item in second_plan] == ["unchanged"] * 5
+    finally:
+        await engine.dispose()
+
+
+async def test_create_next_week_conflict_blocks_apply_without_partial_rows(
+    tmp_path: Path,
+) -> None:
+    session_factory, engine = await create_session_factory(tmp_path / "next-week-conflict.db")
+    try:
+        await seed_scoring_v2_data(session_factory)
+        async with session_factory() as session:
+            season = (await session.execute(select(Season))).scalar_one()
+            session.add(
+                Tournament(
+                    season_id=season.id,
+                    scoring_config_id=season.scoring_config_id,
+                    tournament_type_id=tournament_type_id("classic_v3"),
+                    date=date(2026, 9, 16),
+                    status=TournamentStatus.ACTIVE,
+                    registration_open=False,
+                )
+            )
+            await session.commit()
+
+        async with session_factory() as session:
+            plan = await create_next_week.build_plan(session)
+            assert plan[0].action == "conflict"
+            assert create_next_week.has_conflicts(plan)
     finally:
         await engine.dispose()
 

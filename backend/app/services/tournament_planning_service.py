@@ -131,6 +131,9 @@ REAL_TOURNAMENT_TYPE_CODES = (
     "mystery_bounty",
     "boss_bounty",
     "main_ko",
+    "slow_blinds",
+    "satellite",
+    "black_party",
 )
 
 
