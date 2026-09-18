@@ -1,6 +1,6 @@
 from datetime import datetime
 
-from sqlalchemy import CheckConstraint, DateTime, ForeignKey, Integer, String, UniqueConstraint
+from sqlalchemy import CheckConstraint, DateTime, ForeignKey, Integer, String
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.db.base import Base
@@ -38,12 +38,6 @@ class TournamentCombination(Base):
     )
 
     __table_args__ = (
-        UniqueConstraint(
-            "tournament_id",
-            "player_id",
-            "combination_type",
-            name="uq_tournament_combinations_tournament_player_type",
-        ),
         CheckConstraint(
             "combination_type IN ('four_of_a_kind', 'straight_flush', 'royal_flush')",
             name="ck_tournament_combinations_type",

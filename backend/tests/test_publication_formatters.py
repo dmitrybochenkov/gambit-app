@@ -78,7 +78,15 @@ def test_result_publication_report_uses_saved_points_and_evening_combinations() 
                 display_name="Агафонов Павел",
                 combination_type="four_of_a_kind",
                 rank="A",
-            )
+            ),
+            TournamentCombinationView(
+                id=2,
+                tournament_id=1,
+                player_id=100,
+                display_name="Агафонов Павел",
+                combination_type="four_of_a_kind",
+                rank="A",
+            ),
         ],
         photos=[
             TournamentPhotoView(
@@ -110,7 +118,7 @@ def test_result_publication_report_uses_saved_points_and_evening_combinations() 
     assert "Мария 🌸" not in text
     assert "Агафонов Павел — 7 K.O. + 1 BOSS" in text
     assert "Рыжов Евгений — 2 BOSS" in text
-    assert "Агафонов Павел — Каре тузов" in text
+    assert text.count("Агафонов Павел — Каре тузов") == 2
     assert "Игра ведётся исключительно на рейтинг" in text
 
 

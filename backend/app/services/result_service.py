@@ -42,7 +42,6 @@ from app.services.player_reward_service import PlayerRewardService
 from app.services.result_errors import (
     ClosedTournamentCorrectionStaleError,
     FutureTournamentCannotBeClosedError,
-    ResultCombinationAlreadyExistsError,
     ResultCombinationNotFoundError,
     ResultDuplicateNameError,
     ResultInvalidCombinationRankError,
@@ -69,7 +68,6 @@ logger = logging.getLogger(__name__)
 __all__ = [
     "ClosedTournamentCorrectionStaleError",
     "FutureTournamentCannotBeClosedError",
-    "ResultCombinationAlreadyExistsError",
     "ResultCombinationNotFoundError",
     "ResultDuplicateNameError",
     "ResultInvalidCombinationRankError",

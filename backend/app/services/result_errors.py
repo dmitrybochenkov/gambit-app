@@ -60,9 +60,5 @@ class ResultPlayerRewardConflictError(ValueError):
     pass
 
 
-class ResultCombinationAlreadyExistsError(ValueError):
-    pass
-
-
 class ResultCombinationNotFoundError(ValueError):
     pass

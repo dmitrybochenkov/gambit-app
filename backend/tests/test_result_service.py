@@ -43,7 +43,6 @@ from app.services.result_fields import ResultField
 from app.services.result_service import (
     ClosedTournamentCorrectionStaleError,
     FutureTournamentCannotBeClosedError,
-    ResultCombinationAlreadyExistsError,
     ResultDuplicateNameError,
     ResultInvalidFundError,
     ResultInvalidPlayerDataError,
@@ -427,7 +426,7 @@ async def test_delete_player_from_open_tournament_rolls_back_on_delete_failure(
         await engine.dispose()
 
 
-async def test_tournament_combinations_can_be_added_deleted_and_deduplicated(
+async def test_tournament_combination_occurrences_are_independent(
     tmp_path: Path,
 ) -> None:
     engine = create_async_engine(f"sqlite+aiosqlite:///{tmp_path / 'combinations.db'}")
@@ -489,35 +488,65 @@ async def test_tournament_combinations_can_be_added_deleted_and_deduplicated(
         session_factory,
         clock=FixedClock(datetime(2026, 7, 19, 12, tzinfo=ZoneInfo("Europe/Moscow"))),
     )
-    view = await combination_service.add_combination(
-        admin_telegram_id=100,
-        tournament_id=tournament_id,
-        player_id=first_id,
-        combination_type=TournamentCombinationType.STRAIGHT_FLUSH,
-    )
-
-    assert [(item.display_name, item.combination_type) for item in view.combinations] == [
-        ("Борис", "straight_flush")
-    ]
-    assert [player.display_name for player in view.players] == ["Алексей", "Борис"]
-    with pytest.raises(ResultCombinationAlreadyExistsError):
-        await combination_service.add_combination(
+    for _ in range(3):
+        view = await combination_service.add_combination(
             admin_telegram_id=100,
             tournament_id=tournament_id,
             player_id=first_id,
             combination_type=TournamentCombinationType.STRAIGHT_FLUSH,
         )
-    combination_id = view.combinations[0].id
-    empty = await combination_service.delete_combination(
+    for rank in ("A", "A", "K", "K"):
+        view = await combination_service.add_combination(
+            admin_telegram_id=100,
+            tournament_id=tournament_id,
+            player_id=first_id,
+            combination_type=TournamentCombinationType.FOUR_OF_A_KIND,
+            rank=rank,
+        )
+
+    straight_flushes = [
+        item
+        for item in view.combinations
+        if item.combination_type == TournamentCombinationType.STRAIGHT_FLUSH
+    ]
+    four_of_a_kinds = [
+        item
+        for item in view.combinations
+        if item.combination_type == TournamentCombinationType.FOUR_OF_A_KIND
+    ]
+    assert len(straight_flushes) == 3
+    assert len({item.id for item in straight_flushes}) == 3
+    assert [item.rank for item in four_of_a_kinds] == ["A", "A", "K", "K"]
+    assert len({item.id for item in view.combinations}) == 7
+    assert [player.display_name for player in view.players] == ["Алексей", "Борис"]
+
+    retained_ids = {straight_flushes[0].id, straight_flushes[2].id}
+    remaining = await combination_service.delete_combination(
         admin_telegram_id=100,
         tournament_id=tournament_id,
-        combination_id=combination_id,
+        combination_id=straight_flushes[1].id,
     )
 
-    assert empty.combinations == []
+    remaining_straight_flushes = [
+        item
+        for item in remaining.combinations
+        if item.combination_type == TournamentCombinationType.STRAIGHT_FLUSH
+    ]
+    assert {item.id for item in remaining_straight_flushes} == retained_ids
     async with session_factory() as session:
-        combinations = (await session.execute(select(TournamentCombination))).scalars().all()
-    assert combinations == []
+        combinations = (
+            (
+                await session.execute(
+                    select(TournamentCombination).order_by(TournamentCombination.id)
+                )
+            )
+            .scalars()
+            .all()
+        )
+    assert len(combinations) == 6
+    assert {item.id for item in combinations if item.combination_type == "straight_flush"} == (
+        retained_ids
+    )
     await engine.dispose()
 
 

@@ -20,7 +20,6 @@ from app.services.dto.results import (
     TournamentCombinationView,
 )
 from app.services.result_errors import (
-    ResultCombinationAlreadyExistsError,
     ResultCombinationNotFoundError,
     ResultInvalidCombinationRankError,
     ResultTournamentNotFoundError,
@@ -101,9 +100,9 @@ class TournamentCombinationService:
                     rank=rank,
                 )
                 await session.commit()
-            except IntegrityError as exc:
+            except IntegrityError:
                 await session.rollback()
-                raise ResultCombinationAlreadyExistsError from exc
+                raise
             return await self.list_for_tournament_in_session(session, tournament)
 
     async def delete_combination(

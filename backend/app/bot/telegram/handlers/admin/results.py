@@ -36,7 +36,6 @@ from app.db.models.enums import TournamentCombinationType
 from app.services.access_policy import AdminAccessDeniedError
 from app.services.pagination import pagination_service
 from app.services.result_service import (
-    ResultCombinationAlreadyExistsError,
     ResultCombinationNotFoundError,
     ResultInvalidPlayerDataError,
     ResultService,
@@ -330,9 +329,6 @@ async def select_combination_action(
             return
     except AdminAccessDeniedError:
         await callback.answer(panel_text.ACCESS_DENIED, show_alert=True)
-        return
-    except ResultCombinationAlreadyExistsError:
-        await callback.answer("Такая комбинация уже добавлена.", show_alert=True)
         return
     except ResultCombinationNotFoundError:
         await callback.answer("Комбинация не найдена.", show_alert=True)
