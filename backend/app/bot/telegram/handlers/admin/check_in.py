@@ -868,7 +868,7 @@ async def enter_new_check_in_player(message: Message, state: FSMContext) -> None
             check_in_back="new_player_candidates",
         )
         (
-            tournament,
+            _tournament,
             display_name,
         ) = await tournament_check_in_service.get_new_user_check_in_confirmation(
             admin_telegram_id=message.from_user.id,
@@ -908,13 +908,16 @@ async def enter_new_check_in_player(message: Message, state: FSMContext) -> None
         return
 
     await state.set_state(AdminResultStates.confirming_new_check_in_player)
-    await state.update_data(check_in_back="new_player_prompt")
+    await state.update_data(
+        check_in_tournament_id=tournament_id,
+        new_check_in_display_name=display_name,
+        check_in_back="new_player_prompt",
+    )
     await message.answer(
-        check_in_fmt.new_confirmation(tournament, display_name),
-        reply_markup=admin_check_in_kb.admin_check_in_confirmation_keyboard(
+        check_in_fmt.unknown_gender(SimpleNamespace(display_name=display_name)),
+        reply_markup=admin_check_in_kb.admin_check_in_gender_keyboard(
             tournament_id=tournament_id,
-            confirm_action=admin_check_in_kb.AdminCheckInAction.CREATE_NEW,
-            confirm_text="✅ Создать",
+            player_id=0,
         ),
     )
 

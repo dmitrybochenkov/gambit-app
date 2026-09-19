@@ -2739,10 +2739,230 @@ async def test_check_in_new_player_clears_prompt_keyboard(
         reply_markup=None,
     )
     assert state.state == AdminResultStates.confirming_new_check_in_player
-    assert message.answer.await_args.args[0] == check_in_fmt.new_confirmation(
-        tournament,
-        "Черепаха",
+    assert state.data["check_in_tournament_id"] == 125
+    assert state.data["new_check_in_display_name"] == "Черепаха"
+    assert message.answer.await_args.args[0] == check_in_fmt.unknown_gender(
+        SimpleNamespace(display_name="Черепаха")
     )
+    actions = [
+        admin_check_in_kb.AdminCheckInCallback.unpack(button.callback_data).action
+        for row in message.answer.await_args.kwargs["reply_markup"].inline_keyboard
+        for button in row
+    ]
+    assert actions == [
+        admin_check_in_kb.AdminCheckInAction.SET_GENDER_FEMALE,
+        admin_check_in_kb.AdminCheckInAction.SET_GENDER_MALE,
+        admin_check_in_kb.AdminCheckInAction.SKIP_GENDER,
+        admin_check_in_kb.AdminCheckInAction.CANCEL,
+    ]
+    assert all(action.value != "create_new" for action in actions)
+
+
+@pytest.mark.parametrize(
+    ("action", "expected_gender"),
+    [
+        (admin_check_in_kb.AdminCheckInAction.SKIP_GENDER, None),
+        (admin_check_in_kb.AdminCheckInAction.SET_GENDER_FEMALE, UserGender.FEMALE),
+    ],
+)
+async def test_check_in_no_candidate_name_flows_through_gender_to_correct_tournament(
+    monkeypatch: pytest.MonkeyPatch,
+    action: admin_check_in_kb.AdminCheckInAction,
+    expected_gender: UserGender | None,
+) -> None:
+    tournament = tournament_view(125, date(2026, 8, 9), 1, "Баунти турнир")
+    user = UserView(10, None, "Новая Игрок", UserStatus.ACTIVE, UserRole.PLAYER, expected_gender)
+    result = CheckInResultView(tournament=tournament, user=user, created=True)
+    view = SimpleNamespace(
+        tournament=tournament,
+        registered_count=0,
+        registered_checked_in_count=0,
+        walk_in_count=1,
+        checked_in_count=1,
+    )
+    service = SimpleNamespace(
+        find_new_player_candidates=AsyncMock(return_value=("новая игрок", [], False)),
+        get_new_user_check_in_confirmation=AsyncMock(return_value=(tournament, "Новая Игрок")),
+        create_user_and_check_in=AsyncMock(return_value=result),
+        get_check_in=AsyncMock(return_value=view),
+    )
+    monkeypatch.setattr(admin_check_in_handlers, "tournament_check_in_service", service)
+    state = MutableState()
+    await state.update_data(check_in_tournament_id=125)
+    message = SimpleNamespace(
+        from_user=SimpleNamespace(id=100),
+        text="Новая Игрок",
+        chat=SimpleNamespace(id=100),
+        bot=SimpleNamespace(edit_message_reply_markup=AsyncMock()),
+        answer=AsyncMock(),
+    )
+
+    await admin_check_in_handlers.enter_new_check_in_player(message, state)
+
+    callback = SimpleNamespace(
+        from_user=SimpleNamespace(id=100),
+        message=SimpleNamespace(edit_text=AsyncMock(), answer=AsyncMock()),
+        answer=AsyncMock(),
+        bot=SimpleNamespace(send_message=AsyncMock()),
+    )
+    await admin_check_in_handlers.select_check_in_action(
+        callback,
+        admin_check_in_kb.AdminCheckInCallback(
+            action=action,
+            tournament_id=125,
+            player_id=0,
+        ),
+        state,
+    )
+
+    service.create_user_and_check_in.assert_awaited_once_with(
+        admin_telegram_id=100,
+        tournament_id=125,
+        display_name="Новая Игрок",
+        gender=expected_gender,
+    )
+    service.get_check_in.assert_awaited_once_with(admin_telegram_id=100, tournament_id=125)
+    assert state.state is None
+    assert state.data == {}
+
+
+async def test_check_in_similar_candidate_can_be_selected_and_checked_in(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    tournament = tournament_view(125, date(2026, 8, 9), 1, "Баунти турнир")
+    candidate = UserView(
+        10,
+        None,
+        "Похожий Игрок",
+        UserStatus.ACTIVE,
+        UserRole.PLAYER,
+        UserGender.MALE,
+    )
+    decision = SimpleNamespace(tournament=tournament, user=candidate, active_rewards=())
+    result = CheckInResultView(tournament=tournament, user=candidate, created=True)
+    view = SimpleNamespace(
+        tournament=tournament,
+        registered_count=0,
+        registered_checked_in_count=0,
+        walk_in_count=1,
+        checked_in_count=1,
+    )
+    service = SimpleNamespace(
+        find_new_player_candidates=AsyncMock(return_value=("похожий", [candidate], False)),
+        get_new_user_check_in_confirmation=AsyncMock(return_value=(tournament, "Похожий")),
+        get_existing_user_check_in_decision=AsyncMock(return_value=decision),
+        check_in_existing_user=AsyncMock(return_value=result),
+        get_check_in=AsyncMock(return_value=view),
+    )
+    monkeypatch.setattr(admin_check_in_handlers, "tournament_check_in_service", service)
+    state = MutableState()
+    await state.update_data(check_in_tournament_id=125)
+    message = SimpleNamespace(
+        from_user=SimpleNamespace(id=100),
+        text="Похожий",
+        chat=SimpleNamespace(id=100),
+        bot=SimpleNamespace(edit_message_reply_markup=AsyncMock()),
+        answer=AsyncMock(),
+    )
+
+    await admin_check_in_handlers.enter_new_check_in_player(message, state)
+    candidate_actions = [
+        admin_check_in_kb.AdminCheckInCallback.unpack(button.callback_data)
+        for row in message.answer.await_args.kwargs["reply_markup"].inline_keyboard
+        for button in row
+    ]
+    assert any(
+        item.action == admin_check_in_kb.AdminCheckInAction.CONFIRM_EXISTING
+        and item.player_id == 10
+        and item.tournament_id == 125
+        for item in candidate_actions
+    )
+
+    confirmation_message = SimpleNamespace(edit_text=AsyncMock())
+    await admin_check_in_handlers.select_check_in_action(
+        SimpleNamespace(
+            from_user=SimpleNamespace(id=100),
+            message=confirmation_message,
+            answer=AsyncMock(),
+        ),
+        admin_check_in_kb.AdminCheckInCallback(
+            action=admin_check_in_kb.AdminCheckInAction.CONFIRM_EXISTING,
+            tournament_id=125,
+            player_id=10,
+        ),
+        state,
+    )
+    final_callback = SimpleNamespace(
+        from_user=SimpleNamespace(id=100),
+        message=SimpleNamespace(edit_text=AsyncMock(), answer=AsyncMock()),
+        answer=AsyncMock(),
+        bot=SimpleNamespace(send_message=AsyncMock()),
+    )
+    await admin_check_in_handlers.select_check_in_action(
+        final_callback,
+        admin_check_in_kb.AdminCheckInCallback(
+            action=admin_check_in_kb.AdminCheckInAction.ADD_EXISTING,
+            tournament_id=125,
+            player_id=10,
+        ),
+        state,
+    )
+
+    service.check_in_existing_user.assert_awaited_once_with(
+        admin_telegram_id=100,
+        tournament_id=125,
+        user_id=10,
+    )
+
+
+async def test_check_in_similar_candidate_confirm_new_opens_shared_gender_step(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    tournament = tournament_view(125, date(2026, 8, 9), 1, "Баунти турнир")
+    candidate = UserView(10, None, "Похожий Игрок", UserStatus.ACTIVE, UserRole.PLAYER)
+    service = SimpleNamespace(
+        find_new_player_candidates=AsyncMock(return_value=("новый", [candidate], False)),
+        get_new_user_check_in_confirmation=AsyncMock(return_value=(tournament, "Новый Игрок")),
+    )
+    monkeypatch.setattr(admin_check_in_handlers, "tournament_check_in_service", service)
+    state = MutableState()
+    await state.update_data(check_in_tournament_id=125)
+    message = SimpleNamespace(
+        from_user=SimpleNamespace(id=100),
+        text="Новый Игрок",
+        chat=SimpleNamespace(id=100),
+        bot=SimpleNamespace(edit_message_reply_markup=AsyncMock()),
+        answer=AsyncMock(),
+    )
+    await admin_check_in_handlers.enter_new_check_in_player(message, state)
+
+    callback_message = SimpleNamespace(edit_text=AsyncMock())
+    await admin_check_in_handlers.select_check_in_action(
+        SimpleNamespace(
+            from_user=SimpleNamespace(id=100),
+            message=callback_message,
+            answer=AsyncMock(),
+        ),
+        admin_check_in_kb.AdminCheckInCallback(
+            action=admin_check_in_kb.AdminCheckInAction.CONFIRM_NEW,
+            tournament_id=125,
+        ),
+        state,
+    )
+
+    actions = [
+        admin_check_in_kb.AdminCheckInCallback.unpack(button.callback_data).action
+        for row in callback_message.edit_text.await_args.kwargs["reply_markup"].inline_keyboard
+        for button in row
+    ]
+    assert actions == [
+        admin_check_in_kb.AdminCheckInAction.SET_GENDER_FEMALE,
+        admin_check_in_kb.AdminCheckInAction.SET_GENDER_MALE,
+        admin_check_in_kb.AdminCheckInAction.SKIP_GENDER,
+        admin_check_in_kb.AdminCheckInAction.CANCEL,
+    ]
+    assert state.data["check_in_tournament_id"] == 125
+    assert state.data["new_check_in_display_name"] == "Новый Игрок"
 
 
 async def test_check_in_unknown_gender_shown_before_registered_result(

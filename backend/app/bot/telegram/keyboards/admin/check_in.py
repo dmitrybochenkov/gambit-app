@@ -30,7 +30,6 @@ class AdminCheckInAction(StrEnum):
     ADD_EXISTING = "add_existing"
     NEW_PLAYER = "new_player"
     CONFIRM_NEW = "confirm_new"
-    CREATE_NEW = "create_new"
     SKIP_REWARD = "skip_reward"
     SELECT_REWARD = "select_reward"
     CONFIRM_REWARD = "confirm_reward"
