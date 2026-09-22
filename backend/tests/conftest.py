@@ -31,6 +31,7 @@ TOURNAMENT_TYPE_IDS = {
     "slow_blinds": 17,
     "satellite": 18,
     "black_party": 19,
+    "month_main": 20,
 }
 
 TOURNAMENT_TYPE_NAMES = {
@@ -52,6 +53,7 @@ TOURNAMENT_TYPE_NAMES = {
     "slow_blinds": "Slow Blinds",
     "satellite": "Satellite",
     "black_party": "Black Party",
+    "month_main": "Month Main Tournament",
 }
 
 TOURNAMENT_TYPE_SHORT_NAMES = {
@@ -73,6 +75,7 @@ TOURNAMENT_TYPE_SHORT_NAMES = {
     "slow_blinds": "Slow Blinds",
     "satellite": "Satellite",
     "black_party": "Black Party",
+    "month_main": "Month Main Tournament",
 }
 TOURNAMENT_TYPE_CALENDAR_CODES = {
     "bounty": "B",
@@ -94,6 +97,7 @@ TOURNAMENT_TYPE_CALENDAR_CODES = {
     "slow_blinds": "SB",
     "satellite": "ST",
     "black_party": "BP",
+    "month_main": "MM",
 }
 TOURNAMENT_TYPE_DESCRIPTIONS = {
     "bounty": (
@@ -137,6 +141,7 @@ TOURNAMENT_TYPE_DESCRIPTIONS = {
         "Плавная структура блайндов."
     ),
     "black_party": "Тематическая вечеринка.\nВсе как в White Party.",
+    "month_main": None,
 }
 CREATABLE_TOURNAMENT_TYPE_CODES = {
     "freezeout_v2",
@@ -147,6 +152,7 @@ CREATABLE_TOURNAMENT_TYPE_CODES = {
     "slow_blinds",
     "satellite",
     "black_party",
+    "month_main",
     "mystery_bounty",
     "boss_bounty",
     "main_ko",
@@ -191,6 +197,7 @@ TOURNAMENT_TYPE_RULES = {
     "slow_blinds": ("1.00", "1.00", None, KnockoutMode.NONE, False),
     "satellite": ("1.00", "1.00", None, KnockoutMode.NONE, False),
     "black_party": ("1.00", "1.00", None, KnockoutMode.NONE, False),
+    "month_main": ("1.00", "1.00", None, KnockoutMode.NONE, False),
 }
 
 
@@ -362,6 +369,13 @@ def build_tournament_economy_configs() -> list[TournamentEconomyConfig]:
                 addon_fee=1000,
                 addon_stack=150_000,
             ),
+            TournamentEconomyConfig(
+                tournament_type_id=tournament_type_id("month_main"),
+                entry_fee=1000,
+                entry_stack=30_000,
+                addon_fee=1000,
+                addon_stack=125_000,
+            ),
         ]
     )
     return configs
@@ -503,6 +517,15 @@ def build_tournament_rebuy_configs() -> list[TournamentRebuyConfig]:
             stack=stack,
         )
         for rebuy_order, fee, stack in WHITE_PARTY_REBUYS
+    )
+    configs.extend(
+        TournamentRebuyConfig(
+            tournament_type_id=tournament_type_id("month_main"),
+            rebuy_order=rebuy_order,
+            fee=1000,
+            stack=stack,
+        )
+        for rebuy_order, stack in ((1, 40_000), (2, 50_000), (3, 60_000))
     )
     return configs
 

@@ -310,6 +310,7 @@ async def test_calendar_type_options_include_only_creatable_formats(tmp_path: Pa
             "slow_blinds",
             "satellite",
             "black_party",
+            "month_main",
         ]
     finally:
         await engine.dispose()

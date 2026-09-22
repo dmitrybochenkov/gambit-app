@@ -134,6 +134,7 @@ REAL_TOURNAMENT_TYPE_CODES = (
     "slow_blinds",
     "satellite",
     "black_party",
+    "month_main",
 )
 
 
