@@ -1266,6 +1266,7 @@ def _calendar_month_tournament_types(
             TournamentCalendarMonthTypeView(
                 id=tournament_type.id,
                 name=tournament_type.name,
+                short_name=tournament_type.short_name,
                 calendar_code=tournament_type.calendar_code,
             )
         )

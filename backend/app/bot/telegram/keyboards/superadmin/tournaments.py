@@ -182,7 +182,7 @@ def calendar_format_help_keyboard(view: object, *, page: int = 0) -> InlineKeybo
     items = view.tournament_types[start : start + CALENDAR_FORMATS_PAGE_SIZE]
     for tournament_type in items:
         builder.button(
-            text=tournament_type.name,
+            text=f"{tournament_type.calendar_code} — {tournament_type.short_name}",
             callback_data=SuperadminTournamentCalendarFormatCallback(
                 action=SuperadminTournamentCalendarFormatAction.DETAIL,
                 year=view.year,

@@ -206,6 +206,9 @@ async def test_calendar_format_detail_is_restricted_to_selected_month(
         september_type_id = tournament_type_id("deep_stack")
         october_type_id = tournament_type_id("boss_bounty")
         async with session_factory() as session:
+            september_type = await session.get(TournamentType, september_type_id)
+            assert september_type is not None
+            september_type.short_name = "Дипстек"
             session.add_all(
                 [
                     Tournament(
@@ -234,6 +237,10 @@ async def test_calendar_format_detail_is_restricted_to_selected_month(
         )
 
         assert detail.name == "Deep Stack"
+        month = await service.get_calendar_month(100, year=2026, month=9)
+        assert [(item.calendar_code, item.short_name) for item in month.tournament_types] == [
+            ("D", "Дипстек")
+        ]
         with pytest.raises(CalendarTournamentTypeNotFoundError):
             await service.get_calendar_format_detail(
                 100,

@@ -102,6 +102,7 @@ class TournamentCalendarMonthView:
 class TournamentCalendarMonthTypeView:
     id: int
     name: str
+    short_name: str
     calendar_code: str
 
 
