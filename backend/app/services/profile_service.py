@@ -302,9 +302,11 @@ async def _player_honours(
     rows = await repository.list_player_honours(player_id)
     return tuple(
         PlayerProfileHonourView(
+            achievement_id=row.achievement_id,
             season_name=row.season_name,
             season_starts_at=row.starts_at,
             kind=row.kind,
+            awarded_at=row.awarded_at,
         )
         for row in rows
     )

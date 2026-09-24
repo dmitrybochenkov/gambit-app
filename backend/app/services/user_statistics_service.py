@@ -9,7 +9,10 @@ from app.db.repositories.tournament_repository import (
 )
 from app.db.session import SessionFactory
 from app.services.access_policy import ActiveUserRequiredError, access_policy
-from app.services.dto.statistics.hall_of_fame import HallOfFameSeasonView
+from app.services.dto.statistics.hall_of_fame import (
+    HallOfFameAchievementView,
+    HallOfFameSeasonView,
+)
 from app.services.dto.statistics.history import (
     HistoricalTournamentResultRowView,
     HistoricalTournamentResultView,
@@ -162,6 +165,16 @@ class UserStatisticsService:
                     knockout_leader_display_name=row.knockout_leader_display_name,
                     champion_photo_file_id=row.champion_photo_file_id,
                     knockout_photo_file_id=row.knockout_photo_file_id,
+                    achievements=tuple(
+                        HallOfFameAchievementView(
+                            id=item.id,
+                            player_id=item.player_id,
+                            display_name=item.display_name,
+                            kind=item.kind,
+                            awarded_at=item.awarded_at,
+                        )
+                        for item in row.achievements
+                    ),
                 )
                 for row in rows
             ]

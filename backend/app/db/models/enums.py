@@ -50,6 +50,14 @@ class PlayerRewardType(StrEnum):
     PRIZE_STACK_BONUS = "prize_stack_bonus"
 
 
+class HallOfFameAchievementKind(StrEnum):
+    RATING_WINNER = "rating_winner"
+    KO_RATING_WINNER = "ko_rating_winner"
+    GRAND_SEASON = "grand_season"
+    GRAND_MONTH = "grand_month"
+    GRAND_KNOCKOUT = "grand_knockout"
+
+
 class RegistrationRequestType(StrEnum):
     NEW_PLAYER = "new_player"
     LINK_EXISTING_PLAYER = "link_existing_player"

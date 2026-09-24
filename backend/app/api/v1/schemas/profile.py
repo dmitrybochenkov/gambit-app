@@ -29,6 +29,7 @@ class PlayerProfileResponse(BaseModel):
     places: ProfilePlaceStatsResponse
     champion_titles_count: int
     knockout_titles_count: int
+    achievements: list[str]
 
     model_config = ConfigDict(json_schema_extra={"description": "Current player profile."})
 
@@ -61,6 +62,11 @@ class PlayerProfileResponse(BaseModel):
                 fourth=view.fourth_places_count,
                 fifth=view.fifth_places_count,
             ),
-            champion_titles_count=sum(1 for honour in view.honours if honour.kind == "champion"),
-            knockout_titles_count=sum(1 for honour in view.honours if honour.kind == "knockout"),
+            champion_titles_count=sum(
+                1 for honour in view.honours if honour.kind == "rating_winner"
+            ),
+            knockout_titles_count=sum(
+                1 for honour in view.honours if honour.kind == "ko_rating_winner"
+            ),
+            achievements=[honour.kind for honour in view.honours],
         )

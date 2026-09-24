@@ -1,4 +1,5 @@
 from app.bot.telegram.formatters import common as fmt_common
+from app.bot.telegram.formatters.statistics.achievements import achievement_emoji
 
 RATING_UNAVAILABLE = (
     "Рейтинг доступен зарегистрированным игрокам. Нажми /start, чтобы зарегистрироваться!"
@@ -77,11 +78,7 @@ def _honours(row: object) -> str:
 
 
 def _achievement_marker(kind: str) -> str:
-    if kind == "champion":
-        return "💍"
-    if kind == "knockout":
-        return "💥"
-    return ""
+    return achievement_emoji(kind)
 
 
 def _escape_markdown(value: str) -> str:

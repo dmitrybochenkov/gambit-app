@@ -1,4 +1,5 @@
 import logging
+from datetime import date
 
 from aiogram import F, Router
 from aiogram.exceptions import TelegramBadRequest
@@ -23,8 +24,10 @@ from app.bot.telegram.message_edit import (
 from app.bot.telegram.states import HallOfFameStates
 from app.bot.telegram.texts.superadmin import hall_of_fame as text
 from app.bot.telegram.texts.superadmin import panel as panel_text
+from app.db.models.enums import HallOfFameAchievementKind
 from app.services.access_policy import AdminAccessDeniedError
 from app.services.hall_of_fame_management_service import (
+    HallOfFameAchievementNotFoundError,
     HallOfFamePhotoRole,
     HallOfFameSeasonNotFoundError,
     hall_of_fame_management_service,
@@ -119,6 +122,23 @@ async def select_hall_of_fame_card_action(
     if callback_data.action == hall_kb.HallOfFameCardAction.BACK:
         await _show_season_list_callback(callback, callback_data.page, state)
         return
+    if callback_data.action == hall_kb.HallOfFameCardAction.DELETE:
+        try:
+            entry = await hall_of_fame_management_service.delete_achievement(
+                callback.from_user.id, callback_data.achievement_id
+            )
+        except (HallOfFameAchievementNotFoundError, HallOfFameSeasonNotFoundError):
+            await callback.answer(text.HALL_OF_FAME_SEASON_NOT_FOUND, show_alert=True)
+            return
+        await callback.answer("Достижение удалено.")
+        if callback.message is not None:
+            await edit_message_if_changed(
+                callback.message,
+                text=hall_fmt.season_card(entry),
+                reply_markup=hall_kb.season_card_keyboard(entry=entry, page=callback_data.page),
+                parse_mode="Markdown",
+            )
+        return
 
     if callback_data.action in {
         hall_kb.HallOfFameCardAction.CHAMPION_PHOTO,
@@ -132,25 +152,48 @@ async def select_hall_of_fame_card_action(
         await _start_photo_flow(callback, callback_data.season_id, field, state)
         return
 
-    field = (
-        hall_kb.HallOfFameField.CHAMPION
-        if callback_data.action == hall_kb.HallOfFameCardAction.CHOOSE_CHAMPION
-        else hall_kb.HallOfFameField.KNOCKOUT
-    )
+    if callback_data.action == hall_kb.HallOfFameCardAction.CHOOSE_CHAMPION:
+        field = hall_kb.HallOfFameField.RATING_WINNER
+    elif callback_data.action == hall_kb.HallOfFameCardAction.CHOOSE_KNOCKOUT:
+        field = hall_kb.HallOfFameField.KO_RATING_WINNER
+    else:
+        field = callback_data.kind
     await state.clear()
-    await state.set_state(HallOfFameStates.entering_player_name)
-    await state.update_data(hall_season_id=callback_data.season_id, hall_field=field.value)
+    await state.set_state(HallOfFameStates.entering_awarded_at)
+    await state.update_data(
+        hall_season_id=callback_data.season_id,
+        hall_field=field.value,
+        hall_achievement_id=(
+            callback_data.achievement_id
+            if callback_data.action == hall_kb.HallOfFameCardAction.EDIT
+            else 0
+        ),
+    )
     await callback.answer()
     if callback.message is not None:
         await _delete_callback_message(callback)
         prompt = await callback.message.answer(
-            hall_fmt.search_prompt(field),
+            "Введи дату достижения в формате ДД.ММ.ГГГГ.",
             reply_markup=hall_kb.search_prompt_keyboard(
                 season_id=callback_data.season_id,
                 field=field,
             ),
         )
         await state.update_data(hall_prompt_message_id=prompt.message_id)
+
+
+@router.message(HallOfFameStates.entering_awarded_at)
+async def enter_hall_of_fame_awarded_at(message: Message, state: FSMContext) -> None:
+    if message.from_user is None:
+        return
+    try:
+        awarded_at = date.fromisoformat("-".join(reversed((message.text or "").strip().split("."))))
+    except ValueError:
+        await message.answer("Введи дату в формате ДД.ММ.ГГГГ.")
+        return
+    await state.update_data(hall_awarded_at=awarded_at.isoformat())
+    await state.set_state(HallOfFameStates.entering_player_name)
+    await message.answer(hall_fmt.search_prompt(hall_kb.HallOfFameField.GRAND_MONTH))
 
 
 @router.message(HallOfFameStates.entering_player_name)
@@ -247,20 +290,25 @@ async def confirm_hall_of_fame_player(
             callback.from_user.id,
             callback_data.player_id,
         )
-        if callback_data.field == hall_kb.HallOfFameField.CHAMPION:
-            entry = await hall_of_fame_management_service.set_champion(
+        data = await state.get_data()
+        achievement_id = int(data.get("hall_achievement_id", 0))
+        if achievement_id:
+            entry = await hall_of_fame_management_service.update_achievement(
                 callback.from_user.id,
-                callback_data.season_id,
-                callback_data.player_id,
+                achievement_id,
+                player_id=callback_data.player_id,
+                kind=HallOfFameAchievementKind(callback_data.field.value),
+                awarded_at=date.fromisoformat(str(data["hall_awarded_at"])),
             )
-            saved_text = text.saved_champion(player.user.display_name, entry.season_name)
         else:
-            entry = await hall_of_fame_management_service.set_knockout_player(
+            entry = await hall_of_fame_management_service.add_achievement(
                 callback.from_user.id,
                 callback_data.season_id,
                 callback_data.player_id,
+                HallOfFameAchievementKind(callback_data.field.value),
+                date.fromisoformat(str(data["hall_awarded_at"])),
             )
-            saved_text = text.saved_knockout(player.user.display_name, entry.season_name)
+        saved_text = f"✅ Достижение сохранено\n\n{player.user.display_name}\n{entry.season_name}"
     except AdminAccessDeniedError:
         await callback.answer(panel_text.INSUFFICIENT_RIGHTS, show_alert=True)
         return
@@ -416,7 +464,11 @@ async def select_hall_of_fame_photo_action(
         entry = await hall_of_fame_management_service.set_photo(
             callback.from_user.id,
             callback_data.season_id,
-            role=HallOfFamePhotoRole(callback_data.field.value),
+            role=(
+                HallOfFamePhotoRole.CHAMPION
+                if callback_data.field == hall_kb.HallOfFameField.RATING_WINNER
+                else HallOfFamePhotoRole.KNOCKOUT
+            ),
             telegram_file_id=str(data["hall_photo_file_id"]),
             telegram_file_unique_id=str(data["hall_photo_file_unique_id"]),
         )

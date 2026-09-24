@@ -1,8 +1,9 @@
 from dataclasses import dataclass
 from decimal import Decimal
-from typing import Literal
 
-RatingAchievementKind = Literal["champion", "knockout"]
+from app.db.models.enums import HallOfFameAchievementKind
+
+RatingAchievementKind = HallOfFameAchievementKind
 
 
 @dataclass(frozen=True)

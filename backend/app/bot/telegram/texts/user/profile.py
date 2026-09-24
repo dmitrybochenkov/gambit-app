@@ -1,4 +1,5 @@
 from app.bot.telegram.formatters import common as fmt_common
+from app.bot.telegram.formatters.statistics.achievements import achievement_emoji
 
 PROFILE_UNAVAILABLE = "Профиль доступен зарегистрированным игрокам. Нажми /start."
 PROFILE_MENU_PROMPT = "За какой период ты хочешь посмотреть свои достижения?"
@@ -76,22 +77,32 @@ def _prize_place_lines(stats: object) -> list[str]:
 def _honour_lines(stats: object) -> list[str]:
     lines = []
     for honour in stats.honours:
-        if honour.kind == "champion":
-            lines.append(f"💍 Победитель сезона «{honour.season_name}»")
-        elif honour.kind == "knockout":
-            lines.append(f"💥 Лучший нокаутер сезона «{honour.season_name}»")
+        lines.append(
+            f"{achievement_emoji(honour.kind)} "
+            f"{_achievement_label(honour.kind)} «{honour.season_name}»"
+        )
     return lines
 
 
 def _honour_summary_lines(stats: object) -> list[str]:
-    champion_count = sum(1 for honour in stats.honours if honour.kind == "champion")
-    knockout_count = sum(1 for honour in stats.honours if honour.kind == "knockout")
+    champion_count = sum(1 for honour in stats.honours if honour.kind == "rating_winner")
+    knockout_count = sum(1 for honour in stats.honours if honour.kind == "ko_rating_winner")
     lines = []
     if champion_count:
         lines.append(f"Чемпионские титулы: {'💍' * champion_count}")
     if knockout_count:
         lines.append(f"Лучший нокаутер: {'💥' * knockout_count}")
     return lines
+
+
+def _achievement_label(kind: str) -> str:
+    return {
+        "rating_winner": "Победитель рейтинга сезона",
+        "ko_rating_winner": "Победитель KO-рейтинга сезона",
+        "grand_season": "Победитель Grand Season сезона",
+        "grand_month": "Победитель Grand Month сезона",
+        "grand_knockout": "Победитель Grand Knockout сезона",
+    }[kind]
 
 
 def _reward_lines(stats: object) -> list[str]:

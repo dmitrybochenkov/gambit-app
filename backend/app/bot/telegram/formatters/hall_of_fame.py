@@ -1,4 +1,5 @@
 from app.bot.telegram.formatters import common as fmt_common
+from app.bot.telegram.formatters.statistics.achievements import achievement_emoji
 from app.bot.telegram.keyboards.superadmin.hall_of_fame import HallOfFameField
 
 
@@ -14,24 +15,21 @@ def season_list(page: object) -> str:
 
 
 def season_card(entry: object) -> str:
-    return "\n".join(
-        [
-            "🏆 Зал славы",
-            fmt_common.markdown_escape(entry.season_name),
-            "",
-            "💍 Чемпион:",
-            _display_name(entry.champion),
-            "",
-            "💥 Нокаутер:",
-            _display_name(entry.knockout_leader),
-        ]
-    )
+    lines = ["🏆 Зал славы", fmt_common.markdown_escape(entry.season_name)]
+    for achievement in entry.achievements:
+        lines.extend(
+            [
+                "",
+                f"{achievement_emoji(achievement.kind)} "
+                f"{fmt_common.markdown_escape(achievement.player.display_name)} "
+                f"({achievement.awarded_at:%d.%m.%Y})",
+            ]
+        )
+    return "\n".join(lines)
 
 
 def search_prompt(field: HallOfFameField) -> str:
-    if field == HallOfFameField.CHAMPION:
-        return "Введи имя чемпиона сезона."
-    return "Введи имя нокаутера сезона."
+    return "Введи имя обладателя достижения."
 
 
 def photo_prompt(*, field: HallOfFameField, season_name: str) -> str:

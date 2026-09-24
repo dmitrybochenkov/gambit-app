@@ -142,16 +142,16 @@ class RatingRepository:
         knockout_counts: dict[int, int] = {}
         achievements: dict[int, list[str]] = {}
         for row in sorted(rows, key=lambda item: (item.starts_at, item.season_id)):
-            if row.champion_player_id is not None:
-                champion_counts[row.champion_player_id] = (
-                    champion_counts.get(row.champion_player_id, 0) + 1
-                )
-                achievements.setdefault(row.champion_player_id, []).append("champion")
-            if row.knockout_leader_player_id is not None:
-                knockout_counts[row.knockout_leader_player_id] = (
-                    knockout_counts.get(row.knockout_leader_player_id, 0) + 1
-                )
-                achievements.setdefault(row.knockout_leader_player_id, []).append("knockout")
+            for achievement in row.achievements:
+                if achievement.kind.value == "rating_winner":
+                    champion_counts[achievement.player_id] = (
+                        champion_counts.get(achievement.player_id, 0) + 1
+                    )
+                if achievement.kind.value == "ko_rating_winner":
+                    knockout_counts[achievement.player_id] = (
+                        knockout_counts.get(achievement.player_id, 0) + 1
+                    )
+                achievements.setdefault(achievement.player_id, []).append(achievement.kind)
         return RatingHonours(
             season_champion_titles_by_player_id=champion_counts,
             season_knockout_leader_titles_by_player_id=knockout_counts,

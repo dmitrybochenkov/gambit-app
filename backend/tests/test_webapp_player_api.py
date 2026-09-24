@@ -22,6 +22,7 @@ from app.api.v1 import hall_of_fame, history, profile, ratings, rewards
 from app.common.clock import FixedClock
 from app.db.base import Base
 from app.db.models import (
+    HallOfFameAchievement,
     PlayerReward,
     ScoringConfig,
     Season,
@@ -29,7 +30,13 @@ from app.db.models import (
     Tournament,
     TournamentResult,
 )
-from app.db.models.enums import TournamentResultSource, TournamentStatus, UserGender, UserStatus
+from app.db.models.enums import (
+    HallOfFameAchievementKind,
+    TournamentResultSource,
+    TournamentStatus,
+    UserGender,
+    UserStatus,
+)
 from app.main import app
 from app.services.player_reward_service import PlayerRewardService
 from app.services.profile_service import ProfileService
@@ -208,6 +215,22 @@ async def seed_player_api_data(session_factory: async_sessionmaker) -> dict[str,
                 updated_by_user_id=player.id,
             )
         )
+        session.add_all(
+            [
+                HallOfFameAchievement(
+                    season_id=previous_season.id,
+                    player_id=player.id,
+                    kind=HallOfFameAchievementKind.RATING_WINNER,
+                    awarded_at=previous_season.ends_at,
+                ),
+                HallOfFameAchievement(
+                    season_id=previous_season.id,
+                    player_id=rival.id,
+                    kind=HallOfFameAchievementKind.KO_RATING_WINNER,
+                    awarded_at=previous_season.ends_at,
+                ),
+            ]
+        )
         reward = PlayerReward(
             player_id=player.id,
             chips_amount=40_000,
@@ -252,6 +275,7 @@ async def test_ratings_return_semantic_achievement_counts(
     ]
     assert ordinary.json()["items"][1]["points"] == "140.00"
     assert ordinary.json()["items"][1]["champion_titles_count"] == 1
+    assert ordinary.json()["items"][1]["achievements"] == [{"kind": "rating_winner"}]
     assert "knockout_titles_count" not in ordinary.json()["items"][0]
     assert "💍" not in json.dumps(ordinary.json(), ensure_ascii=False)
 
@@ -262,6 +286,7 @@ async def test_ratings_return_semantic_achievement_counts(
     ]
     assert knockouts.json()["items"][0]["total_knockouts_count"] == 10
     assert knockouts.json()["items"][0]["knockout_titles_count"] == 1
+    assert knockouts.json()["items"][0]["achievements"] == [{"kind": "ko_rating_winner"}]
     assert "champion_titles_count" not in knockouts.json()["items"][0]
     assert "💥" not in json.dumps(knockouts.json(), ensure_ascii=False)
 
@@ -304,6 +329,7 @@ async def test_profile_returns_current_actor_semantic_stats(
     assert body["places"]["second"] == 1
     assert body["champion_titles_count"] == 1
     assert body["knockout_titles_count"] == 0
+    assert body["achievements"] == ["rating_winner"]
     assert "display_name_normalized" not in body
     assert "telegram_id" not in body
     assert "💍" not in json.dumps(body, ensure_ascii=False)
@@ -355,6 +381,26 @@ async def test_hall_of_fame_returns_structured_seasons_without_telegram_photo_id
     response = await client.get("/api/v1/hall-of-fame", headers=auth_headers())
 
     assert response.status_code == 200
+    assert response.json()["seasons"][0]["achievements"] == [
+        {
+            "id": response.json()["seasons"][0]["achievements"][0]["id"],
+            "kind": "rating_winner",
+            "awarded_at": "2026-06-30",
+            "player": {
+                "id": response.json()["seasons"][0]["champion"]["id"],
+                "display_name": "Player",
+            },
+        },
+        {
+            "id": response.json()["seasons"][0]["achievements"][1]["id"],
+            "kind": "ko_rating_winner",
+            "awarded_at": "2026-06-30",
+            "player": {
+                "id": response.json()["seasons"][0]["knockout_leader"]["id"],
+                "display_name": "Rival",
+            },
+        },
+    ]
     body = response.json()
     assert body["seasons"][0]["season"] == {
         "id": 1,

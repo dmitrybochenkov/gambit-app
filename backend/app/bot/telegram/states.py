@@ -18,6 +18,7 @@ class UserRenameStates(StatesGroup):
 
 
 class HallOfFameStates(StatesGroup):
+    entering_awarded_at = State()
     entering_player_name = State()
     collecting_photo = State()
 

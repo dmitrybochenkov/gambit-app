@@ -14,6 +14,7 @@ class HallOfFameSeasonResponse(BaseModel):
     season: "HallOfFameSeasonInfoResponse"
     champion: HallOfFamePlayerResponse | None
     knockout_leader: HallOfFamePlayerResponse | None
+    achievements: list["HallOfFameAchievementResponse"]
 
     @classmethod
     def from_view(cls, view: HallOfFameSeasonView) -> "HallOfFameSeasonResponse":
@@ -31,7 +32,25 @@ class HallOfFameSeasonResponse(BaseModel):
                 view.knockout_leader_player_id,
                 view.knockout_leader_display_name,
             ),
+            achievements=[
+                HallOfFameAchievementResponse(
+                    id=item.id,
+                    kind=item.kind,
+                    awarded_at=item.awarded_at,
+                    player=HallOfFamePlayerResponse(
+                        id=item.player_id, display_name=item.display_name
+                    ),
+                )
+                for item in view.achievements
+            ],
         )
+
+
+class HallOfFameAchievementResponse(BaseModel):
+    id: int
+    kind: str
+    awarded_at: date
+    player: HallOfFamePlayerResponse
 
 
 class HallOfFameSeasonInfoResponse(BaseModel):

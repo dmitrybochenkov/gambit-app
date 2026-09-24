@@ -10,12 +10,17 @@ class RatingPlayerResponse(BaseModel):
     display_name: str
 
 
+class RatingAchievementResponse(BaseModel):
+    kind: str
+
+
 class PointsRatingRowResponse(BaseModel):
     position: int
     player: RatingPlayerResponse
     points: Decimal
     tournaments_count: int
     champion_titles_count: int
+    achievements: list[RatingAchievementResponse]
 
 
 class PointsRatingResponse(BaseModel):
@@ -38,6 +43,10 @@ class PointsRatingResponse(BaseModel):
                     points=row.total_points,
                     tournaments_count=row.tournaments_count,
                     champion_titles_count=row.season_champion_titles_count,
+                    achievements=[
+                        RatingAchievementResponse(kind=item.kind)
+                        for item in row.hall_of_fame_achievements
+                    ],
                 )
                 for position, row in enumerate(rows, start=1)
             ],
@@ -52,6 +61,7 @@ class KnockoutsRatingRowResponse(BaseModel):
     total_knockouts_count: int
     tournaments_with_knockouts: int
     knockout_titles_count: int
+    achievements: list[RatingAchievementResponse]
 
 
 class KnockoutsRatingResponse(BaseModel):
@@ -80,6 +90,10 @@ class KnockoutsRatingResponse(BaseModel):
                     total_knockouts_count=row.total_knockouts_count,
                     tournaments_with_knockouts=row.knockout_tournaments_count,
                     knockout_titles_count=row.season_knockout_leader_titles_count,
+                    achievements=[
+                        RatingAchievementResponse(kind=item.kind)
+                        for item in row.hall_of_fame_achievements
+                    ],
                 )
                 for position, row in enumerate(rows, start=1)
             ],

@@ -7,9 +7,11 @@ from app.services.dto.rewards import PlayerRewardView
 
 @dataclass(frozen=True)
 class PlayerProfileHonourView:
+    achievement_id: int
     season_name: str
     season_starts_at: date
     kind: str
+    awarded_at: date
 
 
 @dataclass(frozen=True)

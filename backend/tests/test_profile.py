@@ -74,14 +74,18 @@ def test_profile_formats_season_honours() -> None:
             display_name="Дима",
             honours=(
                 PlayerProfileHonourView(
+                    achievement_id=1,
                     season_name="Весна 2026",
                     season_starts_at=date(2026, 4, 1),
-                    kind="champion",
+                    kind="rating_winner",
+                    awarded_at=date(2026, 6, 30),
                 ),
                 PlayerProfileHonourView(
+                    achievement_id=2,
                     season_name="Лето 2026",
                     season_starts_at=date(2026, 7, 1),
-                    kind="knockout",
+                    kind="ko_rating_winner",
+                    awarded_at=date(2026, 9, 30),
                 ),
             ),
         ),
@@ -90,8 +94,8 @@ def test_profile_formats_season_honours() -> None:
     assert "Чемпионские титулы: 💍" in message
     assert "Лучший нокаутер: 💥" in message
     assert "Достижения:" not in message
-    assert "💍 Победитель сезона «Весна 2026»" in message
-    assert "💥 Лучший нокаутер сезона «Лето 2026»" in message
+    assert "💍 Победитель рейтинга сезона «Весна 2026»" in message
+    assert "💥 Победитель KO-рейтинга сезона «Лето 2026»" in message
 
 
 def test_profile_formats_champion_and_knockout_titles_separately() -> None:
@@ -102,24 +106,32 @@ def test_profile_formats_champion_and_knockout_titles_separately() -> None:
             knockouts_count=17,
             honours=(
                 PlayerProfileHonourView(
+                    achievement_id=1,
                     season_name="Зима 2026",
                     season_starts_at=date(2026, 1, 1),
-                    kind="champion",
+                    kind="rating_winner",
+                    awarded_at=date(2026, 3, 31),
                 ),
                 PlayerProfileHonourView(
+                    achievement_id=2,
                     season_name="Весна 2026",
                     season_starts_at=date(2026, 4, 1),
-                    kind="knockout",
+                    kind="ko_rating_winner",
+                    awarded_at=date(2026, 6, 30),
                 ),
                 PlayerProfileHonourView(
+                    achievement_id=3,
                     season_name="Лето 2026",
                     season_starts_at=date(2026, 7, 1),
-                    kind="champion",
+                    kind="rating_winner",
+                    awarded_at=date(2026, 9, 30),
                 ),
                 PlayerProfileHonourView(
+                    achievement_id=4,
                     season_name="Осень 2026",
                     season_starts_at=date(2026, 10, 1),
-                    kind="knockout",
+                    kind="ko_rating_winner",
+                    awarded_at=date(2026, 12, 31),
                 ),
             ),
         ),

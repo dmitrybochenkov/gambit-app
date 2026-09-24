@@ -84,6 +84,7 @@ from app.db.models import (
     User,
 )
 from app.db.models.enums import (
+    HallOfFameAchievementKind,
     TournamentResultSource,
     TournamentStatus,
     UserGender,
@@ -94,6 +95,7 @@ from app.db.repositories.tournament_photo_repository import TournamentPhotoRepos
 from app.services.access_policy import AdminAccessDeniedError
 from app.services.dto.check_in import CheckInCandidateView
 from app.services.dto.hall_of_fame import (
+    HallOfFameAchievementManagementView,
     HallOfFameCandidateView,
     HallOfFameEntryView,
     HallOfFameSeasonListItemView,
@@ -146,7 +148,10 @@ from app.services.dto.seasons import (
     SeasonTimelineView,
     SeasonView,
 )
-from app.services.dto.statistics.hall_of_fame import HallOfFameSeasonView
+from app.services.dto.statistics.hall_of_fame import (
+    HallOfFameAchievementView,
+    HallOfFameSeasonView,
+)
 from app.services.dto.statistics.history import (
     HistoricalTournamentResultRowView,
     HistoricalTournamentResultView,
@@ -5444,6 +5449,22 @@ async def test_hall_of_fame_button_shows_message(
                     champion_display_name="Иван",
                     knockout_leader_player_id=2,
                     knockout_leader_display_name="Петр",
+                    achievements=(
+                        HallOfFameAchievementView(
+                            id=1,
+                            player_id=1,
+                            display_name="Иван",
+                            kind=HallOfFameAchievementKind.RATING_WINNER,
+                            awarded_at=date(2026, 6, 30),
+                        ),
+                        HallOfFameAchievementView(
+                            id=2,
+                            player_id=2,
+                            display_name="Петр",
+                            kind=HallOfFameAchievementKind.KO_RATING_WINNER,
+                            awarded_at=date(2026, 6, 30),
+                        ),
+                    ),
                 )
             ]
         )
@@ -5479,6 +5500,22 @@ async def test_hall_of_fame_season_without_photos_is_text_card() -> None:
         champion_display_name="Иван",
         knockout_leader_player_id=2,
         knockout_leader_display_name="Петр",
+        achievements=(
+            HallOfFameAchievementView(
+                id=1,
+                player_id=1,
+                display_name="Иван",
+                kind=HallOfFameAchievementKind.RATING_WINNER,
+                awarded_at=date(2026, 8, 31),
+            ),
+            HallOfFameAchievementView(
+                id=2,
+                player_id=2,
+                display_name="Петр",
+                kind=HallOfFameAchievementKind.KO_RATING_WINNER,
+                awarded_at=date(2026, 8, 31),
+            ),
+        ),
     )
 
     await user_hall_of_fame_handlers._send_hall_of_fame_season(message, season)
@@ -5506,6 +5543,22 @@ async def test_hall_of_fame_season_with_one_photo_uses_photo_caption() -> None:
         knockout_leader_player_id=2,
         knockout_leader_display_name="Петр",
         champion_photo_file_id="champion-photo",
+        achievements=(
+            HallOfFameAchievementView(
+                id=1,
+                player_id=1,
+                display_name="Иван",
+                kind=HallOfFameAchievementKind.RATING_WINNER,
+                awarded_at=date(2026, 8, 31),
+            ),
+            HallOfFameAchievementView(
+                id=2,
+                player_id=2,
+                display_name="Петр",
+                kind=HallOfFameAchievementKind.KO_RATING_WINNER,
+                awarded_at=date(2026, 8, 31),
+            ),
+        ),
     )
 
     await user_hall_of_fame_handlers._send_hall_of_fame_season(message, season)
@@ -5535,6 +5588,22 @@ async def test_hall_of_fame_season_with_two_photos_uses_album() -> None:
         knockout_leader_display_name="Петр",
         champion_photo_file_id="champion-photo",
         knockout_photo_file_id="knockout-photo",
+        achievements=(
+            HallOfFameAchievementView(
+                id=1,
+                player_id=1,
+                display_name="Иван",
+                kind=HallOfFameAchievementKind.RATING_WINNER,
+                awarded_at=date(2026, 8, 31),
+            ),
+            HallOfFameAchievementView(
+                id=2,
+                player_id=2,
+                display_name="Петр",
+                kind=HallOfFameAchievementKind.KO_RATING_WINNER,
+                awarded_at=date(2026, 8, 31),
+            ),
+        ),
     )
 
     await user_hall_of_fame_handlers._send_hall_of_fame_season(message, season)
@@ -5630,10 +5699,12 @@ async def test_superadmin_hall_of_fame_opens_card_and_searches_candidate(
     )
 
     assert "🏆 Зал славы" in message.edit_text.await_args.args[0]
-    assert "Не выбран" in message.edit_text.await_args.args[0]
     assert inline_keyboard_texts(message.edit_text.await_args.kwargs["reply_markup"]) == [
-        "💍 Выбрать чемпиона",
-        "💥 Выбрать нокаутера",
+        "➕ 💍 Победитель рейтинга",
+        "➕ 💥 Победитель KO-рейтинга",
+        "➕ 🏆 Grand Season",
+        "➕ 🏅 Grand Month",
+        "➕ 🥊 Grand Knockout",
         "⬅️ Назад",
         "❌ Отмена",
     ]
@@ -5792,6 +5863,14 @@ def test_superadmin_hall_of_fame_photo_buttons_follow_assigned_slots() -> None:
         ends_at=date(2026, 8, 31),
         champion=champion,
         knockout_leader=None,
+        achievements=(
+            HallOfFameAchievementManagementView(
+                id=1,
+                player=champion,
+                kind=HallOfFameAchievementKind.RATING_WINNER,
+                awarded_at=date(2026, 8, 31),
+            ),
+        ),
     )
     full_entry = HallOfFameEntryView(
         season_id=1,
@@ -5801,13 +5880,32 @@ def test_superadmin_hall_of_fame_photo_buttons_follow_assigned_slots() -> None:
         champion=champion,
         knockout_leader=knockout,
         champion_photo_file_id="champion-photo",
+        achievements=(
+            HallOfFameAchievementManagementView(
+                id=1,
+                player=champion,
+                kind=HallOfFameAchievementKind.RATING_WINNER,
+                awarded_at=date(2026, 8, 31),
+            ),
+            HallOfFameAchievementManagementView(
+                id=2,
+                player=knockout,
+                kind=HallOfFameAchievementKind.KO_RATING_WINNER,
+                awarded_at=date(2026, 8, 31),
+            ),
+        ),
     )
 
     assert inline_keyboard_texts(
         superadmin_hall_of_fame_kb.season_card_keyboard(entry=champion_only, page=0)
     ) == [
-        "💍 Выбрать чемпиона",
-        "💥 Выбрать нокаутера",
+        "➕ 💍 Победитель рейтинга",
+        "➕ 💥 Победитель KO-рейтинга",
+        "➕ 🏆 Grand Season",
+        "➕ 🏅 Grand Month",
+        "➕ 🥊 Grand Knockout",
+        "✏️ Иван",
+        "🗑 Иван",
         "💍📸 Прикрепить фото победителя",
         "⬅️ Назад",
         "❌ Отмена",
@@ -5815,8 +5913,15 @@ def test_superadmin_hall_of_fame_photo_buttons_follow_assigned_slots() -> None:
     assert inline_keyboard_texts(
         superadmin_hall_of_fame_kb.season_card_keyboard(entry=full_entry, page=0)
     ) == [
-        "💍 Выбрать чемпиона",
-        "💥 Выбрать нокаутера",
+        "➕ 💍 Победитель рейтинга",
+        "➕ 💥 Победитель KO-рейтинга",
+        "➕ 🏆 Grand Season",
+        "➕ 🏅 Grand Month",
+        "➕ 🥊 Grand Knockout",
+        "✏️ Иван",
+        "🗑 Иван",
+        "✏️ Петр",
+        "🗑 Петр",
         "💍📸 Заменить фото победителя",
         "💥📸 Прикрепить фото нокаутера",
         "⬅️ Назад",

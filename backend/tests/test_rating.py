@@ -9,13 +9,19 @@ from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 from app.bot.telegram.formatters.statistics import rating as rating_fmt
 from app.db.base import Base
 from app.db.models import (
+    HallOfFameAchievement,
     ScoringConfig,
     Season,
     SeasonHallOfFame,
     Tournament,
     TournamentResult,
 )
-from app.db.models.enums import TournamentStatus, UserRole, UserStatus
+from app.db.models.enums import (
+    HallOfFameAchievementKind,
+    TournamentStatus,
+    UserRole,
+    UserStatus,
+)
 from app.services.dto.statistics.rating import (
     KnockoutsRatingView,
     PointsRatingView,
@@ -165,6 +171,18 @@ async def test_rating_filters_current_season_and_all_time(tmp_path: Path) -> Non
                     champion_player_id=first_player.id,
                     knockout_player_id=first_player.id,
                     updated_by_user_id=first_player.id,
+                ),
+                HallOfFameAchievement(
+                    season_id=previous_season.id,
+                    player_id=first_player.id,
+                    kind=HallOfFameAchievementKind.RATING_WINNER,
+                    awarded_at=previous_season.ends_at,
+                ),
+                HallOfFameAchievement(
+                    season_id=previous_season.id,
+                    player_id=first_player.id,
+                    kind=HallOfFameAchievementKind.KO_RATING_WINNER,
+                    awarded_at=previous_season.ends_at,
                 ),
             ]
         )
@@ -336,7 +354,7 @@ def test_points_rating_format_uses_half_up_rounding_and_current_marker() -> None
                 total_points=Decimal("120.5"),
                 tournaments_count=3,
                 season_champion_titles_count=1,
-                hall_of_fame_achievements=(RatingAchievementView(kind="champion"),),
+                hall_of_fame_achievements=(RatingAchievementView(kind="rating_winner"),),
             ),
             PointsRatingView(
                 player_id=2,
@@ -374,9 +392,9 @@ def test_knockout_rating_format_hides_points_and_repeats_titles() -> None:
                 season_champion_titles_count=1,
                 season_knockout_leader_titles_count=2,
                 hall_of_fame_achievements=(
-                    RatingAchievementView(kind="champion"),
-                    RatingAchievementView(kind="knockout"),
-                    RatingAchievementView(kind="knockout"),
+                    RatingAchievementView(kind="rating_winner"),
+                    RatingAchievementView(kind="ko_rating_winner"),
+                    RatingAchievementView(kind="ko_rating_winner"),
                 ),
             )
         ],
@@ -449,8 +467,8 @@ def test_knockout_rating_format_marks_current_player_with_ring_and_knockout_titl
                 season_champion_titles_count=1,
                 season_knockout_leader_titles_count=1,
                 hall_of_fame_achievements=(
-                    RatingAchievementView(kind="champion"),
-                    RatingAchievementView(kind="knockout"),
+                    RatingAchievementView(kind="rating_winner"),
+                    RatingAchievementView(kind="ko_rating_winner"),
                 ),
             ),
         ],
@@ -479,7 +497,7 @@ def test_points_rating_format_repeats_only_champion_badges() -> None:
                 total_points=Decimal("90"),
                 tournaments_count=3,
                 season_champion_titles_count=1,
-                hall_of_fame_achievements=(RatingAchievementView(kind="champion"),),
+                hall_of_fame_achievements=(RatingAchievementView(kind="rating_winner"),),
             ),
             PointsRatingView(
                 player_id=3,
@@ -488,8 +506,8 @@ def test_points_rating_format_repeats_only_champion_badges() -> None:
                 tournaments_count=3,
                 season_champion_titles_count=2,
                 hall_of_fame_achievements=(
-                    RatingAchievementView(kind="champion"),
-                    RatingAchievementView(kind="champion"),
+                    RatingAchievementView(kind="rating_winner"),
+                    RatingAchievementView(kind="rating_winner"),
                 ),
             ),
             PointsRatingView(
@@ -499,9 +517,9 @@ def test_points_rating_format_repeats_only_champion_badges() -> None:
                 tournaments_count=3,
                 season_champion_titles_count=3,
                 hall_of_fame_achievements=(
-                    RatingAchievementView(kind="champion"),
-                    RatingAchievementView(kind="champion"),
-                    RatingAchievementView(kind="champion"),
+                    RatingAchievementView(kind="rating_winner"),
+                    RatingAchievementView(kind="rating_winner"),
+                    RatingAchievementView(kind="rating_winner"),
                 ),
             ),
         ],
@@ -537,7 +555,7 @@ def test_knockout_rating_format_repeats_only_knockout_title_badges() -> None:
                 big_knockouts_count=0,
                 knockout_tournaments_count=3,
                 season_knockout_leader_titles_count=1,
-                hall_of_fame_achievements=(RatingAchievementView(kind="knockout"),),
+                hall_of_fame_achievements=(RatingAchievementView(kind="ko_rating_winner"),),
             ),
             KnockoutsRatingView(
                 player_id=3,
@@ -547,8 +565,8 @@ def test_knockout_rating_format_repeats_only_knockout_title_badges() -> None:
                 knockout_tournaments_count=3,
                 season_knockout_leader_titles_count=2,
                 hall_of_fame_achievements=(
-                    RatingAchievementView(kind="knockout"),
-                    RatingAchievementView(kind="knockout"),
+                    RatingAchievementView(kind="ko_rating_winner"),
+                    RatingAchievementView(kind="ko_rating_winner"),
                 ),
             ),
             KnockoutsRatingView(
@@ -560,12 +578,12 @@ def test_knockout_rating_format_repeats_only_knockout_title_badges() -> None:
                 season_champion_titles_count=3,
                 season_knockout_leader_titles_count=3,
                 hall_of_fame_achievements=(
-                    RatingAchievementView(kind="champion"),
-                    RatingAchievementView(kind="champion"),
-                    RatingAchievementView(kind="champion"),
-                    RatingAchievementView(kind="knockout"),
-                    RatingAchievementView(kind="knockout"),
-                    RatingAchievementView(kind="knockout"),
+                    RatingAchievementView(kind="rating_winner"),
+                    RatingAchievementView(kind="rating_winner"),
+                    RatingAchievementView(kind="rating_winner"),
+                    RatingAchievementView(kind="ko_rating_winner"),
+                    RatingAchievementView(kind="ko_rating_winner"),
+                    RatingAchievementView(kind="ko_rating_winner"),
                 ),
             ),
         ],
@@ -642,6 +660,18 @@ async def test_rating_badges_are_shared_across_rating_kinds(tmp_path: Path) -> N
                     champion_player_id=player.id,
                     knockout_player_id=player.id,
                     updated_by_user_id=player.id,
+                ),
+                HallOfFameAchievement(
+                    season_id=completed.id,
+                    player_id=player.id,
+                    kind=HallOfFameAchievementKind.RATING_WINNER,
+                    awarded_at=completed.ends_at,
+                ),
+                HallOfFameAchievement(
+                    season_id=completed.id,
+                    player_id=player.id,
+                    kind=HallOfFameAchievementKind.KO_RATING_WINNER,
+                    awarded_at=completed.ends_at,
                 ),
             ]
         )
@@ -775,6 +805,30 @@ async def test_rating_achievements_are_ordered_chronologically_across_all_rating
                     champion_player_id=player.id,
                     updated_by_user_id=player.id,
                 ),
+                HallOfFameAchievement(
+                    season_id=seasons[0].id,
+                    player_id=player.id,
+                    kind=HallOfFameAchievementKind.KO_RATING_WINNER,
+                    awarded_at=seasons[0].ends_at,
+                ),
+                HallOfFameAchievement(
+                    season_id=seasons[1].id,
+                    player_id=player.id,
+                    kind=HallOfFameAchievementKind.RATING_WINNER,
+                    awarded_at=seasons[1].ends_at,
+                ),
+                HallOfFameAchievement(
+                    season_id=seasons[2].id,
+                    player_id=player.id,
+                    kind=HallOfFameAchievementKind.RATING_WINNER,
+                    awarded_at=seasons[2].ends_at,
+                ),
+                HallOfFameAchievement(
+                    season_id=seasons[2].id,
+                    player_id=player.id,
+                    kind=HallOfFameAchievementKind.KO_RATING_WINNER,
+                    awarded_at=seasons[2].ends_at,
+                ),
                 SeasonHallOfFame(
                     season_id=seasons[2].id,
                     champion_player_id=player.id,
@@ -801,10 +855,10 @@ async def test_rating_achievements_are_ordered_chronologically_across_all_rating
         knockouts_row = knockout_rating.rows[0]
 
         assert [achievement.kind for achievement in points_row.hall_of_fame_achievements] == [
-            "knockout",
-            "champion",
-            "champion",
-            "knockout",
+            "ko_rating_winner",
+            "rating_winner",
+            "rating_winner",
+            "ko_rating_winner",
         ]
         assert points_row.hall_of_fame_achievements == knockouts_row.hall_of_fame_achievements
         assert points_row.season_champion_titles_count == 2
@@ -837,8 +891,8 @@ def test_points_rating_format_repeats_champion_badges_without_counter_suffix() -
                 tournaments_count=3,
                 season_champion_titles_count=2,
                 hall_of_fame_achievements=(
-                    RatingAchievementView(kind="champion"),
-                    RatingAchievementView(kind="champion"),
+                    RatingAchievementView(kind="rating_winner"),
+                    RatingAchievementView(kind="rating_winner"),
                 ),
             ),
         ],
@@ -1023,6 +1077,18 @@ async def test_knockout_games_count_and_completed_season_title_tiebreakers(
                     champion_player_id=low_id_player.id,
                     knockout_player_id=low_id_player.id,
                     updated_by_user_id=low_id_player.id,
+                ),
+                HallOfFameAchievement(
+                    season_id=completed.id,
+                    player_id=low_id_player.id,
+                    kind=HallOfFameAchievementKind.RATING_WINNER,
+                    awarded_at=completed.ends_at,
+                ),
+                HallOfFameAchievement(
+                    season_id=completed.id,
+                    player_id=low_id_player.id,
+                    kind=HallOfFameAchievementKind.KO_RATING_WINNER,
+                    awarded_at=completed.ends_at,
                 ),
             ]
         )

@@ -9,13 +9,19 @@ from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 from app.bot.telegram.formatters.statistics import hall_of_fame as hall_fmt
 from app.common.clock import FixedClock
 from app.db.base import Base
-from app.db.models import ScoringConfig, Season, SeasonHallOfFame
-from app.db.models.enums import UserRole, UserStatus
+from app.db.models import HallOfFameAchievement, ScoringConfig, Season, SeasonHallOfFame
+from app.db.models.enums import HallOfFameAchievementKind, UserRole, UserStatus
 from app.services.access_policy import AdminAccessDeniedError
+from app.services.dto.statistics.hall_of_fame import (
+    HallOfFameAchievementView,
+    HallOfFameSeasonView,
+)
 from app.services.hall_of_fame_management_service import (
     HallOfFameManagementService,
     HallOfFamePhotoRole,
+    HallOfFameSeasonNotFoundError,
 )
+from app.services.user_common import UserNotFoundError
 from app.services.user_statistics_service import UserStatisticsService
 
 
@@ -70,11 +76,29 @@ async def test_hall_of_fame_uses_manual_entries_from_completed_seasons(
                     knockout_player_id=high_id.id,
                     updated_by_user_id=viewer.id,
                 ),
+                HallOfFameAchievement(
+                    season_id=old_season.id,
+                    player_id=low_id.id,
+                    kind=HallOfFameAchievementKind.RATING_WINNER,
+                    awarded_at=old_season.ends_at,
+                ),
+                HallOfFameAchievement(
+                    season_id=old_season.id,
+                    player_id=high_id.id,
+                    kind=HallOfFameAchievementKind.KO_RATING_WINNER,
+                    awarded_at=old_season.ends_at,
+                ),
                 SeasonHallOfFame(
                     season_id=new_season.id,
                     champion_player_id=high_id.id,
                     knockout_player_id=None,
                     updated_by_user_id=viewer.id,
+                ),
+                HallOfFameAchievement(
+                    season_id=new_season.id,
+                    player_id=high_id.id,
+                    kind=HallOfFameAchievementKind.RATING_WINNER,
+                    awarded_at=new_season.ends_at,
                 ),
                 SeasonHallOfFame(
                     season_id=open_season.id,
@@ -156,7 +180,46 @@ def test_hall_of_fame_empty_state() -> None:
     )
 
 
-async def test_hall_of_fame_management_upserts_and_overwrites(
+def test_hall_of_fame_formatter_preserves_occurrence_order_and_repetitions() -> None:
+    achievements = tuple(
+        HallOfFameAchievementView(
+            id=index,
+            player_id=index,
+            display_name=name,
+            kind=kind,
+            awarded_at=awarded_at,
+        )
+        for index, (kind, name, awarded_at) in enumerate(
+            (
+                (HallOfFameAchievementKind.RATING_WINNER, "Rating", date(2026, 8, 31)),
+                (HallOfFameAchievementKind.KO_RATING_WINNER, "KO", date(2026, 8, 31)),
+                (HallOfFameAchievementKind.GRAND_SEASON, "Season", date(2026, 8, 31)),
+                (HallOfFameAchievementKind.GRAND_MONTH, "Month new", date(2026, 8, 1)),
+                (HallOfFameAchievementKind.GRAND_MONTH, "Month old", date(2026, 7, 1)),
+                (HallOfFameAchievementKind.GRAND_KNOCKOUT, "KO new", date(2026, 8, 20)),
+                (HallOfFameAchievementKind.GRAND_KNOCKOUT, "KO old", date(2026, 6, 20)),
+            ),
+            start=1,
+        )
+    )
+    season = HallOfFameSeasonView(
+        season_id=1,
+        season_name="Лето 2026",
+        starts_at=date(2026, 6, 1),
+        champion_player_id=1,
+        champion_display_name="Rating",
+        knockout_leader_player_id=2,
+        knockout_leader_display_name="KO",
+        ends_at=date(2026, 8, 31),
+        achievements=achievements,
+    )
+
+    assert hall_fmt.season_caption(season) == (
+        "Лето 2026\n\n💍 Rating\n💥 KO\n🏆 Season\n🏅 Month new\n🏅 Month old\n🥊 KO new\n🥊 KO old"
+    )
+
+
+async def test_hall_of_fame_management_crud_preserves_repeated_occurrences(
     tmp_path: Path,
 ) -> None:
     engine = create_async_engine(f"sqlite+aiosqlite:///{tmp_path / 'hall_manage.db'}")
@@ -216,23 +279,119 @@ async def test_hall_of_fame_management_upserts_and_overwrites(
 
         with pytest.raises(AdminAccessDeniedError):
             await service.list_completed_seasons(101)
+        with pytest.raises(AdminAccessDeniedError):
+            await service.add_achievement(
+                101,
+                completed_id,
+                champion_id,
+                HallOfFameAchievementKind.RATING_WINNER,
+                date(2026, 8, 31),
+            )
+        with pytest.raises(HallOfFameSeasonNotFoundError):
+            await service.add_achievement(
+                100,
+                completed_id,
+                champion_id,
+                HallOfFameAchievementKind.RATING_WINNER,
+                date(2026, 9, 1),
+            )
+        with pytest.raises(HallOfFameSeasonNotFoundError):
+            await service.add_achievement(
+                100,
+                999,
+                champion_id,
+                HallOfFameAchievementKind.RATING_WINNER,
+                date(2026, 8, 31),
+            )
+        with pytest.raises(UserNotFoundError):
+            await service.add_achievement(
+                100,
+                completed_id,
+                999,
+                HallOfFameAchievementKind.RATING_WINNER,
+                date(2026, 8, 31),
+            )
 
         candidates = await service.search_players(100, "Offline")
         assert [candidate.user.id for candidate in candidates] == [offline_id]
 
-        entry = await service.set_champion(100, completed_id, champion_id)
+        entry = await service.add_achievement(
+            100,
+            completed_id,
+            champion_id,
+            HallOfFameAchievementKind.RATING_WINNER,
+            date(2026, 8, 31),
+        )
         assert entry.champion is not None
         assert entry.champion.id == champion_id
         assert entry.knockout_leader is None
 
-        entry = await service.set_champion(100, completed_id, replacement_id)
-        assert entry.champion is not None
-        assert entry.champion.id == replacement_id
+        repeated = await service.add_achievement(
+            100,
+            completed_id,
+            champion_id,
+            HallOfFameAchievementKind.GRAND_MONTH,
+            date(2026, 7, 1),
+        )
+        repeated = await service.add_achievement(
+            100,
+            completed_id,
+            champion_id,
+            HallOfFameAchievementKind.GRAND_MONTH,
+            date(2026, 8, 1),
+        )
+        assert [item.kind for item in repeated.achievements] == [
+            HallOfFameAchievementKind.RATING_WINNER,
+            HallOfFameAchievementKind.GRAND_MONTH,
+            HallOfFameAchievementKind.GRAND_MONTH,
+        ]
+        assert [item.awarded_at for item in repeated.achievements[1:]] == [
+            date(2026, 8, 1),
+            date(2026, 7, 1),
+        ]
+        second_grand_month = repeated.achievements[1]
+        entry = await service.update_achievement(
+            100,
+            second_grand_month.id,
+            player_id=replacement_id,
+            kind=HallOfFameAchievementKind.GRAND_SEASON,
+            awarded_at=date(2026, 8, 15),
+        )
+        assert any(
+            item.player.id == replacement_id and item.kind == HallOfFameAchievementKind.GRAND_SEASON
+            for item in entry.achievements
+        )
+        entry = await service.delete_achievement(100, second_grand_month.id)
+        assert all(item.id != second_grand_month.id for item in entry.achievements)
 
-        entry = await service.set_knockout_player(100, completed_id, replacement_id)
-        assert entry.champion is not None
+        entry = await service.add_achievement(
+            100,
+            completed_id,
+            replacement_id,
+            HallOfFameAchievementKind.KO_RATING_WINNER,
+            date(2026, 8, 31),
+        )
         assert entry.knockout_leader is not None
-        assert entry.champion.id == entry.knockout_leader.id == replacement_id
+        assert entry.knockout_leader.id == replacement_id
+
+        for kind in (
+            HallOfFameAchievementKind.GRAND_KNOCKOUT,
+            HallOfFameAchievementKind.GRAND_KNOCKOUT,
+        ):
+            entry = await service.add_achievement(
+                100,
+                completed_id,
+                replacement_id,
+                kind,
+                date(2026, 8, 20),
+            )
+        grand_knockouts = [
+            item
+            for item in entry.achievements
+            if item.kind == HallOfFameAchievementKind.GRAND_KNOCKOUT
+        ]
+        assert len(grand_knockouts) == 2
+        assert len({item.id for item in grand_knockouts}) == 2
 
         entry = await service.set_photo(
             100,

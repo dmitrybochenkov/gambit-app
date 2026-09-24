@@ -13,8 +13,13 @@ PAGE_SIZE = 5
 
 
 class HallOfFameField(StrEnum):
-    CHAMPION = "champion"
-    KNOCKOUT = "knockout"
+    RATING_WINNER = "rating_winner"
+    KO_RATING_WINNER = "ko_rating_winner"
+    GRAND_SEASON = "grand_season"
+    GRAND_MONTH = "grand_month"
+    GRAND_KNOCKOUT = "grand_knockout"
+    CHAMPION = "rating_winner"
+    KNOCKOUT = "ko_rating_winner"
 
 
 class HallOfFameSeasonAction(StrEnum):
@@ -34,6 +39,9 @@ class HallOfFameCardAction(StrEnum):
     CHOOSE_KNOCKOUT = "choose_knockout"
     CHAMPION_PHOTO = "champion_photo"
     KNOCKOUT_PHOTO = "knockout_photo"
+    ADD = "add"
+    EDIT = "edit"
+    DELETE = "delete"
     BACK = "back"
     CANCEL = "cancel"
 
@@ -42,6 +50,8 @@ class HallOfFameCardCallback(CallbackData, prefix="hof_card"):
     action: HallOfFameCardAction
     season_id: int
     page: int = 0
+    kind: HallOfFameField = HallOfFameField.RATING_WINNER
+    achievement_id: int = 0
 
 
 class HallOfFameSearchAction(StrEnum):
@@ -131,23 +141,45 @@ def seasons_keyboard(page: Page[HallOfFameSeasonListItemView]) -> InlineKeyboard
 def season_card_keyboard(*, entry: object, page: int) -> InlineKeyboardMarkup:
     season_id = entry.season_id
     builder = InlineKeyboardBuilder()
-    builder.button(
-        text="💍 Выбрать чемпиона",
-        callback_data=HallOfFameCardCallback(
-            action=HallOfFameCardAction.CHOOSE_CHAMPION,
-            season_id=season_id,
-            page=page,
-        ),
-    )
-    builder.button(
-        text="💥 Выбрать нокаутера",
-        callback_data=HallOfFameCardCallback(
-            action=HallOfFameCardAction.CHOOSE_KNOCKOUT,
-            season_id=season_id,
-            page=page,
-        ),
-    )
-    if entry.champion is not None:
+    for kind, label in (
+        (HallOfFameField.RATING_WINNER, "💍 Победитель рейтинга"),
+        (HallOfFameField.KO_RATING_WINNER, "💥 Победитель KO-рейтинга"),
+        (HallOfFameField.GRAND_SEASON, "🏆 Grand Season"),
+        (HallOfFameField.GRAND_MONTH, "🏅 Grand Month"),
+        (HallOfFameField.GRAND_KNOCKOUT, "🥊 Grand Knockout"),
+    ):
+        builder.button(
+            text=f"➕ {label}",
+            callback_data=HallOfFameCardCallback(
+                action=HallOfFameCardAction.ADD,
+                season_id=season_id,
+                page=page,
+                kind=kind,
+            ),
+        )
+    for achievement in entry.achievements:
+        builder.button(
+            text=f"✏️ {achievement.player.display_name}",
+            callback_data=HallOfFameCardCallback(
+                action=HallOfFameCardAction.EDIT,
+                season_id=season_id,
+                page=page,
+                kind=HallOfFameField(achievement.kind),
+                achievement_id=achievement.id,
+            ),
+        )
+        builder.button(
+            text=f"🗑 {achievement.player.display_name}",
+            callback_data=HallOfFameCardCallback(
+                action=HallOfFameCardAction.DELETE,
+                season_id=season_id,
+                page=page,
+                achievement_id=achievement.id,
+            ),
+        )
+    if entry.champion_photo_file_id is not None or any(
+        achievement.kind == HallOfFameField.RATING_WINNER for achievement in entry.achievements
+    ):
         builder.button(
             text=(
                 "💍📸 Заменить фото победителя"
@@ -160,7 +192,9 @@ def season_card_keyboard(*, entry: object, page: int) -> InlineKeyboardMarkup:
                 page=page,
             ),
         )
-    if entry.knockout_leader is not None:
+    if entry.knockout_photo_file_id is not None or any(
+        achievement.kind == HallOfFameField.KO_RATING_WINNER for achievement in entry.achievements
+    ):
         builder.button(
             text=(
                 "💥📸 Заменить фото нокаутера"
