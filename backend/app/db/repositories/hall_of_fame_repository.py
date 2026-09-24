@@ -72,6 +72,9 @@ class HallOfFameRepository:
     def __init__(self, session: AsyncSession) -> None:
         self.session = session
 
+    async def get_achievement(self, achievement_id: int) -> HallOfFameAchievement | None:
+        return await self.session.get(HallOfFameAchievement, achievement_id)
+
     async def add_achievement(
         self, *, season_id: int, player_id: int, kind: HallOfFameAchievementKind, awarded_at: date
     ) -> HallOfFameAchievement:
@@ -92,6 +95,9 @@ class HallOfFameRepository:
             )
         )
         return result.scalar_one_or_none()
+
+    async def delete_achievement(self, achievement: HallOfFameAchievement) -> None:
+        await self.session.delete(achievement)
 
     async def add_photo(
         self,

@@ -23,6 +23,7 @@ from app.api import telegram_webhook as webhook_module
 from app.bot.telegram import notifications, runtime
 from app.bot.telegram.formatters import check_in as check_in_fmt
 from app.bot.telegram.formatters import common as fmt_common
+from app.bot.telegram.formatters import hall_of_fame as hall_management_fmt
 from app.bot.telegram.formatters import publications as publication_fmt
 from app.bot.telegram.formatters import results as result_fmt
 from app.bot.telegram.formatters import seasons as season_fmt
@@ -2499,6 +2500,7 @@ class MutableState:
         self.set_state = AsyncMock(side_effect=self._set_state)
         self.update_data = AsyncMock(side_effect=self._update_data)
         self.get_data = AsyncMock(side_effect=self._get_data)
+        self.get_state = AsyncMock(side_effect=self._get_state)
 
     async def _clear(self) -> None:
         self.data.clear()
@@ -2512,6 +2514,9 @@ class MutableState:
 
     async def _get_data(self) -> dict[str, object]:
         return dict(self.data)
+
+    async def _get_state(self) -> object | None:
+        return self.state
 
 
 def registration_candidate(player_id: int, score: int) -> RegistrationCandidateView:
@@ -5694,7 +5699,9 @@ def test_superadmin_hall_of_fame_season_list_paginates_after_five_items() -> Non
     ]
 
 
-async def test_hall_of_fame_today_date_starts_existing_player_search() -> None:
+async def test_hall_of_fame_today_date_starts_existing_player_search(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     state = MutableState()
     await state.set_state(HallOfFameStates.entering_awarded_at)
     await state.update_data(
@@ -5702,8 +5709,28 @@ async def test_hall_of_fame_today_date_starts_existing_player_search() -> None:
         hall_field=superadmin_hall_of_fame_kb.HallOfFameField.GRAND_MONTH.value,
         hall_page=2,
     )
-    message = SimpleNamespace(answer=AsyncMock())
-    callback = SimpleNamespace(message=message, answer=AsyncMock())
+    prompt = SimpleNamespace(chat=SimpleNamespace(id=123), message_id=99)
+    message = SimpleNamespace(
+        answer=AsyncMock(return_value=prompt),
+        edit_reply_markup=AsyncMock(),
+    )
+    callback = SimpleNamespace(
+        from_user=SimpleNamespace(id=123), message=message, answer=AsyncMock()
+    )
+    entry = HallOfFameEntryView(
+        season_id=1,
+        season_name="Лето 2026",
+        starts_at=date(2026, 6, 1),
+        ends_at=date(2026, 8, 31),
+        champion=None,
+        knockout_leader=None,
+    )
+    service = SimpleNamespace(get_season_hall_of_fame=AsyncMock(return_value=entry))
+    monkeypatch.setattr(
+        superadmin_hall_of_fame_handlers,
+        "hall_of_fame_management_service",
+        service,
+    )
 
     await superadmin_hall_of_fame_handlers.select_hall_of_fame_date_action(
         callback,
@@ -5717,7 +5744,8 @@ async def test_hall_of_fame_today_date_starts_existing_player_search() -> None:
 
     assert state.state == HallOfFameStates.entering_player_name
     assert state.data["hall_awarded_at"] == club_clock.today().isoformat()
-    assert message.answer.await_args.args[0] == "Введи имя обладателя достижения."
+    message.edit_reply_markup.assert_awaited_once_with(reply_markup=None)
+    assert "Введи имя для 🏅 Grand Month" in message.answer.await_args.args[0]
 
 
 async def test_hall_of_fame_delete_all_photos_requires_confirmation(
@@ -5766,6 +5794,211 @@ async def test_hall_of_fame_delete_all_photos_requires_confirmation(
         state,
     )
     service.delete_all_photos.assert_awaited_once_with(123, 1)
+
+
+async def test_hall_of_fame_manual_date_player_selection_and_save_deactivate_keyboards(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    player = UserView(
+        id=10,
+        telegram_id=None,
+        display_name="Иван",
+        status=UserStatus.ACTIVE,
+        role=UserRole.PLAYER,
+    )
+    empty_entry = HallOfFameEntryView(
+        season_id=1,
+        season_name="Осень 2026",
+        starts_at=date(2026, 9, 1),
+        ends_at=None,
+        champion=None,
+        knockout_leader=None,
+    )
+    saved_entry = HallOfFameEntryView(
+        season_id=1,
+        season_name="Осень 2026",
+        starts_at=date(2026, 9, 1),
+        ends_at=None,
+        champion=None,
+        knockout_leader=None,
+        achievements=(
+            HallOfFameAchievementManagementView(
+                id=44,
+                player=player,
+                kind=HallOfFameAchievementKind.GRAND_KNOCKOUT,
+                awarded_at=date(2026, 9, 24),
+            ),
+        ),
+    )
+    service = SimpleNamespace(
+        get_season_hall_of_fame=AsyncMock(side_effect=[empty_entry, empty_entry]),
+        get_player=AsyncMock(
+            return_value=HallOfFameCandidateView(user=player, score=100, reason="")
+        ),
+        set_achievement=AsyncMock(return_value=saved_entry),
+    )
+    monkeypatch.setattr(
+        superadmin_hall_of_fame_handlers,
+        "hall_of_fame_management_service",
+        service,
+    )
+    state = MutableState()
+    await state.set_state(HallOfFameStates.entering_awarded_at)
+    await state.update_data(
+        hall_season_id=1,
+        hall_field=superadmin_hall_of_fame_kb.HallOfFameField.GRAND_KNOCKOUT.value,
+        hall_page=1,
+        hall_date_prompt_chat_id=123,
+        hall_date_prompt_message_id=77,
+    )
+    player_prompt = SimpleNamespace(chat=SimpleNamespace(id=123), message_id=78)
+    input_message = SimpleNamespace(
+        from_user=SimpleNamespace(id=123),
+        text="24.09.2026",
+        chat=SimpleNamespace(id=123),
+        bot=SimpleNamespace(edit_message_reply_markup=AsyncMock()),
+        answer=AsyncMock(return_value=player_prompt),
+    )
+
+    await superadmin_hall_of_fame_handlers.enter_hall_of_fame_awarded_at(input_message, state)
+
+    input_message.bot.edit_message_reply_markup.assert_awaited_once_with(
+        chat_id=123,
+        message_id=77,
+        reply_markup=None,
+    )
+    assert (
+        "Введи имя для 🥊 Grand Knockout (24.09.2026)" in (input_message.answer.await_args.args[0])
+    )
+
+    search_message = SimpleNamespace(edit_reply_markup=AsyncMock(), answer=AsyncMock())
+    search_callback = SimpleNamespace(
+        from_user=SimpleNamespace(id=123),
+        message=search_message,
+        answer=AsyncMock(),
+    )
+    await state.update_data(hall_query="Иван")
+    await state.set_state(HallOfFameStates.selecting_player)
+    await superadmin_hall_of_fame_handlers.select_hall_of_fame_candidate(
+        search_callback,
+        superadmin_hall_of_fame_kb.HallOfFameSearchCallback(
+            action=superadmin_hall_of_fame_kb.HallOfFameSearchAction.OPEN,
+            season_id=1,
+            field=superadmin_hall_of_fame_kb.HallOfFameField.GRAND_KNOCKOUT,
+            player_id=10,
+        ),
+        state,
+    )
+    search_message.edit_reply_markup.assert_awaited_once_with(reply_markup=None)
+    assert "Подтверди назначение:" in search_message.answer.await_args.kwargs["text"]
+
+    confirmation_message = SimpleNamespace(edit_reply_markup=AsyncMock(), answer=AsyncMock())
+    confirmation_callback = SimpleNamespace(
+        from_user=SimpleNamespace(id=123),
+        message=confirmation_message,
+        answer=AsyncMock(),
+    )
+    await superadmin_hall_of_fame_handlers.confirm_hall_of_fame_player(
+        confirmation_callback,
+        superadmin_hall_of_fame_kb.HallOfFameConfirmCallback(
+            action=superadmin_hall_of_fame_kb.HallOfFameConfirmAction.CONFIRM,
+            season_id=1,
+            field=superadmin_hall_of_fame_kb.HallOfFameField.GRAND_KNOCKOUT,
+            player_id=10,
+        ),
+        state,
+    )
+    confirmation_message.edit_reply_markup.assert_awaited_once_with(reply_markup=None)
+    saved_text = confirmation_message.answer.await_args.kwargs["text"]
+    assert saved_text.startswith("🏆 Награды\nОсень 2026")
+    assert "🥊 Иван (24.09.2026)" in saved_text
+
+
+async def test_hall_of_fame_delete_flow_targets_exact_occurrence(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    player = UserView(
+        id=10,
+        telegram_id=None,
+        display_name="Иван",
+        status=UserStatus.ACTIVE,
+        role=UserRole.PLAYER,
+    )
+    first = HallOfFameAchievementManagementView(
+        id=41,
+        player=player,
+        kind=HallOfFameAchievementKind.GRAND_MONTH,
+        awarded_at=date(2026, 8, 15),
+    )
+    second = HallOfFameAchievementManagementView(
+        id=42,
+        player=player,
+        kind=HallOfFameAchievementKind.GRAND_MONTH,
+        awarded_at=date(2026, 9, 20),
+    )
+    entry = HallOfFameEntryView(
+        season_id=1,
+        season_name="Осень 2026",
+        starts_at=date(2026, 9, 1),
+        ends_at=None,
+        champion=None,
+        knockout_leader=None,
+        achievements=(second, first),
+    )
+    refreshed = HallOfFameEntryView(
+        season_id=1,
+        season_name="Осень 2026",
+        starts_at=date(2026, 9, 1),
+        ends_at=None,
+        champion=None,
+        knockout_leader=None,
+        achievements=(first,),
+    )
+    service = SimpleNamespace(
+        get_season_hall_of_fame=AsyncMock(return_value=entry),
+        delete_achievement=AsyncMock(return_value=refreshed),
+    )
+    monkeypatch.setattr(
+        superadmin_hall_of_fame_handlers,
+        "hall_of_fame_management_service",
+        service,
+    )
+    state = MutableState()
+    await state.set_state(HallOfFameStates.selecting_achievement_deletion)
+    await state.update_data(hall_page=1)
+    message = SimpleNamespace(
+        edit_text=AsyncMock(), edit_reply_markup=AsyncMock(), answer=AsyncMock()
+    )
+    callback = SimpleNamespace(
+        from_user=SimpleNamespace(id=123), message=message, answer=AsyncMock()
+    )
+
+    await superadmin_hall_of_fame_handlers.select_hall_of_fame_delete_action(
+        callback,
+        superadmin_hall_of_fame_kb.HallOfFameDeleteCallback(
+            action=superadmin_hall_of_fame_kb.HallOfFameDeleteAction.OPEN,
+            season_id=1,
+            achievement_id=42,
+        ),
+        state,
+    )
+    service.delete_achievement.assert_not_awaited()
+    assert "🏅 Grand Month (20.09.2026) — Иван" in message.edit_text.await_args.args[0]
+
+    await superadmin_hall_of_fame_handlers.select_hall_of_fame_delete_action(
+        callback,
+        superadmin_hall_of_fame_kb.HallOfFameDeleteCallback(
+            action=superadmin_hall_of_fame_kb.HallOfFameDeleteAction.CONFIRM,
+            season_id=1,
+            achievement_id=42,
+        ),
+        state,
+    )
+
+    service.delete_achievement.assert_awaited_once_with(123, 1, 42)
+    message.edit_reply_markup.assert_awaited_once_with(reply_markup=None)
+    assert "🏅 Иван (15.08.2026)" in message.answer.await_args.kwargs["text"]
+    assert "20.09.2026" not in message.answer.await_args.kwargs["text"]
 
 
 async def test_superadmin_hall_of_fame_opens_card_and_searches_candidate(
@@ -5943,14 +6176,22 @@ def test_superadmin_hall_of_fame_card_and_submenus() -> None:
         "⬅️ Назад",
         "❌ Отмена",
     ]
+
+    assert hall_management_fmt.season_card(champion_only) == (
+        "🏆 Зал славы\nЛето 2026\n📸 Фото: 0\n💍 Иван"
+    )
+    assert hall_management_fmt.achievements_menu(champion_only) == (
+        "🏆 Награды\nЛето 2026\n💍 Иван"
+    )
     assert inline_keyboard_texts(
-        superadmin_hall_of_fame_kb.achievements_keyboard(season_id=1, page=0)
+        superadmin_hall_of_fame_kb.achievements_keyboard(entry=champion_only, page=0)
     ) == [
         "💍 Победитель рейтинга",
         "💥 Победитель KO-рейтинга",
         "🏆 Grand Season",
         "🏅 Grand Month",
         "🥊 Grand Knockout",
+        "🗑 Удалить награду",
         "⬅️ Назад",
         "❌ Отмена",
     ]
@@ -5962,6 +6203,61 @@ def test_superadmin_hall_of_fame_card_and_submenus() -> None:
         "⬅️ Назад",
         "❌ Отмена",
     ]
+
+
+def test_hall_of_fame_back_callbacks_preserve_one_level_navigation() -> None:
+    entry = HallOfFameEntryView(
+        season_id=1,
+        season_name="Лето 2026",
+        starts_at=date(2026, 6, 1),
+        ends_at=None,
+        champion=None,
+        knockout_leader=None,
+    )
+    field = superadmin_hall_of_fame_kb.HallOfFameField.GRAND_MONTH
+    assert "🗑 Удалить награду" not in inline_keyboard_texts(
+        superadmin_hall_of_fame_kb.achievements_keyboard(entry=entry, page=2)
+    )
+
+    season_back = superadmin_hall_of_fame_kb.HallOfFameCardCallback.unpack(
+        superadmin_hall_of_fame_kb.season_card_keyboard(entry=entry, page=2)
+        .inline_keyboard[-2][0]
+        .callback_data
+    )
+    menu_back = superadmin_hall_of_fame_kb.HallOfFameCardCallback.unpack(
+        superadmin_hall_of_fame_kb.achievements_keyboard(entry=entry, page=2)
+        .inline_keyboard[-2][0]
+        .callback_data
+    )
+    date_back = superadmin_hall_of_fame_kb.HallOfFameDateCallback.unpack(
+        superadmin_hall_of_fame_kb.date_prompt_keyboard(
+            season_id=1, field=field, today_label="24.09.2026"
+        )
+        .inline_keyboard[-2][0]
+        .callback_data
+    )
+    name_back = superadmin_hall_of_fame_kb.HallOfFameSearchCallback.unpack(
+        superadmin_hall_of_fame_kb.search_prompt_keyboard(season_id=1, field=field)
+        .inline_keyboard[-2][0]
+        .callback_data
+    )
+    results_back = superadmin_hall_of_fame_kb.HallOfFameSearchCallback.unpack(
+        superadmin_hall_of_fame_kb.search_results_keyboard(season_id=1, field=field, candidates=[])
+        .inline_keyboard[-2][0]
+        .callback_data
+    )
+    confirmation_back = superadmin_hall_of_fame_kb.HallOfFameConfirmCallback.unpack(
+        superadmin_hall_of_fame_kb.confirmation_keyboard(season_id=1, field=field, player_id=10)
+        .inline_keyboard[-2][0]
+        .callback_data
+    )
+
+    assert season_back.action == superadmin_hall_of_fame_kb.HallOfFameCardAction.BACK
+    assert menu_back.action == superadmin_hall_of_fame_kb.HallOfFameCardAction.BACK_HUB
+    assert date_back.action == superadmin_hall_of_fame_kb.HallOfFameDateAction.BACK
+    assert name_back.action == superadmin_hall_of_fame_kb.HallOfFameSearchAction.BACK_DATE
+    assert results_back.action == superadmin_hall_of_fame_kb.HallOfFameSearchAction.BACK_NAME
+    assert confirmation_back.action == superadmin_hall_of_fame_kb.HallOfFameConfirmAction.BACK
 
 
 async def test_hall_of_fame_requires_active_user(

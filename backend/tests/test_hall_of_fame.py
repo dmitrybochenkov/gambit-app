@@ -23,6 +23,7 @@ from app.services.dto.statistics.hall_of_fame import (
     HallOfFameSeasonView,
 )
 from app.services.hall_of_fame_management_service import (
+    HallOfFameAchievementNotFoundError,
     HallOfFameManagementService,
     HallOfFameSeasonNotFoundError,
 )
@@ -123,7 +124,7 @@ async def test_hall_of_fame_uses_manual_entries_from_completed_seasons(
         assert hall_fmt.message(seasons) == (
             "🏆 Зал славы\n\n💍 — победитель сезона\n💥 — лучший нокаутер сезона"
         )
-        assert hall_fmt.season_caption(seasons[0]) == "Открытый сезон\n\n🏅 Петр"
+        assert hall_fmt.season_caption(seasons[0]) == ("Открытый сезон\n\n🏅 Петр (01.07.2026)")
         assert hall_fmt.season_caption(seasons[1]) == "Сезон 2026\n\n💍 Петр"
         assert hall_fmt.season_caption(seasons[2]) == "Сезон 2025\n\n💍 Иван\n💥 Петр"
     finally:
@@ -206,7 +207,9 @@ def test_hall_of_fame_formatter_preserves_occurrence_order_and_repetitions() -> 
     )
 
     assert hall_fmt.season_caption(season) == (
-        "Лето 2026\n\n💍 Rating\n💥 KO\n🏆 Season\n🏅 Month new\n🏅 Month old\n🥊 KO new\n🥊 KO old"
+        "Лето 2026\n\n💍 Rating\n💥 KO\n🏆 Season\n"
+        "🏅 Month new (01.08.2026)\n🏅 Month old (01.07.2026)\n"
+        "🥊 KO new (20.08.2026)\n🥊 KO old (20.06.2026)"
     )
 
 
@@ -338,6 +341,15 @@ async def test_hall_of_fame_management_crud_preserves_repeated_occurrences(
             date(2026, 8, 1),
             date(2026, 7, 1),
         ]
+        with pytest.raises(HallOfFameAchievementNotFoundError):
+            await service.delete_achievement(100, current_id, grand_months[0].id)
+        entry = await service.delete_achievement(100, completed_id, grand_months[0].id)
+        remaining_grand_months = [
+            item
+            for item in entry.achievements
+            if item.kind == HallOfFameAchievementKind.GRAND_MONTH
+        ]
+        assert [item.id for item in remaining_grand_months] == [grand_months[1].id]
         for kind in (
             HallOfFameAchievementKind.GRAND_KNOCKOUT,
             HallOfFameAchievementKind.GRAND_KNOCKOUT,

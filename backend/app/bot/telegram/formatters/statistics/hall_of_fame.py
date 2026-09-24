@@ -1,5 +1,8 @@
 from app.bot.telegram.formatters import common as fmt_common
-from app.bot.telegram.formatters.statistics.achievements import achievement_emoji
+from app.bot.telegram.formatters.statistics.achievements import (
+    achievement_emoji,
+    achievement_shows_date,
+)
 from app.bot.telegram.texts.user import hall_of_fame as hall_texts
 
 
@@ -18,9 +21,14 @@ def message(seasons: list) -> str:
 def season_caption(season: object) -> str:
     lines = [fmt_common.markdown_escape(season.season_name), ""]
     for achievement in season.achievements:
+        suffix = (
+            f" ({achievement.awarded_at:%d.%m.%Y})"
+            if achievement_shows_date(achievement.kind)
+            else ""
+        )
         lines.append(
             f"{achievement_emoji(achievement.kind)} "
-            f"{fmt_common.markdown_escape(achievement.display_name)}"
+            f"{fmt_common.markdown_escape(achievement.display_name)}{suffix}"
         )
     return "\n".join(lines)
 

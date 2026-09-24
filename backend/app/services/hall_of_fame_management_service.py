@@ -30,6 +30,10 @@ class HallOfFameSeasonNotFoundError(ValueError):
     pass
 
 
+class HallOfFameAchievementNotFoundError(ValueError):
+    pass
+
+
 class HallOfFameManagementService:
     def __init__(
         self,
@@ -183,6 +187,23 @@ class HallOfFameManagementService:
             await access_policy.require_superadmin(session, superadmin_telegram_id)
             season = await self._require_season(session, season_id)
             await HallOfFameRepository(session).delete_all_photos(season.id)
+            await session.commit()
+            return await self._entry_view(session, season)
+
+    async def delete_achievement(
+        self,
+        superadmin_telegram_id: int,
+        season_id: int,
+        achievement_id: int,
+    ) -> HallOfFameEntryView:
+        async with self.session_factory() as session:
+            await access_policy.require_superadmin(session, superadmin_telegram_id)
+            season = await self._require_season(session, season_id)
+            repository = HallOfFameRepository(session)
+            achievement = await repository.get_achievement(achievement_id)
+            if achievement is None or achievement.season_id != season.id:
+                raise HallOfFameAchievementNotFoundError
+            await repository.delete_achievement(achievement)
             await session.commit()
             return await self._entry_view(session, season)
 

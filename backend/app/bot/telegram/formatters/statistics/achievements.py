@@ -6,6 +6,12 @@ ACHIEVEMENT_EMOJI = {
     "grand_knockout": "🥊",
 }
 
+_DATED_ACHIEVEMENT_KINDS = {"grand_month", "grand_knockout"}
+
 
 def achievement_emoji(kind: str) -> str:
     return ACHIEVEMENT_EMOJI[kind]
+
+
+def achievement_shows_date(kind: str) -> bool:
+    return kind in _DATED_ACHIEVEMENT_KINDS

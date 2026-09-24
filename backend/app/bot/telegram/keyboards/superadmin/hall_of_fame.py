@@ -4,6 +4,10 @@ from aiogram.filters.callback_data import CallbackData
 from aiogram.types import InlineKeyboardMarkup
 from aiogram.utils.keyboard import InlineKeyboardBuilder
 
+from app.bot.telegram.formatters.statistics.achievements import (
+    achievement_emoji,
+    achievement_shows_date,
+)
 from app.bot.telegram.keyboards import labels
 from app.bot.telegram.keyboards.admin.common import _adjust_paged_keyboard
 from app.services.dto.hall_of_fame import HallOfFameCandidateView, HallOfFameSeasonListItemView
@@ -36,7 +40,9 @@ class HallOfFameCardAction(StrEnum):
     PHOTOS = "photos"
     ACHIEVEMENTS = "achievements"
     SELECT_KIND = "select_kind"
+    DELETE_ACHIEVEMENT = "delete_achievement"
     BACK = "back"
+    BACK_HUB = "back_hub"
     CANCEL = "cancel"
 
 
@@ -61,7 +67,8 @@ class HallOfFameDateCallback(CallbackData, prefix="hof_date"):
 
 class HallOfFameSearchAction(StrEnum):
     OPEN = "open"
-    BACK = "back"
+    BACK_DATE = "back_date"
+    BACK_NAME = "back_name"
     CANCEL = "cancel"
 
 
@@ -98,6 +105,20 @@ class HallOfFamePhotoAction(StrEnum):
 class HallOfFamePhotoCallback(CallbackData, prefix="hof_photo"):
     action: HallOfFamePhotoAction
     season_id: int
+
+
+class HallOfFameDeleteAction(StrEnum):
+    OPEN = "open"
+    CONFIRM = "confirm"
+    BACK_MENU = "back_menu"
+    BACK_LIST = "back_list"
+    CANCEL = "cancel"
+
+
+class HallOfFameDeleteCallback(CallbackData, prefix="hof_delete"):
+    action: HallOfFameDeleteAction
+    season_id: int
+    achievement_id: int = 0
 
 
 def seasons_keyboard(page: Page[HallOfFameSeasonListItemView]) -> InlineKeyboardMarkup:
@@ -181,7 +202,8 @@ def season_card_keyboard(*, entry: object, page: int) -> InlineKeyboardMarkup:
     return builder.as_markup()
 
 
-def achievements_keyboard(*, season_id: int, page: int) -> InlineKeyboardMarkup:
+def achievements_keyboard(*, entry: object, page: int) -> InlineKeyboardMarkup:
+    season_id = entry.season_id
     builder = InlineKeyboardBuilder()
     for kind, label in (
         (HallOfFameField.RATING_WINNER, "💍 Победитель рейтинга"),
@@ -199,10 +221,19 @@ def achievements_keyboard(*, season_id: int, page: int) -> InlineKeyboardMarkup:
                 kind=kind,
             ),
         )
+    if entry.achievements:
+        builder.button(
+            text="🗑 Удалить награду",
+            callback_data=HallOfFameCardCallback(
+                action=HallOfFameCardAction.DELETE_ACHIEVEMENT,
+                season_id=season_id,
+                page=page,
+            ),
+        )
     builder.button(
         text="⬅️ Назад",
         callback_data=HallOfFameCardCallback(
-            action=HallOfFameCardAction.BACK,
+            action=HallOfFameCardAction.BACK_HUB,
             season_id=season_id,
             page=page,
         ),
@@ -304,7 +335,7 @@ def search_prompt_keyboard(*, season_id: int, field: HallOfFameField) -> InlineK
     builder.button(
         text="⬅️ Назад",
         callback_data=HallOfFameSearchCallback(
-            action=HallOfFameSearchAction.BACK,
+            action=HallOfFameSearchAction.BACK_DATE,
             season_id=season_id,
             field=field,
         ),
@@ -341,7 +372,7 @@ def search_results_keyboard(
     builder.button(
         text="⬅️ Назад",
         callback_data=HallOfFameSearchCallback(
-            action=HallOfFameSearchAction.BACK,
+            action=HallOfFameSearchAction.BACK_NAME,
             season_id=season_id,
             field=field,
         ),
@@ -355,6 +386,72 @@ def search_results_keyboard(
         ),
     )
     builder.adjust(*([1] * len(candidates)), 1, 1)
+    return builder.as_markup()
+
+
+def delete_achievements_keyboard(*, entry: object) -> InlineKeyboardMarkup:
+    builder = InlineKeyboardBuilder()
+    for achievement in entry.achievements:
+        suffix = (
+            f" — {achievement.awarded_at:%d.%m}" if achievement_shows_date(achievement.kind) else ""
+        )
+        builder.button(
+            text=(
+                f"{achievement_emoji(achievement.kind)} {achievement.player.display_name}{suffix}"
+            ),
+            callback_data=HallOfFameDeleteCallback(
+                action=HallOfFameDeleteAction.OPEN,
+                season_id=entry.season_id,
+                achievement_id=achievement.id,
+            ),
+        )
+    builder.button(
+        text="⬅️ Назад",
+        callback_data=HallOfFameDeleteCallback(
+            action=HallOfFameDeleteAction.BACK_MENU,
+            season_id=entry.season_id,
+        ),
+    )
+    builder.button(
+        text=labels.ADMIN_CANCEL,
+        callback_data=HallOfFameDeleteCallback(
+            action=HallOfFameDeleteAction.CANCEL,
+            season_id=entry.season_id,
+        ),
+    )
+    builder.adjust(1)
+    return builder.as_markup()
+
+
+def delete_achievement_confirmation_keyboard(
+    *, season_id: int, achievement_id: int
+) -> InlineKeyboardMarkup:
+    builder = InlineKeyboardBuilder()
+    builder.button(
+        text="🗑 Удалить",
+        callback_data=HallOfFameDeleteCallback(
+            action=HallOfFameDeleteAction.CONFIRM,
+            season_id=season_id,
+            achievement_id=achievement_id,
+        ),
+    )
+    builder.button(
+        text="⬅️ Назад",
+        callback_data=HallOfFameDeleteCallback(
+            action=HallOfFameDeleteAction.BACK_LIST,
+            season_id=season_id,
+            achievement_id=achievement_id,
+        ),
+    )
+    builder.button(
+        text=labels.ADMIN_CANCEL,
+        callback_data=HallOfFameDeleteCallback(
+            action=HallOfFameDeleteAction.CANCEL,
+            season_id=season_id,
+            achievement_id=achievement_id,
+        ),
+    )
+    builder.adjust(1)
     return builder.as_markup()
 
 
