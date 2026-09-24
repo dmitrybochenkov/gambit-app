@@ -12,6 +12,7 @@ from app.db.repositories.hall_of_fame_repository import (
 from app.db.repositories.season_repository import SeasonRepository
 from app.db.repositories.user_repository import UserRepository
 from app.db.session import SessionFactory
+from app.domain.hall_of_fame import SINGLETON_ACHIEVEMENT_KINDS
 from app.services.access_policy import access_policy
 from app.services.dto.hall_of_fame import (
     HallOfFameAchievementManagementView,
@@ -26,10 +27,6 @@ from app.services.user_common import UserNotFoundError, required_user_view
 
 
 class HallOfFameSeasonNotFoundError(ValueError):
-    pass
-
-
-class HallOfFameAchievementNotFoundError(ValueError):
     pass
 
 
@@ -113,56 +110,48 @@ class HallOfFameManagementService:
         kind: HallOfFameAchievementKind,
         awarded_at: date,
     ) -> HallOfFameEntryView:
-        async with self.session_factory() as session:
-            await access_policy.require_superadmin(session, superadmin_telegram_id)
-            season = await self._require_season(session, season_id)
-            await self._require_user(session, player_id)
-            self._validate_awarded_at(season, awarded_at)
-            repository = HallOfFameRepository(session)
-            await repository.add_achievement(
-                season_id=season.id,
-                player_id=player_id,
-                kind=kind,
-                awarded_at=awarded_at,
-            )
-            await session.commit()
-            return await self._entry_view(session, season)
+        return await self.set_achievement(
+            superadmin_telegram_id,
+            season_id,
+            player_id,
+            kind,
+            awarded_at,
+        )
 
-    async def update_achievement(
+    async def set_achievement(
         self,
         superadmin_telegram_id: int,
-        achievement_id: int,
-        *,
+        season_id: int,
         player_id: int,
         kind: HallOfFameAchievementKind,
         awarded_at: date,
     ) -> HallOfFameEntryView:
         async with self.session_factory() as session:
             await access_policy.require_superadmin(session, superadmin_telegram_id)
-            repository = HallOfFameRepository(session)
-            achievement = await repository.get_achievement(achievement_id)
-            if achievement is None:
-                raise HallOfFameAchievementNotFoundError
-            season = await self._require_season(session, achievement.season_id)
+            season = await self._require_season(session, season_id)
             await self._require_user(session, player_id)
-            self._validate_awarded_at(season, awarded_at)
-            achievement.player_id = player_id
-            achievement.kind = kind
-            achievement.awarded_at = awarded_at
-            await session.commit()
-            return await self._entry_view(session, season)
-
-    async def delete_achievement(
-        self, superadmin_telegram_id: int, achievement_id: int
-    ) -> HallOfFameEntryView:
-        async with self.session_factory() as session:
-            await access_policy.require_superadmin(session, superadmin_telegram_id)
             repository = HallOfFameRepository(session)
-            achievement = await repository.get_achievement(achievement_id)
-            if achievement is None:
-                raise HallOfFameAchievementNotFoundError
-            season = await self._require_season(session, achievement.season_id)
-            await repository.delete_achievement(achievement)
+            if kind in SINGLETON_ACHIEVEMENT_KINDS:
+                achievement = await repository.get_singleton_achievement(
+                    season_id=season.id, kind=kind
+                )
+                if achievement is None:
+                    await repository.add_achievement(
+                        season_id=season.id,
+                        player_id=player_id,
+                        kind=kind,
+                        awarded_at=awarded_at,
+                    )
+                else:
+                    achievement.player_id = player_id
+                    achievement.awarded_at = awarded_at
+            else:
+                await repository.add_achievement(
+                    season_id=season.id,
+                    player_id=player_id,
+                    kind=kind,
+                    awarded_at=awarded_at,
+                )
             await session.commit()
             return await self._entry_view(session, season)
 
@@ -178,7 +167,6 @@ class HallOfFameManagementService:
             actor = await access_policy.require_superadmin(session, superadmin_telegram_id)
             season = await self._require_season(session, season_id)
             repository = HallOfFameRepository(session)
-            await repository.get_or_create(season_id=season.id, updated_by_user_id=actor.id)
             await repository.add_photo(
                 season_id=season.id,
                 telegram_file_id=telegram_file_id,
@@ -188,17 +176,13 @@ class HallOfFameManagementService:
             await session.commit()
             return await self._entry_view(session, season)
 
-    async def delete_photo(
-        self, superadmin_telegram_id: int, season_id: int, photo_id: int
+    async def delete_all_photos(
+        self, superadmin_telegram_id: int, season_id: int
     ) -> HallOfFameEntryView:
         async with self.session_factory() as session:
             await access_policy.require_superadmin(session, superadmin_telegram_id)
             season = await self._require_season(session, season_id)
-            repository = HallOfFameRepository(session)
-            photo = await repository.get_photo(photo_id)
-            if photo is None or photo.season_id != season.id:
-                raise HallOfFameSeasonNotFoundError
-            await repository.delete_photo(photo)
+            await HallOfFameRepository(session).delete_all_photos(season.id)
             await session.commit()
             return await self._entry_view(session, season)
 
@@ -284,11 +268,6 @@ class HallOfFameManagementService:
             role=row.role,
             gender=row.gender,
         )
-
-    def _validate_awarded_at(self, season: Season, awarded_at: date) -> None:
-        upper_bound = min(season.ends_at or self.clock.today(), self.clock.today())
-        if not season.starts_at <= awarded_at <= upper_bound:
-            raise HallOfFameSeasonNotFoundError
 
 
 hall_of_fame_management_service = HallOfFameManagementService(SessionFactory)

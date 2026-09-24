@@ -5,6 +5,7 @@ import sys
 from pathlib import Path
 
 PREVIOUS_REVISION = "9b0c1d2e3f4a"
+TARGET_REVISION = "ac1d2e3f4a5b"
 
 
 def _alembic(
@@ -78,7 +79,7 @@ def test_hall_of_fame_occurrence_migration_preserves_legacy_data(tmp_path: Path)
         )
         connection.commit()
 
-    _alembic(db_path, "upgrade", "head")
+    _alembic(db_path, "upgrade", TARGET_REVISION)
 
     with sqlite3.connect(db_path) as connection:
         assert connection.execute(
@@ -147,7 +148,7 @@ def test_hall_of_fame_downgrade_refuses_unrepresented_legacy_slot(tmp_path: Path
         )
         connection.commit()
 
-    _alembic(db_path, "upgrade", "head")
+    _alembic(db_path, "upgrade", TARGET_REVISION)
     failed = _alembic(db_path, "downgrade", PREVIOUS_REVISION, check=False)
 
     assert failed.returncode != 0

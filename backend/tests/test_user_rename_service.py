@@ -11,7 +11,6 @@ from app.db.factories import create_user
 from app.db.models import (
     ScoringConfig,
     Season,
-    SeasonHallOfFame,
     Tournament,
     TournamentResult,
     TournamentType,
@@ -179,24 +178,15 @@ async def test_user_rename_confirmation_updates_name_only_and_keeps_relations(
             )
             session.add_all([config, season, tournament_type, tournament])
             await session.flush()
-            session.add_all(
-                [
-                    TournamentResult(
-                        tournament_id=tournament.id,
-                        player_id=target.id,
-                        tournament_points=Decimal("100"),
-                    ),
-                    SeasonHallOfFame(
-                        season_id=season.id,
-                        champion_player_id=target.id,
-                        knockout_player_id=target.id,
-                        updated_by_user_id=root.id,
-                    ),
-                ]
+            session.add(
+                TournamentResult(
+                    tournament_id=tournament.id,
+                    player_id=target.id,
+                    tournament_points=Decimal("100"),
+                )
             )
             await session.commit()
             target_id = target.id
-            root_id = root.id
 
         renamed = await service.rename_user(
             1,
@@ -216,7 +206,6 @@ async def test_user_rename_confirmation_updates_name_only_and_keeps_relations(
             result_player_id = (
                 await session.execute(select(TournamentResult.player_id))
             ).scalar_one()
-            hall_of_fame = (await session.execute(select(SeasonHallOfFame))).scalar_one()
 
         assert stored is not None
         assert stored.display_name == "Иван Петров"
@@ -225,9 +214,6 @@ async def test_user_rename_confirmation_updates_name_only_and_keeps_relations(
         assert stored.role == UserRole.ADMIN
         assert stored.status == UserStatus.ACTIVE
         assert result_player_id == target_id
-        assert hall_of_fame.champion_player_id == target_id
-        assert hall_of_fame.knockout_player_id == target_id
-        assert hall_of_fame.updated_by_user_id == root_id
     finally:
         await engine.dispose()
 

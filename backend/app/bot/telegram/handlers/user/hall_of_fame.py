@@ -1,8 +1,9 @@
 from aiogram import F, Router
-from aiogram.types import InputMediaPhoto, Message
+from aiogram.types import Message
 
 from app.bot.telegram.formatters.statistics import hall_of_fame as hall_of_fame_fmt
 from app.bot.telegram.keyboards import labels
+from app.bot.telegram.photo_collage import build_photo_collage
 from app.bot.telegram.texts.user import hall_of_fame as text
 from app.services.user_statistics_service import (
     HallOfFameNotAllowedError,
@@ -32,9 +33,12 @@ async def show_hall_of_fame(message: Message) -> None:
 
 
 async def _send_hall_of_fame_season(message: Message, season: object) -> None:
+    caption = hall_of_fame_fmt.season_caption(season)
     photos = [photo.telegram_file_id for photo in season.photos]
     if len(photos) == 1:
-        await message.answer_photo(photos[0])
+        await message.answer_photo(photos[0], caption=caption, parse_mode="Markdown")
     elif photos:
-        await message.answer_media_group([InputMediaPhoto(media=photo) for photo in photos])
-    await message.answer(hall_of_fame_fmt.season_caption(season), parse_mode="Markdown")
+        collage = await build_photo_collage(message.bot, photos)
+        await message.answer_photo(collage, caption=caption, parse_mode="Markdown")
+    else:
+        await message.answer(caption, parse_mode="Markdown")

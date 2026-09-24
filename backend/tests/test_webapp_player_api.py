@@ -26,7 +26,6 @@ from app.db.models import (
     PlayerReward,
     ScoringConfig,
     Season,
-    SeasonHallOfFame,
     Tournament,
     TournamentResult,
 )
@@ -204,16 +203,6 @@ async def seed_player_api_data(session_factory: async_sessionmaker) -> dict[str,
                     bonus_points=0,
                 ),
             ]
-        )
-        session.add(
-            SeasonHallOfFame(
-                season_id=previous_season.id,
-                champion_player_id=player.id,
-                knockout_player_id=rival.id,
-                champion_photo_file_id="telegram-champion-file-id",
-                knockout_photo_file_id="telegram-ko-file-id",
-                updated_by_user_id=player.id,
-            )
         )
         session.add_all(
             [

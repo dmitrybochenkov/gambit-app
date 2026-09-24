@@ -15,7 +15,6 @@ from app.db.models import (
     HallOfFamePhoto,
     ScoringConfig,
     Season,
-    SeasonHallOfFame,
 )
 from app.db.models.enums import HallOfFameAchievementKind, UserRole, UserStatus
 from app.services.access_policy import AdminAccessDeniedError
@@ -76,12 +75,6 @@ async def test_hall_of_fame_uses_manual_entries_from_completed_seasons(
         await session.flush()
         session.add_all(
             [
-                SeasonHallOfFame(
-                    season_id=old_season.id,
-                    champion_player_id=low_id.id,
-                    knockout_player_id=high_id.id,
-                    updated_by_user_id=viewer.id,
-                ),
                 HallOfFameAchievement(
                     season_id=old_season.id,
                     player_id=low_id.id,
@@ -94,35 +87,17 @@ async def test_hall_of_fame_uses_manual_entries_from_completed_seasons(
                     kind=HallOfFameAchievementKind.KO_RATING_WINNER,
                     awarded_at=old_season.ends_at,
                 ),
-                SeasonHallOfFame(
-                    season_id=new_season.id,
-                    champion_player_id=high_id.id,
-                    knockout_player_id=None,
-                    updated_by_user_id=viewer.id,
-                ),
                 HallOfFameAchievement(
                     season_id=new_season.id,
                     player_id=high_id.id,
                     kind=HallOfFameAchievementKind.RATING_WINNER,
                     awarded_at=new_season.ends_at,
                 ),
-                SeasonHallOfFame(
-                    season_id=open_season.id,
-                    champion_player_id=high_id.id,
-                    knockout_player_id=high_id.id,
-                    updated_by_user_id=viewer.id,
-                ),
                 HallOfFameAchievement(
                     season_id=open_season.id,
                     player_id=high_id.id,
                     kind=HallOfFameAchievementKind.GRAND_MONTH,
                     awarded_at=open_season.starts_at,
-                ),
-                SeasonHallOfFame(
-                    season_id=future_ended_season.id,
-                    champion_player_id=high_id.id,
-                    knockout_player_id=high_id.id,
-                    updated_by_user_id=viewer.id,
                 ),
             ]
         )
@@ -282,7 +257,6 @@ async def test_hall_of_fame_management_crud_preserves_repeated_occurrences(
         offline_id = offline.id
         champion_id = champion.id
         replacement_id = replacement.id
-        superadmin_id = superadmin.id
 
     service = HallOfFameManagementService(
         session_factory,
@@ -306,14 +280,6 @@ async def test_hall_of_fame_management_crud_preserves_repeated_occurrences(
         with pytest.raises(HallOfFameSeasonNotFoundError):
             await service.add_achievement(
                 100,
-                completed_id,
-                champion_id,
-                HallOfFameAchievementKind.RATING_WINNER,
-                date(2026, 9, 1),
-            )
-        with pytest.raises(HallOfFameSeasonNotFoundError):
-            await service.add_achievement(
-                100,
                 999,
                 champion_id,
                 HallOfFameAchievementKind.RATING_WINNER,
@@ -331,65 +297,47 @@ async def test_hall_of_fame_management_crud_preserves_repeated_occurrences(
         candidates = await service.search_players(100, "Offline")
         assert [candidate.user.id for candidate in candidates] == [offline_id]
 
-        entry = await service.add_achievement(
-            100,
-            completed_id,
-            champion_id,
+        for kind in (
             HallOfFameAchievementKind.RATING_WINNER,
-            date(2026, 8, 31),
-        )
-        assert entry.champion is not None
-        assert entry.champion.id == champion_id
-        assert entry.knockout_leader is None
-
-        repeated = await service.add_achievement(
-            100,
-            completed_id,
-            champion_id,
-            HallOfFameAchievementKind.GRAND_MONTH,
-            date(2026, 7, 1),
-        )
-        repeated = await service.add_achievement(
-            100,
-            completed_id,
-            champion_id,
-            HallOfFameAchievementKind.GRAND_MONTH,
-            date(2026, 8, 1),
-        )
-        assert [item.kind for item in repeated.achievements] == [
-            HallOfFameAchievementKind.RATING_WINNER,
-            HallOfFameAchievementKind.GRAND_MONTH,
-            HallOfFameAchievementKind.GRAND_MONTH,
-        ]
-        assert [item.awarded_at for item in repeated.achievements[1:]] == [
-            date(2026, 8, 1),
-            date(2026, 7, 1),
-        ]
-        second_grand_month = repeated.achievements[1]
-        entry = await service.update_achievement(
-            100,
-            second_grand_month.id,
-            player_id=replacement_id,
-            kind=HallOfFameAchievementKind.GRAND_SEASON,
-            awarded_at=date(2026, 8, 15),
-        )
-        assert any(
-            item.player.id == replacement_id and item.kind == HallOfFameAchievementKind.GRAND_SEASON
-            for item in entry.achievements
-        )
-        entry = await service.delete_achievement(100, second_grand_month.id)
-        assert all(item.id != second_grand_month.id for item in entry.achievements)
-
-        entry = await service.add_achievement(
-            100,
-            completed_id,
-            replacement_id,
             HallOfFameAchievementKind.KO_RATING_WINNER,
-            date(2026, 8, 31),
-        )
-        assert entry.knockout_leader is not None
-        assert entry.knockout_leader.id == replacement_id
+            HallOfFameAchievementKind.GRAND_SEASON,
+        ):
+            first = await service.set_achievement(
+                100, completed_id, champion_id, kind, date(2026, 8, 31)
+            )
+            original = next(item for item in first.achievements if item.kind == kind)
+            replaced = await service.set_achievement(
+                100, completed_id, replacement_id, kind, date(2026, 9, 1)
+            )
+            matching = [item for item in replaced.achievements if item.kind == kind]
+            assert len(matching) == 1
+            assert matching[0].id == original.id
+            assert matching[0].player.id == replacement_id
+            assert matching[0].awarded_at == date(2026, 9, 1)
 
+        repeated = await service.add_achievement(
+            100,
+            completed_id,
+            champion_id,
+            HallOfFameAchievementKind.GRAND_MONTH,
+            date(2026, 7, 1),
+        )
+        repeated = await service.add_achievement(
+            100,
+            completed_id,
+            champion_id,
+            HallOfFameAchievementKind.GRAND_MONTH,
+            date(2026, 8, 1),
+        )
+        grand_months = [
+            item
+            for item in repeated.achievements
+            if item.kind == HallOfFameAchievementKind.GRAND_MONTH
+        ]
+        assert [item.awarded_at for item in grand_months] == [
+            date(2026, 8, 1),
+            date(2026, 7, 1),
+        ]
         for kind in (
             HallOfFameAchievementKind.GRAND_KNOCKOUT,
             HallOfFameAchievementKind.GRAND_KNOCKOUT,
@@ -416,17 +364,7 @@ async def test_hall_of_fame_management_crud_preserves_repeated_occurrences(
             HallOfFameAchievementKind.GRAND_MONTH,
             date(2026, 9, 1),
         )
-        open_achievement = open_entry.achievements[0]
-        open_entry = await service.update_achievement(
-            100,
-            open_achievement.id,
-            player_id=replacement_id,
-            kind=HallOfFameAchievementKind.GRAND_KNOCKOUT,
-            awarded_at=date(2026, 9, 1),
-        )
-        assert open_entry.achievements[0].player.id == replacement_id
-        open_entry = await service.delete_achievement(100, open_achievement.id)
-        assert open_entry.achievements == ()
+        assert open_entry.achievements[0].player.id == champion_id
 
         entry = await service.add_photo(
             100,
@@ -451,18 +389,10 @@ async def test_hall_of_fame_management_crud_preserves_repeated_occurrences(
             "champion-file-2",
             "knockout-file",
         ]
-        entry = await service.delete_photo(100, completed_id, entry.photos[1].id)
-        assert [photo.telegram_file_id for photo in entry.photos] == [
-            "champion-file-1",
-            "knockout-file",
-        ]
+        entry = await service.delete_all_photos(100, completed_id)
+        assert entry.photos == ()
 
         async with session_factory() as session:
-            stored = await session.get(SeasonHallOfFame, 1)
-            assert stored is not None
-            assert stored.updated_by_user_id == superadmin_id
-            assert stored.champion_photo_file_id is None
-            assert stored.knockout_photo_file_id is None
-            assert len((await session.execute(select(HallOfFamePhoto))).scalars().all()) == 2
+            assert (await session.execute(select(HallOfFamePhoto))).scalars().all() == []
     finally:
         await engine.dispose()

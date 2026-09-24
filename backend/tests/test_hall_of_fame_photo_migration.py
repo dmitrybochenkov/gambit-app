@@ -111,5 +111,5 @@ def test_hall_of_fame_photo_downgrade_refuses_more_than_two_photos(tmp_path: Pat
     with sqlite3.connect(db_path) as connection:
         assert connection.execute("SELECT COUNT(*) FROM hall_of_fame_photos").fetchone() == (3,)
         assert connection.execute("SELECT version_num FROM alembic_version").fetchone() == (
-            "bd2e3f4a5b6c",
+            "ce3f4a5b6c7d",
         )

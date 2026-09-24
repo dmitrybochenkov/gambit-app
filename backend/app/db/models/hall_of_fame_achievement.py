@@ -3,7 +3,7 @@ from __future__ import annotations
 from datetime import date
 from typing import TYPE_CHECKING
 
-from sqlalchemy import CheckConstraint, Date, ForeignKey, Integer
+from sqlalchemy import CheckConstraint, Date, ForeignKey, Index, Integer, text
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.base import Base
@@ -40,5 +40,13 @@ class HallOfFameAchievement(TimestampMixin, Base):
             "kind IN ('rating_winner', 'ko_rating_winner', 'grand_season', "
             "'grand_month', 'grand_knockout')",
             name="hall_of_fame_achievements_kind_values",
+        ),
+        Index(
+            "uq_hall_of_fame_achievements_singleton_kind",
+            "season_id",
+            "kind",
+            unique=True,
+            sqlite_where=text("kind IN ('rating_winner', 'ko_rating_winner', 'grand_season')"),
+            postgresql_where=text("kind IN ('rating_winner', 'ko_rating_winner', 'grand_season')"),
         ),
     )

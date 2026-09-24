@@ -4,7 +4,6 @@ from app.db.models.player_reward import PlayerReward
 from app.db.models.registration_request import RegistrationRequest
 from app.db.models.scoring_config import ScoringConfig
 from app.db.models.season import Season
-from app.db.models.season_hall_of_fame import SeasonHallOfFame
 from app.db.models.tournament import Tournament
 from app.db.models.tournament_combination import TournamentCombination
 from app.db.models.tournament_photo import TournamentPhoto
@@ -27,7 +26,6 @@ __all__ = [
     "PlayerReward",
     "ScoringConfig",
     "Season",
-    "SeasonHallOfFame",
     "Tournament",
     "TournamentCombination",
     "TournamentEconomyConfig",

@@ -1,10 +1,10 @@
 from dataclasses import dataclass
 from datetime import date
 
-from sqlalchemy import select
+from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.db.models import HallOfFameAchievement, HallOfFamePhoto, Season, SeasonHallOfFame, User
+from app.db.models import HallOfFameAchievement, HallOfFamePhoto, Season, User
 from app.db.models.enums import (
     HallOfFameAchievementKind,
     UserGender,
@@ -72,32 +72,6 @@ class HallOfFameRepository:
     def __init__(self, session: AsyncSession) -> None:
         self.session = session
 
-    async def get_by_season_id(self, season_id: int) -> SeasonHallOfFame | None:
-        result = await self.session.execute(
-            select(SeasonHallOfFame).where(SeasonHallOfFame.season_id == season_id)
-        )
-        return result.scalar_one_or_none()
-
-    async def get_or_create(
-        self,
-        *,
-        season_id: int,
-        updated_by_user_id: int,
-    ) -> SeasonHallOfFame:
-        entry = await self.get_by_season_id(season_id)
-        if entry is not None:
-            return entry
-        entry = SeasonHallOfFame(
-            season_id=season_id,
-            updated_by_user_id=updated_by_user_id,
-        )
-        self.session.add(entry)
-        await self.session.flush()
-        return entry
-
-    async def get_achievement(self, achievement_id: int) -> HallOfFameAchievement | None:
-        return await self.session.get(HallOfFameAchievement, achievement_id)
-
     async def add_achievement(
         self, *, season_id: int, player_id: int, kind: HallOfFameAchievementKind, awarded_at: date
     ) -> HallOfFameAchievement:
@@ -108,11 +82,16 @@ class HallOfFameRepository:
         await self.session.flush()
         return achievement
 
-    async def delete_achievement(self, achievement: HallOfFameAchievement) -> None:
-        await self.session.delete(achievement)
-
-    async def get_photo(self, photo_id: int) -> HallOfFamePhoto | None:
-        return await self.session.get(HallOfFamePhoto, photo_id)
+    async def get_singleton_achievement(
+        self, *, season_id: int, kind: HallOfFameAchievementKind
+    ) -> HallOfFameAchievement | None:
+        result = await self.session.execute(
+            select(HallOfFameAchievement).where(
+                HallOfFameAchievement.season_id == season_id,
+                HallOfFameAchievement.kind == kind,
+            )
+        )
+        return result.scalar_one_or_none()
 
     async def add_photo(
         self,
@@ -134,8 +113,10 @@ class HallOfFameRepository:
         await self.session.flush()
         return photo
 
-    async def delete_photo(self, photo: HallOfFamePhoto) -> None:
-        await self.session.delete(photo)
+    async def delete_all_photos(self, season_id: int) -> None:
+        await self.session.execute(
+            delete(HallOfFamePhoto).where(HallOfFamePhoto.season_id == season_id)
+        )
 
     async def list_photos_for_seasons(
         self, season_ids: tuple[int, ...]

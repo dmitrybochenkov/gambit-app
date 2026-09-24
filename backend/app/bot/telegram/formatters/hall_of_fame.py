@@ -4,7 +4,7 @@ from app.bot.telegram.keyboards.superadmin.hall_of_fame import HallOfFameField
 
 
 def season_list(page: object) -> str:
-    lines = ["🔧 Наполнить зал славы"]
+    lines = ["🏆 Наполнение Зала славы"]
     if page.total_items <= 0:
         lines.extend(["", "Сезонов нет."])
         return "\n".join(lines)
@@ -21,15 +21,52 @@ def season_card(entry: object) -> str:
         f"📸 Фото: {len(entry.photos)}",
     ]
     for achievement in entry.achievements:
-        lines.extend(
-            [
-                "",
-                f"{achievement_emoji(achievement.kind)} "
-                f"{fmt_common.markdown_escape(achievement.player.display_name)} "
-                f"({achievement.awarded_at:%d.%m.%Y})",
-            ]
+        lines.append(
+            f"{achievement_emoji(achievement.kind)} "
+            f"{fmt_common.markdown_escape(achievement.player.display_name)} "
+            f"({achievement.awarded_at:%d.%m.%Y})"
         )
     return "\n".join(lines)
+
+
+def achievements_menu(entry: object) -> str:
+    return f"🏆 Награды\n{fmt_common.markdown_escape(entry.season_name)}"
+
+
+def photo_menu(entry: object) -> str:
+    return (
+        f"📸 Фото Зала славы\n{fmt_common.markdown_escape(entry.season_name)}\n"
+        f"Загружено: {len(entry.photos)}"
+    )
+
+
+def achievement_confirmation(
+    *, field: HallOfFameField, player: object, awarded_at: object, existing: object | None
+) -> str:
+    label = _achievement_label(field)
+    player_name = fmt_common.markdown_escape(player.display_name)
+    if existing is None:
+        return f"{label}\nИгрок: {player_name}\nДата: {awarded_at:%d.%m.%Y}"
+    return "\n".join(
+        [
+            label,
+            "Было:",
+            f"{fmt_common.markdown_escape(existing.player.display_name)} — "
+            f"{existing.awarded_at:%d.%m.%Y}",
+            "Станет:",
+            f"{player_name} — {awarded_at:%d.%m.%Y}",
+        ]
+    )
+
+
+def _achievement_label(field: HallOfFameField) -> str:
+    return {
+        HallOfFameField.RATING_WINNER: "💍 Победитель рейтинга",
+        HallOfFameField.KO_RATING_WINNER: "💥 Победитель KO-рейтинга",
+        HallOfFameField.GRAND_SEASON: "🏆 Grand Season",
+        HallOfFameField.GRAND_MONTH: "🏅 Grand Month",
+        HallOfFameField.GRAND_KNOCKOUT: "🥊 Grand Knockout",
+    }[field]
 
 
 def search_prompt(field: HallOfFameField) -> str:
@@ -54,22 +91,3 @@ def search_results(candidates: list[object]) -> str:
     if not candidates:
         return "Игроки не найдены."
     return "Выбери игрока:"
-
-
-def confirmation(*, field: HallOfFameField, player: object, season_name: str) -> str:
-    role = "чемпионом" if field == HallOfFameField.CHAMPION else "нокаутером"
-    return "\n".join(
-        [
-            f"Назначить {role} сезона:",
-            "",
-            fmt_common.markdown_escape(player.display_name),
-            "",
-            f"{fmt_common.markdown_escape(season_name)}?",
-        ]
-    )
-
-
-def _display_name(user: object | None) -> str:
-    if user is None:
-        return "Не выбран"
-    return fmt_common.markdown_escape(user.display_name)

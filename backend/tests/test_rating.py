@@ -12,7 +12,6 @@ from app.db.models import (
     HallOfFameAchievement,
     ScoringConfig,
     Season,
-    SeasonHallOfFame,
     Tournament,
     TournamentResult,
 )
@@ -165,12 +164,6 @@ async def test_rating_filters_current_season_and_all_time(tmp_path: Path) -> Non
                     tournament_points=Decimal("999"),
                     knockout_points=Decimal("999"),
                     bonus_points=999,
-                ),
-                SeasonHallOfFame(
-                    season_id=previous_season.id,
-                    champion_player_id=first_player.id,
-                    knockout_player_id=first_player.id,
-                    updated_by_user_id=first_player.id,
                 ),
                 HallOfFameAchievement(
                     season_id=previous_season.id,
@@ -655,12 +648,6 @@ async def test_rating_badges_are_shared_across_rating_kinds(tmp_path: Path) -> N
                     knockout_points=Decimal("10"),
                     bonus_points=0,
                 ),
-                SeasonHallOfFame(
-                    season_id=completed.id,
-                    champion_player_id=player.id,
-                    knockout_player_id=player.id,
-                    updated_by_user_id=player.id,
-                ),
                 HallOfFameAchievement(
                     season_id=completed.id,
                     player_id=player.id,
@@ -795,16 +782,6 @@ async def test_rating_achievements_are_ordered_chronologically_across_all_rating
                     knockout_points=Decimal("15"),
                     bonus_points=0,
                 ),
-                SeasonHallOfFame(
-                    season_id=seasons[0].id,
-                    knockout_player_id=player.id,
-                    updated_by_user_id=player.id,
-                ),
-                SeasonHallOfFame(
-                    season_id=seasons[1].id,
-                    champion_player_id=player.id,
-                    updated_by_user_id=player.id,
-                ),
                 HallOfFameAchievement(
                     season_id=seasons[0].id,
                     player_id=player.id,
@@ -834,12 +811,6 @@ async def test_rating_achievements_are_ordered_chronologically_across_all_rating
                     player_id=player.id,
                     kind=HallOfFameAchievementKind.GRAND_MONTH,
                     awarded_at=seasons[3].starts_at,
-                ),
-                SeasonHallOfFame(
-                    season_id=seasons[2].id,
-                    champion_player_id=player.id,
-                    knockout_player_id=player.id,
-                    updated_by_user_id=player.id,
                 ),
             ]
         )
@@ -1078,12 +1049,6 @@ async def test_knockout_games_count_and_completed_season_title_tiebreakers(
                     tournament_points=Decimal("500"),
                     knockout_points=Decimal("0"),
                     bonus_points=0,
-                ),
-                SeasonHallOfFame(
-                    season_id=completed.id,
-                    champion_player_id=low_id_player.id,
-                    knockout_player_id=low_id_player.id,
-                    updated_by_user_id=low_id_player.id,
                 ),
                 HallOfFameAchievement(
                     season_id=completed.id,
