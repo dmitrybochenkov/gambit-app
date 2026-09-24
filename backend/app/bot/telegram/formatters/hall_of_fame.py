@@ -6,16 +6,20 @@ from app.bot.telegram.keyboards.superadmin.hall_of_fame import HallOfFameField
 def season_list(page: object) -> str:
     lines = ["🔧 Наполнить зал славы"]
     if page.total_items <= 0:
-        lines.extend(["", "Завершённых сезонов нет."])
+        lines.extend(["", "Сезонов нет."])
         return "\n".join(lines)
-    lines.extend(["", "Выбери завершённый сезон:"])
+    lines.extend(["", "Выбери сезон:"])
     if page.total_pages > 1:
         lines.extend(["", fmt_common.page_line(page)])
     return "\n".join(lines)
 
 
 def season_card(entry: object) -> str:
-    lines = ["🏆 Зал славы", fmt_common.markdown_escape(entry.season_name)]
+    lines = [
+        "🏆 Зал славы",
+        fmt_common.markdown_escape(entry.season_name),
+        f"📸 Фото: {len(entry.photos)}",
+    ]
     for achievement in entry.achievements:
         lines.extend(
             [
@@ -32,24 +36,18 @@ def search_prompt(field: HallOfFameField) -> str:
     return "Введи имя обладателя достижения."
 
 
-def photo_prompt(*, field: HallOfFameField, season_name: str) -> str:
-    title = (
-        "📸 Фото победителя сезона"
-        if field == HallOfFameField.CHAMPION
-        else "📸 Фото лучшего нокаутера сезона"
-    )
+def photo_prompt(*, season_name: str) -> str:
     return "\n".join(
         [
-            title,
+            "📸 Фото Зала славы",
             "",
             f"Пришли одну фотографию для сезона «{season_name}».",
         ]
     )
 
 
-def photo_confirmation(*, field: HallOfFameField, season_name: str) -> str:
-    role = "победителя" if field == HallOfFameField.CHAMPION else "лучшего нокаутера"
-    return f"Использовать это фото {role} для сезона «{season_name}»?"
+def photo_confirmation(*, season_name: str) -> str:
+    return f"Добавить это фото для сезона «{season_name}»?"
 
 
 def search_results(candidates: list[object]) -> str:

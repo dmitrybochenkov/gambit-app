@@ -829,6 +829,12 @@ async def test_rating_achievements_are_ordered_chronologically_across_all_rating
                     kind=HallOfFameAchievementKind.KO_RATING_WINNER,
                     awarded_at=seasons[2].ends_at,
                 ),
+                HallOfFameAchievement(
+                    season_id=seasons[3].id,
+                    player_id=player.id,
+                    kind=HallOfFameAchievementKind.GRAND_MONTH,
+                    awarded_at=seasons[3].starts_at,
+                ),
                 SeasonHallOfFame(
                     season_id=seasons[2].id,
                     champion_player_id=player.id,
@@ -859,6 +865,7 @@ async def test_rating_achievements_are_ordered_chronologically_across_all_rating
             "rating_winner",
             "rating_winner",
             "ko_rating_winner",
+            "grand_month",
         ]
         assert points_row.hall_of_fame_achievements == knockouts_row.hall_of_fame_achievements
         assert points_row.season_champion_titles_count == 2
@@ -875,8 +882,8 @@ async def test_rating_achievements_are_ordered_chronologically_across_all_rating
             pagination_service.paginate(knockout_rating.rows, page=0, page_size=10),
             current_player_id=player.id,
         )
-        assert "Chrono 💥💍💍💥 — 345 | 🎲 3" in points_message
-        assert "👉 1. *Chrono* 💥💍💍💥 — 3 | 🎲 3" in knockout_message
+        assert "Chrono 💥💍💍💥🏅 — 345 | 🎲 3" in points_message
+        assert "👉 1. *Chrono* 💥💍💍💥🏅 — 3 | 🎲 3" in knockout_message
     finally:
         await engine.dispose()
 

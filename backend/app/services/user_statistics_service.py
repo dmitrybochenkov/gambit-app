@@ -11,6 +11,7 @@ from app.db.session import SessionFactory
 from app.services.access_policy import ActiveUserRequiredError, access_policy
 from app.services.dto.statistics.hall_of_fame import (
     HallOfFameAchievementView,
+    HallOfFamePhotoView,
     HallOfFameSeasonView,
 )
 from app.services.dto.statistics.history import (
@@ -152,7 +153,7 @@ class UserStatisticsService:
             await self._ensure_user_can_view_statistics(
                 session, telegram_id, HallOfFameNotAllowedError
             )
-            rows = await HallOfFameRepository(session).list_completed_entries(self.clock.today())
+            rows = await HallOfFameRepository(session).list_public_entries(self.clock.today())
             return [
                 HallOfFameSeasonView(
                     season_id=row.season_id,
@@ -163,8 +164,14 @@ class UserStatisticsService:
                     champion_display_name=row.champion_display_name,
                     knockout_leader_player_id=row.knockout_leader_player_id,
                     knockout_leader_display_name=row.knockout_leader_display_name,
-                    champion_photo_file_id=row.champion_photo_file_id,
-                    knockout_photo_file_id=row.knockout_photo_file_id,
+                    photos=tuple(
+                        HallOfFamePhotoView(
+                            id=photo.id,
+                            telegram_file_id=photo.telegram_file_id,
+                            position=photo.position,
+                        )
+                        for photo in row.photos
+                    ),
                     achievements=tuple(
                         HallOfFameAchievementView(
                             id=item.id,

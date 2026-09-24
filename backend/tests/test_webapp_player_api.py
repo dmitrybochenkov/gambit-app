@@ -414,6 +414,33 @@ async def test_hall_of_fame_returns_structured_seasons_without_telegram_photo_id
     assert "photo" not in json.dumps(body)
 
 
+async def test_hall_of_fame_api_includes_open_season_achievement(
+    player_api_client: tuple[AsyncClient, async_sessionmaker],
+) -> None:
+    client, session_factory = player_api_client
+    ids = await seed_player_api_data(session_factory)
+    async with session_factory() as session:
+        session.add(
+            HallOfFameAchievement(
+                season_id=ids["current_season_id"],
+                player_id=ids["player_id"],
+                kind=HallOfFameAchievementKind.GRAND_MONTH,
+                awarded_at=date(2026, 8, 20),
+            )
+        )
+        await session.commit()
+
+    response = await client.get("/api/v1/hall-of-fame", headers=auth_headers())
+
+    assert response.status_code == 200
+    current = response.json()["seasons"][0]
+    assert current["season"]["id"] == ids["current_season_id"]
+    assert current["season"]["ends_at"] == "2026-09-30"
+    assert current["achievements"][0]["kind"] == "grand_month"
+    profile = await client.get("/api/v1/me/profile", headers=auth_headers())
+    assert "grand_month" in profile.json()["achievements"]
+
+
 async def test_rewards_are_current_actor_active_rewards_only(
     player_api_client: tuple[AsyncClient, async_sessionmaker],
 ) -> None:

@@ -4,7 +4,7 @@ from datetime import date
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.db.models import HallOfFameAchievement, Season, SeasonHallOfFame, User
+from app.db.models import HallOfFameAchievement, HallOfFamePhoto, Season, SeasonHallOfFame, User
 from app.db.models.enums import (
     HallOfFameAchievementKind,
     UserGender,
@@ -26,14 +26,22 @@ class HallOfFameSeasonRow:
     season_id: int
     season_name: str
     starts_at: date
-    ends_at: date
+    ends_at: date | None
     champion_player_id: int | None
     champion_display_name: str | None
     knockout_leader_player_id: int | None
     knockout_leader_display_name: str | None
-    champion_photo_file_id: str | None
-    knockout_photo_file_id: str | None
+    photos: tuple["HallOfFamePhotoRow", ...] = ()
     achievements: tuple["HallOfFameAchievementRow", ...] = ()
+
+
+@dataclass(frozen=True)
+class HallOfFamePhotoRow:
+    id: int
+    season_id: int
+    telegram_file_id: str
+    telegram_file_unique_id: str
+    position: int
 
 
 @dataclass(frozen=True)
@@ -103,6 +111,55 @@ class HallOfFameRepository:
     async def delete_achievement(self, achievement: HallOfFameAchievement) -> None:
         await self.session.delete(achievement)
 
+    async def get_photo(self, photo_id: int) -> HallOfFamePhoto | None:
+        return await self.session.get(HallOfFamePhoto, photo_id)
+
+    async def add_photo(
+        self,
+        *,
+        season_id: int,
+        telegram_file_id: str,
+        telegram_file_unique_id: str,
+        uploaded_by_user_id: int,
+    ) -> HallOfFamePhoto:
+        photos = (await self.list_photos_for_seasons((season_id,))).get(season_id, ())
+        photo = HallOfFamePhoto(
+            season_id=season_id,
+            telegram_file_id=telegram_file_id,
+            telegram_file_unique_id=telegram_file_unique_id,
+            uploaded_by_user_id=uploaded_by_user_id,
+            position=max((item.position for item in photos), default=-1) + 1,
+        )
+        self.session.add(photo)
+        await self.session.flush()
+        return photo
+
+    async def delete_photo(self, photo: HallOfFamePhoto) -> None:
+        await self.session.delete(photo)
+
+    async def list_photos_for_seasons(
+        self, season_ids: tuple[int, ...]
+    ) -> dict[int, tuple[HallOfFamePhotoRow, ...]]:
+        if not season_ids:
+            return {}
+        result = await self.session.execute(
+            select(HallOfFamePhoto)
+            .where(HallOfFamePhoto.season_id.in_(season_ids))
+            .order_by(HallOfFamePhoto.season_id, HallOfFamePhoto.position, HallOfFamePhoto.id)
+        )
+        grouped: dict[int, list[HallOfFamePhotoRow]] = {}
+        for photo in result.scalars():
+            grouped.setdefault(photo.season_id, []).append(
+                HallOfFamePhotoRow(
+                    id=photo.id,
+                    season_id=photo.season_id,
+                    telegram_file_id=photo.telegram_file_id,
+                    telegram_file_unique_id=photo.telegram_file_unique_id,
+                    position=photo.position,
+                )
+            )
+        return {season_id: tuple(items) for season_id, items in grouped.items()}
+
     async def list_achievements_for_seasons(
         self, season_ids: tuple[int, ...]
     ) -> dict[int, tuple[HallOfFameAchievementRow, ...]]:
@@ -157,29 +214,26 @@ class HallOfFameRepository:
             for season_id, items in grouped.items()
         }
 
-    async def list_completed_entries(self, today: date) -> list[HallOfFameSeasonRow]:
+    async def list_public_entries(self, today: date) -> list[HallOfFameSeasonRow]:
         result = await self.session.execute(
             select(
                 Season.id.label("season_id"),
                 Season.name.label("season_name"),
                 Season.starts_at,
                 Season.ends_at,
-                SeasonHallOfFame.season_id.label("hall_of_fame_season_id"),
-                SeasonHallOfFame.champion_photo_file_id,
-                SeasonHallOfFame.knockout_photo_file_id,
             )
-            .outerjoin(SeasonHallOfFame, SeasonHallOfFame.season_id == Season.id)
-            .where(Season.ends_at.is_not(None), Season.ends_at < today)
+            .where(Season.starts_at <= today)
             .order_by(Season.starts_at.desc(), Season.id.desc())
         )
         raw_rows = list(result)
-        achievements = await self.list_achievements_for_seasons(
-            tuple(row.season_id for row in raw_rows)
-        )
+        season_ids = tuple(row.season_id for row in raw_rows)
+        achievements = await self.list_achievements_for_seasons(season_ids)
+        photos = await self.list_photos_for_seasons(season_ids)
         rows = []
         for row in raw_rows:
             season_achievements = achievements.get(row.season_id, ())
-            if row.hall_of_fame_season_id is None and not season_achievements:
+            season_photos = photos.get(row.season_id, ())
+            if not season_photos and not season_achievements:
                 continue
             champion = next(
                 (
@@ -209,8 +263,7 @@ class HallOfFameRepository:
                     knockout_leader_display_name=(
                         knockout.display_name if knockout is not None else None
                     ),
-                    champion_photo_file_id=row.champion_photo_file_id,
-                    knockout_photo_file_id=row.knockout_photo_file_id,
+                    photos=season_photos,
                     achievements=season_achievements,
                 )
             )

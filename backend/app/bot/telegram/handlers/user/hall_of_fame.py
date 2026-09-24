@@ -32,19 +32,9 @@ async def show_hall_of_fame(message: Message) -> None:
 
 
 async def _send_hall_of_fame_season(message: Message, season: object) -> None:
-    caption = hall_of_fame_fmt.season_caption(season)
-    photos = [
-        photo for photo in (season.champion_photo_file_id, season.knockout_photo_file_id) if photo
-    ]
-    if not photos:
-        await message.answer(caption, parse_mode="Markdown")
-        return
+    photos = [photo.telegram_file_id for photo in season.photos]
     if len(photos) == 1:
-        await message.answer_photo(photos[0], caption=caption, parse_mode="Markdown")
-        return
-    await message.answer_media_group(
-        [
-            InputMediaPhoto(media=photos[0], caption=caption, parse_mode="Markdown"),
-            InputMediaPhoto(media=photos[1]),
-        ]
-    )
+        await message.answer_photo(photos[0])
+    elif photos:
+        await message.answer_media_group([InputMediaPhoto(media=photo) for photo in photos])
+    await message.answer(hall_of_fame_fmt.season_caption(season), parse_mode="Markdown")

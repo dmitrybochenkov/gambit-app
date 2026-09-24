@@ -100,6 +100,9 @@ from app.services.dto.hall_of_fame import (
     HallOfFameEntryView,
     HallOfFameSeasonListItemView,
 )
+from app.services.dto.hall_of_fame import (
+    HallOfFamePhotoView as HallOfFameManagementPhotoView,
+)
 from app.services.dto.registrations import (
     AdminPanelView,
     RegistrationCandidateView,
@@ -150,6 +153,7 @@ from app.services.dto.seasons import (
 )
 from app.services.dto.statistics.hall_of_fame import (
     HallOfFameAchievementView,
+    HallOfFamePhotoView,
     HallOfFameSeasonView,
 )
 from app.services.dto.statistics.history import (
@@ -5528,7 +5532,7 @@ async def test_hall_of_fame_season_without_photos_is_text_card() -> None:
     message.answer_media_group.assert_not_awaited()
 
 
-async def test_hall_of_fame_season_with_one_photo_uses_photo_caption() -> None:
+async def test_hall_of_fame_season_with_one_photo_uses_photo_then_text() -> None:
     message = SimpleNamespace(
         answer=AsyncMock(),
         answer_photo=AsyncMock(),
@@ -5542,7 +5546,7 @@ async def test_hall_of_fame_season_with_one_photo_uses_photo_caption() -> None:
         champion_display_name="Иван",
         knockout_leader_player_id=2,
         knockout_leader_display_name="Петр",
-        champion_photo_file_id="champion-photo",
+        photos=(HallOfFamePhotoView(id=1, telegram_file_id="champion-photo", position=0),),
         achievements=(
             HallOfFameAchievementView(
                 id=1,
@@ -5563,12 +5567,8 @@ async def test_hall_of_fame_season_with_one_photo_uses_photo_caption() -> None:
 
     await user_hall_of_fame_handlers._send_hall_of_fame_season(message, season)
 
-    message.answer.assert_not_awaited()
-    message.answer_photo.assert_awaited_once_with(
-        "champion-photo",
-        caption="Лето 2026\n\n💍 Иван\n💥 Петр",
-        parse_mode="Markdown",
-    )
+    message.answer.assert_awaited_once_with("Лето 2026\n\n💍 Иван\n💥 Петр", parse_mode="Markdown")
+    message.answer_photo.assert_awaited_once_with("champion-photo")
     message.answer_media_group.assert_not_awaited()
 
 
@@ -5586,8 +5586,10 @@ async def test_hall_of_fame_season_with_two_photos_uses_album() -> None:
         champion_display_name="Иван",
         knockout_leader_player_id=2,
         knockout_leader_display_name="Петр",
-        champion_photo_file_id="champion-photo",
-        knockout_photo_file_id="knockout-photo",
+        photos=(
+            HallOfFamePhotoView(id=1, telegram_file_id="champion-photo", position=0),
+            HallOfFamePhotoView(id=2, telegram_file_id="knockout-photo", position=1),
+        ),
         achievements=(
             HallOfFameAchievementView(
                 id=1,
@@ -5608,12 +5610,11 @@ async def test_hall_of_fame_season_with_two_photos_uses_album() -> None:
 
     await user_hall_of_fame_handlers._send_hall_of_fame_season(message, season)
 
-    message.answer.assert_not_awaited()
+    message.answer.assert_awaited_once_with("Лето 2026\n\n💍 Иван\n💥 Петр", parse_mode="Markdown")
     message.answer_photo.assert_not_awaited()
     media = message.answer_media_group.await_args.args[0]
     assert [item.media for item in media] == ["champion-photo", "knockout-photo"]
-    assert media[0].caption == "Лето 2026\n\n💍 Иван\n💥 Петр"
-    assert media[0].parse_mode == "Markdown"
+    assert media[0].caption is None
     assert media[1].caption is None
 
 
@@ -5625,7 +5626,7 @@ async def test_superadmin_hall_of_fame_lists_completed_seasons(
         answer=AsyncMock(),
     )
     service = SimpleNamespace(
-        list_completed_seasons=AsyncMock(
+        list_seasons=AsyncMock(
             return_value=[
                 HallOfFameSeasonListItemView(
                     season_id=1,
@@ -5645,9 +5646,9 @@ async def test_superadmin_hall_of_fame_lists_completed_seasons(
 
     await superadmin_hall_of_fame_handlers.show_hall_of_fame_management(message, state)
 
-    service.list_completed_seasons.assert_awaited_once_with(123)
+    service.list_seasons.assert_awaited_once_with(123)
     answer = message.answer.await_args
-    assert answer.args[0] == "🔧 Наполнить зал славы\n\nВыбери завершённый сезон:"
+    assert answer.args[0] == "🔧 Наполнить зал славы\n\nВыбери сезон:"
     assert inline_keyboard_texts(answer.kwargs["reply_markup"]) == ["Лето 2026", "❌ Отмена"]
 
 
@@ -5705,6 +5706,7 @@ async def test_superadmin_hall_of_fame_opens_card_and_searches_candidate(
         "➕ 🏆 Grand Season",
         "➕ 🏅 Grand Month",
         "➕ 🥊 Grand Knockout",
+        "📸 Добавить фото (0)",
         "⬅️ Назад",
         "❌ Отмена",
     ]
@@ -5771,7 +5773,7 @@ async def test_hall_of_fame_photo_prompt_is_stored_and_deleted_before_confirmati
     await superadmin_hall_of_fame_handlers.select_hall_of_fame_card_action(
         callback,
         superadmin_hall_of_fame_kb.HallOfFameCardCallback(
-            action=superadmin_hall_of_fame_kb.HallOfFameCardAction.CHAMPION_PHOTO,
+            action=superadmin_hall_of_fame_kb.HallOfFameCardAction.ADD_PHOTO,
             season_id=1,
             page=0,
         ),
@@ -5782,7 +5784,7 @@ async def test_hall_of_fame_photo_prompt_is_stored_and_deleted_before_confirmati
     assert state.data["hall_photo_prompt_message_id"] == 701
     source_message.delete.assert_awaited_once_with()
     assert source_message.answer.await_args.args[0] == (
-        "📸 Фото победителя сезона\n\nПришли одну фотографию для сезона «Зима 2025»."
+        "📸 Фото Зала славы\n\nПришли одну фотографию для сезона «Зима 2025»."
     )
 
     photo_message = SimpleNamespace(
@@ -5799,9 +5801,7 @@ async def test_hall_of_fame_photo_prompt_is_stored_and_deleted_before_confirmati
     photo_message.bot.delete_message.assert_awaited_once_with(chat_id=123, message_id=701)
     photo_message.answer_photo.assert_awaited_once_with("small")
     photo_message.answer.assert_awaited_once()
-    assert photo_message.answer.await_args.args[0] == (
-        "Использовать это фото победителя для сезона «Зима 2025»?"
-    )
+    assert photo_message.answer.await_args.args[0] == ("Добавить это фото для сезона «Зима 2025»?")
     assert state.data["hall_photo_file_id"] == "small"
     assert state.data["hall_photo_file_unique_id"] == "small-u"
     assert state.data["hall_photo_prompt_message_id"] == 0
@@ -5812,7 +5812,6 @@ async def test_hall_of_fame_photo_prompt_delete_failure_keeps_confirmation() -> 
     await state.set_state(HallOfFameStates.collecting_photo)
     await state.update_data(
         hall_season_id=1,
-        hall_field=superadmin_hall_of_fame_kb.HallOfFameField.KNOCKOUT.value,
         hall_season_name="Зима 2025",
         hall_photo_prompt_message_id=701,
     )
@@ -5836,12 +5835,10 @@ async def test_hall_of_fame_photo_prompt_delete_failure_keeps_confirmation() -> 
 
     photo_message.answer_photo.assert_awaited_once_with("knockout-photo")
     photo_message.answer.assert_awaited_once()
-    assert photo_message.answer.await_args.args[0] == (
-        "Использовать это фото лучшего нокаутера для сезона «Зима 2025»?"
-    )
+    assert photo_message.answer.await_args.args[0] == ("Добавить это фото для сезона «Зима 2025»?")
 
 
-def test_superadmin_hall_of_fame_photo_buttons_follow_assigned_slots() -> None:
+def test_superadmin_hall_of_fame_photo_buttons_manage_occurrences() -> None:
     champion = UserView(
         id=10,
         telegram_id=None,
@@ -5879,7 +5876,14 @@ def test_superadmin_hall_of_fame_photo_buttons_follow_assigned_slots() -> None:
         ends_at=date(2026, 8, 31),
         champion=champion,
         knockout_leader=knockout,
-        champion_photo_file_id="champion-photo",
+        photos=(
+            HallOfFameManagementPhotoView(
+                id=7,
+                telegram_file_id="champion-photo",
+                telegram_file_unique_id="champion-unique",
+                position=0,
+            ),
+        ),
         achievements=(
             HallOfFameAchievementManagementView(
                 id=1,
@@ -5906,7 +5910,7 @@ def test_superadmin_hall_of_fame_photo_buttons_follow_assigned_slots() -> None:
         "➕ 🥊 Grand Knockout",
         "✏️ Иван",
         "🗑 Иван",
-        "💍📸 Прикрепить фото победителя",
+        "📸 Добавить фото (0)",
         "⬅️ Назад",
         "❌ Отмена",
     ]
@@ -5922,8 +5926,8 @@ def test_superadmin_hall_of_fame_photo_buttons_follow_assigned_slots() -> None:
         "🗑 Иван",
         "✏️ Петр",
         "🗑 Петр",
-        "💍📸 Заменить фото победителя",
-        "💥📸 Прикрепить фото нокаутера",
+        "📸 Добавить фото (1)",
+        "🗑 Фото 1",
         "⬅️ Назад",
         "❌ Отмена",
     ]

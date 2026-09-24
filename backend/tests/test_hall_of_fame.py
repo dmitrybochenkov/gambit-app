@@ -4,12 +4,19 @@ from zoneinfo import ZoneInfo
 
 import pytest
 from conftest import build_player
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
 from app.bot.telegram.formatters.statistics import hall_of_fame as hall_fmt
 from app.common.clock import FixedClock
 from app.db.base import Base
-from app.db.models import HallOfFameAchievement, ScoringConfig, Season, SeasonHallOfFame
+from app.db.models import (
+    HallOfFameAchievement,
+    HallOfFamePhoto,
+    ScoringConfig,
+    Season,
+    SeasonHallOfFame,
+)
 from app.db.models.enums import HallOfFameAchievementKind, UserRole, UserStatus
 from app.services.access_policy import AdminAccessDeniedError
 from app.services.dto.statistics.hall_of_fame import (
@@ -18,7 +25,6 @@ from app.services.dto.statistics.hall_of_fame import (
 )
 from app.services.hall_of_fame_management_service import (
     HallOfFameManagementService,
-    HallOfFamePhotoRole,
     HallOfFameSeasonNotFoundError,
 )
 from app.services.user_common import UserNotFoundError
@@ -106,6 +112,12 @@ async def test_hall_of_fame_uses_manual_entries_from_completed_seasons(
                     knockout_player_id=high_id.id,
                     updated_by_user_id=viewer.id,
                 ),
+                HallOfFameAchievement(
+                    season_id=open_season.id,
+                    player_id=high_id.id,
+                    kind=HallOfFameAchievementKind.GRAND_MONTH,
+                    awarded_at=open_season.starts_at,
+                ),
                 SeasonHallOfFame(
                     season_id=future_ended_season.id,
                     champion_player_id=high_id.id,
@@ -123,18 +135,22 @@ async def test_hall_of_fame_uses_manual_entries_from_completed_seasons(
     try:
         seasons = await service.get_hall_of_fame(100)
 
-        assert [season.season_name for season in seasons] == ["Сезон 2026", "Сезон 2025"]
-        assert seasons[0].champion_display_name == "Петр"
-        assert seasons[0].knockout_leader_display_name is None
-        assert seasons[1].champion_display_name == "Иван"
-        assert seasons[1].knockout_leader_display_name == "Петр"
-        assert "Открытый сезон" not in hall_fmt.message(seasons)
+        assert [season.season_name for season in seasons] == [
+            "Открытый сезон",
+            "Сезон 2026",
+            "Сезон 2025",
+        ]
+        assert seasons[1].champion_display_name == "Петр"
+        assert seasons[1].knockout_leader_display_name is None
+        assert seasons[2].champion_display_name == "Иван"
+        assert seasons[2].knockout_leader_display_name == "Петр"
         assert "Будущий финал" not in hall_fmt.message(seasons)
         assert hall_fmt.message(seasons) == (
             "🏆 Зал славы\n\n💍 — победитель сезона\n💥 — лучший нокаутер сезона"
         )
-        assert hall_fmt.season_caption(seasons[0]) == "Сезон 2026\n\n💍 Петр"
-        assert hall_fmt.season_caption(seasons[1]) == "Сезон 2025\n\n💍 Иван\n💥 Петр"
+        assert hall_fmt.season_caption(seasons[0]) == "Открытый сезон\n\n🏅 Петр"
+        assert hall_fmt.season_caption(seasons[1]) == "Сезон 2026\n\n💍 Петр"
+        assert hall_fmt.season_caption(seasons[2]) == "Сезон 2025\n\n💍 Иван\n💥 Петр"
     finally:
         await engine.dispose()
 
@@ -273,12 +289,12 @@ async def test_hall_of_fame_management_crud_preserves_repeated_occurrences(
         clock=FixedClock(datetime(2026, 9, 1, 12, tzinfo=ZoneInfo("Europe/Moscow"))),
     )
     try:
-        seasons = await service.list_completed_seasons(100)
-        assert [season.season_name for season in seasons] == ["Лето 2026"]
-        assert all(season.season_id != current_id for season in seasons)
+        seasons = await service.list_seasons(100)
+        assert [season.season_name for season in seasons] == ["Осень 2026", "Лето 2026"]
+        assert any(season.season_id == current_id for season in seasons)
 
         with pytest.raises(AdminAccessDeniedError):
-            await service.list_completed_seasons(101)
+            await service.list_seasons(101)
         with pytest.raises(AdminAccessDeniedError):
             await service.add_achievement(
                 101,
@@ -393,41 +409,60 @@ async def test_hall_of_fame_management_crud_preserves_repeated_occurrences(
         assert len(grand_knockouts) == 2
         assert len({item.id for item in grand_knockouts}) == 2
 
-        entry = await service.set_photo(
+        open_entry = await service.add_achievement(
+            100,
+            current_id,
+            champion_id,
+            HallOfFameAchievementKind.GRAND_MONTH,
+            date(2026, 9, 1),
+        )
+        open_achievement = open_entry.achievements[0]
+        open_entry = await service.update_achievement(
+            100,
+            open_achievement.id,
+            player_id=replacement_id,
+            kind=HallOfFameAchievementKind.GRAND_KNOCKOUT,
+            awarded_at=date(2026, 9, 1),
+        )
+        assert open_entry.achievements[0].player.id == replacement_id
+        open_entry = await service.delete_achievement(100, open_achievement.id)
+        assert open_entry.achievements == ()
+
+        entry = await service.add_photo(
             100,
             completed_id,
-            role=HallOfFamePhotoRole.CHAMPION,
             telegram_file_id="champion-file-1",
             telegram_file_unique_id="champion-unique-1",
         )
-        assert entry.champion_photo_file_id == "champion-file-1"
-        assert entry.champion_photo_file_unique_id == "champion-unique-1"
-        entry = await service.set_photo(
+        entry = await service.add_photo(
             100,
             completed_id,
-            role=HallOfFamePhotoRole.CHAMPION,
             telegram_file_id="champion-file-2",
             telegram_file_unique_id="champion-unique-2",
         )
-        assert entry.champion_photo_file_id == "champion-file-2"
-        assert entry.champion_photo_file_unique_id == "champion-unique-2"
-        entry = await service.set_photo(
+        entry = await service.add_photo(
             100,
             completed_id,
-            role=HallOfFamePhotoRole.KNOCKOUT,
             telegram_file_id="knockout-file",
             telegram_file_unique_id="knockout-unique",
         )
-        assert entry.knockout_photo_file_id == "knockout-file"
-        assert entry.knockout_photo_file_unique_id == "knockout-unique"
+        assert [photo.telegram_file_id for photo in entry.photos] == [
+            "champion-file-1",
+            "champion-file-2",
+            "knockout-file",
+        ]
+        entry = await service.delete_photo(100, completed_id, entry.photos[1].id)
+        assert [photo.telegram_file_id for photo in entry.photos] == [
+            "champion-file-1",
+            "knockout-file",
+        ]
 
         async with session_factory() as session:
             stored = await session.get(SeasonHallOfFame, 1)
             assert stored is not None
             assert stored.updated_by_user_id == superadmin_id
-            assert stored.champion_photo_file_id == "champion-file-2"
-            assert stored.champion_photo_file_unique_id == "champion-unique-2"
-            assert stored.knockout_photo_file_id == "knockout-file"
-            assert stored.knockout_photo_file_unique_id == "knockout-unique"
+            assert stored.champion_photo_file_id is None
+            assert stored.knockout_photo_file_id is None
+            assert len((await session.execute(select(HallOfFamePhoto))).scalars().all()) == 2
     finally:
         await engine.dispose()

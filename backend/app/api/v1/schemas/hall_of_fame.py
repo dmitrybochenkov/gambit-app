@@ -18,8 +18,6 @@ class HallOfFameSeasonResponse(BaseModel):
 
     @classmethod
     def from_view(cls, view: HallOfFameSeasonView) -> "HallOfFameSeasonResponse":
-        if view.ends_at is None:
-            raise ValueError("Hall of Fame season must have ends_at")
         return cls(
             season=HallOfFameSeasonInfoResponse(
                 id=view.season_id,
@@ -57,7 +55,7 @@ class HallOfFameSeasonInfoResponse(BaseModel):
     id: int
     name: str
     starts_at: date
-    ends_at: date
+    ends_at: date | None
 
 
 class HallOfFameResponse(BaseModel):

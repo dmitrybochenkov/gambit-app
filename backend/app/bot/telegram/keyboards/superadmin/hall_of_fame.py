@@ -37,8 +37,8 @@ class HallOfFameSeasonCallback(CallbackData, prefix="hof_season"):
 class HallOfFameCardAction(StrEnum):
     CHOOSE_CHAMPION = "choose_champion"
     CHOOSE_KNOCKOUT = "choose_knockout"
-    CHAMPION_PHOTO = "champion_photo"
-    KNOCKOUT_PHOTO = "knockout_photo"
+    ADD_PHOTO = "add_photo"
+    DELETE_PHOTO = "delete_photo"
     ADD = "add"
     EDIT = "edit"
     DELETE = "delete"
@@ -52,6 +52,7 @@ class HallOfFameCardCallback(CallbackData, prefix="hof_card"):
     page: int = 0
     kind: HallOfFameField = HallOfFameField.RATING_WINNER
     achievement_id: int = 0
+    photo_id: int = 0
 
 
 class HallOfFameSearchAction(StrEnum):
@@ -89,7 +90,6 @@ class HallOfFamePhotoAction(StrEnum):
 class HallOfFamePhotoCallback(CallbackData, prefix="hof_photo"):
     action: HallOfFamePhotoAction
     season_id: int
-    field: HallOfFameField
 
 
 def seasons_keyboard(page: Page[HallOfFameSeasonListItemView]) -> InlineKeyboardMarkup:
@@ -177,34 +177,22 @@ def season_card_keyboard(*, entry: object, page: int) -> InlineKeyboardMarkup:
                 achievement_id=achievement.id,
             ),
         )
-    if entry.champion_photo_file_id is not None or any(
-        achievement.kind == HallOfFameField.RATING_WINNER for achievement in entry.achievements
-    ):
+    builder.button(
+        text=f"📸 Добавить фото ({len(entry.photos)})",
+        callback_data=HallOfFameCardCallback(
+            action=HallOfFameCardAction.ADD_PHOTO,
+            season_id=season_id,
+            page=page,
+        ),
+    )
+    for index, photo in enumerate(entry.photos, start=1):
         builder.button(
-            text=(
-                "💍📸 Заменить фото победителя"
-                if getattr(entry, "champion_photo_file_id", None)
-                else "💍📸 Прикрепить фото победителя"
-            ),
+            text=f"🗑 Фото {index}",
             callback_data=HallOfFameCardCallback(
-                action=HallOfFameCardAction.CHAMPION_PHOTO,
+                action=HallOfFameCardAction.DELETE_PHOTO,
                 season_id=season_id,
                 page=page,
-            ),
-        )
-    if entry.knockout_photo_file_id is not None or any(
-        achievement.kind == HallOfFameField.KO_RATING_WINNER for achievement in entry.achievements
-    ):
-        builder.button(
-            text=(
-                "💥📸 Заменить фото нокаутера"
-                if getattr(entry, "knockout_photo_file_id", None)
-                else "💥📸 Прикрепить фото нокаутера"
-            ),
-            callback_data=HallOfFameCardCallback(
-                action=HallOfFameCardAction.KNOCKOUT_PHOTO,
-                season_id=season_id,
-                page=page,
+                photo_id=photo.id,
             ),
         )
     builder.button(
@@ -324,14 +312,13 @@ def confirmation_keyboard(
     return builder.as_markup()
 
 
-def photo_prompt_keyboard(*, season_id: int, field: HallOfFameField) -> InlineKeyboardMarkup:
+def photo_prompt_keyboard(*, season_id: int) -> InlineKeyboardMarkup:
     builder = InlineKeyboardBuilder()
     builder.button(
         text="⬅️ Назад",
         callback_data=HallOfFamePhotoCallback(
             action=HallOfFamePhotoAction.BACK,
             season_id=season_id,
-            field=field,
         ),
     )
     builder.button(
@@ -339,21 +326,19 @@ def photo_prompt_keyboard(*, season_id: int, field: HallOfFameField) -> InlineKe
         callback_data=HallOfFamePhotoCallback(
             action=HallOfFamePhotoAction.CANCEL,
             season_id=season_id,
-            field=field,
         ),
     )
     builder.adjust(1)
     return builder.as_markup()
 
 
-def photo_confirmation_keyboard(*, season_id: int, field: HallOfFameField) -> InlineKeyboardMarkup:
+def photo_confirmation_keyboard(*, season_id: int) -> InlineKeyboardMarkup:
     builder = InlineKeyboardBuilder()
     builder.button(
         text="✅ Сохранить",
         callback_data=HallOfFamePhotoCallback(
             action=HallOfFamePhotoAction.SAVE,
             season_id=season_id,
-            field=field,
         ),
     )
     builder.button(
@@ -361,7 +346,6 @@ def photo_confirmation_keyboard(*, season_id: int, field: HallOfFameField) -> In
         callback_data=HallOfFamePhotoCallback(
             action=HallOfFamePhotoAction.BACK,
             season_id=season_id,
-            field=field,
         ),
     )
     builder.button(
@@ -369,7 +353,6 @@ def photo_confirmation_keyboard(*, season_id: int, field: HallOfFameField) -> In
         callback_data=HallOfFamePhotoCallback(
             action=HallOfFamePhotoAction.CANCEL,
             season_id=season_id,
-            field=field,
         ),
     )
     builder.adjust(1)

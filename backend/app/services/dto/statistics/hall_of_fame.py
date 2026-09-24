@@ -14,6 +14,13 @@ class HallOfFameAchievementView:
 
 
 @dataclass(frozen=True)
+class HallOfFamePhotoView:
+    id: int
+    telegram_file_id: str
+    position: int
+
+
+@dataclass(frozen=True)
 class HallOfFameSeasonView:
     season_id: int
     season_name: str
@@ -22,7 +29,6 @@ class HallOfFameSeasonView:
     champion_display_name: str | None
     knockout_leader_player_id: int | None
     knockout_leader_display_name: str | None
-    champion_photo_file_id: str | None = None
-    knockout_photo_file_id: str | None = None
     ends_at: date | None = None
+    photos: tuple[HallOfFamePhotoView, ...] = ()
     achievements: tuple[HallOfFameAchievementView, ...] = ()

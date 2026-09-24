@@ -1,5 +1,4 @@
 from datetime import date
-from enum import StrEnum
 
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
@@ -18,6 +17,7 @@ from app.services.dto.hall_of_fame import (
     HallOfFameAchievementManagementView,
     HallOfFameCandidateView,
     HallOfFameEntryView,
+    HallOfFamePhotoView,
     HallOfFameSeasonListItemView,
 )
 from app.services.dto.users import UserView
@@ -33,11 +33,6 @@ class HallOfFameAchievementNotFoundError(ValueError):
     pass
 
 
-class HallOfFamePhotoRole(StrEnum):
-    CHAMPION = "champion"
-    KNOCKOUT = "knockout"
-
-
 class HallOfFameManagementService:
     def __init__(
         self,
@@ -47,13 +42,13 @@ class HallOfFameManagementService:
         self.session_factory = session_factory
         self.clock = clock
 
-    async def list_completed_seasons(
+    async def list_seasons(
         self,
         superadmin_telegram_id: int,
     ) -> list[HallOfFameSeasonListItemView]:
         async with self.session_factory() as session:
             await access_policy.require_superadmin(session, superadmin_telegram_id)
-            seasons = await SeasonRepository(session).list_completed_before(self.clock.today())
+            seasons = await SeasonRepository(session).list_started(self.clock.today())
             return [
                 HallOfFameSeasonListItemView(
                     season_id=season.id,
@@ -62,7 +57,6 @@ class HallOfFameManagementService:
                     ends_at=season.ends_at,
                 )
                 for season in seasons
-                if season.ends_at is not None
             ]
 
     async def get_season_hall_of_fame(
@@ -72,7 +66,7 @@ class HallOfFameManagementService:
     ) -> HallOfFameEntryView:
         async with self.session_factory() as session:
             await access_policy.require_superadmin(session, superadmin_telegram_id)
-            season = await self._require_completed_season(session, season_id)
+            season = await self._require_season(session, season_id)
             return await self._entry_view(session, season)
 
     async def search_players(
@@ -111,52 +105,6 @@ class HallOfFameManagementService:
                 reason="",
             )
 
-    async def set_champion(
-        self,
-        superadmin_telegram_id: int,
-        season_id: int,
-        player_id: int,
-    ) -> HallOfFameEntryView:
-        async with self.session_factory() as session:
-            actor = await access_policy.require_superadmin(session, superadmin_telegram_id)
-            season = await self._require_completed_season(session, season_id)
-            await self._require_user(session, player_id)
-            await HallOfFameRepository(session).get_or_create(
-                season_id=season.id,
-                updated_by_user_id=actor.id,
-            )
-            await self._replace_first_achievement(
-                session,
-                season=season,
-                player_id=player_id,
-                kind=HallOfFameAchievementKind.RATING_WINNER,
-            )
-            await session.commit()
-            return await self._entry_view(session, season)
-
-    async def set_knockout_player(
-        self,
-        superadmin_telegram_id: int,
-        season_id: int,
-        player_id: int,
-    ) -> HallOfFameEntryView:
-        async with self.session_factory() as session:
-            actor = await access_policy.require_superadmin(session, superadmin_telegram_id)
-            season = await self._require_completed_season(session, season_id)
-            await self._require_user(session, player_id)
-            await HallOfFameRepository(session).get_or_create(
-                season_id=season.id,
-                updated_by_user_id=actor.id,
-            )
-            await self._replace_first_achievement(
-                session,
-                season=season,
-                player_id=player_id,
-                kind=HallOfFameAchievementKind.KO_RATING_WINNER,
-            )
-            await session.commit()
-            return await self._entry_view(session, season)
-
     async def add_achievement(
         self,
         superadmin_telegram_id: int,
@@ -166,12 +114,11 @@ class HallOfFameManagementService:
         awarded_at: date,
     ) -> HallOfFameEntryView:
         async with self.session_factory() as session:
-            actor = await access_policy.require_superadmin(session, superadmin_telegram_id)
-            season = await self._require_completed_season(session, season_id)
+            await access_policy.require_superadmin(session, superadmin_telegram_id)
+            season = await self._require_season(session, season_id)
             await self._require_user(session, player_id)
             self._validate_awarded_at(season, awarded_at)
             repository = HallOfFameRepository(session)
-            await repository.get_or_create(season_id=season.id, updated_by_user_id=actor.id)
             await repository.add_achievement(
                 season_id=season.id,
                 player_id=player_id,
@@ -196,7 +143,7 @@ class HallOfFameManagementService:
             achievement = await repository.get_achievement(achievement_id)
             if achievement is None:
                 raise HallOfFameAchievementNotFoundError
-            season = await self._require_completed_season(session, achievement.season_id)
+            season = await self._require_season(session, achievement.season_id)
             await self._require_user(session, player_id)
             self._validate_awarded_at(season, awarded_at)
             achievement.player_id = player_id
@@ -214,58 +161,54 @@ class HallOfFameManagementService:
             achievement = await repository.get_achievement(achievement_id)
             if achievement is None:
                 raise HallOfFameAchievementNotFoundError
-            season = await self._require_completed_season(session, achievement.season_id)
+            season = await self._require_season(session, achievement.season_id)
             await repository.delete_achievement(achievement)
             await session.commit()
             return await self._entry_view(session, season)
 
-    async def set_photo(
+    async def add_photo(
         self,
         superadmin_telegram_id: int,
         season_id: int,
         *,
-        role: HallOfFamePhotoRole,
         telegram_file_id: str,
         telegram_file_unique_id: str,
     ) -> HallOfFameEntryView:
         async with self.session_factory() as session:
             actor = await access_policy.require_superadmin(session, superadmin_telegram_id)
-            season = await self._require_completed_season(session, season_id)
-            entry = await HallOfFameRepository(session).get_by_season_id(season.id)
-            if entry is None:
-                raise HallOfFameSeasonNotFoundError
-            if role == HallOfFamePhotoRole.CHAMPION:
-                achievements = (
-                    await HallOfFameRepository(session).list_achievements_for_seasons((season.id,))
-                ).get(season.id, ())
-                if not any(
-                    item.kind == HallOfFameAchievementKind.RATING_WINNER for item in achievements
-                ):
-                    raise HallOfFameSeasonNotFoundError
-                entry.champion_photo_file_id = telegram_file_id
-                entry.champion_photo_file_unique_id = telegram_file_unique_id
-            else:
-                achievements = (
-                    await HallOfFameRepository(session).list_achievements_for_seasons((season.id,))
-                ).get(season.id, ())
-                if not any(
-                    item.kind == HallOfFameAchievementKind.KO_RATING_WINNER for item in achievements
-                ):
-                    raise HallOfFameSeasonNotFoundError
-                entry.knockout_photo_file_id = telegram_file_id
-                entry.knockout_photo_file_unique_id = telegram_file_unique_id
-            entry.updated_by_user_id = actor.id
+            season = await self._require_season(session, season_id)
+            repository = HallOfFameRepository(session)
+            await repository.get_or_create(season_id=season.id, updated_by_user_id=actor.id)
+            await repository.add_photo(
+                season_id=season.id,
+                telegram_file_id=telegram_file_id,
+                telegram_file_unique_id=telegram_file_unique_id,
+                uploaded_by_user_id=actor.id,
+            )
             await session.commit()
             return await self._entry_view(session, season)
 
-    async def _require_completed_season(
+    async def delete_photo(
+        self, superadmin_telegram_id: int, season_id: int, photo_id: int
+    ) -> HallOfFameEntryView:
+        async with self.session_factory() as session:
+            await access_policy.require_superadmin(session, superadmin_telegram_id)
+            season = await self._require_season(session, season_id)
+            repository = HallOfFameRepository(session)
+            photo = await repository.get_photo(photo_id)
+            if photo is None or photo.season_id != season.id:
+                raise HallOfFameSeasonNotFoundError
+            await repository.delete_photo(photo)
+            await session.commit()
+            return await self._entry_view(session, season)
+
+    async def _require_season(
         self,
         session: AsyncSession,
         season_id: int,
     ) -> Season:
         season = await SeasonRepository(session).get_by_id(season_id)
-        today = self.clock.today()
-        if season is None or season.ends_at is None or season.ends_at >= today:
+        if season is None or season.starts_at > self.clock.today():
             raise HallOfFameSeasonNotFoundError
         return season
 
@@ -281,12 +224,11 @@ class HallOfFameManagementService:
         session: AsyncSession,
         season: Season,
     ) -> HallOfFameEntryView:
-        entry = await HallOfFameRepository(session).get_by_season_id(season.id)
-        if season.ends_at is None:
-            raise HallOfFameSeasonNotFoundError
-        achievement_rows = (
-            await HallOfFameRepository(session).list_achievements_for_seasons((season.id,))
-        ).get(season.id, ())
+        repository = HallOfFameRepository(session)
+        achievement_rows = (await repository.list_achievements_for_seasons((season.id,))).get(
+            season.id, ()
+        )
+        photo_rows = (await repository.list_photos_for_seasons((season.id,))).get(season.id, ())
         champion_row = next(
             (
                 row
@@ -310,13 +252,14 @@ class HallOfFameManagementService:
             ends_at=season.ends_at,
             champion=HallOfFameManagementService._achievement_user(champion_row),
             knockout_leader=HallOfFameManagementService._achievement_user(knockout_row),
-            champion_photo_file_id=entry.champion_photo_file_id if entry is not None else None,
-            champion_photo_file_unique_id=(
-                entry.champion_photo_file_unique_id if entry is not None else None
-            ),
-            knockout_photo_file_id=entry.knockout_photo_file_id if entry is not None else None,
-            knockout_photo_file_unique_id=(
-                entry.knockout_photo_file_unique_id if entry is not None else None
+            photos=tuple(
+                HallOfFamePhotoView(
+                    id=row.id,
+                    telegram_file_id=row.telegram_file_id,
+                    telegram_file_unique_id=row.telegram_file_unique_id,
+                    position=row.position,
+                )
+                for row in photo_rows
             ),
             achievements=tuple(
                 HallOfFameAchievementManagementView(
@@ -328,32 +271,6 @@ class HallOfFameManagementService:
                 for row in achievement_rows
             ),
         )
-
-    @staticmethod
-    async def _replace_first_achievement(
-        session: AsyncSession,
-        *,
-        season: Season,
-        player_id: int,
-        kind: HallOfFameAchievementKind,
-    ) -> None:
-        repository = HallOfFameRepository(session)
-        rows = (await repository.list_achievements_for_seasons((season.id,))).get(season.id, ())
-        existing = next((row for row in rows if row.kind == kind), None)
-        if existing is None:
-            if season.ends_at is None:
-                raise HallOfFameSeasonNotFoundError
-            await repository.add_achievement(
-                season_id=season.id,
-                player_id=player_id,
-                kind=kind,
-                awarded_at=season.ends_at,
-            )
-            return
-        achievement = await repository.get_achievement(existing.id)
-        if achievement is None:
-            raise HallOfFameAchievementNotFoundError
-        achievement.player_id = player_id
 
     @staticmethod
     def _achievement_user(row: HallOfFameAchievementRow | None) -> UserView | None:
@@ -368,9 +285,9 @@ class HallOfFameManagementService:
             gender=row.gender,
         )
 
-    @staticmethod
-    def _validate_awarded_at(season: Season, awarded_at: date) -> None:
-        if season.ends_at is None or not season.starts_at <= awarded_at <= season.ends_at:
+    def _validate_awarded_at(self, season: Season, awarded_at: date) -> None:
+        upper_bound = min(season.ends_at or self.clock.today(), self.clock.today())
+        if not season.starts_at <= awarded_at <= upper_bound:
             raise HallOfFameSeasonNotFoundError
 
 

@@ -18,7 +18,15 @@ class HallOfFameSeasonListItemView:
     season_id: int
     season_name: str
     starts_at: date
-    ends_at: date
+    ends_at: date | None
+
+
+@dataclass(frozen=True)
+class HallOfFamePhotoView:
+    id: int
+    telegram_file_id: str
+    telegram_file_unique_id: str
+    position: int
 
 
 @dataclass(frozen=True)
@@ -26,13 +34,10 @@ class HallOfFameEntryView:
     season_id: int
     season_name: str
     starts_at: date
-    ends_at: date
+    ends_at: date | None
     champion: UserView | None
     knockout_leader: UserView | None
-    champion_photo_file_id: str | None = None
-    champion_photo_file_unique_id: str | None = None
-    knockout_photo_file_id: str | None = None
-    knockout_photo_file_unique_id: str | None = None
+    photos: tuple[HallOfFamePhotoView, ...] = ()
     achievements: tuple[HallOfFameAchievementManagementView, ...] = ()
 
 

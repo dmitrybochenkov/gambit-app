@@ -137,7 +137,7 @@ class RatingRepository:
         ]
 
     async def get_rating_honours(self, today: date) -> RatingHonours:
-        rows = await HallOfFameRepository(self.session).list_completed_entries(today)
+        rows = await HallOfFameRepository(self.session).list_public_entries(today)
         champion_counts: dict[int, int] = {}
         knockout_counts: dict[int, int] = {}
         achievements: dict[int, list[str]] = {}
