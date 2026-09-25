@@ -7,6 +7,7 @@ from conftest import build_player, seed_tournament_types_async, tournament_type_
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
 from app.bot.telegram.formatters.statistics import profile as profile_fmt
+from app.bot.telegram.texts.user import profile as profile_texts
 from app.db.base import Base
 from app.db.models import (
     ScoringConfig,
@@ -42,7 +43,7 @@ def profile_view(**overrides: object) -> PlayerProfileView:
 
 
 def test_profile_formats_only_non_zero_prize_places() -> None:
-    message = profile_fmt.message(
+    message = profile_texts.placements_block(
         "Твой профиль — за всё время",
         profile_view(
             first_places_count=3,
@@ -59,7 +60,6 @@ def test_profile_formats_only_non_zero_prize_places() -> None:
         "🎲 - количество турниров\n\n"
         "Дима Боченков\n"
         "⭐ 0 | 🎯 — | 🥊 0 | 🎲 0\n\n"
-        "Под кнопкой «Подробнее» можно посмотреть историю своих достижений\n\n"
         "Количество призовых мест:\n"
         "🥇 x3\n"
         "🥉 x5\n"
@@ -68,79 +68,73 @@ def test_profile_formats_only_non_zero_prize_places() -> None:
 
 
 def test_profile_formats_season_honours() -> None:
-    message = profile_fmt.message(
-        "Твой профиль — за всё время",
-        profile_view(
-            display_name="Дима",
-            honours=(
-                PlayerProfileHonourView(
-                    achievement_id=1,
-                    season_name="Весна 2026",
-                    season_starts_at=date(2026, 4, 1),
-                    kind="rating_winner",
-                    awarded_at=date(2026, 6, 30),
-                ),
-                PlayerProfileHonourView(
-                    achievement_id=2,
-                    season_name="Лето 2026",
-                    season_starts_at=date(2026, 7, 1),
-                    kind="ko_rating_winner",
-                    awarded_at=date(2026, 9, 30),
-                ),
+    stats = profile_view(
+        display_name="Дима",
+        honours=(
+            PlayerProfileHonourView(
+                achievement_id=1,
+                season_id=1,
+                season_name="Весна 2026",
+                season_starts_at=date(2026, 4, 1),
+                kind="rating_winner",
+                awarded_at=date(2026, 6, 30),
+            ),
+            PlayerProfileHonourView(
+                achievement_id=2,
+                season_id=2,
+                season_name="Лето 2026",
+                season_starts_at=date(2026, 7, 1),
+                kind="ko_rating_winner",
+                awarded_at=date(2026, 9, 30),
             ),
         ),
     )
+    message = profile_texts.achievements_block("Твой профиль — за всё время", stats, 2)
 
-    assert "Чемпионские титулы: 💍" in message
-    assert "Лучший нокаутер: 💥" in message
-    assert "Достижения:" not in message
-    assert "💍 Победитель рейтинга сезона «Весна 2026»" in message
-    assert "💥 Победитель KO-рейтинга сезона «Лето 2026»" in message
+    assert "Награды — Лето 2026" in message
+    assert "💥 Победитель KO-рейтинга" in message
+    assert "Весна 2026" not in message
 
 
 def test_profile_formats_champion_and_knockout_titles_separately() -> None:
-    message = profile_fmt.message(
-        "Твой профиль — за всё время",
-        profile_view(
-            display_name="Дима",
-            knockouts_count=17,
-            honours=(
-                PlayerProfileHonourView(
-                    achievement_id=1,
-                    season_name="Зима 2026",
-                    season_starts_at=date(2026, 1, 1),
-                    kind="rating_winner",
-                    awarded_at=date(2026, 3, 31),
-                ),
-                PlayerProfileHonourView(
-                    achievement_id=2,
-                    season_name="Весна 2026",
-                    season_starts_at=date(2026, 4, 1),
-                    kind="ko_rating_winner",
-                    awarded_at=date(2026, 6, 30),
-                ),
-                PlayerProfileHonourView(
-                    achievement_id=3,
-                    season_name="Лето 2026",
-                    season_starts_at=date(2026, 7, 1),
-                    kind="rating_winner",
-                    awarded_at=date(2026, 9, 30),
-                ),
-                PlayerProfileHonourView(
-                    achievement_id=4,
-                    season_name="Осень 2026",
-                    season_starts_at=date(2026, 10, 1),
-                    kind="ko_rating_winner",
-                    awarded_at=date(2026, 12, 31),
-                ),
+    stats = profile_view(
+        display_name="Дима",
+        knockouts_count=17,
+        honours=(
+            PlayerProfileHonourView(
+                achievement_id=1,
+                season_name="Зима 2026",
+                season_starts_at=date(2026, 1, 1),
+                kind="rating_winner",
+                awarded_at=date(2026, 3, 31),
+            ),
+            PlayerProfileHonourView(
+                achievement_id=2,
+                season_name="Весна 2026",
+                season_starts_at=date(2026, 4, 1),
+                kind="ko_rating_winner",
+                awarded_at=date(2026, 6, 30),
+            ),
+            PlayerProfileHonourView(
+                achievement_id=3,
+                season_name="Лето 2026",
+                season_starts_at=date(2026, 7, 1),
+                kind="rating_winner",
+                awarded_at=date(2026, 9, 30),
+            ),
+            PlayerProfileHonourView(
+                achievement_id=4,
+                season_name="Осень 2026",
+                season_starts_at=date(2026, 10, 1),
+                kind="ko_rating_winner",
+                awarded_at=date(2026, 12, 31),
             ),
         ),
     )
+    message = profile_texts.achievements_block("Твой профиль — за всё время", stats, 0)
 
-    assert "Чемпионские титулы: 💍💍" in message
-    assert "Лучший нокаутер: 💥💥" in message
-    assert "Достижения:" not in message
-    assert "💍💥💍💥" not in message
+    assert message.count("💍 Победитель рейтинга") == 2
+    assert message.count("💥 Победитель KO-рейтинга") == 2
     assert "🥊 17" in message
 
 
@@ -159,7 +153,7 @@ def test_profile_formats_points_as_rounded_integer() -> None:
 
 
 def test_profile_formats_active_prize_stack_rewards() -> None:
-    message = profile_fmt.message(
+    message = profile_texts.rewards_block(
         "Твой профиль — за всё время",
         profile_view(
             active_rewards=(
@@ -327,7 +321,7 @@ async def test_profile_filters_current_season_and_all_time(tmp_path: Path) -> No
         assert empty_stats.display_name == "King"
         assert empty_stats.total_points == Decimal("0")
         assert empty_stats.tournaments_count == 0
-        all_time_message = profile_fmt.message(
+        all_time_message = profile_texts.placements_block(
             all_time_title,
             all_time_stats,
         )

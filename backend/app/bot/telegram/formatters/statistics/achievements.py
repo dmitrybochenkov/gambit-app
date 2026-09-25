@@ -5,6 +5,7 @@ ACHIEVEMENT_EMOJI = {
     "grand_month": "🏅",
     "grand_knockout": "🥊",
 }
+ACHIEVEMENT_KIND_ORDER = tuple(ACHIEVEMENT_EMOJI)
 
 _DATED_ACHIEVEMENT_KINDS = {"grand_month", "grand_knockout"}
 

@@ -101,27 +101,18 @@ class RatingService:
         season_id: int | None,
         today: date,
     ) -> tuple[str, list[PointsRatingView] | list[KnockoutsRatingView]]:
-        honours = await rating_repository.get_rating_honours(today)
         if kind == RatingKind.CURRENT_SEASON:
             season = await season_repository.get_for_date(today)
             if season is None:
                 return "Рейтинг — текущий сезон", []
             return (
                 "Рейтинг — текущий сезон",
-                [
-                    points_rating_view(row, honours)
-                    for row in await rating_repository.get_points_rating(
-                        season_id=season.id if season else None,
-                    )
-                ],
+                await _points_views(rating_repository, today, season.id),
             )
         if kind == RatingKind.ALL_TIME:
             return (
                 "Рейтинг — за всё время",
-                [
-                    points_rating_view(row, honours)
-                    for row in await rating_repository.get_points_rating()
-                ],
+                await _points_views(rating_repository, today),
             )
         if kind == RatingKind.KNOCKOUTS_CURRENT_SEASON:
             season = await season_repository.get_for_date(today)
@@ -129,40 +120,44 @@ class RatingService:
                 return "Рейтинг по нокаутам — текущий сезон", []
             return (
                 "Рейтинг по нокаутам — текущий сезон",
-                [
-                    knockouts_rating_view(row, honours)
-                    for row in await rating_repository.get_knockouts_rating(
-                        season_id=season.id if season else None,
-                    )
-                ],
+                await _knockout_views(rating_repository, today, season.id),
             )
         if kind == RatingKind.SELECTED_SEASON:
             season = await _require_started_season(season_repository, season_id, today)
             return (
                 f"Рейтинг — {season.name}",
-                [
-                    points_rating_view(row, honours)
-                    for row in await rating_repository.get_points_rating(season_id=season.id)
-                ],
+                await _points_views(rating_repository, today, season.id),
             )
         if kind == RatingKind.KNOCKOUTS_SELECTED_SEASON:
             season = await _require_started_season(season_repository, season_id, today)
             return (
                 f"Рейтинг по нокаутам — {season.name}",
-                [
-                    knockouts_rating_view(row, honours)
-                    for row in await rating_repository.get_knockouts_rating(
-                        season_id=season.id,
-                    )
-                ],
+                await _knockout_views(rating_repository, today, season.id),
             )
         return (
             "Рейтинг по нокаутам — за всё время",
-            [
-                knockouts_rating_view(row, honours)
-                for row in await rating_repository.get_knockouts_rating()
-            ],
+            await _knockout_views(rating_repository, today),
         )
+
+
+async def _points_views(
+    repository: RatingRepository,
+    today: date,
+    season_id: int | None = None,
+) -> list[PointsRatingView]:
+    rows = await repository.get_points_rating(season_id=season_id)
+    honours = await repository.get_rating_honours(today, tuple(row.player_id for row in rows))
+    return [points_rating_view(row, honours) for row in rows]
+
+
+async def _knockout_views(
+    repository: RatingRepository,
+    today: date,
+    season_id: int | None = None,
+) -> list[KnockoutsRatingView]:
+    rows = await repository.get_knockouts_rating(season_id=season_id)
+    honours = await repository.get_rating_honours(today, tuple(row.player_id for row in rows))
+    return [knockouts_rating_view(row, honours) for row in rows]
 
 
 async def _require_started_season(

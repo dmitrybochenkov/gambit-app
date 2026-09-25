@@ -285,3 +285,24 @@ class HallOfFameRepository:
                 -row.achievement_id,
             ),
         )
+
+    async def list_achievement_kinds_for_players(
+        self,
+        player_ids: tuple[int, ...],
+        today: date,
+    ) -> dict[int, tuple[HallOfFameAchievementKind, ...]]:
+        if not player_ids:
+            return {}
+        result = await self.session.execute(
+            select(HallOfFameAchievement.player_id, HallOfFameAchievement.kind)
+            .join(Season, Season.id == HallOfFameAchievement.season_id)
+            .where(
+                HallOfFameAchievement.player_id.in_(player_ids),
+                Season.starts_at <= today,
+            )
+            .order_by(Season.starts_at, Season.id, HallOfFameAchievement.id)
+        )
+        grouped: dict[int, list[HallOfFameAchievementKind]] = {}
+        for player_id, kind in result:
+            grouped.setdefault(player_id, []).append(kind)
+        return {player_id: tuple(kinds) for player_id, kinds in grouped.items()}

@@ -6,6 +6,7 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.models import Tournament, TournamentResult, User
+from app.db.models.enums import HallOfFameAchievementKind
 from app.db.repositories.hall_of_fame_repository import HallOfFameRepository
 from app.db.repositories.result_scopes import closed_tournament_filter
 
@@ -35,7 +36,7 @@ class KnockoutsRatingRow:
 class RatingHonours:
     season_champion_titles_by_player_id: dict[int, int]
     season_knockout_leader_titles_by_player_id: dict[int, int]
-    achievements_by_player_id: dict[int, tuple[str, ...]]
+    achievements_by_player_id: dict[int, tuple[HallOfFameAchievementKind, ...]]
 
 
 class RatingRepository:
@@ -136,27 +137,23 @@ class RatingRepository:
             for row in result
         ]
 
-    async def get_rating_honours(self, today: date) -> RatingHonours:
-        rows = await HallOfFameRepository(self.session).list_public_entries(today)
+    async def get_rating_honours(
+        self,
+        today: date,
+        player_ids: tuple[int, ...],
+    ) -> RatingHonours:
+        achievements_by_player = await HallOfFameRepository(
+            self.session
+        ).list_achievement_kinds_for_players(player_ids, today)
         champion_counts: dict[int, int] = {}
         knockout_counts: dict[int, int] = {}
-        achievements: dict[int, list[str]] = {}
-        for row in sorted(rows, key=lambda item: (item.starts_at, item.season_id)):
-            for achievement in row.achievements:
-                if achievement.kind.value == "rating_winner":
-                    champion_counts[achievement.player_id] = (
-                        champion_counts.get(achievement.player_id, 0) + 1
-                    )
-                if achievement.kind.value == "ko_rating_winner":
-                    knockout_counts[achievement.player_id] = (
-                        knockout_counts.get(achievement.player_id, 0) + 1
-                    )
-                achievements.setdefault(achievement.player_id, []).append(achievement.kind)
+        for player_id, achievements in achievements_by_player.items():
+            champion_counts[player_id] = sum(kind.value == "rating_winner" for kind in achievements)
+            knockout_counts[player_id] = sum(
+                kind.value == "ko_rating_winner" for kind in achievements
+            )
         return RatingHonours(
             season_champion_titles_by_player_id=champion_counts,
             season_knockout_leader_titles_by_player_id=knockout_counts,
-            achievements_by_player_id={
-                player_id: tuple(player_achievements)
-                for player_id, player_achievements in achievements.items()
-            },
+            achievements_by_player_id=achievements_by_player,
         )

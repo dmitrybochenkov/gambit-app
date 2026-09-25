@@ -4,7 +4,7 @@ from aiogram.utils.keyboard import InlineKeyboardBuilder
 
 from app.bot.telegram.keyboards import labels
 from app.services.dto.seasons import SeasonOptionView
-from app.services.dto.statistics.profile import PlayerPrizeTournamentView
+from app.services.dto.statistics.profile import PlayerPrizeTournamentView, PlayerProfileView
 from app.services.pagination import Page
 from app.services.profile_service import ProfileKind
 
@@ -36,6 +36,14 @@ class ProfileDetailsPageCallback(CallbackData, prefix="profile_dp"):
     season_id: int = 0
     season_page: int = 0
     page: int = 0
+
+
+class ProfileBlockCallback(CallbackData, prefix="profile_b"):
+    block: str
+    kind: ProfileKind
+    season_id: int = 0
+    season_page: int = 0
+    achievement_season_id: int = 0
 
 
 class ProfilePrizeTournamentCallback(CallbackData, prefix="profile_pt"):
@@ -72,19 +80,33 @@ def profile_keyboard() -> InlineKeyboardMarkup:
 def profile_result_keyboard(
     *,
     kind: ProfileKind,
-    show_details: bool = False,
+    stats: PlayerProfileView | None,
     season_id: int = 0,
     season_page: int = 0,
 ) -> InlineKeyboardMarkup:
     builder = InlineKeyboardBuilder()
-    if show_details:
+    if stats is not None and stats.honours:
         builder.button(
-            text="Подробнее",
-            callback_data=ProfileDetailsPageCallback(
+            text=labels.PROFILE_ACHIEVEMENTS,
+            callback_data=ProfileBlockCallback(
+                block="achievements",
                 kind=kind,
                 season_id=season_id,
                 season_page=season_page,
-                page=0,
+            ),
+        )
+    if stats is not None and stats.active_rewards:
+        builder.button(
+            text=labels.PROFILE_REWARDS,
+            callback_data=ProfileBlockCallback(
+                block="rewards", kind=kind, season_id=season_id, season_page=season_page
+            ),
+        )
+    if stats is not None and _has_placements(stats):
+        builder.button(
+            text=labels.PROFILE_PLACEMENTS,
+            callback_data=ProfileBlockCallback(
+                block="placements", kind=kind, season_id=season_id, season_page=season_page
             ),
         )
     if kind == ProfileKind.SELECTED_SEASON:
@@ -97,7 +119,86 @@ def profile_result_keyboard(
             text=labels.ADMIN_PANEL_BACK,
             callback_data=ProfileCancelCallback(action="back"),
         )
-    builder.button(text="❌ Закрыть", callback_data=ProfileCancelCallback(action="close"))
+    builder.button(text=labels.RATING_CLOSE, callback_data=ProfileCancelCallback(action="close"))
+    builder.adjust(1)
+    return builder.as_markup()
+
+
+def profile_achievements_keyboard(
+    stats: PlayerProfileView,
+    *,
+    kind: ProfileKind,
+    season_id: int,
+    season_page: int,
+    achievement_season_id: int,
+) -> InlineKeyboardMarkup:
+    builder = InlineKeyboardBuilder()
+    seasons = _achievement_seasons(stats)
+    index = next(i for i, item in enumerate(seasons) if item[0] == achievement_season_id)
+    if index + 1 < len(seasons):
+        builder.button(
+            text="⬅️",
+            callback_data=ProfileBlockCallback(
+                block="achievements",
+                kind=kind,
+                season_id=season_id,
+                season_page=season_page,
+                achievement_season_id=seasons[index + 1][0],
+            ),
+        )
+    builder.button(
+        text=seasons[index][1],
+        callback_data=ProfileBlockCallback(
+            block="achievements",
+            kind=kind,
+            season_id=season_id,
+            season_page=season_page,
+            achievement_season_id=achievement_season_id,
+        ),
+    )
+    if index > 0:
+        builder.button(
+            text="➡️",
+            callback_data=ProfileBlockCallback(
+                block="achievements",
+                kind=kind,
+                season_id=season_id,
+                season_page=season_page,
+                achievement_season_id=seasons[index - 1][0],
+            ),
+        )
+    builder.button(
+        text=labels.PROFILE_CLOSE_ACHIEVEMENTS,
+        callback_data=ProfileBlockCallback(
+            block="base", kind=kind, season_id=season_id, season_page=season_page
+        ),
+    )
+    builder.button(text=labels.RATING_CLOSE, callback_data=ProfileCancelCallback(action="close"))
+    builder.adjust(_achievement_navigation_width(index, len(seasons)), 1, 1)
+    return builder.as_markup()
+
+
+def profile_expanded_keyboard(
+    *, block: str, kind: ProfileKind, season_id: int, season_page: int
+) -> InlineKeyboardMarkup:
+    builder = InlineKeyboardBuilder()
+    if block == "placements":
+        builder.button(
+            text=labels.PROFILE_PRIZE_HISTORY,
+            callback_data=ProfileDetailsPageCallback(
+                kind=kind, season_id=season_id, season_page=season_page, page=0
+            ),
+        )
+    close_label = (
+        labels.PROFILE_CLOSE_REWARDS if block == "rewards" else labels.PROFILE_CLOSE_PLACEMENTS
+    )
+    builder.button(
+        text=close_label,
+        callback_data=ProfileBlockCallback(
+            block="base", kind=kind, season_id=season_id, season_page=season_page
+        ),
+    )
+    builder.button(text=labels.RATING_CLOSE, callback_data=ProfileCancelCallback(action="close"))
     builder.adjust(1)
     return builder.as_markup()
 
@@ -132,13 +233,14 @@ def profile_prize_tournaments_keyboard(
         )
     builder.button(
         text=labels.ADMIN_PANEL_BACK,
-        callback_data=ProfileCallback(
+        callback_data=ProfileBlockCallback(
+            block="placements",
             kind=kind,
             season_id=season_id,
             season_page=season_page,
         ),
     )
-    builder.button(text="❌ Закрыть", callback_data=ProfileCancelCallback(action="close"))
+    builder.button(text=labels.RATING_CLOSE, callback_data=ProfileCancelCallback(action="close"))
     builder.adjust(*([1] * len(page.items)), _prize_navigation_width(page), 1, 1)
     return builder.as_markup()
 
@@ -198,7 +300,7 @@ def profile_history_result_keyboard(
             page=list_page,
         ),
     )
-    builder.button(text="❌ Закрыть", callback_data=ProfileCancelCallback(action="close"))
+    builder.button(text=labels.RATING_CLOSE, callback_data=ProfileCancelCallback(action="close"))
     builder.adjust(_prize_navigation_width(page), 1, 1)
     return builder.as_markup()
 
@@ -301,3 +403,31 @@ def _place_label(place: int) -> str:
         4: "4️⃣",
         5: "5️⃣",
     }[place]
+
+
+def _has_placements(stats: PlayerProfileView) -> bool:
+    return any(
+        (
+            stats.first_places_count,
+            stats.second_places_count,
+            stats.third_places_count,
+            stats.fourth_places_count,
+            stats.fifth_places_count,
+        )
+    )
+
+
+def _achievement_seasons(stats: PlayerProfileView) -> list[tuple[int, str]]:
+    seasons = {
+        honour.season_id: (honour.season_name, honour.season_starts_at) for honour in stats.honours
+    }
+    return [
+        (season_id, name)
+        for season_id, (name, _) in sorted(
+            seasons.items(), key=lambda item: (item[1][1], item[0]), reverse=True
+        )
+    ]
+
+
+def _achievement_navigation_width(index: int, total: int) -> int:
+    return 1 + int(index > 0) + int(index + 1 < total)

@@ -6,12 +6,12 @@ PROFILE_MENU_PROMPT = "За какой период ты хочешь посмо
 PROFILE_ACTIVE_ONLY = "Профиль доступен только активным игрокам."
 PROFILE_NOT_FOUND = "Профиль не найден. Нажми /start."
 PROFILE_PRIZE_PLACES_LABEL = "Количество призовых мест:"
-PROFILE_DETAILS_HINT = "Под кнопкой «Подробнее» можно посмотреть историю своих достижений"
-PROFILE_PRIZE_TOURNAMENTS_TITLE = "История достижений"
+PROFILE_REWARD_TEASER = "У тебя есть активные бонусы! Не забудь их использовать."
+PROFILE_PRIZE_TOURNAMENTS_TITLE = "История призовых мест"
 PROFILE_PRIZE_TOURNAMENTS_EMPTY = "Призовых турниров пока нет."
 
 
-def message(title: str, stats: object | None) -> str:
+def message(title: str, stats: object | None, *, show_reward_teaser: bool = True) -> str:
     if stats is None:
         return f"{title}\n\n{PROFILE_NOT_FOUND}"
 
@@ -29,19 +29,44 @@ def message(title: str, stats: object | None) -> str:
             f"🥊 {stats.total_knockouts_count} | 🎲 {stats.tournaments_count}"
         ),
     ]
-    title_summary = _honour_summary_lines(stats)
-    if title_summary:
-        lines.extend(["", *title_summary])
-    prize_place_lines = _prize_place_lines(stats)
-    reward_lines = _reward_lines(stats)
-    if reward_lines:
-        lines.extend(["", *reward_lines])
-    if prize_place_lines:
-        lines.extend(["", PROFILE_DETAILS_HINT, "", PROFILE_PRIZE_PLACES_LABEL, *prize_place_lines])
-    honour_lines = _honour_lines(stats)
-    if honour_lines:
-        lines.extend(["", *honour_lines])
+    if show_reward_teaser and stats.active_rewards:
+        lines.extend(["", PROFILE_REWARD_TEASER])
     return "\n".join(lines)
+
+
+def achievements_block(title: str, stats: object, season_id: int) -> str:
+    honours = [honour for honour in stats.honours if honour.season_id == season_id]
+    season_name = honours[0].season_name
+    lines = [message(title, stats, show_reward_teaser=False), "", f"Награды — {season_name}"]
+    for honour in honours:
+        label = _achievement_label(honour.kind)
+        if honour.kind in {"grand_month", "grand_knockout"}:
+            label = f"{label} ({honour.awarded_at:%d.%m.%Y})"
+        lines.append(f"{achievement_emoji(honour.kind)} {label}")
+    return "\n".join(lines)
+
+
+def rewards_block(title: str, stats: object) -> str:
+    return "\n".join(
+        [
+            message(title, stats, show_reward_teaser=False),
+            "",
+            "🎁 Активные бонусы",
+            "",
+            *_reward_lines(stats),
+        ]
+    )
+
+
+def placements_block(title: str, stats: object) -> str:
+    return "\n".join(
+        [
+            message(title, stats, show_reward_teaser=False),
+            "",
+            PROFILE_PRIZE_PLACES_LABEL,
+            *_prize_place_lines(stats),
+        ]
+    )
 
 
 def _rating_position(stats: object) -> str:
@@ -74,34 +99,13 @@ def _prize_place_lines(stats: object) -> list[str]:
     return [f"{label} x{count}" for label, count in prize_places if count > 0]
 
 
-def _honour_lines(stats: object) -> list[str]:
-    lines = []
-    for honour in stats.honours:
-        lines.append(
-            f"{achievement_emoji(honour.kind)} "
-            f"{_achievement_label(honour.kind)} «{honour.season_name}»"
-        )
-    return lines
-
-
-def _honour_summary_lines(stats: object) -> list[str]:
-    champion_count = sum(1 for honour in stats.honours if honour.kind == "rating_winner")
-    knockout_count = sum(1 for honour in stats.honours if honour.kind == "ko_rating_winner")
-    lines = []
-    if champion_count:
-        lines.append(f"Чемпионские титулы: {'💍' * champion_count}")
-    if knockout_count:
-        lines.append(f"Лучший нокаутер: {'💥' * knockout_count}")
-    return lines
-
-
 def _achievement_label(kind: str) -> str:
     return {
-        "rating_winner": "Победитель рейтинга сезона",
-        "ko_rating_winner": "Победитель KO-рейтинга сезона",
-        "grand_season": "Победитель Grand Season сезона",
-        "grand_month": "Победитель Grand Month сезона",
-        "grand_knockout": "Победитель Grand Knockout сезона",
+        "rating_winner": "Победитель рейтинга",
+        "ko_rating_winner": "Победитель KO-рейтинга",
+        "grand_season": "Grand Season",
+        "grand_month": "Grand Month",
+        "grand_knockout": "Grand Knockout",
     }[kind]
 
 

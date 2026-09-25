@@ -1,5 +1,10 @@
+from collections.abc import Iterable
+
 from app.bot.telegram.formatters import common as fmt_common
-from app.bot.telegram.formatters.statistics.achievements import achievement_emoji
+from app.bot.telegram.formatters.statistics.achievements import (
+    ACHIEVEMENT_KIND_ORDER,
+    achievement_emoji,
+)
 
 RATING_UNAVAILABLE = (
     "Рейтинг доступен зарегистрированным игрокам. Нажми /start, чтобы зарегистрироваться!"
@@ -19,16 +24,10 @@ def message(
 
     has_points_rows = hasattr(page.items[0], "total_points")
     lines = [title]
-    if has_points_rows:
-        lines.extend(["💍 - победитель сезона", "🎲 - количество турниров"])
-    else:
-        lines.extend(
-            [
-                "💥 - лучший нокаутер сезона",
-                "🥊 - количество K.O.",
-                "🎲 - количество турниров с нокаутами",
-            ]
-        )
+    lines.extend(_achievement_legend(page.items))
+    lines.append(
+        "🎲 - количество турниров" if has_points_rows else "🎲 - количество турниров с нокаутами"
+    )
     lines.append("")
     start_position = page.page * page.page_size + 1
     for position, row in enumerate(page.items, start=start_position):
@@ -74,7 +73,28 @@ def _display_name_with_honours(row: object) -> str:
 
 def _honours(row: object) -> str:
     achievements = getattr(row, "hall_of_fame_achievements", ())
-    return "".join(_achievement_marker(achievement.kind) for achievement in achievements)
+    kinds = {str(achievement.kind) for achievement in achievements}
+    return "".join(_achievement_marker(kind) for kind in ACHIEVEMENT_KIND_ORDER if kind in kinds)
+
+
+def _achievement_legend(rows: Iterable[object]) -> list[str]:
+    kinds = {
+        str(achievement.kind)
+        for row in rows
+        for achievement in getattr(row, "hall_of_fame_achievements", ())
+    }
+    labels = {
+        "rating_winner": "победитель рейтинга сезона",
+        "ko_rating_winner": "победитель KO-рейтинга сезона",
+        "grand_season": "победитель Grand Season",
+        "grand_month": "победитель Grand Month",
+        "grand_knockout": "победитель Grand Knockout",
+    }
+    return [
+        f"{achievement_emoji(kind)} - {labels[kind]}"
+        for kind in ACHIEVEMENT_KIND_ORDER
+        if kind in kinds
+    ]
 
 
 def _achievement_marker(kind: str) -> str:

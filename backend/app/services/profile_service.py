@@ -153,12 +153,13 @@ class ProfileService:
             player_id,
             today,
         )
+        honours = await _player_honours(hall_of_fame_repository, player_id)
         if kind == ProfileKind.CURRENT_SEASON:
             season = await season_repository.get_for_date(today)
             if season is None:
                 return (
                     "Твой профиль — текущий сезон",
-                    empty_profile(display_name, active_rewards=active_rewards),
+                    empty_profile(display_name, honours=honours, active_rewards=active_rewards),
                 )
             stats = await profile_repository.get_player_stats(
                 player_id=player_id,
@@ -169,7 +170,6 @@ class ProfileService:
                 player_id,
                 season_id=season.id,
             )
-            honours = await _player_honours(hall_of_fame_repository, player_id)
             return (
                 "Твой профиль — текущий сезон",
                 player_profile_view(
@@ -180,7 +180,7 @@ class ProfileService:
                     active_rewards=active_rewards,
                 )
                 if stats
-                else empty_profile(display_name, active_rewards=active_rewards),
+                else empty_profile(display_name, honours=honours, active_rewards=active_rewards),
             )
         if kind == ProfileKind.SELECTED_SEASON:
             season = await _require_started_season(season_repository, season_id, today)
@@ -193,7 +193,6 @@ class ProfileService:
                 player_id,
                 season_id=season.id,
             )
-            honours = await _player_honours(hall_of_fame_repository, player_id)
             return (
                 f"Твой профиль — {season.name}",
                 player_profile_view(
@@ -204,10 +203,9 @@ class ProfileService:
                     active_rewards=active_rewards,
                 )
                 if stats
-                else empty_profile(display_name, active_rewards=active_rewards),
+                else empty_profile(display_name, honours=honours, active_rewards=active_rewards),
             )
         stats = await profile_repository.get_player_stats(player_id=player_id)
-        honours = await _player_honours(hall_of_fame_repository, player_id)
         rating_position, rating_participants_count = await _points_rating_position(
             rating_repository,
             player_id,
@@ -222,7 +220,7 @@ class ProfileService:
                 active_rewards=active_rewards,
             )
             if stats
-            else empty_profile(display_name, active_rewards=active_rewards),
+            else empty_profile(display_name, honours=honours, active_rewards=active_rewards),
         )
 
 
@@ -275,6 +273,7 @@ def player_profile_view(
 def empty_profile(
     display_name: str,
     *,
+    honours: tuple[PlayerProfileHonourView, ...] = (),
     active_rewards: tuple = (),
 ) -> PlayerProfileView:
     return PlayerProfileView(
@@ -291,6 +290,7 @@ def empty_profile(
         rating_position=None,
         rating_participants_count=0,
         prize_percent=None,
+        honours=honours,
         active_rewards=active_rewards,
     )
 
@@ -303,6 +303,7 @@ async def _player_honours(
     return tuple(
         PlayerProfileHonourView(
             achievement_id=row.achievement_id,
+            season_id=row.season_id,
             season_name=row.season_name,
             season_starts_at=row.starts_at,
             kind=row.kind,

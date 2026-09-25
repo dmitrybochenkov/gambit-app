@@ -12,6 +12,7 @@ class PlayerProfileHonourView:
     season_starts_at: date
     kind: str
     awarded_at: date
+    season_id: int = 0
 
 
 @dataclass(frozen=True)

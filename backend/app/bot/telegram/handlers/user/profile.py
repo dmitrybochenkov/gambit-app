@@ -53,15 +53,8 @@ async def show_profile(
     callback_data: user_profile_kb.ProfileCallback,
 ) -> None:
     try:
-        title, stats = await profile_service.get_profile_for_player(
-            telegram_id=callback.from_user.id,
-            kind=callback_data.kind,
-            season_id=getattr(callback_data, "season_id", 0) or None,
-        )
-        has_details = stats is not None and await _has_prize_tournaments(
-            telegram_id=callback.from_user.id,
-            kind=callback_data.kind,
-            season_id=getattr(callback_data, "season_id", 0) or None,
+        title, stats = await _load_profile(
+            callback, callback_data.kind, getattr(callback_data, "season_id", 0)
         )
     except ProfileNotAllowedError:
         await callback.answer(
@@ -80,7 +73,7 @@ async def show_profile(
             text=profile_fmt.message(title, stats),
             reply_markup=user_profile_kb.profile_result_keyboard(
                 kind=callback_data.kind,
-                show_details=has_details,
+                stats=stats,
                 season_id=getattr(callback_data, "season_id", 0),
                 season_page=getattr(callback_data, "season_page", 0),
             ),
@@ -118,15 +111,8 @@ async def show_profile_for_selected_season(
     callback_data: user_profile_kb.ProfileSeasonCallback,
 ) -> None:
     try:
-        title, stats = await profile_service.get_profile_for_player(
-            telegram_id=callback.from_user.id,
-            kind=ProfileKind.SELECTED_SEASON,
-            season_id=callback_data.season_id,
-        )
-        has_details = stats is not None and await _has_prize_tournaments(
-            telegram_id=callback.from_user.id,
-            kind=ProfileKind.SELECTED_SEASON,
-            season_id=callback_data.season_id,
+        title, stats = await _load_profile(
+            callback, ProfileKind.SELECTED_SEASON, callback_data.season_id
         )
     except ProfileNotAllowedError:
         await callback.answer(text.PROFILE_ACTIVE_ONLY, show_alert=True)
@@ -142,11 +128,92 @@ async def show_profile_for_selected_season(
             text=profile_fmt.message(title, stats),
             reply_markup=user_profile_kb.profile_result_keyboard(
                 kind=ProfileKind.SELECTED_SEASON,
-                show_details=has_details,
+                stats=stats,
                 season_id=callback_data.season_id,
                 season_page=callback_data.season_page,
             ),
         )
+
+
+@router.callback_query(user_profile_kb.ProfileBlockCallback.filter())
+async def show_profile_block(
+    callback: CallbackQuery,
+    callback_data: user_profile_kb.ProfileBlockCallback,
+) -> None:
+    try:
+        title, stats = await _load_profile(callback, callback_data.kind, callback_data.season_id)
+    except ProfileNotAllowedError:
+        await callback.answer(text.PROFILE_ACTIVE_ONLY, show_alert=True)
+        return
+    except (ProfileSeasonNotFoundError, ProfileFutureSeasonError):
+        await callback.answer("Сезон недоступен.", show_alert=True)
+        return
+
+    if stats is None:
+        await callback.answer(text.PROFILE_NOT_FOUND, show_alert=True)
+        return
+
+    block = callback_data.block
+    achievement_season_id = callback_data.achievement_season_id
+    if block == "achievements":
+        available_seasons = {honour.season_id for honour in stats.honours}
+        if not available_seasons:
+            await callback.answer("Достижений пока нет.", show_alert=True)
+            return
+        if achievement_season_id == 0:
+            achievement_season_id = max(
+                available_seasons,
+                key=lambda current_id: (
+                    max(
+                        honour.season_starts_at
+                        for honour in stats.honours
+                        if honour.season_id == current_id
+                    ),
+                    current_id,
+                ),
+            )
+        if achievement_season_id not in available_seasons:
+            await callback.answer("Сезон наград недоступен.", show_alert=True)
+            return
+        body = text.achievements_block(title, stats, achievement_season_id)
+        keyboard = user_profile_kb.profile_achievements_keyboard(
+            stats,
+            kind=callback_data.kind,
+            season_id=callback_data.season_id,
+            season_page=callback_data.season_page,
+            achievement_season_id=achievement_season_id,
+        )
+    elif block == "rewards" and stats.active_rewards:
+        body = text.rewards_block(title, stats)
+        keyboard = user_profile_kb.profile_expanded_keyboard(
+            block=block,
+            kind=callback_data.kind,
+            season_id=callback_data.season_id,
+            season_page=callback_data.season_page,
+        )
+    elif block == "placements" and _has_placements(stats):
+        body = text.placements_block(title, stats)
+        keyboard = user_profile_kb.profile_expanded_keyboard(
+            block=block,
+            kind=callback_data.kind,
+            season_id=callback_data.season_id,
+            season_page=callback_data.season_page,
+        )
+    elif block == "base":
+        body = profile_fmt.message(title, stats)
+        keyboard = user_profile_kb.profile_result_keyboard(
+            kind=callback_data.kind,
+            stats=stats,
+            season_id=callback_data.season_id,
+            season_page=callback_data.season_page,
+        )
+    else:
+        await callback.answer("Раздел недоступен.", show_alert=True)
+        return
+
+    await callback.answer()
+    if callback.message is not None:
+        await edit_message_if_changed(callback.message, text=body, reply_markup=keyboard)
 
 
 @router.callback_query(user_profile_kb.ProfileDetailsPageCallback.filter())
@@ -250,15 +317,26 @@ async def cancel_profile(
     await callback.message.answer(answer)
 
 
-async def _has_prize_tournaments(
-    *,
-    telegram_id: int,
+async def _load_profile(
+    callback: CallbackQuery,
     kind: ProfileKind,
-    season_id: int | None,
-) -> bool:
-    tournaments = await profile_service.list_prize_tournaments_for_player(
-        telegram_id=telegram_id,
+    season_id: int,
+) -> tuple[str, object | None]:
+    return await profile_service.get_profile_for_player(
+        telegram_id=callback.from_user.id,
         kind=kind,
-        season_id=season_id,
+        season_id=season_id or None,
     )
-    return bool(tournaments)
+
+
+def _has_placements(stats: object) -> bool:
+    return any(
+        getattr(stats, field)
+        for field in (
+            "first_places_count",
+            "second_places_count",
+            "third_places_count",
+            "fourth_places_count",
+            "fifth_places_count",
+        )
+    )

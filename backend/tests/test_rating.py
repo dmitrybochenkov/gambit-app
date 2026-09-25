@@ -247,7 +247,8 @@ async def test_rating_filters_current_season_and_all_time(tmp_path: Path) -> Non
             current_page,
             current_player_id=second_player.id,
         ).startswith(
-            "Рейтинг — текущий сезон\n💍 - победитель сезона\n"
+            "Рейтинг — текущий сезон\n💍 - победитель рейтинга сезона\n"
+            "💥 - победитель KO-рейтинга сезона\n"
             "🎲 - количество турниров\n\n👉 1. *King* — 120 | 🎲 1"
         )
         knockout_message = rating_fmt.message(
@@ -257,8 +258,8 @@ async def test_rating_filters_current_season_and_all_time(tmp_path: Path) -> Non
         )
         assert (
             "Рейтинг по нокаутам — за всё время\n"
-            "💥 - лучший нокаутер сезона\n"
-            "🥊 - количество K.O.\n"
+            "💍 - победитель рейтинга сезона\n"
+            "💥 - победитель KO-рейтинга сезона\n"
             "🎲 - количество турниров с нокаутами\n\n"
         ) in knockout_message
         assert "👉 1. *Игрок Первый* 💍💥 — 6 | 🎲 2" in knockout_message
@@ -266,6 +267,53 @@ async def test_rating_filters_current_season_and_all_time(tmp_path: Path) -> Non
         assert "✅" not in knockout_message
     finally:
         await engine.dispose()
+
+
+def test_rating_badges_and_legend_are_distinct_and_page_local() -> None:
+    rows = [
+        PointsRatingView(
+            player_id=1,
+            display_name="All badges",
+            total_points=Decimal("100"),
+            tournaments_count=1,
+            hall_of_fame_achievements=tuple(
+                RatingAchievementView(kind=kind)
+                for kind in (
+                    "rating_winner",
+                    "rating_winner",
+                    "ko_rating_winner",
+                    "grand_season",
+                    "grand_month",
+                    "grand_month",
+                    "grand_knockout",
+                )
+            ),
+        ),
+        PointsRatingView(
+            player_id=2,
+            display_name="No badges",
+            total_points=Decimal("90"),
+            tournaments_count=1,
+        ),
+    ]
+
+    first = rating_fmt.message(
+        "Рейтинг",
+        pagination_service.paginate(rows, page=0, page_size=1),
+        current_player_id=99,
+    )
+    second = rating_fmt.message(
+        "Рейтинг",
+        pagination_service.paginate(rows, page=1, page_size=1),
+        current_player_id=99,
+    )
+
+    assert "All badges 💍💥🏆🏅🥊" in first
+    assert first.count("🏅") == 2
+    assert "💍 - победитель рейтинга сезона" in first
+    assert "🥊 - победитель Grand Knockout" in first
+    assert "победитель" not in second
+    assert "🎲 - количество турниров" in second
 
 
 async def test_rating_counts_historical_tied_places_with_authoritative_points(
@@ -365,7 +413,7 @@ def test_points_rating_format_uses_half_up_rounding_and_current_marker() -> None
     assert "⭐" not in message
     assert (
         "Рейтинг — за всё время\n"
-        "💍 - победитель сезона\n"
+        "💍 - победитель рейтинга сезона\n"
         "🎲 - количество турниров\n\n"
         "👉 1. *King* 💍 — 121 | 🎲 3\n"
         "🥈 Player — 90 | 🎲 2"
@@ -401,10 +449,10 @@ def test_knockout_rating_format_hides_points_and_repeats_titles() -> None:
     assert "🥊 6" not in message
     assert (
         "Рейтинг по нокаутам — за всё время\n"
-        "💥 - лучший нокаутер сезона\n"
-        "🥊 - количество K.O.\n"
+        "💍 - победитель рейтинга сезона\n"
+        "💥 - победитель KO-рейтинга сезона\n"
         "🎲 - количество турниров с нокаутами\n\n"
-        "🥇 King 💍💥💥 — 6 | 🎲 2"
+        "🥇 King 💍💥 — 6 | 🎲 2"
     ) == message
     assert "×2" not in message
 
@@ -524,8 +572,8 @@ def test_points_rating_format_repeats_only_champion_badges() -> None:
 
     assert "🥇 No Titles — 100 | 🎲 3" in message
     assert "🥈 One Champion 💍 — 90 | 🎲 3" in message
-    assert "🥉 Two Champions 💍💍 — 80 | 🎲 3" in message
-    assert "4. Three Champions 💍💍💍 — 70 | 🎲 3" in message
+    assert "🥉 Two Champions 💍 — 80 | 🎲 3" in message
+    assert "4. Three Champions 💍 — 70 | 🎲 3" in message
     assert "x2" not in message
     assert "×2" not in message
     assert "(2)" not in message
@@ -588,9 +636,9 @@ def test_knockout_rating_format_repeats_only_knockout_title_badges() -> None:
 
     assert "🥇 No Titles — 10 | 🎲 3" in message
     assert "🥈 One Knockout Title 💥 — 9 | 🎲 3" in message
-    assert "🥉 Two Knockout Titles 💥💥 — 8 | 🎲 3" in message
-    assert "4. Three Knockout Titles 💍💍💍💥💥💥 — 7 | 🎲 3" in message
-    assert "🥊 - количество K.O." in message
+    assert "🥉 Two Knockout Titles 💥 — 8 | 🎲 3" in message
+    assert "4. Three Knockout Titles 💍💥 — 7 | 🎲 3" in message
+    assert "🥊 - количество K.O." not in message
     assert "x2" not in message
     assert "×2" not in message
     assert "(2)" not in message
@@ -853,8 +901,8 @@ async def test_rating_achievements_are_ordered_chronologically_across_all_rating
             pagination_service.paginate(knockout_rating.rows, page=0, page_size=10),
             current_player_id=player.id,
         )
-        assert "Chrono 💥💍💍💥🏅 — 345 | 🎲 3" in points_message
-        assert "👉 1. *Chrono* 💥💍💍💥🏅 — 3 | 🎲 3" in knockout_message
+        assert "Chrono 💍💥🏅 — 345 | 🎲 3" in points_message
+        assert "👉 1. *Chrono* 💍💥🏅 — 3 | 🎲 3" in knockout_message
     finally:
         await engine.dispose()
 
@@ -880,7 +928,7 @@ def test_points_rating_format_repeats_champion_badges_without_counter_suffix() -
 
     message = rating_fmt.message("Рейтинг — за всё время", page, current_player_id=99)
 
-    assert "🥇 Mixed 💍💍 — 100 | 🎲 3" in message
+    assert "🥇 Mixed 💍 — 100 | 🎲 3" in message
     assert "×2" not in message
 
 

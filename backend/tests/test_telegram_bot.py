@@ -128,6 +128,7 @@ from app.services.dto.rewards import (
     PlayerRewardExpirationReminderGroupView,
     PlayerRewardExpirationReminderItemView,
     PlayerRewardNotificationView,
+    PlayerRewardView,
 )
 from app.services.dto.schedules import (
     TournamentPlanDayEditView,
@@ -161,7 +162,11 @@ from app.services.dto.statistics.history import (
     HistoryMonthView,
     HistoryYearView,
 )
-from app.services.dto.statistics.profile import PlayerPrizeTournamentView, PlayerProfileView
+from app.services.dto.statistics.profile import (
+    PlayerPrizeTournamentView,
+    PlayerProfileHonourView,
+    PlayerProfileView,
+)
 from app.services.dto.statistics.rating import PointsRatingView, RatingResultView
 from app.services.dto.tournaments import (
     SuperadminOpenTournamentListItemView,
@@ -6416,10 +6421,7 @@ async def test_rating_callback_edits_selected_rating(
     )
     message.edit_text.assert_awaited_once()
     assert message.edit_text.await_args.args[0] == (
-        "Рейтинг — текущий сезон\n"
-        "💍 - победитель сезона\n"
-        "🎲 - количество турниров\n\n"
-        "👉 1. *Игрок Первый* — 120 | 🎲 3"
+        "Рейтинг — текущий сезон\n🎲 - количество турниров\n\n👉 1. *Игрок Первый* — 120 | 🎲 3"
     )
     assert message.edit_text.await_args.kwargs["parse_mode"] == "Markdown"
     buttons = [
@@ -6629,7 +6631,7 @@ async def test_profile_callback_sends_selected_profile(
     )
     assert inline_keyboard_texts(message.edit_text.await_args.kwargs["reply_markup"]) == [
         "⬅️ Назад",
-        "❌ Закрыть",
+        "❌ Закрыть рейтинг",
     ]
     profile_service.list_prize_tournaments_for_player.assert_not_awaited()
 
@@ -6678,11 +6680,11 @@ async def test_profile_callback_shows_details_button_when_prizes_exist(
     assert (
         "⭐ 3250 (7 место из 44) | 🎯 41% | 🥊 14 | 🎲 27" in (message.edit_text.await_args.args[0])
     )
-    assert "Под кнопкой «Подробнее»" in message.edit_text.await_args.args[0]
+    assert "Под кнопкой «Подробнее»" not in message.edit_text.await_args.args[0]
     assert inline_keyboard_texts(message.edit_text.await_args.kwargs["reply_markup"]) == [
-        "Подробнее",
+        "🥇🥈🥉 Призовые места",
         "⬅️ Назад",
-        "❌ Закрыть",
+        "❌ Закрыть рейтинг",
     ]
 
 
@@ -6793,7 +6795,7 @@ async def test_profile_details_list_and_tournament_card(
         ),
     )
 
-    assert message.edit_text.await_args.args[0].startswith("История достижений")
+    assert message.edit_text.await_args.args[0].startswith("История призовых мест")
     buttons = inline_keyboard_texts(message.edit_text.await_args.kwargs["reply_markup"])
     assert buttons[:5] == [
         "🥈 19.08.26 — Type 1",
@@ -6805,7 +6807,7 @@ async def test_profile_details_list_and_tournament_card(
     assert "1 из 2" in buttons
     assert "➡️" in buttons
     assert "⬅️ Назад" in buttons
-    assert "❌ Закрыть" in buttons
+    assert "❌ Закрыть рейтинг" in buttons
 
     await user_profile_handlers.show_profile_prize_tournament_result(
         callback,
@@ -6825,8 +6827,142 @@ async def test_profile_details_list_and_tournament_card(
     assert "Очки" in message.edit_text.await_args.args[0]
     assert inline_keyboard_texts(message.edit_text.await_args.kwargs["reply_markup"]) == [
         "⬅️ Назад",
-        "❌ Закрыть",
+        "❌ Закрыть рейтинг",
     ]
+
+
+async def test_profile_blocks_edit_one_message_and_restore_base(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    stats = PlayerProfileView(
+        display_name="Дима",
+        total_points=Decimal("100"),
+        knockouts_count=2,
+        big_knockouts_count=0,
+        tournaments_count=3,
+        first_places_count=1,
+        second_places_count=0,
+        third_places_count=0,
+        fourth_places_count=0,
+        fifth_places_count=0,
+        rating_position=1,
+        rating_participants_count=3,
+        prize_percent=33,
+        honours=(
+            PlayerProfileHonourView(
+                achievement_id=1,
+                season_id=1,
+                season_name="Лето 2026",
+                season_starts_at=date(2026, 6, 1),
+                kind="grand_month",
+                awarded_at=date(2026, 8, 20),
+            ),
+            PlayerProfileHonourView(
+                achievement_id=2,
+                season_id=2,
+                season_name="Осень 2026",
+                season_starts_at=date(2026, 9, 1),
+                kind="grand_knockout",
+                awarded_at=date(2026, 9, 13),
+            ),
+        ),
+        active_rewards=(
+            PlayerRewardView(
+                reward_id=1,
+                player_id=1,
+                chips_amount=40_000,
+                source_place=1,
+                source_tournament_id=1,
+                source_tournament_date=date(2026, 9, 20),
+                source_tournament_name="Grand Month",
+                valid_through=date(2026, 9, 27),
+            ),
+        ),
+    )
+    service = SimpleNamespace(
+        get_profile_for_player=AsyncMock(return_value=("Твой профиль — текущий сезон", stats))
+    )
+    monkeypatch.setattr(user_profile_handlers, "profile_service", service)
+    message = SimpleNamespace(edit_text=AsyncMock())
+    callback = SimpleNamespace(
+        from_user=SimpleNamespace(id=123), message=message, answer=AsyncMock()
+    )
+
+    await user_profile_handlers.show_profile_block(
+        callback,
+        user_profile_kb.ProfileBlockCallback(block="achievements", kind=ProfileKind.CURRENT_SEASON),
+    )
+    achievement_text = message.edit_text.await_args.args[0]
+    assert "Награды — Осень 2026" in achievement_text
+    assert "🥊 Grand Knockout (13.09.2026)" in achievement_text
+    assert "У тебя есть активные бонусы" not in achievement_text
+    assert inline_keyboard_texts(message.edit_text.await_args.kwargs["reply_markup"]) == [
+        "⬅️",
+        "Осень 2026",
+        "⬅️ Закрыть достижения",
+        "❌ Закрыть рейтинг",
+    ]
+
+    await user_profile_handlers.show_profile_block(
+        callback,
+        user_profile_kb.ProfileBlockCallback(block="base", kind=ProfileKind.CURRENT_SEASON),
+    )
+    base_text = message.edit_text.await_args.args[0]
+    assert "У тебя есть активные бонусы" in base_text
+    assert inline_keyboard_texts(message.edit_text.await_args.kwargs["reply_markup"])[:3] == [
+        "🏆 Исторические достижения",
+        "🎁 Активные бонусы",
+        "🥇🥈🥉 Призовые места",
+    ]
+    assert not hasattr(message, "answer")
+
+
+async def test_profile_achievement_stale_season_is_rejected(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    stats = PlayerProfileView(
+        display_name="Дима",
+        total_points=Decimal("0"),
+        knockouts_count=0,
+        big_knockouts_count=0,
+        tournaments_count=0,
+        first_places_count=0,
+        second_places_count=0,
+        third_places_count=0,
+        fourth_places_count=0,
+        fifth_places_count=0,
+        rating_position=None,
+        rating_participants_count=0,
+        prize_percent=None,
+        honours=(
+            PlayerProfileHonourView(
+                achievement_id=1,
+                season_id=1,
+                season_name="Лето 2026",
+                season_starts_at=date(2026, 6, 1),
+                kind="grand_month",
+                awarded_at=date(2026, 8, 20),
+            ),
+        ),
+    )
+    monkeypatch.setattr(
+        user_profile_handlers,
+        "profile_service",
+        SimpleNamespace(get_profile_for_player=AsyncMock(return_value=("Профиль", stats))),
+    )
+    callback = SimpleNamespace(
+        from_user=SimpleNamespace(id=123),
+        message=SimpleNamespace(edit_text=AsyncMock()),
+        answer=AsyncMock(),
+    )
+    await user_profile_handlers.show_profile_block(
+        callback,
+        user_profile_kb.ProfileBlockCallback(
+            block="achievements", kind=ProfileKind.ALL_TIME, achievement_season_id=999
+        ),
+    )
+    callback.answer.assert_awaited_once_with("Сезон наград недоступен.", show_alert=True)
+    callback.message.edit_text.assert_not_awaited()
 
 
 async def test_profile_cancel_deletes_message_and_sends_confirmation() -> None:
