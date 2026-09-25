@@ -116,6 +116,18 @@ def delete_confirmation(achievement: object) -> str:
     )
 
 
+def deleted_confirmation(achievement: object) -> str:
+    return "\n".join(
+        [
+            "🗑 Удалена награда",
+            "",
+            f"{_achievement_label(HallOfFameField(achievement.kind.value))} "
+            f"({achievement.awarded_at:%d.%m.%Y}) — "
+            f"{fmt_common.markdown_escape(achievement.player.display_name)}",
+        ]
+    )
+
+
 def _achievement_label(field: HallOfFameField) -> str:
     return {
         HallOfFameField.RATING_WINNER: "💍 Победитель рейтинга",

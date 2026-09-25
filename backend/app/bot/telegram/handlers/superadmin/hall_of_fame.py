@@ -17,7 +17,6 @@ from app.bot.telegram.keyboards.superadmin import hall_of_fame as hall_kb
 from app.bot.telegram.message_edit import (
     edit_message_if_changed,
     edit_message_reply_markup_by_id_if_changed,
-    edit_reply_markup_if_changed,
 )
 from app.bot.telegram.states import HallOfFameStates
 from app.bot.telegram.texts.superadmin import hall_of_fame as text
@@ -107,9 +106,9 @@ async def select_hall_of_fame_card_action(
     )
     await callback.answer()
     if callback.message is not None:
-        await edit_reply_markup_if_changed(callback.message, reply_markup=None)
-        prompt = await callback.message.answer(
-            hall_fmt.date_prompt(entry, callback_data.kind),
+        await edit_message_if_changed(
+            callback.message,
+            text=hall_fmt.date_prompt(entry, callback_data.kind),
             reply_markup=hall_kb.date_prompt_keyboard(
                 season_id=callback_data.season_id,
                 field=callback_data.kind,
@@ -118,8 +117,8 @@ async def select_hall_of_fame_card_action(
             parse_mode="Markdown",
         )
         await state.update_data(
-            hall_date_prompt_chat_id=prompt.chat.id,
-            hall_date_prompt_message_id=prompt.message_id,
+            hall_date_prompt_chat_id=callback.message.chat.id,
+            hall_date_prompt_message_id=callback.message.message_id,
         )
 
 
@@ -162,8 +161,7 @@ async def select_hall_of_fame_date_action(
         return
     if callback.message is not None:
         await callback.answer()
-        await edit_reply_markup_if_changed(callback.message, reply_markup=None)
-        await _start_player_search(
+        await _edit_player_name_step(
             callback.message,
             state,
             club_clock.today(),
@@ -196,6 +194,33 @@ async def _start_player_search(
             hall_prompt_chat_id=prompt.chat.id,
             hall_prompt_message_id=prompt.message_id,
         )
+
+
+async def _edit_player_name_step(
+    message: Message,
+    state: FSMContext,
+    awarded_at: date,
+    *,
+    actor_telegram_id: int,
+) -> None:
+    data = await state.get_data()
+    season_id = int(data["hall_season_id"])
+    field = hall_kb.HallOfFameField(str(data["hall_field"]))
+    entry = await hall_of_fame_management_service.get_season_hall_of_fame(
+        actor_telegram_id, season_id
+    )
+    await state.update_data(
+        hall_awarded_at=awarded_at.isoformat(),
+        hall_prompt_chat_id=message.chat.id,
+        hall_prompt_message_id=message.message_id,
+    )
+    await state.set_state(HallOfFameStates.entering_player_name)
+    await edit_message_if_changed(
+        message,
+        text=hall_fmt.player_prompt(entry, field, awarded_at),
+        reply_markup=hall_kb.search_prompt_keyboard(season_id=season_id, field=field),
+        parse_mode="Markdown",
+    )
 
 
 @router.message(HallOfFameStates.entering_player_name)
@@ -266,8 +291,8 @@ async def select_hall_of_fame_candidate(
     await state.set_state(HallOfFameStates.confirming_achievement)
     await callback.answer()
     if callback.message is not None:
-        await edit_reply_markup_if_changed(callback.message, reply_markup=None)
-        await callback.message.answer(
+        await edit_message_if_changed(
+            callback.message,
             text=hall_fmt.achievement_confirmation(
                 entry=entry,
                 field=callback_data.field,
@@ -316,14 +341,13 @@ async def confirm_hall_of_fame_player(
     except (HallOfFameSeasonNotFoundError, UserNotFoundError):
         await callback.answer(text.HALL_OF_FAME_SEASON_NOT_FOUND, show_alert=True)
         return
-    if callback.message is not None:
-        await edit_reply_markup_if_changed(callback.message, reply_markup=None)
     page = int(data.get("hall_page") or 0)
     await state.clear()
     await state.update_data(hall_page=page)
     await callback.answer("Достижение сохранено.")
     if callback.message is not None:
-        await callback.message.answer(
+        await edit_message_if_changed(
+            callback.message,
             text=hall_fmt.achievements_menu(entry),
             reply_markup=hall_kb.achievements_keyboard(entry=entry, page=page),
             parse_mode="Markdown",
@@ -391,14 +415,18 @@ async def select_hall_of_fame_delete_action(
     except HallOfFameAchievementNotFoundError:
         await callback.answer("Награда не найдена.", show_alert=True)
         return
-    if callback.message is not None:
-        await edit_reply_markup_if_changed(callback.message, reply_markup=None)
     await callback.answer("Награда удалена.")
     data = await state.get_data()
     page = int(data.get("hall_page") or 0)
     await state.clear()
     await state.update_data(hall_page=page)
     if callback.message is not None:
+        await edit_message_if_changed(
+            callback.message,
+            text=hall_fmt.deleted_confirmation(achievement),
+            reply_markup=None,
+            parse_mode="Markdown",
+        )
         await callback.message.answer(
             text=hall_fmt.achievements_menu(refreshed),
             reply_markup=hall_kb.achievements_keyboard(entry=refreshed, page=page),
@@ -515,9 +543,9 @@ async def _show_date_step(
     await state.update_data(hall_season_id=season_id, hall_field=field.value)
     await callback.answer()
     if callback.message is not None:
-        await edit_reply_markup_if_changed(callback.message, reply_markup=None)
-        prompt = await callback.message.answer(
-            hall_fmt.date_prompt(entry, field),
+        await edit_message_if_changed(
+            callback.message,
+            text=hall_fmt.date_prompt(entry, field),
             reply_markup=hall_kb.date_prompt_keyboard(
                 season_id=season_id,
                 field=field,
@@ -526,8 +554,8 @@ async def _show_date_step(
             parse_mode="Markdown",
         )
         await state.update_data(
-            hall_date_prompt_chat_id=prompt.chat.id,
-            hall_date_prompt_message_id=prompt.message_id,
+            hall_date_prompt_chat_id=callback.message.chat.id,
+            hall_date_prompt_message_id=callback.message.message_id,
         )
 
 
@@ -542,21 +570,13 @@ async def _show_player_name_step(
         await callback.answer("Этот шаг устарел. Открой награду заново.", show_alert=True)
         return
     awarded_at = date.fromisoformat(str(data["hall_awarded_at"]))
-    entry = await hall_of_fame_management_service.get_season_hall_of_fame(
-        callback.from_user.id, season_id
-    )
-    await state.set_state(HallOfFameStates.entering_player_name)
     await callback.answer()
     if callback.message is not None:
-        await edit_reply_markup_if_changed(callback.message, reply_markup=None)
-        prompt = await callback.message.answer(
-            hall_fmt.player_prompt(entry, field, awarded_at),
-            reply_markup=hall_kb.search_prompt_keyboard(season_id=season_id, field=field),
-            parse_mode="Markdown",
-        )
-        await state.update_data(
-            hall_prompt_chat_id=prompt.chat.id,
-            hall_prompt_message_id=prompt.message_id,
+        await _edit_player_name_step(
+            callback.message,
+            state,
+            awarded_at,
+            actor_telegram_id=callback.from_user.id,
         )
 
 
