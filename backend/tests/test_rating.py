@@ -260,9 +260,9 @@ async def test_rating_filters_current_season_and_all_time(tmp_path: Path) -> Non
             current_page,
             current_player_id=second_player.id,
         ).startswith(
-            "Рейтинг — текущий сезон\n💍 - Победитель рейтингового сезона\n"
-            "💥 - Лучший нокаутер сезона\n"
-            "🎲 - количество турниров\n\n👉 1. *King* — 120 | 🎲 1"
+            "Рейтинг — текущий сезон\n🎲 - количество турниров\n"
+            "💍 - победитель рейтингового сезона\n"
+            "💥 - лучший нокаутер сезона\n\n👉 1. *King* — 120 | 🎲 1"
         )
         knockout_message = rating_fmt.message(
             knockout_title,
@@ -271,9 +271,9 @@ async def test_rating_filters_current_season_and_all_time(tmp_path: Path) -> Non
         )
         assert (
             "Рейтинг по нокаутам — за всё время\n"
-            "💍 - Победитель рейтингового сезона\n"
-            "💥 - Лучший нокаутер сезона\n"
-            "🎲 - количество турниров с нокаутами\n\n"
+            "🎲 - количество турниров с нокаутами\n"
+            "💍 - победитель рейтингового сезона\n"
+            "💥 - лучший нокаутер сезона\n\n"
         ) in knockout_message
         assert "👉 1. *Игрок Первый* 💍💥 — 6 | 🎲 2" in knockout_message
         assert "⭐" not in knockout_message
@@ -323,10 +323,117 @@ def test_rating_badges_and_legend_are_distinct_and_page_local() -> None:
 
     assert "All badges 💍💥🏆🏅🥊" in first
     assert first.count("🏅") == 2
-    assert "💍 - Победитель рейтингового сезона" in first
-    assert "🥊 - Победитель Grand Knockout" in first
+    assert "💍 - победитель рейтингового сезона" in first
+    assert "🥊 - победитель Grand Knockout" in first
     assert "победитель" not in second
     assert "🎲 - количество турниров" in second
+
+
+def test_rating_legends_use_statistic_first_and_deterministic_lowercased_titles() -> None:
+    grand_knockout = rating_achievement("grand_knockout")
+    grand_month = rating_achievement("grand_month")
+    grand_season = rating_achievement("grand_season")
+    knockout_winner = rating_achievement("ko_rating_winner")
+    rating_winner = rating_achievement("rating_winner")
+    points_page = pagination_service.paginate(
+        [
+            PointsRatingView(
+                player_id=1,
+                display_name="Player",
+                total_points=Decimal("100"),
+                tournaments_count=1,
+                hall_of_fame_achievements=(
+                    grand_knockout,
+                    grand_month,
+                    grand_season,
+                    rating_winner,
+                    knockout_winner,
+                ),
+            )
+        ],
+        page=0,
+        page_size=10,
+    )
+    knockout_page = pagination_service.paginate(
+        [
+            KnockoutsRatingView(
+                player_id=1,
+                display_name="Player",
+                knockouts_count=1,
+                big_knockouts_count=0,
+                knockout_tournaments_count=1,
+                hall_of_fame_achievements=(grand_knockout, rating_winner),
+            )
+        ],
+        page=0,
+        page_size=10,
+    )
+
+    points_message = rating_fmt.message("Рейтинг", points_page, current_player_id=99)
+    knockout_message = rating_fmt.message(
+        "Рейтинг по нокаутам", knockout_page, current_player_id=99
+    )
+
+    assert points_message.splitlines()[:7] == [
+        "Рейтинг",
+        "🎲 - количество турниров",
+        "💍 - победитель рейтингового сезона",
+        "💥 - лучший нокаутер сезона",
+        "🏆 - победитель Grand Season",
+        "🏅 - победитель Grand Month",
+        "🥊 - победитель Grand Knockout",
+    ]
+    assert knockout_message.splitlines()[:4] == [
+        "Рейтинг по нокаутам",
+        "🎲 - количество турниров с нокаутами",
+        "💍 - победитель рейтингового сезона",
+        "🥊 - победитель Grand Knockout",
+    ]
+    assert "💥" not in knockout_message
+    assert "🏆" not in knockout_message
+    assert "🏅" not in knockout_message
+    assert grand_knockout.title == "Победитель Grand Knockout"
+
+
+def test_rating_without_achievements_has_only_statistic_legend() -> None:
+    points_page = pagination_service.paginate(
+        [
+            PointsRatingView(
+                player_id=1,
+                display_name="Player",
+                total_points=Decimal("100"),
+                tournaments_count=1,
+            )
+        ],
+        page=0,
+        page_size=10,
+    )
+    knockout_page = pagination_service.paginate(
+        [
+            KnockoutsRatingView(
+                player_id=1,
+                display_name="Player",
+                knockouts_count=1,
+                big_knockouts_count=0,
+                knockout_tournaments_count=1,
+            )
+        ],
+        page=0,
+        page_size=10,
+    )
+
+    assert rating_fmt.message("Рейтинг", points_page, current_player_id=99).splitlines()[:3] == [
+        "Рейтинг",
+        "🎲 - количество турниров",
+        "",
+    ]
+    assert rating_fmt.message(
+        "Рейтинг по нокаутам", knockout_page, current_player_id=99
+    ).splitlines()[:3] == [
+        "Рейтинг по нокаутам",
+        "🎲 - количество турниров с нокаутами",
+        "",
+    ]
 
 
 async def test_rating_counts_historical_tied_places_with_authoritative_points(
@@ -427,8 +534,8 @@ def test_points_rating_format_uses_half_up_rounding_and_current_marker() -> None
     assert "⭐" not in message
     assert (
         "Рейтинг — за всё время\n"
-        "💍 - Победитель рейтингового сезона\n"
-        "🎲 - количество турниров\n\n"
+        "🎲 - количество турниров\n"
+        "💍 - победитель рейтингового сезона\n\n"
         "👉 1. *King* 💍 — 121 | 🎲 3\n"
         "🥈 Player — 90 | 🎲 2"
     ) == message
@@ -463,9 +570,9 @@ def test_knockout_rating_format_hides_points_and_repeats_titles() -> None:
     assert "🥊 6" not in message
     assert (
         "Рейтинг по нокаутам — за всё время\n"
-        "💍 - Победитель рейтингового сезона\n"
-        "💥 - Лучший нокаутер сезона\n"
-        "🎲 - количество турниров с нокаутами\n\n"
+        "🎲 - количество турниров с нокаутами\n"
+        "💍 - победитель рейтингового сезона\n"
+        "💥 - лучший нокаутер сезона\n\n"
         "🥇 King 💍💥 — 6 | 🎲 2"
     ) == message
     assert "×2" not in message

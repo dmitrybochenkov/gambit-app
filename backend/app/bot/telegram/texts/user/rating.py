@@ -21,10 +21,10 @@ def message(
 
     has_points_rows = hasattr(page.items[0], "total_points")
     lines = [title]
-    lines.extend(_achievement_legend(page.items))
     lines.append(
         "🎲 - количество турниров" if has_points_rows else "🎲 - количество турниров с нокаутами"
     )
+    lines.extend(_achievement_legend(page.items))
     lines.append("")
     start_position = page.page * page.page_size + 1
     for position, row in enumerate(page.items, start=start_position):
@@ -81,10 +81,14 @@ def _achievement_legend(rows: Iterable[object]) -> list[str]:
         for achievement in getattr(row, "hall_of_fame_achievements", ())
     }
     return [
-        f"{by_kind[kind].emoji} - {by_kind[kind].title}"
+        f"{by_kind[kind].emoji} - {_lowercase_first(by_kind[kind].title)}"
         for kind in ACHIEVEMENT_KIND_ORDER
         if kind in by_kind
     ]
+
+
+def _lowercase_first(value: str) -> str:
+    return value[:1].lower() + value[1:]
 
 
 def _escape_markdown(value: str) -> str:
