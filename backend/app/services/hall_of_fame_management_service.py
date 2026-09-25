@@ -14,6 +14,7 @@ from app.db.repositories.user_repository import UserRepository
 from app.db.session import SessionFactory
 from app.domain.hall_of_fame import SINGLETON_ACHIEVEMENT_KINDS
 from app.services.access_policy import access_policy
+from app.services.dto.achievements import AchievementTypeView
 from app.services.dto.hall_of_fame import (
     HallOfFameAchievementManagementView,
     HallOfFameCandidateView,
@@ -234,6 +235,7 @@ class HallOfFameManagementService:
             season.id, ()
         )
         photo_rows = (await repository.list_photos_for_seasons((season.id,))).get(season.id, ())
+        achievement_types = await repository.list_achievement_types()
         champion_row = next(
             (
                 row
@@ -272,8 +274,20 @@ class HallOfFameManagementService:
                     player=HallOfFameManagementService._achievement_user(row),
                     kind=row.kind,
                     awarded_at=row.awarded_at,
+                    title=row.title,
+                    emoji=row.emoji,
+                    custom_emoji_id=row.custom_emoji_id,
                 )
                 for row in achievement_rows
+            ),
+            achievement_types=tuple(
+                AchievementTypeView(
+                    kind=row.kind.value,
+                    title=row.title,
+                    emoji=row.emoji,
+                    custom_emoji_id=row.custom_emoji_id,
+                )
+                for row in achievement_types
             ),
         )
 

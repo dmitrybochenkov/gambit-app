@@ -7,7 +7,8 @@ from pathlib import Path
 import pytest
 
 PREVIOUS_REVISION = "bd2e3f4a5b6c"
-HEAD_REVISION = "ce3f4a5b6c7d"
+HEAD_REVISION = "d4e5f6a7b8c9"
+FINALIZATION_REVISION = "ce3f4a5b6c7d"
 
 
 def _alembic(
@@ -175,7 +176,7 @@ def test_finalization_downgrade_fails_closed_for_grand_achievement(tmp_path: Pat
     assert "grand achievements cannot be represented" in failed.stderr
     with sqlite3.connect(db_path) as connection:
         assert connection.execute("SELECT version_num FROM alembic_version").fetchone() == (
-            HEAD_REVISION,
+            FINALIZATION_REVISION,
         )
         assert connection.execute("SELECT COUNT(*) FROM hall_of_fame_achievements").fetchone() == (
             2,

@@ -1,6 +1,6 @@
 from dataclasses import dataclass
 
-from sqlalchemy import delete, select
+from sqlalchemy import delete, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.models import TournamentCombination, TournamentResult, User
@@ -16,6 +16,14 @@ class TournamentCombinationUserRecord:
 class TournamentCombinationRepository:
     def __init__(self, session: AsyncSession) -> None:
         self.session = session
+
+    async def count_lifetime_by_type(self, player_id: int) -> dict[TournamentCombinationType, int]:
+        result = await self.session.execute(
+            select(TournamentCombination.combination_type, func.count(TournamentCombination.id))
+            .where(TournamentCombination.player_id == player_id)
+            .group_by(TournamentCombination.combination_type)
+        )
+        return {combination_type: count for combination_type, count in result}
 
     async def list_with_users(self, tournament_id: int) -> list[TournamentCombinationUserRecord]:
         result = await self.session.execute(

@@ -14,7 +14,12 @@ from aiogram.types import (
     Chat,
     Message,
 )
-from conftest import build_player, seed_tournament_types_async, tournament_type_id
+from conftest import (
+    ACHIEVEMENT_TYPES,
+    build_player,
+    seed_tournament_types_async,
+    tournament_type_id,
+)
 from fastapi import HTTPException
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncEngine, async_sessionmaker, create_async_engine
@@ -94,6 +99,7 @@ from app.db.models.enums import (
 )
 from app.db.repositories.tournament_photo_repository import TournamentPhotoRepository
 from app.services.access_policy import AdminAccessDeniedError
+from app.services.dto.achievements import AchievementTypeView
 from app.services.dto.check_in import CheckInCandidateView
 from app.services.dto.hall_of_fame import (
     HallOfFameAchievementManagementView,
@@ -200,6 +206,28 @@ from app.services.tournament_planning_service import (
 from app.services.tournament_publication_service import TournamentPublicationService
 from app.services.tournament_service import TournamentRegistrationAlreadyCheckedInError
 from app.services.user_access_service import UserAccessService
+
+
+def achievement_type_view(kind: HallOfFameAchievementKind) -> AchievementTypeView:
+    title, emoji = ACHIEVEMENT_TYPES[kind]
+    return AchievementTypeView(kind=kind.value, title=title, emoji=emoji)
+
+
+ACHIEVEMENT_TYPE_VIEWS = tuple(achievement_type_view(kind) for kind in HallOfFameAchievementKind)
+
+
+def public_achievement(**values: object) -> HallOfFameAchievementView:
+    kind = values["kind"]
+    assert isinstance(kind, HallOfFameAchievementKind)
+    title, emoji = ACHIEVEMENT_TYPES[kind]
+    return HallOfFameAchievementView(**values, title=title, emoji=emoji)
+
+
+def management_achievement(**values: object) -> HallOfFameAchievementManagementView:
+    kind = values["kind"]
+    assert isinstance(kind, HallOfFameAchievementKind)
+    title, emoji = ACHIEVEMENT_TYPES[kind]
+    return HallOfFameAchievementManagementView(**values, title=title, emoji=emoji)
 
 
 class RecordingBot(Bot):
@@ -5461,14 +5489,14 @@ async def test_hall_of_fame_button_shows_message(
                     knockout_leader_player_id=2,
                     knockout_leader_display_name="Петр",
                     achievements=(
-                        HallOfFameAchievementView(
+                        public_achievement(
                             id=1,
                             player_id=1,
                             display_name="Иван",
                             kind=HallOfFameAchievementKind.RATING_WINNER,
                             awarded_at=date(2026, 6, 30),
                         ),
-                        HallOfFameAchievementView(
+                        public_achievement(
                             id=2,
                             player_id=2,
                             display_name="Петр",
@@ -5488,7 +5516,7 @@ async def test_hall_of_fame_button_shows_message(
     first_answer = message.answer.await_args_list[0]
     second_answer = message.answer.await_args_list[1]
     assert first_answer.args[0] == (
-        "🏆 Зал славы\n\n💍 — победитель сезона\n💥 — лучший нокаутер сезона"
+        "🏆 Зал славы\n\n💍 — Победитель рейтингового сезона\n💥 — Лучший нокаутер сезона"
     )
     assert second_answer.args[0] == ("Сезон 2026\n\n💍 Иван\n💥 Петр")
     assert "reply_markup" not in first_answer.kwargs
@@ -5512,14 +5540,14 @@ async def test_hall_of_fame_season_without_photos_is_text_card() -> None:
         knockout_leader_player_id=2,
         knockout_leader_display_name="Петр",
         achievements=(
-            HallOfFameAchievementView(
+            public_achievement(
                 id=1,
                 player_id=1,
                 display_name="Иван",
                 kind=HallOfFameAchievementKind.RATING_WINNER,
                 awarded_at=date(2026, 8, 31),
             ),
-            HallOfFameAchievementView(
+            public_achievement(
                 id=2,
                 player_id=2,
                 display_name="Петр",
@@ -5555,14 +5583,14 @@ async def test_hall_of_fame_season_with_one_photo_uses_captioned_photo() -> None
         knockout_leader_display_name="Петр",
         photos=(HallOfFamePhotoView(id=1, telegram_file_id="champion-photo", position=0),),
         achievements=(
-            HallOfFameAchievementView(
+            public_achievement(
                 id=1,
                 player_id=1,
                 display_name="Иван",
                 kind=HallOfFameAchievementKind.RATING_WINNER,
                 awarded_at=date(2026, 8, 31),
             ),
-            HallOfFameAchievementView(
+            public_achievement(
                 id=2,
                 player_id=2,
                 display_name="Петр",
@@ -5605,14 +5633,14 @@ async def test_hall_of_fame_season_with_two_photos_uses_captioned_collage(
             HallOfFamePhotoView(id=2, telegram_file_id="knockout-photo", position=1),
         ),
         achievements=(
-            HallOfFameAchievementView(
+            public_achievement(
                 id=1,
                 player_id=1,
                 display_name="Иван",
                 kind=HallOfFameAchievementKind.RATING_WINNER,
                 awarded_at=date(2026, 8, 31),
             ),
-            HallOfFameAchievementView(
+            public_achievement(
                 id=2,
                 player_id=2,
                 display_name="Петр",
@@ -5730,6 +5758,7 @@ async def test_hall_of_fame_today_date_starts_existing_player_search(
         ends_at=date(2026, 8, 31),
         champion=None,
         knockout_leader=None,
+        achievement_types=ACHIEVEMENT_TYPE_VIEWS,
     )
     service = SimpleNamespace(get_season_hall_of_fame=AsyncMock(return_value=entry))
     monkeypatch.setattr(
@@ -5750,7 +5779,7 @@ async def test_hall_of_fame_today_date_starts_existing_player_search(
 
     assert state.state == HallOfFameStates.entering_player_name
     assert state.data["hall_awarded_at"] == club_clock.today().isoformat()
-    assert "Введи имя для 🏅 Grand Month" in message.edit_text.await_args.args[0]
+    assert "Введи имя для 🏅 Победитель Grand Month" in message.edit_text.await_args.args[0]
     message.answer.assert_not_awaited()
 
 
@@ -5764,6 +5793,7 @@ async def test_hall_of_fame_delete_all_photos_requires_confirmation(
         ends_at=date(2026, 8, 31),
         champion=None,
         knockout_leader=None,
+        achievement_types=ACHIEVEMENT_TYPE_VIEWS,
     )
     service = SimpleNamespace(
         delete_all_photos=AsyncMock(),
@@ -5812,6 +5842,7 @@ async def test_hall_of_fame_inline_kind_back_cycles_edit_one_message(
         ends_at=None,
         champion=None,
         knockout_leader=None,
+        achievement_types=ACHIEVEMENT_TYPE_VIEWS,
     )
     service = SimpleNamespace(get_season_hall_of_fame=AsyncMock(return_value=entry))
     monkeypatch.setattr(
@@ -5884,6 +5915,7 @@ async def test_hall_of_fame_manual_date_player_selection_and_save_deactivate_key
         ends_at=None,
         champion=None,
         knockout_leader=None,
+        achievement_types=ACHIEVEMENT_TYPE_VIEWS,
     )
     saved_entry = HallOfFameEntryView(
         season_id=1,
@@ -5892,8 +5924,9 @@ async def test_hall_of_fame_manual_date_player_selection_and_save_deactivate_key
         ends_at=None,
         champion=None,
         knockout_leader=None,
+        achievement_types=ACHIEVEMENT_TYPE_VIEWS,
         achievements=(
-            HallOfFameAchievementManagementView(
+            management_achievement(
                 id=44,
                 player=player,
                 kind=HallOfFameAchievementKind.GRAND_KNOCKOUT,
@@ -5939,7 +5972,8 @@ async def test_hall_of_fame_manual_date_player_selection_and_save_deactivate_key
         reply_markup=None,
     )
     assert (
-        "Введи имя для 🥊 Grand Knockout (24.09.2026)" in (input_message.answer.await_args.args[0])
+        "Введи имя для 🥊 Победитель Grand Knockout (24.09.2026)"
+        in (input_message.answer.await_args.args[0])
     )
 
     search_message = SimpleNamespace(edit_text=AsyncMock(), answer=AsyncMock())
@@ -6019,13 +6053,13 @@ async def test_hall_of_fame_delete_flow_targets_exact_occurrence(
         status=UserStatus.ACTIVE,
         role=UserRole.PLAYER,
     )
-    first = HallOfFameAchievementManagementView(
+    first = management_achievement(
         id=41,
         player=player,
         kind=HallOfFameAchievementKind.GRAND_MONTH,
         awarded_at=date(2026, 8, 15),
     )
-    second = HallOfFameAchievementManagementView(
+    second = management_achievement(
         id=42,
         player=player,
         kind=HallOfFameAchievementKind.GRAND_MONTH,
@@ -6038,6 +6072,7 @@ async def test_hall_of_fame_delete_flow_targets_exact_occurrence(
         ends_at=None,
         champion=None,
         knockout_leader=None,
+        achievement_types=ACHIEVEMENT_TYPE_VIEWS,
         achievements=(second, first),
     )
     refreshed = HallOfFameEntryView(
@@ -6047,6 +6082,7 @@ async def test_hall_of_fame_delete_flow_targets_exact_occurrence(
         ends_at=None,
         champion=None,
         knockout_leader=None,
+        achievement_types=ACHIEVEMENT_TYPE_VIEWS,
         achievements=(first,),
     )
     service = SimpleNamespace(
@@ -6078,7 +6114,7 @@ async def test_hall_of_fame_delete_flow_targets_exact_occurrence(
         state,
     )
     service.delete_achievement.assert_not_awaited()
-    assert "🏅 Grand Month (20.09.2026) — Иван" in message.edit_text.await_args.args[0]
+    assert "🏅 Победитель Grand Month (20.09.2026) — Иван" in message.edit_text.await_args.args[0]
 
     await superadmin_hall_of_fame_handlers.select_hall_of_fame_delete_action(
         callback,
@@ -6114,6 +6150,7 @@ async def test_superadmin_hall_of_fame_opens_card_and_searches_candidate(
         ends_at=date(2026, 8, 31),
         champion=None,
         knockout_leader=None,
+        achievement_types=ACHIEVEMENT_TYPE_VIEWS,
     )
     service = SimpleNamespace(
         get_season_hall_of_fame=AsyncMock(return_value=entry),
@@ -6255,8 +6292,9 @@ def test_superadmin_hall_of_fame_card_and_submenus() -> None:
         ends_at=date(2026, 8, 31),
         champion=champion,
         knockout_leader=None,
+        achievement_types=ACHIEVEMENT_TYPE_VIEWS,
         achievements=(
-            HallOfFameAchievementManagementView(
+            management_achievement(
                 id=1,
                 player=champion,
                 kind=HallOfFameAchievementKind.RATING_WINNER,
@@ -6282,11 +6320,11 @@ def test_superadmin_hall_of_fame_card_and_submenus() -> None:
     assert inline_keyboard_texts(
         superadmin_hall_of_fame_kb.achievements_keyboard(entry=champion_only, page=0)
     ) == [
-        "💍 Победитель рейтинга",
-        "💥 Победитель KO-рейтинга",
-        "🏆 Grand Season",
-        "🏅 Grand Month",
-        "🥊 Grand Knockout",
+        "💍 Победитель рейтингового сезона",
+        "💥 Лучший нокаутер сезона",
+        "🏆 Победитель Grand Season",
+        "🏅 Победитель Grand Month",
+        "🥊 Победитель Grand Knockout",
         "🗑 Удалить награду",
         "⬅️ Назад",
         "❌ Отмена",
@@ -6309,6 +6347,7 @@ def test_hall_of_fame_back_callbacks_preserve_one_level_navigation() -> None:
         ends_at=None,
         champion=None,
         knockout_leader=None,
+        achievement_types=ACHIEVEMENT_TYPE_VIEWS,
     )
     field = superadmin_hall_of_fame_kb.HallOfFameField.GRAND_MONTH
     assert "🗑 Удалить награду" not in inline_keyboard_texts(
@@ -6848,6 +6887,9 @@ async def test_profile_blocks_edit_one_message_and_restore_base(
         rating_position=1,
         rating_participants_count=3,
         prize_percent=33,
+        royal_flush_count=1,
+        straight_flush_count=2,
+        four_of_a_kind_count=4,
         honours=(
             PlayerProfileHonourView(
                 achievement_id=1,
@@ -6856,6 +6898,8 @@ async def test_profile_blocks_edit_one_message_and_restore_base(
                 season_starts_at=date(2026, 6, 1),
                 kind="grand_month",
                 awarded_at=date(2026, 8, 20),
+                title=ACHIEVEMENT_TYPES[HallOfFameAchievementKind.GRAND_MONTH][0],
+                emoji=ACHIEVEMENT_TYPES[HallOfFameAchievementKind.GRAND_MONTH][1],
             ),
             PlayerProfileHonourView(
                 achievement_id=2,
@@ -6864,6 +6908,8 @@ async def test_profile_blocks_edit_one_message_and_restore_base(
                 season_starts_at=date(2026, 9, 1),
                 kind="grand_knockout",
                 awarded_at=date(2026, 9, 13),
+                title=ACHIEVEMENT_TYPES[HallOfFameAchievementKind.GRAND_KNOCKOUT][0],
+                emoji=ACHIEVEMENT_TYPES[HallOfFameAchievementKind.GRAND_KNOCKOUT][1],
             ),
         ),
         active_rewards=(
@@ -6894,7 +6940,7 @@ async def test_profile_blocks_edit_one_message_and_restore_base(
     )
     achievement_text = message.edit_text.await_args.args[0]
     assert "Награды — Осень 2026" in achievement_text
-    assert "🥊 Grand Knockout (13.09.2026)" in achievement_text
+    assert "🥊 Победитель Grand Knockout (13.09.2026)" in achievement_text
     assert "У тебя есть активные бонусы" not in achievement_text
     assert inline_keyboard_texts(message.edit_text.await_args.kwargs["reply_markup"]) == [
         "⬅️",
@@ -6915,6 +6961,50 @@ async def test_profile_blocks_edit_one_message_and_restore_base(
         "🥇🥈🥉 Призовые места",
     ]
     assert not hasattr(message, "answer")
+
+    await user_profile_handlers.show_profile_block(
+        callback,
+        user_profile_kb.ProfileBlockCallback(block="combinations", kind=ProfileKind.CURRENT_SEASON),
+    )
+    combinations_text = message.edit_text.await_args.args[0]
+    assert "👑 Роял-флеш — 1" in combinations_text
+    assert "⚡ Стрит-флеш — 2" in combinations_text
+    assert "4️⃣ Каре — 4" in combinations_text
+    assert inline_keyboard_texts(message.edit_text.await_args.kwargs["reply_markup"]) == [
+        "⬅️ Закрыть комбинации",
+        "❌ Закрыть рейтинг",
+    ]
+
+    await user_profile_handlers.show_profile_block(
+        callback,
+        user_profile_kb.ProfileBlockCallback(block="base", kind=ProfileKind.CURRENT_SEASON),
+    )
+    assert "🃏 Покерные комбинации" not in message.edit_text.await_args.args[0]
+    assert "🃏 Покерные комбинации" in inline_keyboard_texts(
+        message.edit_text.await_args.kwargs["reply_markup"]
+    )
+
+
+def test_profile_combinations_button_is_hidden_when_all_counts_are_zero() -> None:
+    stats = PlayerProfileView(
+        display_name="Дима",
+        total_points=Decimal("0"),
+        knockouts_count=0,
+        big_knockouts_count=0,
+        tournaments_count=0,
+        first_places_count=0,
+        second_places_count=0,
+        third_places_count=0,
+        fourth_places_count=0,
+        fifth_places_count=0,
+        rating_position=None,
+        rating_participants_count=0,
+        prize_percent=None,
+    )
+
+    assert "🃏 Покерные комбинации" not in inline_keyboard_texts(
+        user_profile_kb.profile_result_keyboard(kind=ProfileKind.ALL_TIME, stats=stats)
+    )
 
 
 async def test_profile_achievement_stale_season_is_rejected(
@@ -6942,6 +7032,8 @@ async def test_profile_achievement_stale_season_is_rejected(
                 season_starts_at=date(2026, 6, 1),
                 kind="grand_month",
                 awarded_at=date(2026, 8, 20),
+                title=ACHIEVEMENT_TYPES[HallOfFameAchievementKind.GRAND_MONTH][0],
+                emoji=ACHIEVEMENT_TYPES[HallOfFameAchievementKind.GRAND_MONTH][1],
             ),
         ),
     )

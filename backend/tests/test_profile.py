@@ -3,7 +3,12 @@ from decimal import Decimal
 from pathlib import Path
 
 import pytest
-from conftest import build_player, seed_tournament_types_async, tournament_type_id
+from conftest import (
+    ACHIEVEMENT_TYPES,
+    build_player,
+    seed_tournament_types_async,
+    tournament_type_id,
+)
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
 from app.bot.telegram.formatters.statistics import profile as profile_fmt
@@ -13,9 +18,16 @@ from app.db.models import (
     ScoringConfig,
     Season,
     Tournament,
+    TournamentCombination,
     TournamentResult,
 )
-from app.db.models.enums import TournamentStatus, UserRole, UserStatus
+from app.db.models.enums import (
+    HallOfFameAchievementKind,
+    TournamentCombinationType,
+    TournamentStatus,
+    UserRole,
+    UserStatus,
+)
 from app.services.dto.rewards import PlayerRewardView
 from app.services.dto.statistics.profile import PlayerProfileHonourView, PlayerProfileView
 from app.services.profile_service import ProfileFutureSeasonError, ProfileKind, ProfileService
@@ -40,6 +52,11 @@ def profile_view(**overrides: object) -> PlayerProfileView:
     }
     data.update(overrides)
     return PlayerProfileView(**data)
+
+
+def honour_metadata(kind: str) -> dict[str, str]:
+    title, emoji = ACHIEVEMENT_TYPES[HallOfFameAchievementKind(kind)]
+    return {"title": title, "emoji": emoji}
 
 
 def test_profile_formats_only_non_zero_prize_places() -> None:
@@ -78,6 +95,7 @@ def test_profile_formats_season_honours() -> None:
                 season_starts_at=date(2026, 4, 1),
                 kind="rating_winner",
                 awarded_at=date(2026, 6, 30),
+                **honour_metadata("rating_winner"),
             ),
             PlayerProfileHonourView(
                 achievement_id=2,
@@ -86,13 +104,14 @@ def test_profile_formats_season_honours() -> None:
                 season_starts_at=date(2026, 7, 1),
                 kind="ko_rating_winner",
                 awarded_at=date(2026, 9, 30),
+                **honour_metadata("ko_rating_winner"),
             ),
         ),
     )
     message = profile_texts.achievements_block("Твой профиль — за всё время", stats, 2)
 
     assert "Награды — Лето 2026" in message
-    assert "💥 Победитель KO-рейтинга" in message
+    assert "💥 Лучший нокаутер сезона" in message
     assert "Весна 2026" not in message
 
 
@@ -107,6 +126,7 @@ def test_profile_formats_champion_and_knockout_titles_separately() -> None:
                 season_starts_at=date(2026, 1, 1),
                 kind="rating_winner",
                 awarded_at=date(2026, 3, 31),
+                **honour_metadata("rating_winner"),
             ),
             PlayerProfileHonourView(
                 achievement_id=2,
@@ -114,6 +134,7 @@ def test_profile_formats_champion_and_knockout_titles_separately() -> None:
                 season_starts_at=date(2026, 4, 1),
                 kind="ko_rating_winner",
                 awarded_at=date(2026, 6, 30),
+                **honour_metadata("ko_rating_winner"),
             ),
             PlayerProfileHonourView(
                 achievement_id=3,
@@ -121,6 +142,7 @@ def test_profile_formats_champion_and_knockout_titles_separately() -> None:
                 season_starts_at=date(2026, 7, 1),
                 kind="rating_winner",
                 awarded_at=date(2026, 9, 30),
+                **honour_metadata("rating_winner"),
             ),
             PlayerProfileHonourView(
                 achievement_id=4,
@@ -128,13 +150,14 @@ def test_profile_formats_champion_and_knockout_titles_separately() -> None:
                 season_starts_at=date(2026, 10, 1),
                 kind="ko_rating_winner",
                 awarded_at=date(2026, 12, 31),
+                **honour_metadata("ko_rating_winner"),
             ),
         ),
     )
     message = profile_texts.achievements_block("Твой профиль — за всё время", stats, 0)
 
-    assert message.count("💍 Победитель рейтинга") == 2
-    assert message.count("💥 Победитель KO-рейтинга") == 2
+    assert message.count("💍 Победитель рейтингового сезона") == 2
+    assert message.count("💥 Лучший нокаутер сезона") == 2
     assert "🥊 17" in message
 
 
@@ -174,6 +197,41 @@ def test_profile_formats_active_prize_stack_rewards() -> None:
     assert "🎁 +40 000 фишек к первому стеку" in message
     assert "За 1 место — Баунти турнир, 22 августа 2026" in message
     assert "Действует до 29 августа 2026" in message
+
+
+@pytest.mark.parametrize(
+    ("counts", "expected", "unexpected"),
+    [
+        ((1, 0, 0), ("👑 Роял-флеш — 1",), ("Стрит-флеш", "Каре")),
+        (
+            (0, 2, 4),
+            ("⚡ Стрит-флеш — 2", "4️⃣ Каре — 4"),
+            ("Роял-флеш",),
+        ),
+        (
+            (1, 2, 4),
+            ("👑 Роял-флеш — 1", "⚡ Стрит-флеш — 2", "4️⃣ Каре — 4"),
+            (),
+        ),
+    ],
+)
+def test_profile_combinations_block_shows_only_non_zero_counts(
+    counts: tuple[int, int, int],
+    expected: tuple[str, ...],
+    unexpected: tuple[str, ...],
+) -> None:
+    message = profile_texts.combinations_block(
+        "Твой профиль — за всё время",
+        profile_view(
+            royal_flush_count=counts[0],
+            straight_flush_count=counts[1],
+            four_of_a_kind_count=counts[2],
+        ),
+    )
+
+    assert "🃏 Покерные комбинации" in message
+    assert all(line in message for line in expected)
+    assert all(label not in message for label in unexpected)
 
 
 async def test_profile_filters_current_season_and_all_time(tmp_path: Path) -> None:
@@ -281,6 +339,30 @@ async def test_profile_filters_current_season_and_all_time(tmp_path: Path) -> No
                     knockout_points=Decimal("999"),
                     bonus_points=999,
                 ),
+                TournamentCombination(
+                    tournament_id=previous_tournament.id,
+                    player_id=player.id,
+                    combination_type=TournamentCombinationType.ROYAL_FLUSH,
+                ),
+                TournamentCombination(
+                    tournament_id=previous_tournament.id,
+                    player_id=player.id,
+                    combination_type=TournamentCombinationType.STRAIGHT_FLUSH,
+                ),
+                TournamentCombination(
+                    tournament_id=current_tournament.id,
+                    player_id=player.id,
+                    combination_type=TournamentCombinationType.STRAIGHT_FLUSH,
+                ),
+                *[
+                    TournamentCombination(
+                        tournament_id=current_tournament.id,
+                        player_id=player.id,
+                        combination_type=TournamentCombinationType.FOUR_OF_A_KIND,
+                        rank="A",
+                    )
+                    for _ in range(4)
+                ],
             ]
         )
         await session.commit()
@@ -308,6 +390,11 @@ async def test_profile_filters_current_season_and_all_time(tmp_path: Path) -> No
         assert current_stats.tournaments_count == 1
         assert current_stats.first_places_count == 0
         assert current_stats.second_places_count == 1
+        assert (
+            current_stats.royal_flush_count,
+            current_stats.straight_flush_count,
+            current_stats.four_of_a_kind_count,
+        ) == (1, 2, 4)
 
         assert all_time_title == "Твой профиль — за всё время"
         assert all_time_stats is not None
@@ -316,11 +403,21 @@ async def test_profile_filters_current_season_and_all_time(tmp_path: Path) -> No
         assert all_time_stats.tournaments_count == 2
         assert all_time_stats.first_places_count == 1
         assert all_time_stats.second_places_count == 1
+        assert (
+            all_time_stats.royal_flush_count,
+            all_time_stats.straight_flush_count,
+            all_time_stats.four_of_a_kind_count,
+        ) == (1, 2, 4)
 
         assert empty_stats is not None
         assert empty_stats.display_name == "King"
         assert empty_stats.total_points == Decimal("0")
         assert empty_stats.tournaments_count == 0
+        assert (
+            empty_stats.royal_flush_count,
+            empty_stats.straight_flush_count,
+            empty_stats.four_of_a_kind_count,
+        ) == (0, 0, 0)
         all_time_message = profile_texts.placements_block(
             all_time_title,
             all_time_stats,

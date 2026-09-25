@@ -3,7 +3,7 @@ from pathlib import Path
 from zoneinfo import ZoneInfo
 
 import pytest
-from conftest import build_player
+from conftest import ACHIEVEMENT_TYPES, build_player, seed_achievement_types_async
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
@@ -40,6 +40,7 @@ async def test_hall_of_fame_uses_manual_entries_from_completed_seasons(
 
     session_factory = async_sessionmaker(engine, expire_on_commit=False)
     async with session_factory() as session:
+        await seed_achievement_types_async(session)
         config = ScoringConfig()
         session.add(config)
         await session.flush()
@@ -122,7 +123,10 @@ async def test_hall_of_fame_uses_manual_entries_from_completed_seasons(
         assert seasons[2].knockout_leader_display_name == "Петр"
         assert "Будущий финал" not in hall_fmt.message(seasons)
         assert hall_fmt.message(seasons) == (
-            "🏆 Зал славы\n\n💍 — победитель сезона\n💥 — лучший нокаутер сезона"
+            "🏆 Зал славы\n\n"
+            "🏅 — Победитель Grand Month\n"
+            "💍 — Победитель рейтингового сезона\n"
+            "💥 — Лучший нокаутер сезона"
         )
         assert hall_fmt.season_caption(seasons[0]) == ("Открытый сезон\n\n🏅 Петр (01.07.2026)")
         assert hall_fmt.season_caption(seasons[1]) == "Сезон 2026\n\n💍 Петр"
@@ -164,12 +168,7 @@ async def test_hall_of_fame_ignores_mathematical_winners_without_manual_entry(
 
 
 def test_hall_of_fame_empty_state() -> None:
-    assert hall_fmt.message([]) == (
-        "🏆 Зал славы\n\n"
-        "💍 — победитель сезона\n"
-        "💥 — лучший нокаутер сезона\n\n"
-        "Пока нет заполненных сезонов в Зале славы."
-    )
+    assert hall_fmt.message([]) == "🏆 Зал славы\n\nПока нет заполненных сезонов в Зале славы."
 
 
 def test_hall_of_fame_formatter_preserves_occurrence_order_and_repetitions() -> None:
@@ -180,6 +179,8 @@ def test_hall_of_fame_formatter_preserves_occurrence_order_and_repetitions() -> 
             display_name=name,
             kind=kind,
             awarded_at=awarded_at,
+            title=ACHIEVEMENT_TYPES[kind][0],
+            emoji=ACHIEVEMENT_TYPES[kind][1],
         )
         for index, (kind, name, awarded_at) in enumerate(
             (
@@ -222,6 +223,7 @@ async def test_hall_of_fame_management_crud_preserves_repeated_occurrences(
 
     session_factory = async_sessionmaker(engine, expire_on_commit=False)
     async with session_factory() as session:
+        await seed_achievement_types_async(session)
         config = ScoringConfig()
         session.add(config)
         await session.flush()

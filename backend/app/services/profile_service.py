@@ -6,6 +6,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from app.common.clock import Clock, club_clock
 from app.db.models import Season
+from app.db.models.enums import TournamentCombinationType
 from app.db.repositories.hall_of_fame_repository import HallOfFameRepository
 from app.db.repositories.profile_repository import (
     PlayerProfileStats,
@@ -13,6 +14,7 @@ from app.db.repositories.profile_repository import (
 )
 from app.db.repositories.rating_repository import RatingRepository
 from app.db.repositories.season_repository import SeasonRepository
+from app.db.repositories.tournament_combination_repository import TournamentCombinationRepository
 from app.db.session import SessionFactory
 from app.services.access_policy import ActiveUserRequiredError, access_policy
 from app.services.dto.seasons import SeasonOptionView
@@ -154,12 +156,20 @@ class ProfileService:
             today,
         )
         honours = await _player_honours(hall_of_fame_repository, player_id)
+        combination_counts = await TournamentCombinationRepository(session).count_lifetime_by_type(
+            player_id
+        )
         if kind == ProfileKind.CURRENT_SEASON:
             season = await season_repository.get_for_date(today)
             if season is None:
                 return (
                     "Твой профиль — текущий сезон",
-                    empty_profile(display_name, honours=honours, active_rewards=active_rewards),
+                    empty_profile(
+                        display_name,
+                        honours=honours,
+                        active_rewards=active_rewards,
+                        combination_counts=combination_counts,
+                    ),
                 )
             stats = await profile_repository.get_player_stats(
                 player_id=player_id,
@@ -178,9 +188,15 @@ class ProfileService:
                     rating_participants_count=rating_participants_count,
                     honours=honours,
                     active_rewards=active_rewards,
+                    combination_counts=combination_counts,
                 )
                 if stats
-                else empty_profile(display_name, honours=honours, active_rewards=active_rewards),
+                else empty_profile(
+                    display_name,
+                    honours=honours,
+                    active_rewards=active_rewards,
+                    combination_counts=combination_counts,
+                ),
             )
         if kind == ProfileKind.SELECTED_SEASON:
             season = await _require_started_season(season_repository, season_id, today)
@@ -201,9 +217,15 @@ class ProfileService:
                     rating_participants_count=rating_participants_count,
                     honours=honours,
                     active_rewards=active_rewards,
+                    combination_counts=combination_counts,
                 )
                 if stats
-                else empty_profile(display_name, honours=honours, active_rewards=active_rewards),
+                else empty_profile(
+                    display_name,
+                    honours=honours,
+                    active_rewards=active_rewards,
+                    combination_counts=combination_counts,
+                ),
             )
         stats = await profile_repository.get_player_stats(player_id=player_id)
         rating_position, rating_participants_count = await _points_rating_position(
@@ -218,9 +240,15 @@ class ProfileService:
                 rating_participants_count=rating_participants_count,
                 honours=honours,
                 active_rewards=active_rewards,
+                combination_counts=combination_counts,
             )
             if stats
-            else empty_profile(display_name, honours=honours, active_rewards=active_rewards),
+            else empty_profile(
+                display_name,
+                honours=honours,
+                active_rewards=active_rewards,
+                combination_counts=combination_counts,
+            ),
         )
 
 
@@ -250,6 +278,7 @@ def player_profile_view(
     rating_participants_count: int,
     honours: tuple[PlayerProfileHonourView, ...] = (),
     active_rewards: tuple = (),
+    combination_counts: dict[TournamentCombinationType, int] | None = None,
 ) -> PlayerProfileView:
     return PlayerProfileView(
         display_name=stats.display_name,
@@ -267,6 +296,7 @@ def player_profile_view(
         prize_percent=prize_percent(stats),
         honours=honours,
         active_rewards=active_rewards,
+        **_combination_count_fields(combination_counts),
     )
 
 
@@ -275,6 +305,7 @@ def empty_profile(
     *,
     honours: tuple[PlayerProfileHonourView, ...] = (),
     active_rewards: tuple = (),
+    combination_counts: dict[TournamentCombinationType, int] | None = None,
 ) -> PlayerProfileView:
     return PlayerProfileView(
         display_name=display_name,
@@ -292,7 +323,19 @@ def empty_profile(
         prize_percent=None,
         honours=honours,
         active_rewards=active_rewards,
+        **_combination_count_fields(combination_counts),
     )
+
+
+def _combination_count_fields(
+    counts: dict[TournamentCombinationType, int] | None,
+) -> dict[str, int]:
+    values = counts or {}
+    return {
+        "royal_flush_count": values.get(TournamentCombinationType.ROYAL_FLUSH, 0),
+        "straight_flush_count": values.get(TournamentCombinationType.STRAIGHT_FLUSH, 0),
+        "four_of_a_kind_count": values.get(TournamentCombinationType.FOUR_OF_A_KIND, 0),
+    }
 
 
 async def _player_honours(
@@ -308,6 +351,9 @@ async def _player_honours(
             season_starts_at=row.starts_at,
             kind=row.kind,
             awarded_at=row.awarded_at,
+            title=row.title,
+            emoji=row.emoji,
+            custom_emoji_id=row.custom_emoji_id,
         )
         for row in rows
     )

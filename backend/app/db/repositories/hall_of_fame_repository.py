@@ -4,7 +4,7 @@ from datetime import date
 from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.db.models import HallOfFameAchievement, HallOfFamePhoto, Season, User
+from app.db.models import AchievementType, HallOfFameAchievement, HallOfFamePhoto, Season, User
 from app.db.models.enums import (
     HallOfFameAchievementKind,
     UserGender,
@@ -56,6 +56,17 @@ class HallOfFameAchievementRow:
     gender: UserGender | None
     kind: HallOfFameAchievementKind
     awarded_at: date
+    title: str
+    emoji: str
+    custom_emoji_id: str | None
+
+
+@dataclass(frozen=True)
+class AchievementTypeRow:
+    kind: HallOfFameAchievementKind
+    title: str
+    emoji: str
+    custom_emoji_id: str | None
 
 
 @dataclass(frozen=True)
@@ -66,6 +77,9 @@ class PlayerHallOfFameHonourRow:
     starts_at: date
     kind: str
     awarded_at: date
+    title: str
+    emoji: str
+    custom_emoji_id: str | None
 
 
 class HallOfFameRepository:
@@ -160,13 +174,27 @@ class HallOfFameRepository:
                 User.status,
                 User.role,
                 User.gender,
+                AchievementType.title,
+                AchievementType.emoji,
+                AchievementType.custom_emoji_id,
             )
             .join(User, User.id == HallOfFameAchievement.player_id)
+            .join(AchievementType, AchievementType.kind == HallOfFameAchievement.kind)
             .where(HallOfFameAchievement.season_id.in_(season_ids))
             .order_by(HallOfFameAchievement.season_id, HallOfFameAchievement.id)
         )
         grouped: dict[int, list[HallOfFameAchievementRow]] = {}
-        for achievement, display_name, telegram_id, status, role, gender in result:
+        for (
+            achievement,
+            display_name,
+            telegram_id,
+            status,
+            role,
+            gender,
+            title,
+            emoji,
+            custom_emoji_id,
+        ) in result:
             grouped.setdefault(achievement.season_id, []).append(
                 HallOfFameAchievementRow(
                     id=achievement.id,
@@ -179,6 +207,9 @@ class HallOfFameRepository:
                     gender=gender,
                     kind=achievement.kind,
                     awarded_at=achievement.awarded_at,
+                    title=title,
+                    emoji=emoji,
+                    custom_emoji_id=custom_emoji_id,
                 )
             )
         return {
@@ -258,8 +289,16 @@ class HallOfFameRepository:
 
     async def list_player_honours(self, player_id: int) -> list[PlayerHallOfFameHonourRow]:
         result = await self.session.execute(
-            select(HallOfFameAchievement, Season.name, Season.starts_at)
+            select(
+                HallOfFameAchievement,
+                Season.name,
+                Season.starts_at,
+                AchievementType.title,
+                AchievementType.emoji,
+                AchievementType.custom_emoji_id,
+            )
             .join(Season, Season.id == HallOfFameAchievement.season_id)
+            .join(AchievementType, AchievementType.kind == HallOfFameAchievement.kind)
             .where(HallOfFameAchievement.player_id == player_id)
             .order_by(Season.starts_at, HallOfFameAchievement.id)
         )
@@ -271,8 +310,11 @@ class HallOfFameRepository:
                 starts_at=starts_at,
                 kind=achievement.kind.value,
                 awarded_at=achievement.awarded_at,
+                title=title,
+                emoji=emoji,
+                custom_emoji_id=custom_emoji_id,
             )
-            for achievement, season_name, starts_at in result
+            for achievement, season_name, starts_at, title, emoji, custom_emoji_id in result
         ]
         return sorted(
             rows,
@@ -290,19 +332,47 @@ class HallOfFameRepository:
         self,
         player_ids: tuple[int, ...],
         today: date,
-    ) -> dict[int, tuple[HallOfFameAchievementKind, ...]]:
+    ) -> dict[int, tuple[AchievementTypeRow, ...]]:
         if not player_ids:
             return {}
         result = await self.session.execute(
-            select(HallOfFameAchievement.player_id, HallOfFameAchievement.kind)
+            select(
+                HallOfFameAchievement.player_id,
+                HallOfFameAchievement.kind,
+                AchievementType.title,
+                AchievementType.emoji,
+                AchievementType.custom_emoji_id,
+            )
             .join(Season, Season.id == HallOfFameAchievement.season_id)
+            .join(AchievementType, AchievementType.kind == HallOfFameAchievement.kind)
             .where(
                 HallOfFameAchievement.player_id.in_(player_ids),
                 Season.starts_at <= today,
             )
             .order_by(Season.starts_at, Season.id, HallOfFameAchievement.id)
         )
-        grouped: dict[int, list[HallOfFameAchievementKind]] = {}
-        for player_id, kind in result:
-            grouped.setdefault(player_id, []).append(kind)
+        grouped: dict[int, list[AchievementTypeRow]] = {}
+        for player_id, kind, title, emoji, custom_emoji_id in result:
+            grouped.setdefault(player_id, []).append(
+                AchievementTypeRow(
+                    kind=kind,
+                    title=title,
+                    emoji=emoji,
+                    custom_emoji_id=custom_emoji_id,
+                )
+            )
         return {player_id: tuple(kinds) for player_id, kinds in grouped.items()}
+
+    async def list_achievement_types(self) -> tuple[AchievementTypeRow, ...]:
+        result = await self.session.execute(select(AchievementType))
+        by_kind = {HallOfFameAchievementKind(row.kind): row for row in result.scalars()}
+        return tuple(
+            AchievementTypeRow(
+                kind=kind,
+                title=by_kind[kind].title,
+                emoji=by_kind[kind].emoji,
+                custom_emoji_id=by_kind[kind].custom_emoji_id,
+            )
+            for kind in _ACHIEVEMENT_KIND_ORDER
+            if kind in by_kind
+        )

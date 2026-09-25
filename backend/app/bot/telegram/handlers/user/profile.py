@@ -199,6 +199,14 @@ async def show_profile_block(
             season_id=callback_data.season_id,
             season_page=callback_data.season_page,
         )
+    elif block == "combinations" and _has_combinations(stats):
+        body = text.combinations_block(title, stats)
+        keyboard = user_profile_kb.profile_expanded_keyboard(
+            block=block,
+            kind=callback_data.kind,
+            season_id=callback_data.season_id,
+            season_page=callback_data.season_page,
+        )
     elif block == "base":
         body = profile_fmt.message(title, stats)
         keyboard = user_profile_kb.profile_result_keyboard(
@@ -339,4 +347,11 @@ def _has_placements(stats: object) -> bool:
             "fourth_places_count",
             "fifth_places_count",
         )
+    )
+
+
+def _has_combinations(stats: object) -> bool:
+    return any(
+        getattr(stats, field)
+        for field in ("royal_flush_count", "straight_flush_count", "four_of_a_kind_count")
     )

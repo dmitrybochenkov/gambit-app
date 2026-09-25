@@ -6,8 +6,7 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.models import Tournament, TournamentResult, User
-from app.db.models.enums import HallOfFameAchievementKind
-from app.db.repositories.hall_of_fame_repository import HallOfFameRepository
+from app.db.repositories.hall_of_fame_repository import AchievementTypeRow, HallOfFameRepository
 from app.db.repositories.result_scopes import closed_tournament_filter
 
 
@@ -36,7 +35,7 @@ class KnockoutsRatingRow:
 class RatingHonours:
     season_champion_titles_by_player_id: dict[int, int]
     season_knockout_leader_titles_by_player_id: dict[int, int]
-    achievements_by_player_id: dict[int, tuple[HallOfFameAchievementKind, ...]]
+    achievements_by_player_id: dict[int, tuple[AchievementTypeRow, ...]]
 
 
 class RatingRepository:
@@ -148,9 +147,11 @@ class RatingRepository:
         champion_counts: dict[int, int] = {}
         knockout_counts: dict[int, int] = {}
         for player_id, achievements in achievements_by_player.items():
-            champion_counts[player_id] = sum(kind.value == "rating_winner" for kind in achievements)
+            champion_counts[player_id] = sum(
+                achievement.kind.value == "rating_winner" for achievement in achievements
+            )
             knockout_counts[player_id] = sum(
-                kind.value == "ko_rating_winner" for kind in achievements
+                achievement.kind.value == "ko_rating_winner" for achievement in achievements
             )
         return RatingHonours(
             season_champion_titles_by_player_id=champion_counts,

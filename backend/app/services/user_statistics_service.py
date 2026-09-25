@@ -179,6 +179,9 @@ class UserStatisticsService:
                             display_name=item.display_name,
                             kind=item.kind,
                             awarded_at=item.awarded_at,
+                            title=item.title,
+                            emoji=item.emoji,
+                            custom_emoji_id=item.custom_emoji_id,
                         )
                         for item in row.achievements
                     ),

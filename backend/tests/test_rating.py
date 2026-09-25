@@ -3,7 +3,13 @@ from decimal import Decimal
 from pathlib import Path
 
 import pytest
-from conftest import build_player, seed_tournament_types_async, tournament_type_id
+from conftest import (
+    ACHIEVEMENT_TYPES,
+    build_player,
+    seed_achievement_types_async,
+    seed_tournament_types_async,
+    tournament_type_id,
+)
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
 from app.bot.telegram.formatters.statistics import rating as rating_fmt
@@ -34,6 +40,12 @@ from app.services.rating_service import (
 )
 
 
+def rating_achievement(kind: str) -> RatingAchievementView:
+    achievement_kind = HallOfFameAchievementKind(kind)
+    title, emoji = ACHIEVEMENT_TYPES[achievement_kind]
+    return RatingAchievementView(kind=achievement_kind, title=title, emoji=emoji)
+
+
 async def test_rating_filters_current_season_and_all_time(tmp_path: Path) -> None:
     engine = create_async_engine(f"sqlite+aiosqlite:///{tmp_path / 'rating.db'}")
     async with engine.begin() as connection:
@@ -45,6 +57,7 @@ async def test_rating_filters_current_season_and_all_time(tmp_path: Path) -> Non
         session.add(config)
         await session.flush()
         await seed_tournament_types_async(session)
+        await seed_achievement_types_async(session)
         current_season = Season(
             name="Current season",
             scoring_config_id=config.id,
@@ -247,8 +260,8 @@ async def test_rating_filters_current_season_and_all_time(tmp_path: Path) -> Non
             current_page,
             current_player_id=second_player.id,
         ).startswith(
-            "Рейтинг — текущий сезон\n💍 - победитель рейтинга сезона\n"
-            "💥 - победитель KO-рейтинга сезона\n"
+            "Рейтинг — текущий сезон\n💍 - Победитель рейтингового сезона\n"
+            "💥 - Лучший нокаутер сезона\n"
             "🎲 - количество турниров\n\n👉 1. *King* — 120 | 🎲 1"
         )
         knockout_message = rating_fmt.message(
@@ -258,8 +271,8 @@ async def test_rating_filters_current_season_and_all_time(tmp_path: Path) -> Non
         )
         assert (
             "Рейтинг по нокаутам — за всё время\n"
-            "💍 - победитель рейтинга сезона\n"
-            "💥 - победитель KO-рейтинга сезона\n"
+            "💍 - Победитель рейтингового сезона\n"
+            "💥 - Лучший нокаутер сезона\n"
             "🎲 - количество турниров с нокаутами\n\n"
         ) in knockout_message
         assert "👉 1. *Игрок Первый* 💍💥 — 6 | 🎲 2" in knockout_message
@@ -277,7 +290,7 @@ def test_rating_badges_and_legend_are_distinct_and_page_local() -> None:
             total_points=Decimal("100"),
             tournaments_count=1,
             hall_of_fame_achievements=tuple(
-                RatingAchievementView(kind=kind)
+                rating_achievement(kind)
                 for kind in (
                     "rating_winner",
                     "rating_winner",
@@ -310,8 +323,8 @@ def test_rating_badges_and_legend_are_distinct_and_page_local() -> None:
 
     assert "All badges 💍💥🏆🏅🥊" in first
     assert first.count("🏅") == 2
-    assert "💍 - победитель рейтинга сезона" in first
-    assert "🥊 - победитель Grand Knockout" in first
+    assert "💍 - Победитель рейтингового сезона" in first
+    assert "🥊 - Победитель Grand Knockout" in first
     assert "победитель" not in second
     assert "🎲 - количество турниров" in second
 
@@ -329,6 +342,7 @@ async def test_rating_counts_historical_tied_places_with_authoritative_points(
         session.add(config)
         await session.flush()
         await seed_tournament_types_async(session)
+        await seed_achievement_types_async(session)
         season = Season(
             name="Historical season",
             scoring_config_id=config.id,
@@ -395,7 +409,7 @@ def test_points_rating_format_uses_half_up_rounding_and_current_marker() -> None
                 total_points=Decimal("120.5"),
                 tournaments_count=3,
                 season_champion_titles_count=1,
-                hall_of_fame_achievements=(RatingAchievementView(kind="rating_winner"),),
+                hall_of_fame_achievements=(rating_achievement("rating_winner"),),
             ),
             PointsRatingView(
                 player_id=2,
@@ -413,7 +427,7 @@ def test_points_rating_format_uses_half_up_rounding_and_current_marker() -> None
     assert "⭐" not in message
     assert (
         "Рейтинг — за всё время\n"
-        "💍 - победитель рейтинга сезона\n"
+        "💍 - Победитель рейтингового сезона\n"
         "🎲 - количество турниров\n\n"
         "👉 1. *King* 💍 — 121 | 🎲 3\n"
         "🥈 Player — 90 | 🎲 2"
@@ -433,9 +447,9 @@ def test_knockout_rating_format_hides_points_and_repeats_titles() -> None:
                 season_champion_titles_count=1,
                 season_knockout_leader_titles_count=2,
                 hall_of_fame_achievements=(
-                    RatingAchievementView(kind="rating_winner"),
-                    RatingAchievementView(kind="ko_rating_winner"),
-                    RatingAchievementView(kind="ko_rating_winner"),
+                    rating_achievement("rating_winner"),
+                    rating_achievement("ko_rating_winner"),
+                    rating_achievement("ko_rating_winner"),
                 ),
             )
         ],
@@ -449,8 +463,8 @@ def test_knockout_rating_format_hides_points_and_repeats_titles() -> None:
     assert "🥊 6" not in message
     assert (
         "Рейтинг по нокаутам — за всё время\n"
-        "💍 - победитель рейтинга сезона\n"
-        "💥 - победитель KO-рейтинга сезона\n"
+        "💍 - Победитель рейтингового сезона\n"
+        "💥 - Лучший нокаутер сезона\n"
         "🎲 - количество турниров с нокаутами\n\n"
         "🥇 King 💍💥 — 6 | 🎲 2"
     ) == message
@@ -508,8 +522,8 @@ def test_knockout_rating_format_marks_current_player_with_ring_and_knockout_titl
                 season_champion_titles_count=1,
                 season_knockout_leader_titles_count=1,
                 hall_of_fame_achievements=(
-                    RatingAchievementView(kind="rating_winner"),
-                    RatingAchievementView(kind="ko_rating_winner"),
+                    rating_achievement("rating_winner"),
+                    rating_achievement("ko_rating_winner"),
                 ),
             ),
         ],
@@ -538,7 +552,7 @@ def test_points_rating_format_repeats_only_champion_badges() -> None:
                 total_points=Decimal("90"),
                 tournaments_count=3,
                 season_champion_titles_count=1,
-                hall_of_fame_achievements=(RatingAchievementView(kind="rating_winner"),),
+                hall_of_fame_achievements=(rating_achievement("rating_winner"),),
             ),
             PointsRatingView(
                 player_id=3,
@@ -547,8 +561,8 @@ def test_points_rating_format_repeats_only_champion_badges() -> None:
                 tournaments_count=3,
                 season_champion_titles_count=2,
                 hall_of_fame_achievements=(
-                    RatingAchievementView(kind="rating_winner"),
-                    RatingAchievementView(kind="rating_winner"),
+                    rating_achievement("rating_winner"),
+                    rating_achievement("rating_winner"),
                 ),
             ),
             PointsRatingView(
@@ -558,9 +572,9 @@ def test_points_rating_format_repeats_only_champion_badges() -> None:
                 tournaments_count=3,
                 season_champion_titles_count=3,
                 hall_of_fame_achievements=(
-                    RatingAchievementView(kind="rating_winner"),
-                    RatingAchievementView(kind="rating_winner"),
-                    RatingAchievementView(kind="rating_winner"),
+                    rating_achievement("rating_winner"),
+                    rating_achievement("rating_winner"),
+                    rating_achievement("rating_winner"),
                 ),
             ),
         ],
@@ -596,7 +610,7 @@ def test_knockout_rating_format_repeats_only_knockout_title_badges() -> None:
                 big_knockouts_count=0,
                 knockout_tournaments_count=3,
                 season_knockout_leader_titles_count=1,
-                hall_of_fame_achievements=(RatingAchievementView(kind="ko_rating_winner"),),
+                hall_of_fame_achievements=(rating_achievement("ko_rating_winner"),),
             ),
             KnockoutsRatingView(
                 player_id=3,
@@ -606,8 +620,8 @@ def test_knockout_rating_format_repeats_only_knockout_title_badges() -> None:
                 knockout_tournaments_count=3,
                 season_knockout_leader_titles_count=2,
                 hall_of_fame_achievements=(
-                    RatingAchievementView(kind="ko_rating_winner"),
-                    RatingAchievementView(kind="ko_rating_winner"),
+                    rating_achievement("ko_rating_winner"),
+                    rating_achievement("ko_rating_winner"),
                 ),
             ),
             KnockoutsRatingView(
@@ -619,12 +633,12 @@ def test_knockout_rating_format_repeats_only_knockout_title_badges() -> None:
                 season_champion_titles_count=3,
                 season_knockout_leader_titles_count=3,
                 hall_of_fame_achievements=(
-                    RatingAchievementView(kind="rating_winner"),
-                    RatingAchievementView(kind="rating_winner"),
-                    RatingAchievementView(kind="rating_winner"),
-                    RatingAchievementView(kind="ko_rating_winner"),
-                    RatingAchievementView(kind="ko_rating_winner"),
-                    RatingAchievementView(kind="ko_rating_winner"),
+                    rating_achievement("rating_winner"),
+                    rating_achievement("rating_winner"),
+                    rating_achievement("rating_winner"),
+                    rating_achievement("ko_rating_winner"),
+                    rating_achievement("ko_rating_winner"),
+                    rating_achievement("ko_rating_winner"),
                 ),
             ),
         ],
@@ -655,6 +669,7 @@ async def test_rating_badges_are_shared_across_rating_kinds(tmp_path: Path) -> N
         session.add(config)
         await session.flush()
         await seed_tournament_types_async(session)
+        await seed_achievement_types_async(session)
         completed = Season(
             name="Completed",
             scoring_config_id=config.id,
@@ -755,6 +770,7 @@ async def test_rating_achievements_are_ordered_chronologically_across_all_rating
         session.add(config)
         await session.flush()
         await seed_tournament_types_async(session)
+        await seed_achievement_types_async(session)
         seasons = [
             Season(
                 name="Winter",
@@ -917,8 +933,8 @@ def test_points_rating_format_repeats_champion_badges_without_counter_suffix() -
                 tournaments_count=3,
                 season_champion_titles_count=2,
                 hall_of_fame_achievements=(
-                    RatingAchievementView(kind="rating_winner"),
-                    RatingAchievementView(kind="rating_winner"),
+                    rating_achievement("rating_winner"),
+                    rating_achievement("rating_winner"),
                 ),
             ),
         ],
@@ -975,6 +991,7 @@ async def test_knockout_games_count_and_completed_season_title_tiebreakers(
         session.add(config)
         await session.flush()
         await seed_tournament_types_async(session)
+        await seed_achievement_types_async(session)
         completed = Season(
             name="Completed",
             scoring_config_id=config.id,
@@ -1161,6 +1178,7 @@ async def test_rating_current_season_uses_season_covering_supplied_date(
         session.add(config)
         await session.flush()
         await seed_tournament_types_async(session)
+        await seed_achievement_types_async(session)
         old_season = Season(
             name="Old season",
             scoring_config_id=config.id,
@@ -1288,6 +1306,7 @@ async def test_rating_selected_season_and_season_picker_exclude_future(
         session.add(config)
         await session.flush()
         await seed_tournament_types_async(session)
+        await seed_achievement_types_async(session)
         hidden = Season(
             name="Сезон 1",
             scoring_config_id=config.id,

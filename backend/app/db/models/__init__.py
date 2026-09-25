@@ -1,3 +1,4 @@
+from app.db.models.achievement_type import AchievementType
 from app.db.models.hall_of_fame_achievement import HallOfFameAchievement
 from app.db.models.hall_of_fame_photo import HallOfFamePhoto
 from app.db.models.player_reward import PlayerReward
@@ -20,6 +21,7 @@ from app.db.models.tournament_type import (
 from app.db.models.user import User
 
 __all__ = [
+    "AchievementType",
     "RegistrationRequest",
     "HallOfFameAchievement",
     "HallOfFamePhoto",

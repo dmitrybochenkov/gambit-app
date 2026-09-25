@@ -13,6 +13,9 @@ class PlayerProfileHonourView:
     kind: str
     awarded_at: date
     season_id: int = 0
+    title: str = ""
+    emoji: str = ""
+    custom_emoji_id: str | None = None
 
 
 @dataclass(frozen=True)
@@ -32,6 +35,9 @@ class PlayerProfileView:
     prize_percent: int | None
     honours: tuple[PlayerProfileHonourView, ...] = ()
     active_rewards: tuple[PlayerRewardView, ...] = ()
+    royal_flush_count: int = 0
+    straight_flush_count: int = 0
+    four_of_a_kind_count: int = 0
 
     @property
     def total_knockouts_count(self) -> int:

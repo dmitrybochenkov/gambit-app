@@ -1,10 +1,7 @@
 from collections.abc import Iterable
 
 from app.bot.telegram.formatters import common as fmt_common
-from app.bot.telegram.formatters.statistics.achievements import (
-    ACHIEVEMENT_KIND_ORDER,
-    achievement_emoji,
-)
+from app.bot.telegram.formatters.statistics.achievements import ACHIEVEMENT_KIND_ORDER
 
 RATING_UNAVAILABLE = (
     "Рейтинг доступен зарегистрированным игрокам. Нажми /start, чтобы зарегистрироваться!"
@@ -73,32 +70,21 @@ def _display_name_with_honours(row: object) -> str:
 
 def _honours(row: object) -> str:
     achievements = getattr(row, "hall_of_fame_achievements", ())
-    kinds = {str(achievement.kind) for achievement in achievements}
-    return "".join(_achievement_marker(kind) for kind in ACHIEVEMENT_KIND_ORDER if kind in kinds)
+    by_kind = {str(achievement.kind): achievement for achievement in achievements}
+    return "".join(by_kind[kind].emoji for kind in ACHIEVEMENT_KIND_ORDER if kind in by_kind)
 
 
 def _achievement_legend(rows: Iterable[object]) -> list[str]:
-    kinds = {
-        str(achievement.kind)
+    by_kind = {
+        str(achievement.kind): achievement
         for row in rows
         for achievement in getattr(row, "hall_of_fame_achievements", ())
     }
-    labels = {
-        "rating_winner": "победитель рейтинга сезона",
-        "ko_rating_winner": "победитель KO-рейтинга сезона",
-        "grand_season": "победитель Grand Season",
-        "grand_month": "победитель Grand Month",
-        "grand_knockout": "победитель Grand Knockout",
-    }
     return [
-        f"{achievement_emoji(kind)} - {labels[kind]}"
+        f"{by_kind[kind].emoji} - {by_kind[kind].title}"
         for kind in ACHIEVEMENT_KIND_ORDER
-        if kind in kinds
+        if kind in by_kind
     ]
-
-
-def _achievement_marker(kind: str) -> str:
-    return achievement_emoji(kind)
 
 
 def _escape_markdown(value: str) -> str:

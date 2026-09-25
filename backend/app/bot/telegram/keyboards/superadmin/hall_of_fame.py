@@ -4,10 +4,7 @@ from aiogram.filters.callback_data import CallbackData
 from aiogram.types import InlineKeyboardMarkup
 from aiogram.utils.keyboard import InlineKeyboardBuilder
 
-from app.bot.telegram.formatters.statistics.achievements import (
-    achievement_emoji,
-    achievement_shows_date,
-)
+from app.bot.telegram.formatters.statistics.achievements import achievement_shows_date
 from app.bot.telegram.keyboards import labels
 from app.bot.telegram.keyboards.admin.common import _adjust_paged_keyboard
 from app.services.dto.hall_of_fame import HallOfFameCandidateView, HallOfFameSeasonListItemView
@@ -205,15 +202,10 @@ def season_card_keyboard(*, entry: object, page: int) -> InlineKeyboardMarkup:
 def achievements_keyboard(*, entry: object, page: int) -> InlineKeyboardMarkup:
     season_id = entry.season_id
     builder = InlineKeyboardBuilder()
-    for kind, label in (
-        (HallOfFameField.RATING_WINNER, "💍 Победитель рейтинга"),
-        (HallOfFameField.KO_RATING_WINNER, "💥 Победитель KO-рейтинга"),
-        (HallOfFameField.GRAND_SEASON, "🏆 Grand Season"),
-        (HallOfFameField.GRAND_MONTH, "🏅 Grand Month"),
-        (HallOfFameField.GRAND_KNOCKOUT, "🥊 Grand Knockout"),
-    ):
+    for achievement_type in entry.achievement_types:
+        kind = HallOfFameField(achievement_type.kind)
         builder.button(
-            text=label,
+            text=f"{achievement_type.emoji} {achievement_type.title}",
             callback_data=HallOfFameCardCallback(
                 action=HallOfFameCardAction.SELECT_KIND,
                 season_id=season_id,
@@ -396,9 +388,7 @@ def delete_achievements_keyboard(*, entry: object) -> InlineKeyboardMarkup:
             f" — {achievement.awarded_at:%d.%m}" if achievement_shows_date(achievement.kind) else ""
         )
         builder.button(
-            text=(
-                f"{achievement_emoji(achievement.kind)} {achievement.player.display_name}{suffix}"
-            ),
+            text=(f"{achievement.emoji} {achievement.player.display_name}{suffix}"),
             callback_data=HallOfFameDeleteCallback(
                 action=HallOfFameDeleteAction.OPEN,
                 season_id=entry.season_id,

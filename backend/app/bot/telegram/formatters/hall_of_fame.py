@@ -2,10 +2,7 @@ from collections.abc import Iterable
 from typing import Any
 
 from app.bot.telegram.formatters import common as fmt_common
-from app.bot.telegram.formatters.statistics.achievements import (
-    achievement_emoji,
-    achievement_shows_date,
-)
+from app.bot.telegram.formatters.statistics.achievements import achievement_shows_date
 from app.bot.telegram.keyboards.superadmin.hall_of_fame import HallOfFameField
 
 
@@ -45,13 +42,13 @@ def achievement_context(entry: object) -> str:
 
 
 def date_prompt(entry: object, field: HallOfFameField) -> str:
-    return f"{achievement_context(entry)}\n\nВведи дату для {_achievement_label(field)}"
+    return f"{achievement_context(entry)}\n\nВведи дату для {_achievement_label(entry, field)}"
 
 
 def player_prompt(entry: object, field: HallOfFameField, awarded_at: object) -> str:
     return (
         f"{achievement_context(entry)}\n\n"
-        f"Введи имя для {_achievement_label(field)} ({awarded_at:%d.%m.%Y})"
+        f"Введи имя для {_achievement_label(entry, field)} ({awarded_at:%d.%m.%Y})"
     )
 
 
@@ -70,7 +67,7 @@ def achievement_confirmation(
     awarded_at: object,
     existing: object | None,
 ) -> str:
-    label = _achievement_label(field)
+    label = _achievement_label(entry, field)
     player_name = fmt_common.markdown_escape(player.display_name)
     if existing is None:
         return (
@@ -84,11 +81,11 @@ def achievement_confirmation(
             "Подтверди изменение:",
             "",
             "Было:",
-            f"{achievement_emoji(existing.kind)} "
+            f"{existing.emoji} "
             f"{fmt_common.markdown_escape(existing.player.display_name)} "
             f"({existing.awarded_at:%d.%m.%Y})",
             "Станет:",
-            f"{achievement_emoji(existing.kind)} {player_name} ({awarded_at:%d.%m.%Y})",
+            f"{existing.emoji} {player_name} ({awarded_at:%d.%m.%Y})",
         ]
     )
 
@@ -109,7 +106,7 @@ def delete_confirmation(achievement: object) -> str:
         [
             "🗑 Удалить награду?",
             "",
-            f"{_achievement_label(HallOfFameField(achievement.kind.value))} "
+            f"{achievement.emoji} {achievement.title} "
             f"({achievement.awarded_at:%d.%m.%Y}) — "
             f"{fmt_common.markdown_escape(achievement.player.display_name)}",
         ]
@@ -121,21 +118,16 @@ def deleted_confirmation(achievement: object) -> str:
         [
             "🗑 Удалена награда",
             "",
-            f"{_achievement_label(HallOfFameField(achievement.kind.value))} "
+            f"{achievement.emoji} {achievement.title} "
             f"({achievement.awarded_at:%d.%m.%Y}) — "
             f"{fmt_common.markdown_escape(achievement.player.display_name)}",
         ]
     )
 
 
-def _achievement_label(field: HallOfFameField) -> str:
-    return {
-        HallOfFameField.RATING_WINNER: "💍 Победитель рейтинга",
-        HallOfFameField.KO_RATING_WINNER: "💥 Победитель KO-рейтинга",
-        HallOfFameField.GRAND_SEASON: "🏆 Grand Season",
-        HallOfFameField.GRAND_MONTH: "🏅 Grand Month",
-        HallOfFameField.GRAND_KNOCKOUT: "🥊 Grand Knockout",
-    }[field]
+def _achievement_label(entry: object, field: HallOfFameField) -> str:
+    achievement_type = next(item for item in entry.achievement_types if item.kind == field.value)
+    return f"{achievement_type.emoji} {achievement_type.title}"
 
 
 def search_prompt(field: HallOfFameField) -> str:
@@ -171,7 +163,7 @@ def _achievement_lines(achievements: Iterable[Any]) -> list[str]:
             else ""
         )
         lines.append(
-            f"{achievement_emoji(achievement.kind)} "
+            f"{achievement.emoji} "
             f"{fmt_common.markdown_escape(achievement.player.display_name)}{suffix}"
         )
     return lines

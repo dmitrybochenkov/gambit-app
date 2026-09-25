@@ -3,6 +3,7 @@ from sqlalchemy.orm import Session
 
 from app.db.factories import create_user
 from app.db.models import (
+    AchievementType,
     TournamentEconomyConfig,
     TournamentRebuyConfig,
     TournamentType,
@@ -10,7 +11,21 @@ from app.db.models import (
     User,
     WeeklyTournamentTemplate,
 )
-from app.db.models.enums import KnockoutMode
+from app.db.models.enums import HallOfFameAchievementKind, KnockoutMode
+
+ACHIEVEMENT_TYPES = {
+    HallOfFameAchievementKind.RATING_WINNER: (
+        "Победитель рейтингового сезона",
+        "💍",
+    ),
+    HallOfFameAchievementKind.KO_RATING_WINNER: (
+        "Лучший нокаутер сезона",
+        "💥",
+    ),
+    HallOfFameAchievementKind.GRAND_SEASON: ("Победитель Grand Season", "🏆"),
+    HallOfFameAchievementKind.GRAND_MONTH: ("Победитель Grand Month", "🏅"),
+    HallOfFameAchievementKind.GRAND_KNOCKOUT: ("Победитель Grand Knockout", "🥊"),
+}
 
 TOURNAMENT_TYPE_IDS = {
     "bounty": 1,
@@ -560,6 +575,14 @@ def seed_tournament_types(session: Session) -> None:
 
 async def seed_tournament_types_async(session: AsyncSession) -> None:
     session.add_all(build_tournament_types())
+    await session.flush()
+
+
+async def seed_achievement_types_async(session: AsyncSession) -> None:
+    session.add_all(
+        AchievementType(kind=kind, title=title, emoji=emoji)
+        for kind, (title, emoji) in ACHIEVEMENT_TYPES.items()
+    )
     await session.flush()
 
 

@@ -9,6 +9,9 @@ RatingAchievementKind = HallOfFameAchievementKind
 @dataclass(frozen=True)
 class RatingAchievementView:
     kind: RatingAchievementKind
+    title: str
+    emoji: str
+    custom_emoji_id: str | None = None
 
 
 @dataclass(frozen=True)

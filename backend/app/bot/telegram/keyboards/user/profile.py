@@ -109,6 +109,16 @@ def profile_result_keyboard(
                 block="placements", kind=kind, season_id=season_id, season_page=season_page
             ),
         )
+    if stats is not None and _has_combinations(stats):
+        builder.button(
+            text=labels.PROFILE_COMBINATIONS,
+            callback_data=ProfileBlockCallback(
+                block="combinations",
+                kind=kind,
+                season_id=season_id,
+                season_page=season_page,
+            ),
+        )
     if kind == ProfileKind.SELECTED_SEASON:
         builder.button(
             text=labels.ADMIN_PANEL_BACK,
@@ -189,9 +199,11 @@ def profile_expanded_keyboard(
                 kind=kind, season_id=season_id, season_page=season_page, page=0
             ),
         )
-    close_label = (
-        labels.PROFILE_CLOSE_REWARDS if block == "rewards" else labels.PROFILE_CLOSE_PLACEMENTS
-    )
+    close_label = {
+        "rewards": labels.PROFILE_CLOSE_REWARDS,
+        "placements": labels.PROFILE_CLOSE_PLACEMENTS,
+        "combinations": labels.PROFILE_CLOSE_COMBINATIONS,
+    }[block]
     builder.button(
         text=close_label,
         callback_data=ProfileBlockCallback(
@@ -415,6 +427,10 @@ def _has_placements(stats: PlayerProfileView) -> bool:
             stats.fifth_places_count,
         )
     )
+
+
+def _has_combinations(stats: PlayerProfileView) -> bool:
+    return any((stats.royal_flush_count, stats.straight_flush_count, stats.four_of_a_kind_count))
 
 
 def _achievement_seasons(stats: PlayerProfileView) -> list[tuple[int, str]]:

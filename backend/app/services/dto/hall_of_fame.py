@@ -2,6 +2,7 @@ from dataclasses import dataclass
 from datetime import date
 
 from app.db.models.enums import HallOfFameAchievementKind
+from app.services.dto.achievements import AchievementTypeView
 from app.services.dto.users import UserView
 
 
@@ -11,6 +12,9 @@ class HallOfFameAchievementManagementView:
     player: UserView
     kind: HallOfFameAchievementKind
     awarded_at: date
+    title: str
+    emoji: str
+    custom_emoji_id: str | None = None
 
 
 @dataclass(frozen=True)
@@ -39,6 +43,7 @@ class HallOfFameEntryView:
     knockout_leader: UserView | None
     photos: tuple[HallOfFamePhotoView, ...] = ()
     achievements: tuple[HallOfFameAchievementManagementView, ...] = ()
+    achievement_types: tuple[AchievementTypeView, ...] = ()
 
 
 @dataclass(frozen=True)

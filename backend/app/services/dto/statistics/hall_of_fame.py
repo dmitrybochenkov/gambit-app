@@ -11,6 +11,9 @@ class HallOfFameAchievementView:
     display_name: str
     kind: HallOfFameAchievementKind
     awarded_at: date
+    title: str
+    emoji: str
+    custom_emoji_id: str | None = None
 
 
 @dataclass(frozen=True)

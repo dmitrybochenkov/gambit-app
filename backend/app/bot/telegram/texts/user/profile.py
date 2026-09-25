@@ -1,5 +1,4 @@
 from app.bot.telegram.formatters import common as fmt_common
-from app.bot.telegram.formatters.statistics.achievements import achievement_emoji
 
 PROFILE_UNAVAILABLE = "Профиль доступен зарегистрированным игрокам. Нажми /start."
 PROFILE_MENU_PROMPT = "За какой период ты хочешь посмотреть свои достижения?"
@@ -39,10 +38,10 @@ def achievements_block(title: str, stats: object, season_id: int) -> str:
     season_name = honours[0].season_name
     lines = [message(title, stats, show_reward_teaser=False), "", f"Награды — {season_name}"]
     for honour in honours:
-        label = _achievement_label(honour.kind)
+        label = honour.title
         if honour.kind in {"grand_month", "grand_knockout"}:
             label = f"{label} ({honour.awarded_at:%d.%m.%Y})"
-        lines.append(f"{achievement_emoji(honour.kind)} {label}")
+        lines.append(f"{honour.emoji} {label}")
     return "\n".join(lines)
 
 
@@ -65,6 +64,23 @@ def placements_block(title: str, stats: object) -> str:
             "",
             PROFILE_PRIZE_PLACES_LABEL,
             *_prize_place_lines(stats),
+        ]
+    )
+
+
+def combinations_block(title: str, stats: object) -> str:
+    combinations = (
+        ("👑 Роял-флеш", stats.royal_flush_count),
+        ("⚡ Стрит-флеш", stats.straight_flush_count),
+        ("4️⃣ Каре", stats.four_of_a_kind_count),
+    )
+    return "\n".join(
+        [
+            message(title, stats, show_reward_teaser=False),
+            "",
+            "🃏 Покерные комбинации",
+            "",
+            *(f"{label} — {count}" for label, count in combinations if count > 0),
         ]
     )
 
@@ -97,16 +113,6 @@ def _prize_place_lines(stats: object) -> list[str]:
         ("5️⃣", stats.fifth_places_count),
     ]
     return [f"{label} x{count}" for label, count in prize_places if count > 0]
-
-
-def _achievement_label(kind: str) -> str:
-    return {
-        "rating_winner": "Победитель рейтинга",
-        "ko_rating_winner": "Победитель KO-рейтинга",
-        "grand_season": "Grand Season",
-        "grand_month": "Grand Month",
-        "grand_knockout": "Grand Knockout",
-    }[kind]
 
 
 def _reward_lines(stats: object) -> list[str]:

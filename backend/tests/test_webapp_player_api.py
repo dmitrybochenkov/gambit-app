@@ -11,6 +11,7 @@ from zoneinfo import ZoneInfo
 import pytest
 from conftest import (
     build_player,
+    seed_achievement_types_async,
     seed_tournament_types_async,
     tournament_type_id,
 )
@@ -110,6 +111,7 @@ async def seed_player_api_data(session_factory: async_sessionmaker) -> dict[str,
         session.add(config)
         await session.flush()
         await seed_tournament_types_async(session)
+        await seed_achievement_types_async(session)
         previous_season = Season(
             name="Весна 2026",
             scoring_config_id=config.id,
@@ -375,6 +377,9 @@ async def test_hall_of_fame_returns_structured_seasons_without_telegram_photo_id
             "id": response.json()["seasons"][0]["achievements"][0]["id"],
             "kind": "rating_winner",
             "awarded_at": "2026-06-30",
+            "title": "Победитель рейтингового сезона",
+            "emoji": "💍",
+            "custom_emoji_id": None,
             "player": {
                 "id": response.json()["seasons"][0]["champion"]["id"],
                 "display_name": "Player",
@@ -384,6 +389,9 @@ async def test_hall_of_fame_returns_structured_seasons_without_telegram_photo_id
             "id": response.json()["seasons"][0]["achievements"][1]["id"],
             "kind": "ko_rating_winner",
             "awarded_at": "2026-06-30",
+            "title": "Лучший нокаутер сезона",
+            "emoji": "💥",
+            "custom_emoji_id": None,
             "player": {
                 "id": response.json()["seasons"][0]["knockout_leader"]["id"],
                 "display_name": "Rival",

@@ -35,6 +35,9 @@ class HallOfFameSeasonResponse(BaseModel):
                     id=item.id,
                     kind=item.kind,
                     awarded_at=item.awarded_at,
+                    title=item.title,
+                    emoji=item.emoji,
+                    custom_emoji_id=item.custom_emoji_id,
                     player=HallOfFamePlayerResponse(
                         id=item.player_id, display_name=item.display_name
                     ),
@@ -48,6 +51,9 @@ class HallOfFameAchievementResponse(BaseModel):
     id: int
     kind: str
     awarded_at: date
+    title: str
+    emoji: str
+    custom_emoji_id: str | None
     player: HallOfFamePlayerResponse
 
 

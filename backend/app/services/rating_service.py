@@ -214,8 +214,13 @@ def rating_achievement_views(
     player_id: int,
 ) -> tuple[RatingAchievementView, ...]:
     return tuple(
-        RatingAchievementView(kind=kind)
-        for kind in honours.achievements_by_player_id.get(player_id, ())
+        RatingAchievementView(
+            kind=achievement.kind,
+            title=achievement.title,
+            emoji=achievement.emoji,
+            custom_emoji_id=achievement.custom_emoji_id,
+        )
+        for achievement in honours.achievements_by_player_id.get(player_id, ())
     )
 
 
