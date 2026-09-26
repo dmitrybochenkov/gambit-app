@@ -5516,9 +5516,9 @@ async def test_hall_of_fame_button_shows_message(
     first_answer = message.answer.await_args_list[0]
     second_answer = message.answer.await_args_list[1]
     assert first_answer.args[0] == (
-        "🏆 Зал славы\n\n💍 — Победитель рейтингового сезона\n💥 — Лучший нокаутер сезона"
+        "🏆 Зал славы\n\n💍 - победитель рейтингового сезона\n💥 - лучший нокаутер сезона"
     )
-    assert second_answer.args[0] == ("Сезон 2026\n\n💍 Иван\n💥 Петр")
+    assert second_answer.args[0] == ("Сезон 2026\n💍 Иван\n💥 Петр")
     assert "reply_markup" not in first_answer.kwargs
     assert "reply_markup" not in second_answer.kwargs
     assert first_answer.kwargs["parse_mode"] == "Markdown"
@@ -5560,7 +5560,7 @@ async def test_hall_of_fame_season_without_photos_is_text_card() -> None:
     await user_hall_of_fame_handlers._send_hall_of_fame_season(message, season)
 
     message.answer.assert_awaited_once_with(
-        "Лето 2026\n\n💍 Иван\n💥 Петр",
+        "Лето 2026\n💍 Иван\n💥 Петр",
         parse_mode="Markdown",
     )
     message.answer_photo.assert_not_awaited()
@@ -5605,7 +5605,7 @@ async def test_hall_of_fame_season_with_one_photo_uses_captioned_photo() -> None
     message.answer.assert_not_awaited()
     message.answer_photo.assert_awaited_once_with(
         "champion-photo",
-        caption="Лето 2026\n\n💍 Иван\n💥 Петр",
+        caption="Лето 2026\n💍 Иван\n💥 Петр",
         parse_mode="Markdown",
     )
     message.answer_media_group.assert_not_awaited()
@@ -5660,7 +5660,7 @@ async def test_hall_of_fame_season_with_two_photos_uses_captioned_collage(
     message.answer.assert_not_awaited()
     message.answer_photo.assert_awaited_once_with(
         collage,
-        caption="Лето 2026\n\n💍 Иван\n💥 Петр",
+        caption="Лето 2026\n💍 Иван\n💥 Петр",
         parse_mode="Markdown",
     )
     message.answer_media_group.assert_not_awaited()
@@ -7005,6 +7005,49 @@ def test_profile_combinations_button_is_hidden_when_all_counts_are_zero() -> Non
     assert "🃏 Покерные комбинации" not in inline_keyboard_texts(
         user_profile_kb.profile_result_keyboard(kind=ProfileKind.ALL_TIME, stats=stats)
     )
+
+
+def test_profile_single_achievement_season_hides_redundant_navigation_row() -> None:
+    stats = PlayerProfileView(
+        display_name="Дима",
+        total_points=Decimal("0"),
+        knockouts_count=0,
+        big_knockouts_count=0,
+        tournaments_count=0,
+        first_places_count=0,
+        second_places_count=0,
+        third_places_count=0,
+        fourth_places_count=0,
+        fifth_places_count=0,
+        rating_position=None,
+        rating_participants_count=0,
+        prize_percent=None,
+        honours=(
+            PlayerProfileHonourView(
+                achievement_id=1,
+                season_id=2,
+                season_name="Осень 2026",
+                season_starts_at=date(2026, 9, 1),
+                kind="grand_month",
+                awarded_at=date(2026, 9, 24),
+                title=ACHIEVEMENT_TYPES[HallOfFameAchievementKind.GRAND_MONTH][0],
+                emoji=ACHIEVEMENT_TYPES[HallOfFameAchievementKind.GRAND_MONTH][1],
+            ),
+        ),
+    )
+
+    keyboard = user_profile_kb.profile_achievements_keyboard(
+        stats,
+        kind=ProfileKind.ALL_TIME,
+        season_id=0,
+        season_page=0,
+        achievement_season_id=2,
+    )
+
+    assert inline_keyboard_texts(keyboard) == [
+        "⬅️ Закрыть достижения",
+        "❌ Закрыть рейтинг",
+    ]
 
 
 async def test_profile_achievement_stale_season_is_rejected(

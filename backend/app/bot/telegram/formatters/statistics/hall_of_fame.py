@@ -11,14 +11,22 @@ def message(seasons: list) -> str:
         for achievement in season.achievements
     }
     if achievement_types:
-        lines.extend(["", *(f"{emoji} — {title}" for emoji, title in achievement_types.values())])
+        lines.extend(
+            [
+                "",
+                *(
+                    f"{emoji} - {_lowercase_first(title)}"
+                    for emoji, title in achievement_types.values()
+                ),
+            ]
+        )
     if not seasons:
         lines.extend(["", hall_texts.HALL_OF_FAME_EMPTY])
     return "\n".join(lines)
 
 
 def season_caption(season: object) -> str:
-    lines = [fmt_common.markdown_escape(season.season_name), ""]
+    lines = [fmt_common.markdown_escape(season.season_name)]
     for achievement in season.achievements:
         suffix = (
             f" ({achievement.awarded_at:%d.%m.%Y})"
@@ -29,6 +37,10 @@ def season_caption(season: object) -> str:
             f"{achievement.emoji} {fmt_common.markdown_escape(achievement.display_name)}{suffix}"
         )
     return "\n".join(lines)
+
+
+def _lowercase_first(value: str) -> str:
+    return value[:1].lower() + value[1:]
 
 
 def _optional_line(icon: str, display_name: str | None) -> list[str]:

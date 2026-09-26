@@ -145,38 +145,39 @@ def profile_achievements_keyboard(
     builder = InlineKeyboardBuilder()
     seasons = _achievement_seasons(stats)
     index = next(i for i, item in enumerate(seasons) if item[0] == achievement_season_id)
-    if index + 1 < len(seasons):
+    if len(seasons) > 1:
+        if index + 1 < len(seasons):
+            builder.button(
+                text="⬅️",
+                callback_data=ProfileBlockCallback(
+                    block="achievements",
+                    kind=kind,
+                    season_id=season_id,
+                    season_page=season_page,
+                    achievement_season_id=seasons[index + 1][0],
+                ),
+            )
         builder.button(
-            text="⬅️",
+            text=seasons[index][1],
             callback_data=ProfileBlockCallback(
                 block="achievements",
                 kind=kind,
                 season_id=season_id,
                 season_page=season_page,
-                achievement_season_id=seasons[index + 1][0],
+                achievement_season_id=achievement_season_id,
             ),
         )
-    builder.button(
-        text=seasons[index][1],
-        callback_data=ProfileBlockCallback(
-            block="achievements",
-            kind=kind,
-            season_id=season_id,
-            season_page=season_page,
-            achievement_season_id=achievement_season_id,
-        ),
-    )
-    if index > 0:
-        builder.button(
-            text="➡️",
-            callback_data=ProfileBlockCallback(
-                block="achievements",
-                kind=kind,
-                season_id=season_id,
-                season_page=season_page,
-                achievement_season_id=seasons[index - 1][0],
-            ),
-        )
+        if index > 0:
+            builder.button(
+                text="➡️",
+                callback_data=ProfileBlockCallback(
+                    block="achievements",
+                    kind=kind,
+                    season_id=season_id,
+                    season_page=season_page,
+                    achievement_season_id=seasons[index - 1][0],
+                ),
+            )
     builder.button(
         text=labels.PROFILE_CLOSE_ACHIEVEMENTS,
         callback_data=ProfileBlockCallback(
@@ -184,7 +185,8 @@ def profile_achievements_keyboard(
         ),
     )
     builder.button(text=labels.RATING_CLOSE, callback_data=ProfileCancelCallback(action="close"))
-    builder.adjust(_achievement_navigation_width(index, len(seasons)), 1, 1)
+    widths = [_achievement_navigation_width(index, len(seasons))] if len(seasons) > 1 else []
+    builder.adjust(*widths, 1, 1)
     return builder.as_markup()
 
 
