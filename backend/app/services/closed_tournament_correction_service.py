@@ -5,10 +5,12 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from app.common.clock import Clock, club_clock
 from app.config import settings
-from app.db.models import Tournament
-from app.db.models.enums import TournamentResultSource, TournamentStatus
+from app.db.models import ScoringConfig, Tournament, TournamentTypeRule
+from app.db.models.enums import KnockoutMode, TournamentResultSource, TournamentStatus
+from app.db.repositories.scoring_config_repository import ScoringConfigRepository
 from app.db.repositories.tournament_repository import TournamentRepository
 from app.db.repositories.tournament_result_repository import TournamentResultRepository
+from app.db.repositories.tournament_type_repository import TournamentTypeRepository
 from app.db.repositories.user_repository import UserRepository
 from app.db.session import SessionFactory
 from app.services.access_policy import access_policy
@@ -57,11 +59,6 @@ class ClosedTournamentCorrectionService:
         self.session_factory = session_factory
         self.clock = clock
         self.tournament_day_start_hour = tournament_day_start_hour
-        self._result_service = ResultService(
-            session_factory,
-            clock=clock,
-            tournament_day_start_hour=tournament_day_start_hour,
-        )
         self._photo_service = TournamentPhotoService(
             session_factory,
             clock=clock,
@@ -90,7 +87,7 @@ class ClosedTournamentCorrectionService:
         async with self.session_factory() as session:
             await access_policy.require_superadmin(session, superadmin_telegram_id)
             tournament = await self._require_closed_tournament(session, tournament_id)
-            return await self._result_service._results_view(session, tournament.id)
+            return await self._stored_results_view(session, tournament)
 
     async def get_closed_tournament_result_snapshot(
         self,
@@ -402,7 +399,7 @@ class ClosedTournamentCorrectionService:
                     fund_before=draft.original_tournament_fund,
                     fund_after=draft.proposed_tournament_fund,
                 )
-            validation_errors = ResultService._validate_game_results(proposed_view)
+            validation_errors = ResultService.validate_game_results(proposed_view)
             if validation_errors:
                 raise ResultValidationError(validation_errors)
             reward_result = await self._preview_reward_reconciliation(
@@ -462,7 +459,7 @@ class ClosedTournamentCorrectionService:
                         fund_before=draft.original_tournament_fund,
                         fund_after=draft.proposed_tournament_fund,
                     )
-                validation_errors = ResultService._validate_game_results(proposed_view)
+                validation_errors = ResultService.validate_game_results(proposed_view)
                 if validation_errors:
                     raise ResultValidationError(validation_errors)
                 tournament.tournament_fund = draft.proposed_tournament_fund
@@ -473,7 +470,7 @@ class ClosedTournamentCorrectionService:
                     checked_in_by_user_id=superadmin.id,
                 )
                 await self._recalculate_result_points(session, tournament)
-                refreshed = await self._result_service._results_view(session, tournament.id)
+                refreshed = await self._stored_results_view(session, tournament)
                 reward_result = await self._apply_reward_reconciliation(
                     session,
                     tournament,
@@ -507,6 +504,68 @@ class ClosedTournamentCorrectionService:
             raise ResultTournamentNotFoundError
         return tournament
 
+    async def _stored_results_view(
+        self,
+        session: AsyncSession,
+        tournament: Tournament,
+    ) -> TournamentResultsView:
+        result_rows = await TournamentResultRepository(session).list_with_users(
+            tournament.id,
+            order_by_user_id=True,
+        )
+        players = [
+            TournamentResultPlayerView(
+                player_id=row.user.id,
+                display_name=row.user.display_name,
+                place=row.result.place,
+                knockouts_count=row.result.knockouts_count,
+                big_knockouts_count=row.result.big_knockouts_count,
+                bonus_points=row.result.bonus_points,
+                tournament_points=row.result.tournament_points,
+                knockout_points=row.result.knockout_points,
+                result_id=row.result.id,
+            )
+            for row in result_rows
+        ]
+        players.sort(key=lambda player: player.display_name.casefold())
+        knockout_mode, supports_bonus_points = await self._result_capabilities(session, tournament)
+        return TournamentResultsView(
+            tournament=tournament_view(tournament),
+            tournament_fund=tournament.tournament_fund,
+            players=players,
+            photo_count=await self._photo_service.count_for_tournament_in_session(
+                session,
+                tournament.id,
+            ),
+            knockout_mode=knockout_mode.value,
+            supports_bonus_points=supports_bonus_points,
+        )
+
+    @staticmethod
+    async def _result_capabilities(
+        session: AsyncSession,
+        tournament: Tournament,
+    ) -> tuple[KnockoutMode, bool]:
+        rule = await TournamentTypeRepository(session).get_rule_capabilities(
+            tournament.tournament_type_id
+        )
+        if rule is None:
+            return KnockoutMode.NONE, False
+        return rule.knockout_mode, bool(rule.supports_bonus_points)
+
+    @staticmethod
+    async def _scoring(
+        session: AsyncSession,
+        tournament: Tournament,
+    ) -> tuple[ScoringConfig, TournamentTypeRule | None]:
+        scoring_config = await ScoringConfigRepository(session).get_by_id(
+            tournament.scoring_config_id
+        )
+        if scoring_config is None:
+            raise ResultTournamentNotFoundError
+        rule = await TournamentTypeRepository(session).get_rule(tournament.tournament_type_id)
+        return scoring_config, rule
+
     async def _results_view_from_snapshot(
         self,
         session: AsyncSession,
@@ -532,10 +591,7 @@ class ClosedTournamentCorrectionService:
             )
             for item in snapshot
         ]
-        knockout_mode, supports_bonus_points = await self._result_service._result_capabilities(
-            session,
-            tournament,
-        )
+        knockout_mode, supports_bonus_points = await self._result_capabilities(session, tournament)
         view = TournamentResultsView(
             tournament=tournament_view(tournament),
             tournament_fund=effective_fund if isinstance(effective_fund, int) else None,
@@ -569,7 +625,7 @@ class ClosedTournamentCorrectionService:
         )
         if not isinstance(effective_fund, int):
             return view
-        scoring_config, rule = await self._result_service._scoring(session, tournament)
+        scoring_config, rule = await self._scoring(session, tournament)
         players = [
             replace(
                 player,
@@ -579,7 +635,7 @@ class ClosedTournamentCorrectionService:
                     scoring_config=scoring_config,
                     rule=rule,
                 ),
-                knockout_points=ResultService._knockout_points(
+                knockout_points=ResultService.calculate_knockout_points(
                     knockouts_count=player.knockouts_count,
                     big_knockouts_count=player.big_knockouts_count,
                     scoring_config=scoring_config,
@@ -603,9 +659,7 @@ class ClosedTournamentCorrectionService:
         proposed_player_ids = [item.player_id for item in draft.proposed_results]
         if len(proposed_player_ids) != len(set(proposed_player_ids)):
             raise ResultPlayerAlreadyAddedError
-        current = self.snapshot_from_results(
-            await self._result_service._results_view(session, tournament.id)
-        )
+        current = self.snapshot_from_results(await self._stored_results_view(session, tournament))
         if current != draft.original_results:
             raise ClosedTournamentCorrectionStaleError
 
@@ -616,10 +670,7 @@ class ClosedTournamentCorrectionService:
         field: ResultField,
         value: int,
     ) -> None:
-        knockout_mode, supports_bonus_points = await self._result_service._result_capabilities(
-            session,
-            tournament,
-        )
+        knockout_mode, supports_bonus_points = await self._result_capabilities(session, tournament)
         if not is_result_field_allowed(
             field=field,
             knockout_mode=knockout_mode.value,
@@ -743,7 +794,7 @@ class ClosedTournamentCorrectionService:
     ) -> None:
         if tournament.tournament_fund is None:
             raise ResultInvalidFundError
-        scoring_config, rule = await self._result_service._scoring(session, tournament)
+        scoring_config, rule = await self._scoring(session, tournament)
         results = await TournamentResultRepository(session).list_by_tournament(tournament.id)
         for item in results:
             item.tournament_points = ResultService.calculate_tournament_points(
@@ -752,7 +803,7 @@ class ClosedTournamentCorrectionService:
                 scoring_config=scoring_config,
                 rule=rule,
             )
-            item.knockout_points = ResultService._knockout_points(
+            item.knockout_points = ResultService.calculate_knockout_points(
                 knockouts_count=item.knockouts_count,
                 big_knockouts_count=item.big_knockouts_count,
                 scoring_config=scoring_config,

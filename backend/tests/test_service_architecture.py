@@ -76,3 +76,24 @@ def test_result_service_does_not_own_open_participant_roster_use_cases() -> None
     assert "app.bot" not in participant_service_source
     assert "fastapi" not in participant_service_source
     assert "TournamentCheckInService" not in participant_service_source
+
+
+def test_closed_correction_does_not_access_private_result_service_members() -> None:
+    path = SERVICES_DIR / "closed_tournament_correction_service.py"
+    tree = ast.parse(path.read_text(), filename=str(path))
+    violations: list[str] = []
+
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Call) and isinstance(node.func, ast.Name):
+            if node.func.id == "ResultService":
+                violations.append(f"line {node.lineno}: constructs ResultService")
+        elif isinstance(node, ast.Attribute) and isinstance(node.value, ast.Name):
+            if node.value.id == "ResultService" and node.attr.startswith("_"):
+                violations.append(f"line {node.lineno}: accesses private ResultService.{node.attr}")
+        elif isinstance(node, ast.arg) and isinstance(node.annotation, ast.Name):
+            if node.annotation.id == "ResultService":
+                violations.append(
+                    f"line {node.lineno}: accepts ResultService dependency as {node.arg}"
+                )
+
+    assert violations == []

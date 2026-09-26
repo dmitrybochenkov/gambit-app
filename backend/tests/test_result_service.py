@@ -70,6 +70,24 @@ def test_live_close_fund_validation_accepts_valid_value() -> None:
     assert ResultService.validate_tournament_fund(1000) == 1000
 
 
+def test_public_knockout_points_contract_uses_bound_scoring_and_type_rule() -> None:
+    scoring_config = ScoringConfig(
+        knockout_small_points=20,
+        knockout_big_points=75,
+    )
+    rule = TournamentTypeRule(
+        tournament_type_id=1,
+        knockout_mode=KnockoutMode.SMALL_BIG,
+    )
+
+    assert ResultService.calculate_knockout_points(
+        knockouts_count=2,
+        big_knockouts_count=1,
+        scoring_config=scoring_config,
+        rule=rule,
+    ) == Decimal("115.00")
+
+
 async def _build_open_delete_service(
     database_path: Path,
     *,

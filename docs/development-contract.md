@@ -258,13 +258,12 @@ targeted tests, then run the agreed final tier once.
   audit before any decomposition.
 - `ClosedTournamentCorrectionService` owns correction snapshots, validation,
   point recalculation, reward reconciliation, photos, combinations, and
-  notifications. It still calls private `ResultService` methods such as
-  `_results_view`, `_scoring`, and `_result_capabilities`; this is confirmed
-  cross-service coupling rather than an endorsed general pattern.
+  notifications. It now uses repositories for its in-transaction CLOSED-result
+  reads and scoring/capability dependencies rather than private `ResultService`
+  methods.
 - `ResultService` remains responsible for normal result editing and tournament
-  close orchestration and still exposes private scoring/view primitives used by
-  CLOSED correction. A follow-up should define public narrow contracts before
-  removing that coupling.
+  close orchestration. Shared validation and point calculations are explicit
+  public result contracts, while service-specific view assembly remains private.
 - Public application-service interfaces identify actors primarily by
   `telegram_id`. This is the current authorization contract and keeps trusted
   identity resolution inside services, but it also couples application

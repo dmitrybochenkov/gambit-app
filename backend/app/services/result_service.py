@@ -225,7 +225,7 @@ class ResultService:
                         scoring_config=scoring_config,
                         rule=rule,
                     ),
-                    knockout_points=self._knockout_points(
+                    knockout_points=self.calculate_knockout_points(
                         knockouts_count=player.knockouts_count,
                         big_knockouts_count=player.big_knockouts_count,
                         scoring_config=scoring_config,
@@ -267,7 +267,7 @@ class ResultService:
                     scoring_config=scoring_config,
                     rule=rule,
                 )
-                item.knockout_points = self._knockout_points(
+                item.knockout_points = self.calculate_knockout_points(
                     knockouts_count=item.knockouts_count,
                     big_knockouts_count=item.big_knockouts_count,
                     scoring_config=scoring_config,
@@ -332,7 +332,7 @@ class ResultService:
                 actor_role=actor.role,
             )
             view = await self._results_view(session, tournament.id)
-            return self._validate_game_results(view)
+            return self.validate_game_results(view)
 
     async def _require_active_tournament(
         self,
@@ -508,7 +508,7 @@ class ResultService:
         view: TournamentResultsView | None = None,
     ) -> TournamentCloseReadinessView:
         results = view or await self._results_view(session, tournament.id)
-        validation_errors = self._validate_game_results(results)
+        validation_errors = self.validate_game_results(results)
         has_checkins = bool(results.players)
         has_photos = results.photo_count > 0
         reasons: list[str] = []
@@ -561,7 +561,7 @@ class ResultService:
         return True
 
     @staticmethod
-    def _validate_game_results(results: TournamentResultsView) -> list[str]:
+    def validate_game_results(results: TournamentResultsView) -> list[str]:
         errors: list[str] = []
         if not results.players:
             errors.append("Нет участников турнира.")
@@ -638,7 +638,7 @@ class ResultService:
         )
 
     @staticmethod
-    def _knockout_points(
+    def calculate_knockout_points(
         knockouts_count: int,
         big_knockouts_count: int,
         scoring_config: ScoringConfig,
