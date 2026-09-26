@@ -100,7 +100,7 @@ from app.db.models.enums import (
 from app.db.repositories.tournament_photo_repository import TournamentPhotoRepository
 from app.services.access_policy import AdminAccessDeniedError
 from app.services.dto.achievements import AchievementTypeView
-from app.services.dto.check_in import CheckInCandidateView
+from app.services.dto.check_in import CheckInCandidateView, CheckInGenderDecision
 from app.services.dto.hall_of_fame import (
     HallOfFameAchievementManagementView,
     HallOfFameCandidateView,
@@ -2959,7 +2959,7 @@ async def test_check_in_similar_candidate_can_be_selected_and_checked_in(
         find_new_player_candidates=AsyncMock(return_value=("похожий", [candidate], False)),
         get_new_user_check_in_confirmation=AsyncMock(return_value=(tournament, "Похожий")),
         get_existing_user_check_in_decision=AsyncMock(return_value=decision),
-        check_in_existing_user=AsyncMock(return_value=result),
+        complete_user_check_in=AsyncMock(return_value=result),
         get_check_in=AsyncMock(return_value=view),
     )
     monkeypatch.setattr(admin_check_in_handlers, "tournament_check_in_service", service)
@@ -3016,10 +3016,11 @@ async def test_check_in_similar_candidate_can_be_selected_and_checked_in(
         state,
     )
 
-    service.check_in_existing_user.assert_awaited_once_with(
+    service.complete_user_check_in.assert_awaited_once_with(
         admin_telegram_id=100,
         tournament_id=125,
         user_id=10,
+        gender_decision=CheckInGenderDecision.KEEP,
     )
 
 
@@ -3113,7 +3114,7 @@ async def test_check_in_unknown_gender_shown_before_registered_result(
     ]
 
 
-async def test_check_in_gender_decision_persists_before_final_check_in(
+async def test_check_in_gender_decision_uses_atomic_completion_contract(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     tournament = tournament_view(125, date(2026, 8, 9), 1, "Баунти турнир")
@@ -3127,14 +3128,17 @@ async def test_check_in_gender_decision_persists_before_final_check_in(
         checked_in_count=1,
     )
     check_in_service = SimpleNamespace(
-        check_in_user=AsyncMock(return_value=result),
+        complete_user_check_in=AsyncMock(return_value=result),
         get_check_in=AsyncMock(return_value=view),
+        get_user_check_in_decision=AsyncMock(
+            return_value=SimpleNamespace(
+                tournament=tournament,
+                user=user,
+                active_rewards=(),
+            )
+        ),
     )
-    rename_service = SimpleNamespace(set_user_gender=AsyncMock(return_value=user))
-    reward_service = SimpleNamespace(list_active_rewards_for_check_in=AsyncMock(return_value=()))
     monkeypatch.setattr(admin_check_in_handlers, "tournament_check_in_service", check_in_service)
-    monkeypatch.setattr(admin_check_in_handlers, "user_rename_service", rename_service)
-    monkeypatch.setattr(admin_check_in_handlers, "player_reward_service", reward_service)
     callback = SimpleNamespace(
         from_user=SimpleNamespace(id=100),
         message=SimpleNamespace(edit_text=AsyncMock(), answer=AsyncMock()),
@@ -3152,11 +3156,11 @@ async def test_check_in_gender_decision_persists_before_final_check_in(
         MutableState(),
     )
 
-    rename_service.set_user_gender.assert_awaited_once_with(100, 10, UserGender.FEMALE)
-    check_in_service.check_in_user.assert_awaited_once_with(
+    check_in_service.complete_user_check_in.assert_awaited_once_with(
         admin_telegram_id=100,
         tournament_id=125,
         user_id=10,
+        gender_decision=CheckInGenderDecision.FEMALE,
     )
     callback.message.edit_text.assert_awaited_once()
     assert "✅ Игрок добавлен в турнир" in callback.message.edit_text.await_args.args[0]

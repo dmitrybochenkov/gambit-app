@@ -14,19 +14,31 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
 from app.api import dependencies
-from app.api.v1 import admin_tournaments
+from app.api.v1 import admin_check_in, admin_tournaments
 from app.common.clock import FixedClock
 from app.db.base import Base
-from app.db.models import ScoringConfig, Season, Tournament, TournamentCombination, TournamentResult
+from app.db.models import (
+    PlayerReward,
+    ScoringConfig,
+    Season,
+    Tournament,
+    TournamentCombination,
+    TournamentRegistration,
+    TournamentResult,
+    User,
+)
 from app.db.models.enums import (
     TournamentResultSource,
     TournamentStatus,
+    UserGender,
     UserRole,
     UserStatus,
 )
 from app.main import app
 from app.services.result_service import ResultService
+from app.services.tournament_check_in_service import TournamentCheckInService
 from app.services.tournament_combination_service import TournamentCombinationService
+from app.services.tournament_participant_service import TournamentParticipantService
 from app.services.user_access_service import UserAccessService
 
 TEST_BOT_TOKEN = "123456:test-token"
@@ -76,6 +88,16 @@ async def admin_api_client(
         "tournament_combination_service",
         TournamentCombinationService(session_factory, clock=clock),
     )
+    monkeypatch.setattr(
+        admin_check_in,
+        "tournament_check_in_service",
+        TournamentCheckInService(session_factory, clock=clock),
+    )
+    monkeypatch.setattr(
+        admin_check_in,
+        "tournament_participant_service",
+        TournamentParticipantService(session_factory, clock=clock),
+    )
 
     async with session_factory() as session:
         config = ScoringConfig()
@@ -110,7 +132,28 @@ async def admin_api_client(
             display_name="Participant",
             status=UserStatus.ACTIVE,
         )
-        session.add_all([season, admin, superadmin, player_actor, participant])
+        registered = build_player(
+            telegram_id=500,
+            display_name="Registered",
+            gender=UserGender.FEMALE,
+            status=UserStatus.ACTIVE,
+        )
+        unknown_gender = build_player(
+            telegram_id=600,
+            display_name="Unknown Gender",
+            status=UserStatus.ACTIVE,
+        )
+        session.add_all(
+            [
+                season,
+                admin,
+                superadmin,
+                player_actor,
+                participant,
+                registered,
+                unknown_gender,
+            ]
+        )
         await session.flush()
         tournament = Tournament(
             season_id=season.id,
@@ -120,6 +163,15 @@ async def admin_api_client(
             status=TournamentStatus.ACTIVE,
         )
         session.add(tournament)
+        reward_source = Tournament(
+            season_id=season.id,
+            scoring_config_id=config.id,
+            tournament_type_id=tournament_type_id("classic_v2"),
+            date=date(2026, 9, 2),
+            status=TournamentStatus.CLOSED,
+            tournament_fund=1000,
+        )
+        session.add(reward_source)
         await session.flush()
         result = TournamentResult(
             tournament_id=tournament.id,
@@ -127,10 +179,28 @@ async def admin_api_client(
             source=TournamentResultSource.WALK_IN_EXISTING,
         )
         session.add(result)
+        session.add(
+            TournamentRegistration(
+                tournament_id=tournament.id,
+                player_id=registered.id,
+            )
+        )
+        reward = PlayerReward(
+            player_id=registered.id,
+            chips_amount=40_000,
+            source_tournament_id=reward_source.id,
+            source_place=1,
+            issued_at=datetime(2026, 9, 2, 12, tzinfo=ZoneInfo("Europe/Moscow")),
+            valid_through=date(2026, 9, 9),
+        )
+        session.add(reward)
         await session.commit()
         ids = {
             "tournament_id": tournament.id,
             "participant_id": participant.id,
+            "registered_id": registered.id,
+            "unknown_gender_id": unknown_gender.id,
+            "reward_id": reward.id,
         }
 
     transport = ASGITransport(app=app)
@@ -254,3 +324,257 @@ async def test_admin_combination_validation_and_not_found_errors(
     assert invalid.json()["error"]["code"] == "validation_error"
     assert missing_player.status_code == 404
     assert missing_player.json()["error"]["code"] == "not_found"
+
+
+async def test_admin_check_in_read_and_registered_player_mutation(
+    admin_api_client: tuple[AsyncClient, async_sessionmaker, dict[str, int]],
+) -> None:
+    client, session_factory, ids = admin_api_client
+    base = f"/api/v1/admin/tournaments/{ids['tournament_id']}"
+
+    state = await client.get(f"{base}/check-in", headers=auth_headers(100))
+    completed = await client.post(
+        f"{base}/check-ins",
+        headers=auth_headers(100),
+        json={
+            "kind": "existing",
+            "player_id": ids["registered_id"],
+            "gender_decision": "keep",
+            "reward_id": None,
+        },
+    )
+
+    assert state.status_code == 200
+    assert state.json()["registered_count"] == 1
+    assert [item["user_id"] for item in state.json()["registered_candidates"]] == [
+        ids["registered_id"]
+    ]
+    assert completed.status_code == 201
+    assert completed.json()["created"] is True
+    async with session_factory() as session:
+        result = await session.scalar(
+            select(TournamentResult).where(
+                TournamentResult.tournament_id == ids["tournament_id"],
+                TournamentResult.player_id == ids["registered_id"],
+            )
+        )
+        assert result is not None
+        assert result.source == TournamentResultSource.REGISTERED
+        assert await session.scalar(
+            select(TournamentRegistration.id).where(
+                TournamentRegistration.tournament_id == ids["tournament_id"],
+                TournamentRegistration.player_id == ids["registered_id"],
+            )
+        )
+
+
+async def test_superadmin_check_in_redeems_reward_once_through_shared_contract(
+    admin_api_client: tuple[AsyncClient, async_sessionmaker, dict[str, int]],
+) -> None:
+    client, session_factory, ids = admin_api_client
+    base = f"/api/v1/admin/tournaments/{ids['tournament_id']}"
+
+    decision = await client.get(
+        f"{base}/check-in/players/{ids['registered_id']}/decision",
+        headers=auth_headers(200),
+    )
+    first = await client.post(
+        f"{base}/check-ins",
+        headers=auth_headers(200),
+        json={
+            "kind": "existing",
+            "player_id": ids["registered_id"],
+            "gender_decision": "keep",
+            "reward_id": ids["reward_id"],
+        },
+    )
+    repeated = await client.post(
+        f"{base}/check-ins",
+        headers=auth_headers(200),
+        json={
+            "kind": "existing",
+            "player_id": ids["registered_id"],
+            "gender_decision": "keep",
+            "reward_id": ids["reward_id"],
+        },
+    )
+
+    assert decision.status_code == 200
+    assert [item["id"] for item in decision.json()["active_rewards"]] == [ids["reward_id"]]
+    assert first.status_code == 201
+    assert first.json()["created"] is True
+    assert repeated.status_code == 201
+    assert repeated.json()["created"] is False
+    async with session_factory() as session:
+        reward = await session.get(PlayerReward, ids["reward_id"])
+        results = list(
+            (
+                await session.execute(
+                    select(TournamentResult).where(
+                        TournamentResult.tournament_id == ids["tournament_id"],
+                        TournamentResult.player_id == ids["registered_id"],
+                    )
+                )
+            ).scalars()
+        )
+        assert reward is not None
+        assert reward.redeemed_tournament_id == ids["tournament_id"]
+        assert len(results) == 1
+
+
+async def test_existing_walk_in_gender_and_check_in_are_persisted_together(
+    admin_api_client: tuple[AsyncClient, async_sessionmaker, dict[str, int]],
+) -> None:
+    client, session_factory, ids = admin_api_client
+
+    response = await client.post(
+        f"/api/v1/admin/tournaments/{ids['tournament_id']}/check-ins",
+        headers=auth_headers(100),
+        json={
+            "kind": "existing",
+            "player_id": ids["unknown_gender_id"],
+            "gender_decision": "male",
+        },
+    )
+
+    assert response.status_code == 201
+    assert response.json()["player"]["gender"] == "male"
+    async with session_factory() as session:
+        user = await session.get(User, ids["unknown_gender_id"])
+        result = await session.scalar(
+            select(TournamentResult).where(
+                TournamentResult.tournament_id == ids["tournament_id"],
+                TournamentResult.player_id == ids["unknown_gender_id"],
+            )
+        )
+        assert user is not None
+        assert user.gender == UserGender.MALE
+        assert result is not None
+        assert result.source == TournamentResultSource.WALK_IN_EXISTING
+
+
+async def test_new_walk_in_is_explicit_and_atomic(
+    admin_api_client: tuple[AsyncClient, async_sessionmaker, dict[str, int]],
+) -> None:
+    client, session_factory, ids = admin_api_client
+
+    response = await client.post(
+        f"/api/v1/admin/tournaments/{ids['tournament_id']}/check-ins",
+        headers=auth_headers(100),
+        json={"kind": "new", "display_name": "New Walk In", "gender": "female"},
+    )
+
+    assert response.status_code == 201
+    assert response.json()["player"]["display_name"] == "New Walk In"
+    assert response.json()["player"]["gender"] == "female"
+    async with session_factory() as session:
+        user = await session.scalar(select(User).where(User.display_name == "New Walk In"))
+        assert user is not None
+        result = await session.scalar(
+            select(TournamentResult).where(
+                TournamentResult.tournament_id == ids["tournament_id"],
+                TournamentResult.player_id == user.id,
+            )
+        )
+        assert result is not None
+        assert result.source == TournamentResultSource.WALK_IN_NEW
+
+
+async def test_check_in_requires_gender_decision_and_denies_player(
+    admin_api_client: tuple[AsyncClient, async_sessionmaker, dict[str, int]],
+) -> None:
+    client, _, ids = admin_api_client
+    path = f"/api/v1/admin/tournaments/{ids['tournament_id']}/check-ins"
+    payload = {
+        "kind": "existing",
+        "player_id": ids["unknown_gender_id"],
+        "gender_decision": "keep",
+    }
+
+    missing_decision = await client.post(path, headers=auth_headers(100), json=payload)
+    denied = await client.post(path, headers=auth_headers(300), json=payload)
+    already_set = await client.post(
+        path,
+        headers=auth_headers(100),
+        json={
+            "kind": "existing",
+            "player_id": ids["registered_id"],
+            "gender_decision": "male",
+        },
+    )
+    missing_player = await client.post(
+        path,
+        headers=auth_headers(100),
+        json={"kind": "existing", "player_id": 999, "gender_decision": "keep"},
+    )
+
+    assert missing_decision.status_code == 422
+    assert missing_decision.json()["error"]["code"] == "validation_error"
+    assert denied.status_code == 403
+    assert denied.json()["error"]["code"] == "forbidden"
+    assert already_set.status_code == 409
+    assert already_set.json()["error"]["code"] == "conflict"
+    assert missing_player.status_code == 404
+    assert missing_player.json()["error"]["code"] == "not_found"
+
+
+async def test_superadmin_can_remove_open_tournament_participant(
+    admin_api_client: tuple[AsyncClient, async_sessionmaker, dict[str, int]],
+) -> None:
+    client, session_factory, ids = admin_api_client
+    path = f"/api/v1/admin/tournaments/{ids['tournament_id']}/participants/{ids['participant_id']}"
+
+    admin_denied = await client.delete(path, headers=auth_headers(100))
+    removed = await client.delete(path, headers=auth_headers(200))
+
+    assert admin_denied.status_code == 403
+    assert removed.status_code == 200
+    assert removed.json()["player_id"] == ids["participant_id"]
+    async with session_factory() as session:
+        result = await session.scalar(
+            select(TournamentResult).where(
+                TournamentResult.tournament_id == ids["tournament_id"],
+                TournamentResult.player_id == ids["participant_id"],
+            )
+        )
+        assert result is None
+
+
+async def test_admin_can_add_existing_and_new_open_tournament_participants(
+    admin_api_client: tuple[AsyncClient, async_sessionmaker, dict[str, int]],
+) -> None:
+    client, session_factory, ids = admin_api_client
+    path = f"/api/v1/admin/tournaments/{ids['tournament_id']}/participants"
+
+    existing = await client.post(
+        path,
+        headers=auth_headers(100),
+        json={"kind": "existing", "player_id": ids["unknown_gender_id"]},
+    )
+    new = await client.post(
+        path,
+        headers=auth_headers(100),
+        json={"kind": "new", "display_name": "Historical Walk In"},
+    )
+
+    assert existing.status_code == 201
+    assert new.status_code == 201
+    async with session_factory() as session:
+        created_user = await session.scalar(
+            select(User).where(User.display_name == "Historical Walk In")
+        )
+        assert created_user is not None
+        results = list(
+            (
+                await session.execute(
+                    select(TournamentResult).where(
+                        TournamentResult.tournament_id == ids["tournament_id"],
+                        TournamentResult.player_id.in_([ids["unknown_gender_id"], created_user.id]),
+                    )
+                )
+            ).scalars()
+        )
+        assert {result.player_id for result in results} == {
+            ids["unknown_gender_id"],
+            created_user.id,
+        }

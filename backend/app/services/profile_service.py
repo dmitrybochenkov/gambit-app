@@ -8,6 +8,7 @@ from app.common.clock import Clock, club_clock
 from app.db.models import Season
 from app.db.models.enums import TournamentCombinationType
 from app.db.repositories.hall_of_fame_repository import HallOfFameRepository
+from app.db.repositories.player_reward_repository import PlayerRewardRepository
 from app.db.repositories.profile_repository import (
     PlayerProfileStats,
     ProfileRepository,
@@ -23,7 +24,7 @@ from app.services.dto.statistics.profile import (
     PlayerProfileHonourView,
     PlayerProfileView,
 )
-from app.services.player_reward_service import PlayerRewardService
+from app.services.player_reward_views import list_active_reward_views
 from app.services.season_options import list_started_season_options
 from app.services.user_statistics_service import historical_tournament_display_name
 
@@ -73,7 +74,6 @@ class ProfileService:
                 hall_of_fame_repository=HallOfFameRepository(session),
                 rating_repository=RatingRepository(session),
                 season_repository=SeasonRepository(session),
-                reward_service=PlayerRewardService(self.session_factory, clock=self.clock),
                 session=session,
                 player_id=user.id,
                 display_name=user.display_name,
@@ -142,7 +142,6 @@ class ProfileService:
         hall_of_fame_repository: HallOfFameRepository,
         rating_repository: RatingRepository,
         season_repository: SeasonRepository,
-        reward_service: PlayerRewardService,
         session: AsyncSession,
         player_id: int,
         display_name: str,
@@ -150,10 +149,10 @@ class ProfileService:
         season_id: int | None,
         today: date,
     ) -> tuple[str, PlayerProfileView | None]:
-        active_rewards = await reward_service._list_active_reward_views(
-            session,
-            player_id,
-            today,
+        active_rewards = await list_active_reward_views(
+            PlayerRewardRepository(session),
+            player_id=player_id,
+            business_date=today,
         )
         honours = await _player_honours(hall_of_fame_repository, player_id)
         combination_counts = await TournamentCombinationRepository(session).count_lifetime_by_type(

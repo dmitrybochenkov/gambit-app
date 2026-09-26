@@ -283,13 +283,24 @@ are accepted according to the existing tournament edit policy, while PLAYER is
 rejected. Actor identity always comes from signed initData; mutation payloads
 never contain a trusted actor or role.
 
+Administrative check-in and open-tournament participant management use the
+same application services from Telegram and HTTP. `TournamentCheckInService`
+owns authorization and the atomic existing-player operation: an optional
+gender completion, optional reward redemption, and `TournamentResult` creation
+commit or roll back together. New walk-in user creation and its result are also
+one transaction. `TournamentParticipantService` separately owns result-roster
+add/remove operations; removal does not delete the `User`. Telegram FSM keeps
+only presentation/navigation state. The current post-check-in personal message
+is a best-effort Telegram transport side effect and is not part of the HTTP
+contract.
+
 ### Known API Contract Gaps / Follow-up
 
 - Hall of Fame and tournament photos require a browser-media delivery contract
   before they can be exposed to WebApp clients. Stored Telegram `file_id`
   values are transport-specific references, not browser URLs.
-- Administrative check-in, player add/remove, planning, correction, season
-  management, Hall of Fame management, user/admin management, registration
+- Planning, correction, season management, Hall of Fame management,
+  user/admin management, registration
   review, and publication remain real application use-cases without HTTP
   adapters. Adding them requires explicit mutation schemas and role-equivalent
   API tests, not repository access from routes.

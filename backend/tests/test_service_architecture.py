@@ -97,3 +97,50 @@ def test_closed_correction_does_not_access_private_result_service_members() -> N
                 )
 
     assert violations == []
+
+
+def test_telegram_check_in_uses_shared_application_mutation_boundary() -> None:
+    path = SERVICES_DIR.parent / "bot" / "telegram" / "handlers" / "admin" / "check_in.py"
+    tree = ast.parse(path.read_text(), filename=str(path))
+    forbidden_calls = {
+        "check_in_existing_user",
+        "check_in_registered",
+        "check_in_user",
+        "redeem_reward",
+        "set_user_gender",
+    }
+    violations: list[str] = []
+
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute):
+            if node.func.attr in forbidden_calls:
+                violations.append(f"line {node.lineno}: calls {node.func.attr}()")
+            if node.func.attr.startswith("_") and isinstance(node.func.value, ast.Name):
+                if node.func.value.id.endswith("_service"):
+                    violations.append(
+                        f"line {node.lineno}: accesses private service method {node.func.attr}()"
+                    )
+
+    assert violations == []
+
+
+def test_check_in_reward_queries_do_not_exchange_sessions_between_services() -> None:
+    reward_service_source = (SERVICES_DIR / "player_reward_service.py").read_text()
+    check_in_source = (SERVICES_DIR / "tournament_check_in_service.py").read_text()
+
+    assert "list_active_reward_views_in_session" not in reward_service_source
+    assert "list_active_reward_views_in_session" not in check_in_source
+
+    tree = ast.parse(check_in_source)
+    reward_decision = next(
+        node
+        for node in ast.walk(tree)
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
+        and node.name == "_reward_decision_view"
+    )
+    assert not any(
+        isinstance(node, ast.Call)
+        and isinstance(node.func, ast.Name)
+        and node.func.id == "PlayerRewardService"
+        for node in ast.walk(reward_decision)
+    )

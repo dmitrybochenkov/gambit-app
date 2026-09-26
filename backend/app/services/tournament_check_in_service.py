@@ -7,8 +7,9 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from app.common.clock import Clock, club_clock
 from app.config import settings
 from app.db.factories import create_user
-from app.db.models import Tournament
+from app.db.models import Tournament, User
 from app.db.models.enums import TournamentResultSource, UserGender, UserRole
+from app.db.repositories.player_reward_repository import PlayerRewardRepository
 from app.db.repositories.tournament_registration_repository import (
     TournamentRegistrationRepository,
 )
@@ -26,12 +27,14 @@ from app.services.dto.check_in import (
     CheckedInPlayersView,
     CheckedInPlayerView,
     CheckInCandidateView,
+    CheckInGenderDecision,
     TournamentCheckInView,
 )
 from app.services.dto.rewards import PlayerRewardView
 from app.services.dto.tournaments import TournamentView
 from app.services.dto.users import UserView
 from app.services.player_reward_service import PlayerRewardService
+from app.services.player_reward_views import list_active_reward_views
 from app.services.player_search import (
     rank_player_candidates,
     validate_display_name,
@@ -60,6 +63,14 @@ class TournamentCheckInDuplicateNameError(ValueError):
 
 
 class TournamentCheckInRegisteredUserError(ValueError):
+    pass
+
+
+class TournamentCheckInGenderDecisionRequiredError(ValueError):
+    pass
+
+
+class TournamentCheckInGenderAlreadySetError(ValueError):
     pass
 
 
@@ -234,6 +245,66 @@ class TournamentCheckInService:
             )
             user = await self._get_active_check_in_user(session, user_id)
             return CheckInResultView(tournament_view(tournament), required_user_view(user), False)
+
+    async def get_user_check_in_decision(
+        self,
+        admin_telegram_id: int,
+        tournament_id: int,
+        user_id: int,
+    ) -> CheckInRewardDecisionView:
+        async with self.session_factory() as session:
+            actor = await access_policy.require_admin(session, admin_telegram_id)
+            tournament = await self._require_editable_tournament_for_actor(
+                session,
+                tournament_id,
+                actor_role=actor.role,
+            )
+            user = await self._get_active_check_in_user(session, user_id)
+            return await self._reward_decision_view(session, tournament, user)
+
+    async def complete_user_check_in(
+        self,
+        admin_telegram_id: int,
+        tournament_id: int,
+        user_id: int,
+        *,
+        gender_decision: CheckInGenderDecision,
+        reward_id: int | None = None,
+    ) -> CheckInResultView:
+        async with self.session_factory() as session:
+            admin = await access_policy.require_admin(session, admin_telegram_id)
+            tournament = await self._require_editable_tournament_for_actor(
+                session,
+                tournament_id,
+                actor_role=admin.role,
+            )
+            user = await self._get_active_check_in_user(session, user_id)
+            if await TournamentResultRepository(session).exists_for_tournament_and_player(
+                tournament.id,
+                user.id,
+            ):
+                return CheckInResultView(
+                    tournament_view(tournament),
+                    required_user_view(user),
+                    False,
+                )
+            self._apply_gender_decision(user, gender_decision)
+            registration_exists = await TournamentRegistrationRepository(session).exists(
+                tournament.id,
+                user.id,
+            )
+            return await self._check_in_user(
+                session,
+                tournament,
+                user,
+                checked_in_by_user_id=admin.id,
+                source=(
+                    TournamentResultSource.REGISTERED
+                    if registration_exists
+                    else TournamentResultSource.WALK_IN_EXISTING
+                ),
+                reward_id=reward_id,
+            )
 
     async def get_registered_check_in_decision(
         self,
@@ -422,16 +493,29 @@ class TournamentCheckInService:
         tournament: Tournament,
         user,
     ) -> CheckInRewardDecisionView:
-        rewards = await PlayerRewardService(
-            self.session_factory,
-            clock=self.clock,
-            tournament_day_start_hour=self.tournament_day_start_hour,
-        )._list_active_reward_views(session, user.id, self._tournament_day())
+        rewards = await list_active_reward_views(
+            PlayerRewardRepository(session),
+            player_id=user.id,
+            business_date=self._tournament_day(),
+        )
         return CheckInRewardDecisionView(
             tournament=tournament_view(tournament),
             user=required_user_view(user),
             active_rewards=rewards,
         )
+
+    @staticmethod
+    def _apply_gender_decision(user: User, decision: CheckInGenderDecision) -> None:
+        if user.gender is None:
+            if decision == CheckInGenderDecision.KEEP:
+                raise TournamentCheckInGenderDecisionRequiredError
+            if decision == CheckInGenderDecision.FEMALE:
+                user.gender = UserGender.FEMALE
+            elif decision == CheckInGenderDecision.MALE:
+                user.gender = UserGender.MALE
+            return
+        if decision != CheckInGenderDecision.KEEP:
+            raise TournamentCheckInGenderAlreadySetError
 
     async def _check_in_user(
         self,

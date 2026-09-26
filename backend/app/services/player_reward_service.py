@@ -30,6 +30,7 @@ from app.services.dto.rewards import (
     PlayerRewardView,
     PrizeStackBonusSourceResultView,
 )
+from app.services.player_reward_views import list_active_reward_views, reward_view
 
 PRIZE_STACK_BONUS_BY_PLACE = {
     1: 40_000,
@@ -70,7 +71,14 @@ class PlayerRewardService:
         business_date: date,
     ) -> tuple[PlayerRewardView, ...]:
         async with self.session_factory() as session:
-            return await self._list_active_reward_views(session, player_id, business_date)
+            user = await UserRepository(session).get_active_by_id(player_id)
+            if user is None:
+                raise PlayerRewardUserNotFoundError
+            return await list_active_reward_views(
+                PlayerRewardRepository(session),
+                player_id=player_id,
+                business_date=business_date,
+            )
 
     async def list_current_active_rewards_for_player(
         self,
@@ -146,7 +154,14 @@ class PlayerRewardService:
                 admin_current_day_only=True,
             ):
                 raise PlayerRewardNotFoundError
-            return await self._list_active_reward_views(session, player_id, business_date)
+            user = await UserRepository(session).get_active_by_id(player_id)
+            if user is None:
+                raise PlayerRewardUserNotFoundError
+            return await list_active_reward_views(
+                PlayerRewardRepository(session),
+                player_id=player_id,
+                business_date=business_date,
+            )
 
     async def get_active_reward_for_player(
         self,
@@ -169,7 +184,7 @@ class PlayerRewardService:
                 player_id=player_id,
                 business_date=business_date,
             )
-            return next(_reward_view(row) for row in rows if row.reward.id == reward.id)
+            return next(reward_view(row) for row in rows if row.reward.id == reward.id)
 
     async def redeem_reward(
         self,
@@ -465,21 +480,6 @@ class PlayerRewardService:
             player_notifications=tuple(notifications),
         )
 
-    async def _list_active_reward_views(
-        self,
-        session: AsyncSession,
-        player_id: int,
-        business_date: date,
-    ) -> tuple[PlayerRewardView, ...]:
-        user = await UserRepository(session).get_active_by_id(player_id)
-        if user is None:
-            raise PlayerRewardUserNotFoundError
-        rows = await PlayerRewardRepository(session).list_active_for_player(
-            player_id=player_id,
-            business_date=business_date,
-        )
-        return tuple(_reward_view(row) for row in rows)
-
     async def _reward_view_by_id(
         self,
         session: AsyncSession,
@@ -488,7 +488,7 @@ class PlayerRewardService:
         row = await PlayerRewardRepository(session).get_source_row_by_id(reward_id)
         if row is None:
             raise PlayerRewardNotFoundError
-        return _reward_view(row)
+        return reward_view(row)
 
     def _tournament_day(self) -> date:
         return resolve_tournament_day(self.clock, self.tournament_day_start_hour)
@@ -537,23 +537,6 @@ class PlayerRewardService:
             old_chips_amount=old_chips_amount,
             new_chips_amount=new_chips_amount,
         )
-
-
-def _reward_view(row: PlayerRewardSourceRow) -> PlayerRewardView:
-    reward_type = row.reward.reward_type
-    return PlayerRewardView(
-        reward_id=row.reward.id,
-        player_id=row.reward.player_id,
-        chips_amount=row.reward.chips_amount,
-        source_place=row.reward.source_place,
-        source_tournament_id=row.reward.source_tournament_id,
-        source_tournament_date=row.tournament.date,
-        source_tournament_name=row.tournament_type.name,
-        valid_through=row.reward.valid_through,
-        issued_at=row.reward.issued_at,
-        reward_type=reward_type.value if hasattr(reward_type, "value") else str(reward_type),
-        status="active",
-    )
 
 
 def _reminder_groups(

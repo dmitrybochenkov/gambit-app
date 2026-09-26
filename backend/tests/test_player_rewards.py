@@ -20,10 +20,12 @@ from app.db.models import (
     Tournament,
     TournamentPhoto,
     TournamentResult,
+    User,
 )
 from app.db.models.enums import TournamentResultSource, TournamentStatus, UserRole, UserStatus
 from app.services.access_policy import AdminAccessDeniedError
 from app.services.closed_tournament_correction_service import ClosedTournamentCorrectionService
+from app.services.dto.check_in import CheckInGenderDecision
 from app.services.player_reward_service import (
     PlayerRewardAlreadyRedeemedTodayError,
     PlayerRewardNotFoundError,
@@ -31,7 +33,10 @@ from app.services.player_reward_service import (
 )
 from app.services.result_fields import ResultField
 from app.services.result_service import ResultPlayerAlreadyAddedError, ResultService
-from app.services.tournament_check_in_service import TournamentCheckInService
+from app.services.tournament_check_in_service import (
+    TournamentCheckInGenderDecisionRequiredError,
+    TournamentCheckInService,
+)
 from app.services.user_access_service import UserAccessService
 
 
@@ -996,17 +1001,27 @@ async def test_check_in_reward_decision_precedes_atomic_check_in(tmp_path: Path)
         assert stored_reward.redeemed_at is None
         assert stored_reward.redeemed_tournament_id is None
 
-    result = await service.check_in_user(
+    result = await service.complete_user_check_in(
         admin_telegram_id=100,
         tournament_id=today_id,
         user_id=player_id,
+        gender_decision=CheckInGenderDecision.SKIP,
+        reward_id=reward_id,
+    )
+    repeated = await service.complete_user_check_in(
+        admin_telegram_id=100,
+        tournament_id=today_id,
+        user_id=player_id,
+        gender_decision=CheckInGenderDecision.FEMALE,
         reward_id=reward_id,
     )
 
     assert result.created is True
+    assert repeated.created is False
     async with session_factory() as session:
         stored_results = (await session.execute(select(TournamentResult))).scalars().all()
         stored_reward = await session.get(PlayerReward, reward_id)
+        stored_player = await session.get(User, player_id)
         assert len(stored_results) == 1
         assert stored_results[0].player_id == player_id
         assert stored_results[0].source == TournamentResultSource.WALK_IN_EXISTING
@@ -1014,6 +1029,8 @@ async def test_check_in_reward_decision_precedes_atomic_check_in(tmp_path: Path)
         assert stored_reward.redeemed_tournament_id == today_id
         assert stored_reward.redeemed_by_user_id == 1
         assert stored_reward.redeemed_tournament_day == date(2026, 8, 26)
+        assert stored_player is not None
+        assert stored_player.gender is None
 
 
 async def test_check_in_reward_failure_creates_no_result(tmp_path: Path) -> None:
@@ -1056,17 +1073,29 @@ async def test_check_in_reward_failure_creates_no_result(tmp_path: Path) -> None
         clock=FixedClock(datetime(2026, 8, 26, 12, tzinfo=ZoneInfo("Europe/Moscow"))),
     )
 
-    with pytest.raises(PlayerRewardNotFoundError):
-        await service.check_in_user(
+    with pytest.raises(TournamentCheckInGenderDecisionRequiredError):
+        await service.complete_user_check_in(
             admin_telegram_id=100,
             tournament_id=today_id,
             user_id=player_id,
+            gender_decision=CheckInGenderDecision.KEEP,
+        )
+
+    with pytest.raises(PlayerRewardNotFoundError):
+        await service.complete_user_check_in(
+            admin_telegram_id=100,
+            tournament_id=today_id,
+            user_id=player_id,
+            gender_decision=CheckInGenderDecision.FEMALE,
             reward_id=999,
         )
 
     async with session_factory() as session:
         stored_results = (await session.execute(select(TournamentResult))).scalars().all()
+        stored_player = await session.get(User, player_id)
         assert stored_results == []
+        assert stored_player is not None
+        assert stored_player.gender is None
 
 
 def test_check_in_reward_decision_uses_reward_buttons() -> None:

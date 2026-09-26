@@ -1,7 +1,15 @@
 from dataclasses import dataclass
 from datetime import datetime
+from enum import StrEnum
 
 from app.services.dto.tournaments import TournamentView
+
+
+class CheckInGenderDecision(StrEnum):
+    KEEP = "keep"
+    FEMALE = "female"
+    MALE = "male"
+    SKIP = "skip"
 
 
 @dataclass(frozen=True)

@@ -23,24 +23,24 @@ from app.bot.telegram.texts.admin import panel as panel_text
 from app.bot.telegram.texts.admin import results as result_text
 from app.db.models.enums import UserGender
 from app.services.access_policy import AdminAccessDeniedError
-from app.services.dto.check_in import CheckInCandidateView
+from app.services.dto.check_in import CheckInCandidateView, CheckInGenderDecision
 from app.services.pagination import Page, pagination_service
 from app.services.player_reward_service import (
     PlayerRewardAlreadyRedeemedTodayError,
     PlayerRewardNotFoundError,
-    player_reward_service,
 )
 from app.services.tournament_check_in_service import (
     CheckInResultView,
     TournamentCheckInClosedError,
     TournamentCheckInDuplicateNameError,
+    TournamentCheckInGenderAlreadySetError,
+    TournamentCheckInGenderDecisionRequiredError,
     TournamentCheckInNotFoundError,
     TournamentCheckInRegisteredUserError,
     TournamentCheckInUserNotFoundError,
     tournament_check_in_service,
 )
 from app.services.user_access_service import user_access_service
-from app.services.user_rename_service import user_rename_service
 
 logger = logging.getLogger(__name__)
 
@@ -145,40 +145,8 @@ async def select_check_in_action(
                 )
             return
 
-        if callback_data.action == admin_check_in_kb.AdminCheckInAction.SELECT_REWARD:
-            await _show_reward_selection(callback, callback_data)
+        if await _handle_reward_or_gender_action(callback, callback_data, state):
             return
-
-        if callback_data.action == admin_check_in_kb.AdminCheckInAction.CONFIRM_REWARD:
-            await _show_reward_confirmation(callback, callback_data)
-            return
-
-        if callback_data.action in {
-            admin_check_in_kb.AdminCheckInAction.SET_GENDER_FEMALE,
-            admin_check_in_kb.AdminCheckInAction.SET_GENDER_MALE,
-            admin_check_in_kb.AdminCheckInAction.SKIP_GENDER,
-        }:
-            return await _handle_gender_decision(callback, callback_data, state)
-
-        if callback_data.action in {
-            admin_check_in_kb.AdminCheckInAction.SKIP_REWARD,
-            admin_check_in_kb.AdminCheckInAction.REDEEM_REWARD,
-        }:
-            result = await tournament_check_in_service.check_in_user(
-                admin_telegram_id=callback.from_user.id,
-                tournament_id=callback_data.tournament_id,
-                user_id=callback_data.player_id,
-                reward_id=(
-                    callback_data.reward_id
-                    if callback_data.action == admin_check_in_kb.AdminCheckInAction.REDEEM_REWARD
-                    else None
-                ),
-            )
-            view = await tournament_check_in_service.get_check_in(
-                admin_telegram_id=callback.from_user.id,
-                tournament_id=callback_data.tournament_id,
-            )
-            return await _finish_check_in_callback(callback, state, result, view)
 
         if callback_data.action == admin_check_in_kb.AdminCheckInAction.REGISTERED_SEARCH:
             await _show_registered_candidates(
@@ -312,19 +280,8 @@ async def select_check_in_action(
                 )
             return
 
-        if callback_data.action == admin_check_in_kb.AdminCheckInAction.ADD_REGISTERED:
-            result = await tournament_check_in_service.check_in_registered(
-                admin_telegram_id=callback.from_user.id,
-                tournament_id=callback_data.tournament_id,
-                user_id=callback_data.player_id,
-            )
-        elif callback_data.action == admin_check_in_kb.AdminCheckInAction.ADD_EXISTING:
-            result = await tournament_check_in_service.check_in_existing_user(
-                admin_telegram_id=callback.from_user.id,
-                tournament_id=callback_data.tournament_id,
-                user_id=callback_data.player_id,
-            )
-        else:
+        result = await _complete_confirmed_check_in(callback, callback_data)
+        if result is None:
             await callback.answer(result_text.ADMIN_RESULTS_NOT_FOUND, show_alert=True)
             return
         view = await tournament_check_in_service.get_check_in(
@@ -352,6 +309,12 @@ async def select_check_in_action(
             show_alert=True,
         )
         return
+    except TournamentCheckInGenderDecisionRequiredError:
+        await callback.answer("У игрока не указан пол.", show_alert=True)
+        return
+    except TournamentCheckInGenderAlreadySetError:
+        await callback.answer("Пол игрока уже указан.", show_alert=True)
+        return
     except PlayerRewardNotFoundError:
         await callback.answer("Бонус больше недоступен.", show_alert=True)
         return
@@ -360,6 +323,66 @@ async def select_check_in_action(
         return
 
     await _finish_check_in_callback(callback, state, result, view)
+
+
+async def _handle_reward_or_gender_action(
+    callback: CallbackQuery,
+    callback_data: admin_check_in_kb.AdminCheckInCallback,
+    state: FSMContext,
+) -> bool:
+    if callback_data.action == admin_check_in_kb.AdminCheckInAction.SELECT_REWARD:
+        await _show_reward_selection(callback, callback_data)
+        return True
+    if callback_data.action == admin_check_in_kb.AdminCheckInAction.CONFIRM_REWARD:
+        await _show_reward_confirmation(callback, callback_data)
+        return True
+    if callback_data.action in {
+        admin_check_in_kb.AdminCheckInAction.SET_GENDER_FEMALE,
+        admin_check_in_kb.AdminCheckInAction.SET_GENDER_MALE,
+        admin_check_in_kb.AdminCheckInAction.SKIP_GENDER,
+    }:
+        await _handle_gender_decision(callback, callback_data, state)
+        return True
+    if callback_data.action not in {
+        admin_check_in_kb.AdminCheckInAction.SKIP_REWARD,
+        admin_check_in_kb.AdminCheckInAction.REDEEM_REWARD,
+    }:
+        return False
+
+    result = await tournament_check_in_service.complete_user_check_in(
+        admin_telegram_id=callback.from_user.id,
+        tournament_id=callback_data.tournament_id,
+        user_id=callback_data.player_id,
+        gender_decision=await _gender_decision_from_state(state),
+        reward_id=(
+            callback_data.reward_id
+            if callback_data.action == admin_check_in_kb.AdminCheckInAction.REDEEM_REWARD
+            else None
+        ),
+    )
+    view = await tournament_check_in_service.get_check_in(
+        admin_telegram_id=callback.from_user.id,
+        tournament_id=callback_data.tournament_id,
+    )
+    await _finish_check_in_callback(callback, state, result, view)
+    return True
+
+
+async def _complete_confirmed_check_in(
+    callback: CallbackQuery,
+    callback_data: admin_check_in_kb.AdminCheckInCallback,
+) -> CheckInResultView | None:
+    if callback_data.action not in {
+        admin_check_in_kb.AdminCheckInAction.ADD_REGISTERED,
+        admin_check_in_kb.AdminCheckInAction.ADD_EXISTING,
+    }:
+        return None
+    return await tournament_check_in_service.complete_user_check_in(
+        admin_telegram_id=callback.from_user.id,
+        tournament_id=callback_data.tournament_id,
+        user_id=callback_data.player_id,
+        gender_decision=CheckInGenderDecision.KEEP,
+    )
 
 
 async def _finish_check_in_callback(
@@ -388,21 +411,16 @@ async def _show_reward_selection(
     callback: CallbackQuery,
     callback_data: admin_check_in_kb.AdminCheckInCallback,
 ) -> None:
-    rewards = await player_reward_service.list_active_rewards_for_check_in(
-        admin_telegram_id=callback.from_user.id,
-        tournament_id=callback_data.tournament_id,
-        player_id=callback_data.player_id,
-    )
-    confirmation = await tournament_check_in_service.get_user_check_in_confirmation(
+    decision = await tournament_check_in_service.get_user_check_in_decision(
         admin_telegram_id=callback.from_user.id,
         tournament_id=callback_data.tournament_id,
         user_id=callback_data.player_id,
     )
     result = CheckInResultView(
-        confirmation.tournament,
-        confirmation.user,
+        decision.tournament,
+        decision.user,
         False,
-        rewards,
+        decision.active_rewards,
     )
     await callback.answer()
     if callback.message is not None:
@@ -412,7 +430,7 @@ async def _show_reward_selection(
             reply_markup=admin_check_in_kb.admin_check_in_reward_selection_keyboard(
                 tournament_id=callback_data.tournament_id,
                 player_id=callback_data.player_id,
-                rewards=rewards,
+                rewards=decision.active_rewards,
             ),
         )
 
@@ -421,21 +439,22 @@ async def _show_reward_confirmation(
     callback: CallbackQuery,
     callback_data: admin_check_in_kb.AdminCheckInCallback,
 ) -> None:
-    reward = await player_reward_service.get_active_reward_for_player(
-        admin_telegram_id=callback.from_user.id,
-        player_id=callback_data.player_id,
-        reward_id=callback_data.reward_id,
-    )
-    confirmation = await tournament_check_in_service.get_user_check_in_confirmation(
+    decision = await tournament_check_in_service.get_user_check_in_decision(
         admin_telegram_id=callback.from_user.id,
         tournament_id=callback_data.tournament_id,
         user_id=callback_data.player_id,
     )
+    reward = next(
+        (item for item in decision.active_rewards if item.reward_id == callback_data.reward_id),
+        None,
+    )
+    if reward is None:
+        raise PlayerRewardNotFoundError
     await callback.answer()
     if callback.message is not None:
         await edit_message_if_changed(
             callback.message,
-            text=check_in_fmt.reward_confirmation(confirmation.user, reward),
+            text=check_in_fmt.reward_confirmation(decision.user, reward),
             reply_markup=admin_check_in_kb.admin_check_in_reward_confirmation_keyboard(
                 tournament_id=callback_data.tournament_id,
                 player_id=callback_data.player_id,
@@ -469,30 +488,38 @@ async def _handle_gender_decision(
         await _finish_check_in_callback(callback, state, result, view)
         return
 
-    if gender is not None:
-        await user_rename_service.set_user_gender(
-            callback.from_user.id,
-            callback_data.player_id,
-            gender,
-        )
-    rewards = await player_reward_service.list_active_rewards_for_check_in(
-        admin_telegram_id=callback.from_user.id,
-        tournament_id=callback_data.tournament_id,
-        player_id=callback_data.player_id,
-    )
-    if rewards:
-        await _show_reward_selection(callback, callback_data)
-        return
-    result = await tournament_check_in_service.check_in_user(
+    gender_decision = {
+        admin_check_in_kb.AdminCheckInAction.SET_GENDER_FEMALE: CheckInGenderDecision.FEMALE,
+        admin_check_in_kb.AdminCheckInAction.SET_GENDER_MALE: CheckInGenderDecision.MALE,
+        admin_check_in_kb.AdminCheckInAction.SKIP_GENDER: CheckInGenderDecision.SKIP,
+    }[callback_data.action]
+    await state.update_data(check_in_gender_decision=gender_decision.value)
+    decision = await tournament_check_in_service.get_user_check_in_decision(
         admin_telegram_id=callback.from_user.id,
         tournament_id=callback_data.tournament_id,
         user_id=callback_data.player_id,
+    )
+    if decision.active_rewards:
+        await _show_reward_selection(callback, callback_data)
+        return
+    result = await tournament_check_in_service.complete_user_check_in(
+        admin_telegram_id=callback.from_user.id,
+        tournament_id=callback_data.tournament_id,
+        user_id=callback_data.player_id,
+        gender_decision=gender_decision,
     )
     view = await tournament_check_in_service.get_check_in(
         admin_telegram_id=callback.from_user.id,
         tournament_id=callback_data.tournament_id,
     )
     await _finish_check_in_callback(callback, state, result, view)
+
+
+async def _gender_decision_from_state(state: FSMContext) -> CheckInGenderDecision:
+    data = await state.get_data()
+    return CheckInGenderDecision(
+        data.get("check_in_gender_decision", CheckInGenderDecision.KEEP.value)
+    )
 
 
 async def _show_check_in_decision(

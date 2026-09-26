@@ -150,6 +150,25 @@ tournament endpoints expose current-week schedule and self-registration:
 - `GET /api/v1/hall-of-fame`
 - `GET /api/v1/me/rewards`
 
+Privileged check-in and participant routes are application-service adapters:
+
+- `GET /api/v1/admin/tournaments/{tournament_id}/check-in`
+- `GET /api/v1/admin/tournaments/{tournament_id}/check-in/players`
+- `GET /api/v1/admin/tournaments/{tournament_id}/check-in/registered`
+- `GET /api/v1/admin/tournaments/{tournament_id}/check-in/users`
+- `GET /api/v1/admin/tournaments/{tournament_id}/check-in/players/{player_id}/decision`
+- `POST /api/v1/admin/tournaments/{tournament_id}/check-ins`
+- `GET /api/v1/admin/tournaments/{tournament_id}/participants/candidates`
+- `POST /api/v1/admin/tournaments/{tournament_id}/participants`
+- `DELETE /api/v1/admin/tournaments/{tournament_id}/participants/{player_id}`
+
+The existing-player check-in mutation keeps gender completion, optional reward
+redemption, and result creation in one service-owned transaction. A failed
+reward/check-in must not persist a partial gender change. New walk-in user and
+result creation are likewise atomic. HTTP and Telegram must call this shared
+boundary; neither transport may own a session or reproduce reward, source, or
+duplicate policy.
+
 These endpoints resolve the current active user through `UserAccessService` and
 delegate registration rules to `TournamentService`. The HTTP layer must not
 duplicate current-week, `registration_open`, duplicate-registration, or
