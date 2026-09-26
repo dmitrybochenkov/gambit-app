@@ -294,20 +294,29 @@ only presentation/navigation state. The current post-check-in personal message
 is a best-effort Telegram transport side effect and is not part of the HTTP
 contract.
 
+Tournament close and CLOSED correction are exposed through the same application
+services used by Telegram. `ResultService` owns readiness, close preview, the
+atomic ACTIVE-to-CLOSED transition, scoring, and initial reward persistence.
+`ClosedTournamentCorrectionService` owns the persisted snapshot, draft
+validation, stale detection, correction preview, and atomic result/scoring/reward
+reconciliation. Both operations remain SUPERADMIN-only. HTTP only maps typed
+request/response schemas; it does not calculate points or rewards and does not
+own a database session. Reward notification outcomes are returned as semantic
+DTO data. Telegram delivery remains best effort after commit, and result
+publication remains a separate explicit use-case.
+
 ### Known API Contract Gaps / Follow-up
 
 - Hall of Fame and tournament photos require a browser-media delivery contract
   before they can be exposed to WebApp clients. Stored Telegram `file_id`
   values are transport-specific references, not browser URLs.
-- Planning, correction, season management, Hall of Fame management,
+- Planning, season management, Hall of Fame management,
   user/admin management, registration
   review, and publication remain real application use-cases without HTTP
   adapters. Adding them requires explicit mutation schemas and role-equivalent
   API tests, not repository access from routes.
-- Tournament close and registration-review mutations currently have
-  post-commit Telegram notification orchestration in handlers. An HTTP adapter
-  must not call only the persistence service and silently skip those side
-  effects; the application boundary must own the complete use-case first.
+- Registration-review mutations still require a transport-neutral audit of
+  their post-commit notification semantics before an HTTP adapter is added.
 - Initial player onboarding remains Telegram-specific while WebApp
   authentication requires an existing active user resolved from signed initData.
 

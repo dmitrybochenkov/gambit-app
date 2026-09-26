@@ -367,7 +367,11 @@ class ResultService:
         session: AsyncSession,
         tournament_id: int,
     ) -> Tournament:
-        tournament = await self._require_active_tournament(session, tournament_id)
+        tournament = await TournamentRepository(session).get_by_id(tournament_id)
+        if tournament is None:
+            raise ResultTournamentNotFoundError
+        if tournament.status != TournamentStatus.ACTIVE:
+            raise TournamentResultsEditingUnavailableError
         if not is_tournament_closeable(tournament, self._tournament_day()):
             raise FutureTournamentCannotBeClosedError
         return tournament

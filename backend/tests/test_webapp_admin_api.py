@@ -14,7 +14,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
 from app.api import dependencies
-from app.api.v1 import admin_check_in, admin_tournaments
+from app.api.v1 import admin_check_in, admin_tournament_close, admin_tournaments
 from app.common.clock import FixedClock
 from app.db.base import Base
 from app.db.models import (
@@ -23,6 +23,7 @@ from app.db.models import (
     Season,
     Tournament,
     TournamentCombination,
+    TournamentPhoto,
     TournamentRegistration,
     TournamentResult,
     User,
@@ -35,6 +36,7 @@ from app.db.models.enums import (
     UserStatus,
 )
 from app.main import app
+from app.services.closed_tournament_correction_service import ClosedTournamentCorrectionService
 from app.services.result_service import ResultService
 from app.services.tournament_check_in_service import TournamentCheckInService
 from app.services.tournament_combination_service import TournamentCombinationService
@@ -87,6 +89,16 @@ async def admin_api_client(
         admin_tournaments,
         "tournament_combination_service",
         TournamentCombinationService(session_factory, clock=clock),
+    )
+    monkeypatch.setattr(
+        admin_tournament_close,
+        "result_service",
+        ResultService(session_factory, clock=clock),
+    )
+    monkeypatch.setattr(
+        admin_tournament_close,
+        "closed_tournament_correction_service",
+        ClosedTournamentCorrectionService(session_factory, clock=clock),
     )
     monkeypatch.setattr(
         admin_check_in,
@@ -578,3 +590,150 @@ async def test_admin_can_add_existing_and_new_open_tournament_participants(
             ids["unknown_gender_id"],
             created_user.id,
         }
+
+
+async def test_superadmin_close_and_correction_use_shared_application_contracts(
+    admin_api_client: tuple[AsyncClient, async_sessionmaker, dict[str, int]],
+) -> None:
+    client, session_factory, ids = admin_api_client
+    tournament_id = ids["tournament_id"]
+    async with session_factory() as session:
+        result = await session.scalar(
+            select(TournamentResult).where(
+                TournamentResult.tournament_id == tournament_id,
+                TournamentResult.player_id == ids["participant_id"],
+            )
+        )
+        assert result is not None
+        result.place = 1
+        session.add(
+            TournamentPhoto(
+                tournament_id=tournament_id,
+                telegram_file_id="photo",
+                telegram_file_unique_id="photo-unique",
+                uploaded_by_user_id=None,
+                position=0,
+            )
+        )
+        await session.commit()
+
+    readiness = await client.get(
+        f"/api/v1/admin/tournaments/{tournament_id}/close-readiness",
+        headers=auth_headers(200),
+    )
+    preview = await client.post(
+        f"/api/v1/admin/tournaments/{tournament_id}/close-preview",
+        headers=auth_headers(200),
+        json={"tournament_fund": 1000},
+    )
+    closed = await client.post(
+        f"/api/v1/admin/tournaments/{tournament_id}/close",
+        headers=auth_headers(200),
+        json={"tournament_fund": 1000},
+    )
+
+    assert readiness.status_code == 200
+    assert readiness.json()["is_ready"] is True
+    assert preview.status_code == 200
+    assert preview.json()["results"]["players"][0]["tournament_points"] == "450.00"
+    assert closed.status_code == 200
+    assert len(closed.json()["newly_issued_rewards"]) == 1
+
+    started = await client.get(
+        f"/api/v1/admin/tournaments/{tournament_id}/correction",
+        headers=auth_headers(200),
+    )
+    assert started.status_code == 200
+    draft = started.json()["draft"]
+    draft["proposed_tournament_fund"] = 2000
+    draft["proposed_results"][0]["display_name"] = "Client supplied name"
+    correction_preview = await client.post(
+        f"/api/v1/admin/tournaments/{tournament_id}/correction-preview",
+        headers=auth_headers(200),
+        json=draft,
+    )
+    applied = await client.post(
+        f"/api/v1/admin/tournaments/{tournament_id}/correction",
+        headers=auth_headers(200),
+        json=draft,
+    )
+    stale = await client.post(
+        f"/api/v1/admin/tournaments/{tournament_id}/correction",
+        headers=auth_headers(200),
+        json=draft,
+    )
+
+    assert correction_preview.status_code == 200
+    assert correction_preview.json()["fund_after"] == 2000
+    assert correction_preview.json()["after_results"]["players"][0]["display_name"] == "Participant"
+    assert applied.status_code == 200
+    assert applied.json()["after_results"]["tournament_fund"] == 2000
+    assert stale.status_code == 409
+    assert stale.json()["error"]["code"] == "conflict"
+    async with session_factory() as session:
+        tournament = await session.get(Tournament, tournament_id)
+        result = await session.scalar(
+            select(TournamentResult).where(TournamentResult.tournament_id == tournament_id)
+        )
+        rewards = list(
+            (
+                await session.scalars(
+                    select(PlayerReward).where(PlayerReward.source_tournament_id == tournament_id)
+                )
+            ).all()
+        )
+        assert tournament is not None
+        assert tournament.status == TournamentStatus.CLOSED
+        assert tournament.tournament_fund == 2000
+        assert result is not None
+        assert result.tournament_points == 900
+        assert len(rewards) == 1
+
+    repeated_close = await client.post(
+        f"/api/v1/admin/tournaments/{tournament_id}/close",
+        headers=auth_headers(200),
+        json={"tournament_fund": 3000},
+    )
+    assert repeated_close.status_code == 409
+
+
+async def test_correction_rejects_tampered_result_identity(
+    admin_api_client: tuple[AsyncClient, async_sessionmaker, dict[str, int]],
+) -> None:
+    client, session_factory, ids = admin_api_client
+    tournament_id = ids["tournament_id"]
+    async with session_factory() as session:
+        tournament = await session.get(Tournament, tournament_id)
+        assert tournament is not None
+        tournament.status = TournamentStatus.CLOSED
+        tournament.tournament_fund = 1000
+        await session.commit()
+
+    started = await client.get(
+        f"/api/v1/admin/tournaments/{tournament_id}/correction",
+        headers=auth_headers(200),
+    )
+    draft = started.json()["draft"]
+    draft["proposed_results"][0]["result_id"] = 99999
+
+    response = await client.post(
+        f"/api/v1/admin/tournaments/{tournament_id}/correction-preview",
+        headers=auth_headers(200),
+        json=draft,
+    )
+
+    assert response.status_code == 409
+    assert response.json()["error"]["code"] == "conflict"
+
+
+async def test_close_and_correction_preserve_superadmin_policy(
+    admin_api_client: tuple[AsyncClient, async_sessionmaker, dict[str, int]],
+) -> None:
+    client, _, ids = admin_api_client
+    path = f"/api/v1/admin/tournaments/{ids['tournament_id']}/close-readiness"
+
+    admin = await client.get(path, headers=auth_headers(100))
+    player = await client.get(path, headers=auth_headers(300))
+
+    assert admin.status_code == 403
+    assert player.status_code == 403

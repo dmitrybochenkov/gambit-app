@@ -1,3 +1,4 @@
+from dataclasses import replace
 from datetime import date, datetime
 from decimal import Decimal
 from pathlib import Path
@@ -53,6 +54,7 @@ from app.services.result_service import (
     ResultTodayTournamentNotFoundError,
     ResultTournamentNotFoundError,
     ResultUserNotFoundError,
+    ResultValidationError,
     TournamentResultsEditingUnavailableError,
 )
 from app.services.tournament_combination_service import TournamentCombinationService
@@ -1856,6 +1858,153 @@ async def test_closed_correction_duplicate_draft_player_is_rejected(tmp_path: Pa
                 draft,
                 user_id=ids["first"],
             )
+    finally:
+        await engine.dispose()
+
+
+async def test_closed_correction_forged_duplicate_player_is_rejected_without_mutation(
+    tmp_path: Path,
+) -> None:
+    participant_service, session_factory, engine, ids = await _build_open_delete_service(
+        tmp_path / "closed-forged-duplicate-player.db",
+        tournament_status=TournamentStatus.CLOSED,
+    )
+    service = ClosedTournamentCorrectionService(participant_service.session_factory)
+    try:
+        draft = await service.begin_closed_tournament_correction(100, ids["tournament"])
+        forged = replace(
+            draft,
+            proposed_results=(
+                draft.proposed_results[0],
+                replace(
+                    draft.proposed_results[1],
+                    player_id=draft.proposed_results[0].player_id,
+                ),
+            ),
+        )
+
+        with pytest.raises(ResultPlayerAlreadyAddedError):
+            await service.build_closed_tournament_correction_preview(100, forged)
+        with pytest.raises(ResultPlayerAlreadyAddedError):
+            await service.apply_closed_tournament_correction(100, forged)
+
+        async with session_factory() as session:
+            stored = list(
+                (
+                    await session.scalars(
+                        select(TournamentResult).where(
+                            TournamentResult.tournament_id == ids["tournament"]
+                        )
+                    )
+                ).all()
+            )
+        assert {item.player_id for item in stored} == {ids["first"], ids["second"]}
+    finally:
+        await engine.dispose()
+
+
+async def test_closed_correction_forged_duplicate_places_are_rejected_without_mutation(
+    tmp_path: Path,
+) -> None:
+    participant_service, session_factory, engine, ids = await _build_open_delete_service(
+        tmp_path / "closed-forged-duplicate-place.db",
+        tournament_status=TournamentStatus.CLOSED,
+    )
+    service = ClosedTournamentCorrectionService(participant_service.session_factory)
+    try:
+        draft = await service.begin_closed_tournament_correction(100, ids["tournament"])
+        forged = replace(
+            draft,
+            proposed_results=tuple(replace(item, place=1) for item in draft.proposed_results),
+        )
+
+        with pytest.raises(ResultValidationError, match="Дублируются места: 1"):
+            await service.build_closed_tournament_correction_preview(100, forged)
+        with pytest.raises(ResultValidationError, match="Дублируются места: 1"):
+            await service.apply_closed_tournament_correction(100, forged)
+
+        async with session_factory() as session:
+            stored = list(
+                (
+                    await session.scalars(
+                        select(TournamentResult).where(
+                            TournamentResult.tournament_id == ids["tournament"]
+                        )
+                    )
+                ).all()
+            )
+        assert sorted(item.place for item in stored if item.place is not None) == [1]
+    finally:
+        await engine.dispose()
+
+
+async def test_closed_correction_zero_clearing_respects_field_capabilities(
+    tmp_path: Path,
+) -> None:
+    participant_service, session_factory, engine, ids = await _build_open_delete_service(
+        tmp_path / "closed-zero-capabilities.db",
+        tournament_status=TournamentStatus.CLOSED,
+    )
+    async with session_factory() as session:
+        session.add(
+            TournamentTypeRule(
+                tournament_type_id=tournament_type_id("mystery_bounty"),
+                knockout_mode=KnockoutMode.SMALL,
+                supports_bonus_points=True,
+            )
+        )
+        await session.commit()
+    service = ClosedTournamentCorrectionService(participant_service.session_factory)
+    try:
+        draft = await service.begin_closed_tournament_correction(100, ids["tournament"])
+
+        ko_cleared = await service.update_closed_tournament_draft_result_field(
+            100,
+            draft,
+            ids["first"],
+            ResultField.KNOCKOUTS,
+            0,
+        )
+        bonus_cleared = await service.update_closed_tournament_draft_result_field(
+            100,
+            draft,
+            ids["first"],
+            ResultField.BONUS,
+            0,
+        )
+        with pytest.raises(ResultInvalidPlayerDataError):
+            await service.update_closed_tournament_draft_result_field(
+                100,
+                draft,
+                ids["first"],
+                ResultField.BIG_KNOCKOUTS,
+                0,
+            )
+
+        assert (
+            next(
+                item for item in ko_cleared.proposed_results if item.player_id == ids["first"]
+            ).knockouts_count
+            == 0
+        )
+        assert (
+            next(
+                item for item in bonus_cleared.proposed_results if item.player_id == ids["first"]
+            ).bonus_points
+            == 0
+        )
+
+        forged = replace(
+            draft,
+            proposed_results=tuple(
+                replace(item, big_knockouts_count=0) if item.player_id == ids["first"] else item
+                for item in draft.proposed_results
+            ),
+        )
+        with pytest.raises(ResultInvalidPlayerDataError):
+            await service.build_closed_tournament_correction_preview(100, forged)
+        with pytest.raises(ResultInvalidPlayerDataError):
+            await service.apply_closed_tournament_correction(100, forged)
     finally:
         await engine.dispose()
 

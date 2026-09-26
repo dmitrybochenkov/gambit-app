@@ -371,6 +371,11 @@ class ClosedTournamentCorrectionService:
             await access_policy.require_superadmin(session, superadmin_telegram_id)
             tournament = await self._require_closed_tournament(session, draft.tournament_id)
             await self._validate_draft_current(session, tournament, draft)
+            draft = await self._validate_and_canonicalize_proposed_draft(
+                session,
+                tournament,
+                draft,
+            )
             proposed_view = await self._results_view_from_snapshot(
                 session,
                 tournament,
@@ -431,6 +436,11 @@ class ClosedTournamentCorrectionService:
                 superadmin = await access_policy.require_superadmin(session, superadmin_telegram_id)
                 tournament = await self._require_closed_tournament(session, draft.tournament_id)
                 await self._validate_draft_current(session, tournament, draft)
+                draft = await self._validate_and_canonicalize_proposed_draft(
+                    session,
+                    tournament,
+                    draft,
+                )
                 proposed_view = await self._results_view_from_snapshot(
                     session,
                     tournament,
@@ -662,6 +672,78 @@ class ClosedTournamentCorrectionService:
         current = self.snapshot_from_results(await self._stored_results_view(session, tournament))
         if current != draft.original_results:
             raise ClosedTournamentCorrectionStaleError
+
+    async def _validate_and_canonicalize_proposed_draft(
+        self,
+        session: AsyncSession,
+        tournament: Tournament,
+        draft: ClosedTournamentCorrectionDraftView,
+    ) -> ClosedTournamentCorrectionDraftView:
+        has_changes = (
+            draft.proposed_tournament_fund != draft.original_tournament_fund
+            or draft.proposed_results != draft.original_results
+        )
+        if draft.proposed_tournament_fund is None:
+            if has_changes:
+                raise ResultInvalidFundError
+        else:
+            ResultService.validate_tournament_fund(draft.proposed_tournament_fund)
+
+        original_ids = [item.result_id for item in draft.original_results]
+        if any(result_id is None for result_id in original_ids) or len(original_ids) != len(
+            set(original_ids)
+        ):
+            raise ClosedTournamentCorrectionStaleError
+
+        proposed_ids = [
+            item.result_id for item in draft.proposed_results if item.result_id is not None
+        ]
+        if len(proposed_ids) != len(set(proposed_ids)) or not set(proposed_ids).issubset(
+            set(original_ids)
+        ):
+            raise ClosedTournamentCorrectionStaleError
+
+        original_by_id = {item.result_id: item for item in draft.original_results}
+        canonical: list[TournamentResultSnapshotItemView] = []
+        for item in draft.proposed_results:
+            original = original_by_id.get(item.result_id)
+            if original is not None and original.player_id == item.player_id:
+                display_name = original.display_name
+            else:
+                user = await UserRepository(session).get_active_by_id(item.player_id)
+                if user is None:
+                    raise ResultUserNotFoundError
+                display_name = user.display_name
+            if item.place is not None and (original is None or item.place != original.place):
+                await self._validate_result_field(
+                    session,
+                    tournament,
+                    ResultField.PLACE,
+                    item.place,
+                )
+            for field, value in (
+                (ResultField.KNOCKOUTS, item.knockouts_count),
+                (ResultField.BIG_KNOCKOUTS, item.big_knockouts_count),
+                (ResultField.BONUS, item.bonus_points),
+            ):
+                original_value = (
+                    None
+                    if original is None
+                    else {
+                        ResultField.KNOCKOUTS: original.knockouts_count,
+                        ResultField.BIG_KNOCKOUTS: original.big_knockouts_count,
+                        ResultField.BONUS: original.bonus_points,
+                    }[field]
+                )
+                if value < 0:
+                    raise ResultInvalidPlayerDataError
+                if (original is None and value) or (
+                    original is not None and value != original_value
+                ):
+                    await self._validate_result_field(session, tournament, field, value)
+            canonical.append(replace(item, display_name=display_name))
+
+        return replace(draft, proposed_results=tuple(canonical))
 
     async def _validate_result_field(
         self,

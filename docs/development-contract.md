@@ -162,6 +162,25 @@ Privileged check-in and participant routes are application-service adapters:
 - `POST /api/v1/admin/tournaments/{tournament_id}/participants`
 - `DELETE /api/v1/admin/tournaments/{tournament_id}/participants/{player_id}`
 
+Privileged tournament finalization and correction routes are also thin
+application-service adapters:
+
+- `GET /api/v1/admin/tournaments/{tournament_id}/close-readiness`
+- `POST /api/v1/admin/tournaments/{tournament_id}/close-preview`
+- `POST /api/v1/admin/tournaments/{tournament_id}/close`
+- `GET /api/v1/admin/tournaments/{tournament_id}/correction`
+- `POST /api/v1/admin/tournaments/{tournament_id}/correction-preview`
+- `POST /api/v1/admin/tournaments/{tournament_id}/correction`
+
+`ResultService` owns close validation, scoring, status transition, reward
+issuance, and commit. `ClosedTournamentCorrectionService` owns canonical
+snapshots, fail-closed draft validation, stale detection, rescoring, reward
+reconciliation, and commit. Correction clients may submit proposed persisted
+fields, but never calculated points or reward outcomes. Both use-cases enforce
+SUPERADMIN authorization inside the service. Telegram notifications happen
+after a successful commit and remain best-effort transport effects; publication
+is a separate explicit use-case.
+
 The existing-player check-in mutation keeps gender completion, optional reward
 redemption, and result creation in one service-owned transaction. A failed
 reward/check-in must not persist a partial gender change. New walk-in user and

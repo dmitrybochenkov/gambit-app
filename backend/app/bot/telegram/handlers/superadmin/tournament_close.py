@@ -323,6 +323,9 @@ async def select_close_tournament_action(
     except FutureTournamentCannotBeClosedError:
         await callback.answer("Будущий турнир нельзя закрыть.", show_alert=True)
         return
+    except TournamentResultsEditingUnavailableError:
+        await callback.answer(text.ADMIN_RESULTS_NOT_FOUND, show_alert=True)
+        return
     except ResultValidationError as error:
         await callback.answer()
         if callback.message is not None:
