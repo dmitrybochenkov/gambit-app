@@ -76,6 +76,10 @@ Relevant database/runtime environment values:
 | `6e7f8a9b0c1d` | Add tournament type calendar codes | Yes | No | No | Adds DB-driven compact calendar codes without changing `short_name`. |
 | `7f8a9b0c1d2e` | Prepare September 16 tournament formats | Yes | No | Yes | Renames `classic_v3` presentation to Freeroll, adds Slow Blinds, Satellite, and Black Party formats, and does not create concrete tournaments. |
 | `5d6e7f8a9b0c` | Add tournament-bound scoring v2 | Yes | No | Yes | Adds `tournaments.scoring_config_id`, MAIN KO config fields, v2 tournament formats, assigns old tournaments to v1, assigns the 2026-09-02..2026-09-06 tournaments and current season default to v2, and removes `tournament_types.status`. It does not create concrete calendar tournaments or recalculate result points. |
+| `ac1d2e3f4a5b` | Add Hall of Fame achievement occurrences | Yes | No | Conditional | Migrates legacy champion/knockout winners into occurrence rows. |
+| `bd2e3f4a5b6c` | Add ordered Hall of Fame photos | Yes | No | Conditional | Moves legacy photo slots into per-season photo rows. |
+| `ce3f4a5b6c7d` | Finalize Hall of Fame occurrences | Yes | Yes | Fail-closed | Adds singleton-kind uniqueness and removes the legacy `season_hall_of_fame` table. Downgrade refuses occurrence data the legacy model cannot represent. |
+| `d4e5f6a7b8c9` | Add achievement presentation metadata | Yes | No | Yes | Creates `achievement_types` and seeds canonical titles, fallback emoji, and nullable custom emoji ids. |
 
 Pre-production destructive resets were intentional for the current development
 stage. They are not a permanent production rule: future destructive migrations
@@ -87,7 +91,10 @@ must be reviewed independently and backed up.
 - `registration_requests`: pending/approved/rejected user registration review.
 - `scoring_configs`: versioned scoring coefficients and knockout point values.
 - `seasons`: date ranges, scoring config, statistics visibility.
-- `season_hall_of_fame`: manual season champion/knockout leader and photos.
+- `achievement_types`: canonical title, fallback emoji, and optional Telegram
+  custom emoji id keyed by stable achievement kind.
+- `hall_of_fame_achievements`: individual player achievement occurrences.
+- `hall_of_fame_photos`: ordered Telegram photo references for a season.
 - `tournament_types`: tournament names, short names, descriptions, creatability.
 - `tournament_type_rules`: scoring capabilities, KO mode, bonus support.
 - `tournament_economy_configs`: buy-in/addon/stacks by tournament type.
@@ -103,7 +110,7 @@ must be reviewed independently and backed up.
 
 Removed runtime tables include `players`, `admin_prompts`,
 `tournament_participants`, `tournament_result_drafts`,
-`result_submissions`, and admin result review tables.
+`result_submissions`, `season_hall_of_fame`, and admin result review tables.
 
 ## Important Constraints
 
@@ -123,6 +130,11 @@ Removed runtime tables include `players`, `admin_prompts`,
   required to sum to `1`.
 - `tournament_results` has unique `(tournament_id, player_id)`.
 - `tournament_results.place` may duplicate across players at DB level.
+- Hall of Fame kinds are restricted to the five values represented by
+  `HallOfFameAchievementKind`.
+- A partial unique index permits only one `rating_winner`,
+  `ko_rating_winner`, or `grand_season` occurrence per season and kind;
+  `grand_month` and `grand_knockout` remain repeatable.
 - `tournament_registrations` has unique `(tournament_id, player_id)`.
 - `tournament_photos` has unique `(tournament_id, telegram_file_unique_id)`.
 - `tournament_publications` has unique

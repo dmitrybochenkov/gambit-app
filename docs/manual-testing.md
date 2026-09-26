@@ -131,8 +131,9 @@ After close:
 - History includes the tournament and saved result points.
 - Rating changes and displayed points are rounded for Telegram UI.
 - Profile statistics and prize history update.
-- Hall of Fame does not change automatically.
-- SUPERADMIN fills completed seasons manually through Hall of Fame flow.
+- Hall of Fame achievement occurrences do not change automatically from an
+  ordinary tournament close.
+- SUPERADMIN manages season achievement occurrences through Hall of Fame flow.
 - Tournament photos are viewable in history/profile where supported.
 
 ## CLOSED Tournament Correction
@@ -152,10 +153,12 @@ After close:
 - A current season with future `ends_at` is not in Hall of Fame.
 - Completed seasons are those with `ends_at` before the business date.
 - Hidden seasons do not appear in public season statistics.
-- Selecting champion and knockout leader updates user Hall of Fame and rating
-  honour markers.
-- Hall of Fame photos upload and preview work for both champion and knockout
-  slots.
+- Adding, replacing, or deleting an achievement occurrence updates Hall of Fame,
+  profile honours, and rating badges consistently.
+- Repeatable `grand_month` and `grand_knockout` occurrences remain individually
+  visible; singleton kinds remain unique per season.
+- Hall of Fame photos upload, preserve their order, and preview for the selected
+  season.
 
 ## Database Checks
 

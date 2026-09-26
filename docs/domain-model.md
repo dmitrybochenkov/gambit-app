@@ -410,33 +410,54 @@ correction snapshot, and sends best-effort notifications.
 
 This is the current contract. It is not a fully staged, reversible draft model.
 
-## SeasonHallOfFame
+## Hall Of Fame Achievements
 
-Manual authoritative Hall of Fame entry for one completed season.
+`HallOfFameAchievement` is the authoritative achievement occurrence model.
 
 Fields:
 
-- `id`
-- `season_id`
-- `champion_player_id`
-- `knockout_player_id`
-- `champion_photo_file_id`
-- `champion_photo_file_unique_id`
-- `knockout_photo_file_id`
-- `knockout_photo_file_unique_id`
-- `updated_by_user_id`
-- `created_at`
-- `updated_at`
+- `id`: occurrence identity;
+- `season_id`;
+- `player_id`;
+- `kind`: stable machine identifier;
+- `awarded_at`: chronology field;
+- timestamps.
+
+`AchievementType` is canonical presentation metadata keyed by the same stable
+`kind` and stores `title`, fallback `emoji`, and nullable `custom_emoji_id`.
+Application code joins this metadata rather than maintaining copies of titles
+or emoji as achievement identity.
+
+Kinds, in canonical presentation order:
+
+- `rating_winner`;
+- `ko_rating_winner`;
+- `grand_season`;
+- `grand_month`;
+- `grand_knockout`.
 
 Rules:
 
-- One row per season.
-- `champion_player_id` and `knockout_player_id` are nullable.
-- Champion and knockout photos are optional.
-- The same player may be both season champion and knockout leader.
-- All foreign keys use `ON DELETE RESTRICT`.
-- User Hall of Fame and rating honours read this table; they do not derive
-  winners mathematically from rating rows.
+- `rating_winner`, `ko_rating_winner`, and `grand_season` are unique per season
+  and kind.
+- `grand_month` and `grand_knockout` are repeatable occurrences.
+- Rating badges preserve every occurrence and order them by `awarded_at ASC`,
+  canonical kind order, then occurrence `id ASC`.
+- Rating legends are dynamic and unique by kind, use canonical kind order, and
+  derive their title from achievement metadata. Lowercasing only the first
+  title character is Telegram legend formatting, not stored metadata.
+- Profile honours are grouped and navigated by season. A selected season shows
+  all of its occurrences; there is no separate occurrence pagination within a
+  season. When only one achievement season exists, the redundant season
+  navigation row is omitted.
+- Date presentation for repeatable achievements is a presentation concern;
+  `awarded_at` remains the stored chronology source.
+- Hall of Fame and rating/profile honours read occurrences; they do not derive
+  winners mathematically from current rating rows.
+
+`hall_of_fame_photos` stores ordered Telegram photo references by season. The
+former `season_hall_of_fame` table was a legacy champion/knockout and photo-slot
+model used in migration history; the current schema no longer contains it.
 
 ## Import Semantics
 

@@ -20,8 +20,18 @@ Database:
 
 ## Standard Deploy
 
+The deployment invariant is that application code requiring a new schema must
+not serve traffic before the required migrations complete successfully. The
+manual procedure below uses `stop -> update -> migrate -> start` as the current
+conservative fail-safe implementation of that invariant. It is not a permanent
+architectural requirement for every future deployment: automation may preserve
+availability with a different ordering when compatibility and migration safety
+have been established.
+
 ```bash
 cd /opt/apps/gambit
+
+sudo systemctl stop gambit
 
 git status
 git pull --ff-only origin main
@@ -31,10 +41,11 @@ uv sync
 uv run alembic upgrade head
 uv run alembic current
 
-sudo systemctl restart gambit
+sudo systemctl start gambit
 sudo systemctl status gambit --no-pager
-sudo journalctl -u gambit -n 100 --no-pager -o cat
 curl --fail --silent http://127.0.0.1:8100/health
+uv run alembic current
+sudo journalctl -u gambit -n 100 --no-pager -o cat
 ```
 
 When `PUBLIC_BASE_URL` is set, webhook deployment requires

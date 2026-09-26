@@ -157,12 +157,22 @@ change the meaning of existing weeks.
 
 ## Hall of Fame
 
-Hall of Fame winners are manually curated in `season_hall_of_fame`.
-`UserStatisticsService` and rating honours read this table through
-`HallOfFameRepository`; they do not calculate winners from rating totals or
-knockout totals. Superadmin management goes through
-`HallOfFameManagementService`, which performs service-level authorization and
-persists the selected champion and knockout leader.
+`hall_of_fame_achievements` is the authoritative occurrence store. Each row
+identifies one achievement by `kind`, player, season, and `awarded_at`;
+`achievement_types` supplies the canonical `title`, fallback `emoji`, and
+nullable Telegram `custom_emoji_id`. Presentation metadata is joined by kind
+instead of being duplicated in services or DTO construction.
+
+`rating_winner`, `ko_rating_winner`, and `grand_season` are singleton kinds per
+season. `grand_month` and `grand_knockout` may have repeated occurrences. The
+legacy `season_hall_of_fame` table was the source for champion/knockout data and
+photo slots during migration history, but it is no longer part of the current
+runtime schema. Season photos are retained separately in `hall_of_fame_photos`.
+
+`HallOfFameManagementService` owns superadmin mutation use-cases.
+`HallOfFameRepository` supplies occurrence-based reads to Hall of Fame, rating,
+and profile services; those consumers do not calculate winners from rating
+totals or knockout totals.
 
 ## Telegram Presentation
 
@@ -247,11 +257,28 @@ data and the authenticated user's own registration state, but not admin-only
 readiness, result-entry, or fund fields.
 
 Rating, profile, history, Hall of Fame, and reward endpoints expose semantic
-data from the existing read services. Achievement meaning is returned as counts
-such as `champion_titles_count` and `knockout_titles_count`; Unicode emoji are
-Telegram presentation, not API meaning. Hall of Fame photos are not exposed in
-the WebApp API yet because the current stored values are Telegram `file_id`
+data from the existing read services. Hall of Fame responses include occurrence
+id, kind, award date, canonical title, fallback emoji, nullable custom emoji id,
+and player. Rating responses currently expose achievement kind only, while the
+service DTO also carries occurrence id, date, title, emoji, and custom emoji
+id. Profile responses expose an ordered list of kinds plus legacy-compatible
+winner counts, while the service DTO carries full honour occurrences. Unicode
+emoji are presentation metadata, not achievement identity. Hall of Fame photos
+are not exposed in the WebApp API because stored values are Telegram `file_id`
 values, not browser-ready media URLs.
+
+### Known API Contract Gaps / Follow-up
+
+- Rating HTTP schemas discard occurrence id, award date, title, emoji, and
+  custom emoji id that are present in `RatingAchievementView`.
+- Profile HTTP schemas flatten honours to kind strings and counts, so repeated
+  kinds survive only as repeated strings and lack occurrence provenance and
+  presentation metadata.
+- Poker-combination totals are available in the profile service DTO but are not
+  represented in `PlayerProfileResponse`; history responses do not expose
+  tournament combination occurrences.
+- Hall of Fame photos require a browser-media delivery contract before they can
+  be exposed to WebApp clients.
 
 Application/auth API errors use a top-level JSON contract:
 

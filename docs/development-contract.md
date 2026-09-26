@@ -252,12 +252,32 @@ targeted tests, then run the agreed final tier once.
 
 ## Known Tech Debt
 
-- `ResultService` and `handlers/superadmin/tournament_close.py` remain large.
-  They are current runtime code, not a signal to broaden unrelated tasks.
-- CLOSED tournament correction mutates draft changes before the final finish
-  step. Finish validates, recalculates points, reconciles rewards, and sends
-  notifications. A future task may introduce a more explicit staged correction
-  model if needed.
+- `TournamentPlanningService` owns calendar reads, weekly planning, type
+  details, approval, edit, and deletion in one large service. The responsibilities
+  are real and tested, but their size deserves a separate responsibility-cluster
+  audit before any decomposition.
+- `ClosedTournamentCorrectionService` owns correction snapshots, validation,
+  point recalculation, reward reconciliation, photos, combinations, and
+  notifications. It still calls private `ResultService` methods such as
+  `_results_view`, `_scoring`, and `_result_capabilities`; this is confirmed
+  cross-service coupling rather than an endorsed general pattern.
+- `ResultService` remains responsible for normal result editing and tournament
+  close orchestration and still exposes private scoring/view primitives used by
+  CLOSED correction. A follow-up should define public narrow contracts before
+  removing that coupling.
+- Public application-service interfaces identify actors primarily by
+  `telegram_id`. This is the current authorization contract and keeps trusted
+  identity resolution inside services, but it also couples application
+  use-cases to the Telegram identity namespace as HTTP/WebApp grows.
+- Deployment and migration ordering is operational documentation rather than
+  repository automation. Operators must keep new-schema-dependent application
+  code stopped until `alembic upgrade head` succeeds.
+
+Architecture tests enforce presentation package boundaries and prohibit direct
+SQLAlchemy query APIs in services while allowing transaction lifecycle methods.
+The preferred handler/API -> service -> repository -> ORM direction is also a
+documented convention; it is not exhaustively proven for every dependency by a
+single architecture test.
 - Tournament-specific public copy still exists in presentation formatters for
   schedule descriptions and some labels. Capability decisions should remain
   DB/service-driven.
