@@ -214,7 +214,7 @@ dependency aggregators.
 ## WebApp API
 
 The WebApp API is a second transport adapter over the same services, not a
-separate business layer. Player-facing endpoints currently include:
+separate business layer. Current endpoints include:
 
 - `GET /api/v1/me`
 - `GET /api/v1/tournaments/week`
@@ -229,6 +229,12 @@ separate business layer. Player-facing endpoints currently include:
 - `GET /api/v1/me/history/{tournament_id}`
 - `GET /api/v1/hall-of-fame`
 - `GET /api/v1/me/rewards`
+- `GET /api/v1/admin/tournaments`
+- `GET /api/v1/admin/tournaments/{tournament_id}/results`
+- `PATCH /api/v1/admin/tournaments/{tournament_id}/results/{player_id}`
+- `GET /api/v1/admin/tournaments/{tournament_id}/combinations`
+- `POST /api/v1/admin/tournaments/{tournament_id}/combinations`
+- `DELETE /api/v1/admin/tournaments/{tournament_id}/combinations/{combination_id}`
 
 Authentication contract:
 
@@ -269,16 +275,28 @@ achievement identity. Hall of Fame photos are not exposed in the WebApp API
 because stored values are Telegram `file_id` values, not browser-ready media
 URLs.
 
+The first privileged HTTP slice exposes live tournament result entry and poker
+combination management through the same `ResultService` and
+`TournamentCombinationService` methods used by Telegram. Those services remain
+the authorization and transaction boundary: active ADMIN and SUPERADMIN actors
+are accepted according to the existing tournament edit policy, while PLAYER is
+rejected. Actor identity always comes from signed initData; mutation payloads
+never contain a trusted actor or role.
+
 ### Known API Contract Gaps / Follow-up
 
 - Hall of Fame and tournament photos require a browser-media delivery contract
   before they can be exposed to WebApp clients. Stored Telegram `file_id`
   values are transport-specific references, not browser URLs.
-- The current HTTP surface is player-facing. Administrative check-in, result
-  entry, planning, correction, season management, Hall of Fame management, and
-  registration review remain real application use-cases without HTTP adapters;
-  adding them requires explicit mutation schemas and role-equivalent API tests,
-  not repository access from routes.
+- Administrative check-in, player add/remove, planning, correction, season
+  management, Hall of Fame management, user/admin management, registration
+  review, and publication remain real application use-cases without HTTP
+  adapters. Adding them requires explicit mutation schemas and role-equivalent
+  API tests, not repository access from routes.
+- Tournament close and registration-review mutations currently have
+  post-commit Telegram notification orchestration in handlers. An HTTP adapter
+  must not call only the persistence service and silently skip those side
+  effects; the application boundary must own the complete use-case first.
 - Initial player onboarding remains Telegram-specific while WebApp
   authentication requires an existing active user resolved from signed initData.
 

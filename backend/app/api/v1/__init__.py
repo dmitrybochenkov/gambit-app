@@ -1,8 +1,18 @@
 from fastapi import APIRouter
 
-from app.api.v1 import hall_of_fame, history, me, profile, ratings, rewards, tournaments
+from app.api.v1 import (
+    admin_tournaments,
+    hall_of_fame,
+    history,
+    me,
+    profile,
+    ratings,
+    rewards,
+    tournaments,
+)
 
 router = APIRouter(prefix="/api/v1")
+router.include_router(admin_tournaments.router)
 router.include_router(hall_of_fame.router)
 router.include_router(history.router)
 router.include_router(me.router)
