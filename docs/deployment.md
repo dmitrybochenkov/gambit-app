@@ -28,25 +28,70 @@ architectural requirement for every future deployment: automation may preserve
 availability with a different ordering when compatibility and migration safety
 have been established.
 
+The preferred operator workflow starts from the local Gambit repository and
+uses the thin SSH wrapper:
+
+```bash
+# from the local Gambit repository
+scripts/deploy.sh
+```
+
+The wrapper connects through the existing `dimension-x` SSH host alias and
+runs the authoritative server-side entrypoint. It allocates a PTY only so
+remote `sudo` can prompt when required; it does not open a persistent
+interactive shell, contain credentials, or duplicate deployment steps. Remote
+output and exit status are forwarded to the local terminal.
+
+Direct server-side fallback:
+
+```bash
+ssh dimension-x
+cd /opt/apps/gambit
+scripts/deploy-production.sh
+```
+
+`scripts/deploy-production.sh` remains the authoritative deployment mechanism.
+It validates the checkout and production branch, performs a fast-forward-only
+update, creates a consistent SQLite backup, stops `gambit.service`, synchronizes
+dependencies, migrates to the single Alembic head, starts the service, and
+performs bounded service/health/revision checks.
+
+Failures before the stop phase leave the running service untouched. Dependency
+or migration failures after stop leave it stopped. A `systemctl start` failure
+means the service was not successfully started. Health or post-start revision
+verification failures occur after a start attempt; the script reports failure
+and diagnostics but does not automatically stop or roll back the service. The
+script never runs an automatic Alembic downgrade, database restore, git
+rollback, hard reset, or clean operation.
+
+Backups are created with SQLite's online `.backup` mechanism under
+`/opt/apps/gambit/data/backups` and named
+`gambit-before-deploy-<UTC timestamp>-<commit>.db`. Existing backups are never
+overwritten or pruned automatically.
+
+### Manual Recovery Reference
+
+For diagnosis or a deliberately supervised recovery, the equivalent critical
+sequence is:
+
 ```bash
 cd /opt/apps/gambit
-
+git fetch origin main
+git merge --ff-only origin/main
+sqlite3 data/gambit.db ".backup 'data/backups/gambit-manual-backup.db'"
 sudo systemctl stop gambit
-
-git status
-git pull --ff-only origin main
-
 cd backend
 uv sync
 uv run alembic upgrade head
 uv run alembic current
-
 sudo systemctl start gambit
-sudo systemctl status gambit --no-pager
+sudo systemctl is-active --quiet gambit
 curl --fail --silent http://127.0.0.1:8100/health
-uv run alembic current
-sudo journalctl -u gambit -n 100 --no-pager -o cat
 ```
+
+If migration or startup fails, keep the service stopped and investigate. Restore
+the database backup and application revision only as an explicit operator
+decision after identifying which steps completed.
 
 When `PUBLIC_BASE_URL` is set, webhook deployment requires
 `TELEGRAM_WEBHOOK_SECRET`. Startup fails without it, and webhook updates without
@@ -145,12 +190,12 @@ Before applying migrations:
 3. Decide whether a migration is data-preserving or destructive.
 4. Backup production-like data before destructive or uncertain migrations.
 
-Backup example:
+Manual backup example:
 
 ```bash
 mkdir -p /opt/apps/gambit/data/backups
-cp /opt/apps/gambit/data/gambit.db \
-  /opt/apps/gambit/data/backups/gambit-before-deploy-$(date +%Y%m%d-%H%M%S).db
+sqlite3 /opt/apps/gambit/data/gambit.db \
+  ".backup '/opt/apps/gambit/data/backups/gambit-before-deploy-$(date +%Y%m%d-%H%M%S).db'"
 sha256sum /opt/apps/gambit/data/backups/gambit-before-deploy-*.db | tail -n 1
 ```
 
