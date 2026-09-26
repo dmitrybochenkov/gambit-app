@@ -305,12 +305,22 @@ own a database session. Reward notification outcomes are returned as semantic
 DTO data. Telegram delivery remains best effort after commit, and result
 publication remains a separate explicit use-case.
 
+Tournament calendar planning is also shared by Telegram and privileged HTTP
+through `TournamentPlanningService`. The service owns SUPERADMIN authorization,
+calendar/month/week reads, creatable type options, create/autofill previews and
+mutations, week approval, future type changes, deletion restrictions,
+registration cleanup, and transaction boundaries. Planning mutations create
+ACTIVE tournaments with registration closed; week approval is the explicit
+command that opens registration. Deletion returns committed cancellation
+notification recipients, while Telegram delivery remains a best-effort
+post-commit transport effect.
+
 ### Known API Contract Gaps / Follow-up
 
 - Hall of Fame and tournament photos require a browser-media delivery contract
   before they can be exposed to WebApp clients. Stored Telegram `file_id`
   values are transport-specific references, not browser URLs.
-- Planning, season management, Hall of Fame management,
+- Season management, Hall of Fame management,
   user/admin management, registration
   review, and publication remain real application use-cases without HTTP
   adapters. Adding them requires explicit mutation schemas and role-equivalent

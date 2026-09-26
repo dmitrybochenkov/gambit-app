@@ -181,6 +181,21 @@ SUPERADMIN authorization inside the service. Telegram notifications happen
 after a successful commit and remain best-effort transport effects; publication
 is a separate explicit use-case.
 
+Privileged tournament-planning routes live under `/api/v1/admin/planning` and
+delegate all calendar rules and persistence to `TournamentPlanningService`.
+The surface provides month/week reads, type options/details, create preview and
+apply, week autofill preview and apply, week approval preview and apply, future
+type-change preview and apply, and future deletion preview and apply. HTTP does
+not infer editability, assign seasons/scoring configs, open registration, or
+delete registrations directly. Cancellation recipients are a semantic
+post-commit outcome; Telegram delivery remains best effort.
+
+Season management is intentionally deferred to a separate parity slice. Its
+current lifecycle is date-derived rather than status-driven: at most one future
+season may exist, creating it atomically closes the current season at the prior
+day, and deleting it reopens the previous season. No generic season CRUD or
+client-selected lifecycle state should be introduced.
+
 The existing-player check-in mutation keeps gender completion, optional reward
 redemption, and result creation in one service-owned transaction. A failed
 reward/check-in must not persist a partial gender change. New walk-in user and

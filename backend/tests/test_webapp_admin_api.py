@@ -8,13 +8,25 @@ from urllib.parse import urlencode
 from zoneinfo import ZoneInfo
 
 import pytest
-from conftest import build_player, seed_tournament_types_async, tournament_type_id
+from conftest import (
+    build_player,
+    seed_tournament_configs_async,
+    seed_tournament_rules_async,
+    seed_tournament_types_async,
+    seed_weekly_templates_async,
+    tournament_type_id,
+)
 from httpx import ASGITransport, AsyncClient
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
 from app.api import dependencies
-from app.api.v1 import admin_check_in, admin_tournament_close, admin_tournaments
+from app.api.v1 import (
+    admin_check_in,
+    admin_planning,
+    admin_tournament_close,
+    admin_tournaments,
+)
 from app.common.clock import FixedClock
 from app.db.base import Base
 from app.db.models import (
@@ -41,6 +53,7 @@ from app.services.result_service import ResultService
 from app.services.tournament_check_in_service import TournamentCheckInService
 from app.services.tournament_combination_service import TournamentCombinationService
 from app.services.tournament_participant_service import TournamentParticipantService
+from app.services.tournament_planning_service import TournamentPlanningService
 from app.services.user_access_service import UserAccessService
 
 TEST_BOT_TOKEN = "123456:test-token"
@@ -110,12 +123,20 @@ async def admin_api_client(
         "tournament_participant_service",
         TournamentParticipantService(session_factory, clock=clock),
     )
+    monkeypatch.setattr(
+        admin_planning,
+        "tournament_planning_service",
+        TournamentPlanningService(session_factory, clock=clock),
+    )
 
     async with session_factory() as session:
         config = ScoringConfig()
         session.add(config)
         await session.flush()
         await seed_tournament_types_async(session)
+        await seed_tournament_configs_async(session)
+        await seed_tournament_rules_async(session)
+        await seed_weekly_templates_async(session)
         season = Season(
             name="Осень 2026",
             scoring_config_id=config.id,
@@ -737,3 +758,163 @@ async def test_close_and_correction_preserve_superadmin_policy(
 
     assert admin.status_code == 403
     assert player.status_code == 403
+
+
+async def test_superadmin_planning_create_edit_approve_and_delete(
+    admin_api_client: tuple[AsyncClient, async_sessionmaker, dict[str, int]],
+) -> None:
+    client, session_factory, ids = admin_api_client
+    base = "/api/v1/admin/planning"
+    target_date = date(2026, 9, 10)
+    original_type_id = tournament_type_id("classic_v3")
+    replacement_type_id = tournament_type_id("bounty_v3")
+
+    month = await client.get(
+        f"{base}/calendar?year=2026&month=9",
+        headers=auth_headers(200),
+    )
+    types = await client.get(f"{base}/tournament-types", headers=auth_headers(200))
+    preview = await client.post(
+        f"{base}/tournaments/preview",
+        headers=auth_headers(200),
+        json={"tournament_date": target_date.isoformat(), "tournament_type_id": original_type_id},
+    )
+    created = await client.post(
+        f"{base}/tournaments",
+        headers=auth_headers(200),
+        json={"tournament_date": target_date.isoformat(), "tournament_type_id": original_type_id},
+    )
+    duplicate = await client.post(
+        f"{base}/tournaments",
+        headers=auth_headers(200),
+        json={"tournament_date": target_date.isoformat(), "tournament_type_id": original_type_id},
+    )
+
+    assert month.status_code == 200
+    assert types.status_code == 200
+    assert preview.status_code == 200
+    assert created.status_code == 200
+    assert created.json()["registration_open"] is False
+    assert duplicate.status_code == 409
+    tournament_id = created.json()["id"]
+
+    changed = await client.patch(
+        f"{base}/tournaments/{tournament_id}/type",
+        headers=auth_headers(200),
+        json={"tournament_type_id": replacement_type_id},
+    )
+    assert changed.status_code == 200
+    assert changed.json()["tournament_type_code"] == "bounty_v3"
+    assert changed.json()["date"] == target_date.isoformat()
+    assert changed.json()["registration_open"] is False
+
+    row_number = next(
+        week["row_number"]
+        for week in month.json()["weeks"]
+        if any(day["date"] == target_date.isoformat() for day in week["days"])
+    )
+    approval_preview = await client.post(
+        f"{base}/weeks/approval-preview",
+        headers=auth_headers(200),
+        json={"year": 2026, "month": 9, "row_number": row_number},
+    )
+    approved = await client.post(
+        f"{base}/weeks/approve",
+        headers=auth_headers(200),
+        json={"year": 2026, "month": 9, "row_number": row_number},
+    )
+    assert approval_preview.status_code == 200
+    assert approved.status_code == 200
+    assert approved.json()["tournaments"][0]["registration_open"] is True
+
+    async with session_factory() as session:
+        session.add(
+            TournamentRegistration(
+                tournament_id=tournament_id,
+                player_id=ids["participant_id"],
+            )
+        )
+        await session.commit()
+
+    delete_preview = await client.get(
+        f"{base}/tournaments/{tournament_id}/delete-preview",
+        headers=auth_headers(200),
+    )
+    deleted = await client.delete(
+        f"{base}/tournaments/{tournament_id}",
+        headers=auth_headers(200),
+    )
+    assert delete_preview.status_code == 200
+    assert delete_preview.json()["registrations_count"] == 1
+    assert deleted.status_code == 200
+    assert [item["telegram_id"] for item in deleted.json()["cancellation_notifications"]] == [400]
+    async with session_factory() as session:
+        assert await session.get(Tournament, tournament_id) is None
+        registration = await session.scalar(
+            select(TournamentRegistration).where(
+                TournamentRegistration.tournament_id == tournament_id
+            )
+        )
+        assert registration is None
+
+
+async def test_superadmin_planning_autofill_and_role_policy(
+    admin_api_client: tuple[AsyncClient, async_sessionmaker, dict[str, int]],
+) -> None:
+    client, session_factory, _ids = admin_api_client
+    base = "/api/v1/admin/planning"
+    month = await client.get(
+        f"{base}/calendar?year=2026&month=9",
+        headers=auth_headers(200),
+    )
+    row_number = next(
+        week["row_number"]
+        for week in month.json()["weeks"]
+        if any(day["date"] == "2026-09-16" for day in week["days"])
+    )
+    payload = {"year": 2026, "month": 9, "row_number": row_number}
+
+    admin_denied = await client.post(
+        f"{base}/weeks/autofill-preview",
+        headers=auth_headers(100),
+        json=payload,
+    )
+    player_denied = await client.get(
+        f"{base}/calendar?year=2026&month=9",
+        headers=auth_headers(300),
+    )
+    preview = await client.post(
+        f"{base}/weeks/autofill-preview",
+        headers=auth_headers(200),
+        json=payload,
+    )
+    applied = await client.post(
+        f"{base}/weeks/autofill",
+        headers=auth_headers(200),
+        json=payload,
+    )
+    repeated = await client.post(
+        f"{base}/weeks/autofill",
+        headers=auth_headers(200),
+        json=payload,
+    )
+
+    assert admin_denied.status_code == 403
+    assert player_denied.status_code == 403
+    assert preview.status_code == 200
+    assert len(preview.json()["tournaments"]) == 5
+    assert applied.status_code == 200
+    assert len(applied.json()["tournaments"]) == 5
+    assert repeated.status_code == 409
+    async with session_factory() as session:
+        tournaments = list(
+            (
+                await session.scalars(
+                    select(Tournament).where(
+                        Tournament.date.between(date(2026, 9, 16), date(2026, 9, 20))
+                    )
+                )
+            ).all()
+        )
+    assert len(tournaments) == 5
+    assert all(not item.registration_open for item in tournaments)

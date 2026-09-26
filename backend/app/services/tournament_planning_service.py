@@ -620,10 +620,21 @@ class TournamentPlanningService:
             try:
                 await access_policy.require_superadmin(session, actor_telegram_id)
                 tournament = await self._require_future_calendar_tournament(session, tournament_id)
-                await self._calendar_type_option(session, new_tournament_type_id)
+                tournament_type = await self._calendar_type_option(
+                    session,
+                    new_tournament_type_id,
+                )
                 tournament.tournament_type_id = new_tournament_type_id
                 await session.commit()
-                return tournament_view(tournament)
+                return TournamentView(
+                    id=tournament.id,
+                    date=tournament.date,
+                    tournament_type_id=tournament.tournament_type_id,
+                    tournament_type_name=tournament_type.name,
+                    tournament_type_code=tournament_type.code,
+                    tournament_type_calendar_code=tournament_type.calendar_code,
+                    registration_open=tournament.registration_open,
+                )
             except Exception:
                 await session.rollback()
                 raise
