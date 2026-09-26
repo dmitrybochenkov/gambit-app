@@ -70,8 +70,7 @@ def _display_name_with_honours(row: object) -> str:
 
 def _honours(row: object) -> str:
     achievements = getattr(row, "hall_of_fame_achievements", ())
-    by_kind = {str(achievement.kind): achievement for achievement in achievements}
-    return "".join(by_kind[kind].emoji for kind in ACHIEVEMENT_KIND_ORDER if kind in by_kind)
+    return "".join(achievement.emoji for achievement in _ordered_achievements(achievements))
 
 
 def _achievement_legend(rows: Iterable[object]) -> list[str]:
@@ -89,6 +88,18 @@ def _achievement_legend(rows: Iterable[object]) -> list[str]:
 
 def _lowercase_first(value: str) -> str:
     return value[:1].lower() + value[1:]
+
+
+def _ordered_achievements(achievements: Iterable[object]) -> list[object]:
+    kind_order = {kind: index for index, kind in enumerate(ACHIEVEMENT_KIND_ORDER)}
+    return sorted(
+        achievements,
+        key=lambda achievement: (
+            achievement.awarded_at,
+            kind_order[str(achievement.kind)],
+            achievement.id,
+        ),
+    )
 
 
 def _escape_markdown(value: str) -> str:

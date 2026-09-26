@@ -1,4 +1,5 @@
 from dataclasses import dataclass
+from datetime import date
 from decimal import Decimal
 
 from app.db.models.enums import HallOfFameAchievementKind
@@ -8,7 +9,9 @@ RatingAchievementKind = HallOfFameAchievementKind
 
 @dataclass(frozen=True)
 class RatingAchievementView:
+    id: int
     kind: RatingAchievementKind
+    awarded_at: date
     title: str
     emoji: str
     custom_emoji_id: str | None = None

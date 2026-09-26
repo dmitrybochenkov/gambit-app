@@ -6,7 +6,7 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.models import Tournament, TournamentResult, User
-from app.db.repositories.hall_of_fame_repository import AchievementTypeRow, HallOfFameRepository
+from app.db.repositories.hall_of_fame_repository import HallOfFameRepository, RatingAchievementRow
 from app.db.repositories.result_scopes import closed_tournament_filter
 
 
@@ -35,7 +35,7 @@ class KnockoutsRatingRow:
 class RatingHonours:
     season_champion_titles_by_player_id: dict[int, int]
     season_knockout_leader_titles_by_player_id: dict[int, int]
-    achievements_by_player_id: dict[int, tuple[AchievementTypeRow, ...]]
+    achievements_by_player_id: dict[int, tuple[RatingAchievementRow, ...]]
 
 
 class RatingRepository:
@@ -143,7 +143,7 @@ class RatingRepository:
     ) -> RatingHonours:
         achievements_by_player = await HallOfFameRepository(
             self.session
-        ).list_achievement_kinds_for_players(player_ids, today)
+        ).list_rating_achievements_for_players(player_ids, today)
         champion_counts: dict[int, int] = {}
         knockout_counts: dict[int, int] = {}
         for player_id, achievements in achievements_by_player.items():

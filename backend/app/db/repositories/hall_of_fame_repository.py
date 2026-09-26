@@ -70,6 +70,16 @@ class AchievementTypeRow:
 
 
 @dataclass(frozen=True)
+class RatingAchievementRow:
+    id: int
+    kind: HallOfFameAchievementKind
+    awarded_at: date
+    title: str
+    emoji: str
+    custom_emoji_id: str | None
+
+
+@dataclass(frozen=True)
 class PlayerHallOfFameHonourRow:
     achievement_id: int
     season_id: int
@@ -328,17 +338,19 @@ class HallOfFameRepository:
             ),
         )
 
-    async def list_achievement_kinds_for_players(
+    async def list_rating_achievements_for_players(
         self,
         player_ids: tuple[int, ...],
         today: date,
-    ) -> dict[int, tuple[AchievementTypeRow, ...]]:
+    ) -> dict[int, tuple[RatingAchievementRow, ...]]:
         if not player_ids:
             return {}
         result = await self.session.execute(
             select(
                 HallOfFameAchievement.player_id,
+                HallOfFameAchievement.id,
                 HallOfFameAchievement.kind,
+                HallOfFameAchievement.awarded_at,
                 AchievementType.title,
                 AchievementType.emoji,
                 AchievementType.custom_emoji_id,
@@ -349,19 +361,20 @@ class HallOfFameRepository:
                 HallOfFameAchievement.player_id.in_(player_ids),
                 Season.starts_at <= today,
             )
-            .order_by(Season.starts_at, Season.id, HallOfFameAchievement.id)
         )
-        grouped: dict[int, list[AchievementTypeRow]] = {}
-        for player_id, kind, title, emoji, custom_emoji_id in result:
+        grouped: dict[int, list[RatingAchievementRow]] = {}
+        for player_id, achievement_id, kind, awarded_at, title, emoji, custom_emoji_id in result:
             grouped.setdefault(player_id, []).append(
-                AchievementTypeRow(
+                RatingAchievementRow(
+                    id=achievement_id,
                     kind=kind,
+                    awarded_at=awarded_at,
                     title=title,
                     emoji=emoji,
                     custom_emoji_id=custom_emoji_id,
                 )
             )
-        return {player_id: tuple(kinds) for player_id, kinds in grouped.items()}
+        return {player_id: tuple(achievements) for player_id, achievements in grouped.items()}
 
     async def list_achievement_types(self) -> tuple[AchievementTypeRow, ...]:
         result = await self.session.execute(select(AchievementType))

@@ -215,7 +215,9 @@ def rating_achievement_views(
 ) -> tuple[RatingAchievementView, ...]:
     return tuple(
         RatingAchievementView(
+            id=achievement.id,
             kind=achievement.kind,
+            awarded_at=achievement.awarded_at,
             title=achievement.title,
             emoji=achievement.emoji,
             custom_emoji_id=achievement.custom_emoji_id,
