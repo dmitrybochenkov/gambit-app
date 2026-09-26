@@ -1,22 +1,27 @@
 from app.bot.telegram.formatters import common as fmt_common
-from app.bot.telegram.formatters.statistics.achievements import achievement_shows_date
+from app.bot.telegram.formatters.statistics.achievements import (
+    ACHIEVEMENT_KIND_ORDER,
+    achievement_shows_date,
+)
 from app.bot.telegram.texts.user import hall_of_fame as hall_texts
 
 
 def message(seasons: list) -> str:
     lines = ["🏆 Зал славы"]
-    achievement_types = {
-        achievement.kind: (achievement.emoji, achievement.title)
+    achievement_types_by_kind = {
+        str(achievement.kind): (achievement.emoji, achievement.title)
         for season in seasons
         for achievement in season.achievements
     }
-    if achievement_types:
+    if achievement_types_by_kind:
         lines.extend(
             [
                 "",
                 *(
-                    f"{emoji} - {_lowercase_first(title)}"
-                    for emoji, title in achievement_types.values()
+                    f"{achievement_types_by_kind[kind][0]} - "
+                    f"{_lowercase_first(achievement_types_by_kind[kind][1])}"
+                    for kind in ACHIEVEMENT_KIND_ORDER
+                    if kind in achievement_types_by_kind
                 ),
             ]
         )

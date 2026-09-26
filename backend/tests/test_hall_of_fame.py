@@ -124,9 +124,9 @@ async def test_hall_of_fame_uses_manual_entries_from_completed_seasons(
         assert "Будущий финал" not in hall_fmt.message(seasons)
         assert hall_fmt.message(seasons) == (
             "🏆 Зал славы\n\n"
-            "🏅 - победитель Grand Month\n"
             "💍 - победитель рейтингового сезона\n"
-            "💥 - лучший нокаутер сезона"
+            "💥 - лучший нокаутер сезона\n"
+            "🏅 - победитель Grand Month"
         )
         assert hall_fmt.season_caption(seasons[0]) == ("Открытый сезон\n🏅 Петр (01.07.2026)")
         assert hall_fmt.season_caption(seasons[1]) == "Сезон 2026\n💍 Петр"
@@ -184,12 +184,16 @@ def test_hall_of_fame_formatter_preserves_occurrence_order_and_repetitions() -> 
         )
         for index, (kind, name, awarded_at) in enumerate(
             (
-                (HallOfFameAchievementKind.RATING_WINNER, "Rating", date(2026, 8, 31)),
-                (HallOfFameAchievementKind.KO_RATING_WINNER, "KO", date(2026, 8, 31)),
-                (HallOfFameAchievementKind.GRAND_SEASON, "Season", date(2026, 8, 31)),
+                (
+                    HallOfFameAchievementKind.GRAND_KNOCKOUT,
+                    "KO new",
+                    date(2026, 8, 20),
+                ),
                 (HallOfFameAchievementKind.GRAND_MONTH, "Month new", date(2026, 8, 1)),
+                (HallOfFameAchievementKind.RATING_WINNER, "Rating", date(2026, 8, 31)),
+                (HallOfFameAchievementKind.GRAND_SEASON, "Season", date(2026, 8, 31)),
+                (HallOfFameAchievementKind.KO_RATING_WINNER, "KO", date(2026, 8, 31)),
                 (HallOfFameAchievementKind.GRAND_MONTH, "Month old", date(2026, 7, 1)),
-                (HallOfFameAchievementKind.GRAND_KNOCKOUT, "KO new", date(2026, 8, 20)),
                 (HallOfFameAchievementKind.GRAND_KNOCKOUT, "KO old", date(2026, 6, 20)),
             ),
             start=1,
@@ -208,17 +212,22 @@ def test_hall_of_fame_formatter_preserves_occurrence_order_and_repetitions() -> 
     )
 
     assert hall_fmt.season_caption(season) == (
-        "Лето 2026\n💍 Rating\n💥 KO\n🏆 Season\n"
-        "🏅 Month new (01.08.2026)\n🏅 Month old (01.07.2026)\n"
-        "🥊 KO new (20.08.2026)\n🥊 KO old (20.06.2026)"
+        "Лето 2026\n🥊 KO new (20.08.2026)\n🏅 Month new (01.08.2026)\n"
+        "💍 Rating\n🏆 Season\n💥 KO\n🏅 Month old (01.07.2026)\n"
+        "🥊 KO old (20.06.2026)"
     )
 
     legend = hall_fmt.message([season])
-    assert "🏆 - победитель Grand Season" in legend
-    assert "🏅 - победитель Grand Month" in legend
-    assert "🥊 - победитель Grand Knockout" in legend
+    assert legend == (
+        "🏆 Зал славы\n\n"
+        "💍 - победитель рейтингового сезона\n"
+        "💥 - лучший нокаутер сезона\n"
+        "🏆 - победитель Grand Season\n"
+        "🏅 - победитель Grand Month\n"
+        "🥊 - победитель Grand Knockout"
+    )
     assert " — " not in legend
-    assert achievements[2].title == "Победитель Grand Season"
+    assert achievements[3].title == "Победитель Grand Season"
 
 
 async def test_hall_of_fame_management_crud_preserves_repeated_occurrences(
