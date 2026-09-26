@@ -68,11 +68,24 @@ class HistoricalTournamentPlayerResultResponse(BaseModel):
     big_knockouts_count: int
 
 
+class HistoricalTournamentCombinationPlayerResponse(BaseModel):
+    id: int
+    display_name: str
+
+
+class HistoricalTournamentCombinationResponse(BaseModel):
+    id: int
+    player: HistoricalTournamentCombinationPlayerResponse
+    combination_type: str
+    rank: str | None
+
+
 class PlayerHistoryDetailResponse(BaseModel):
     tournament_id: int
     date: date
     type: HistoryTournamentTypeResponse
     my_result: HistoricalTournamentPlayerResultResponse
+    combinations: list[HistoricalTournamentCombinationResponse]
 
     model_config = ConfigDict(
         json_schema_extra={"description": "Current player's historical tournament result."}
@@ -106,4 +119,16 @@ class PlayerHistoryDetailResponse(BaseModel):
                 knockouts_count=row.knockouts_count,
                 big_knockouts_count=row.big_knockouts_count,
             ),
+            combinations=[
+                HistoricalTournamentCombinationResponse(
+                    id=combination.id,
+                    player=HistoricalTournamentCombinationPlayerResponse(
+                        id=combination.player_id,
+                        display_name=combination.display_name,
+                    ),
+                    combination_type=combination.combination_type,
+                    rank=combination.rank,
+                )
+                for combination in view.combinations
+            ],
         )

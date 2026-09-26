@@ -1,3 +1,4 @@
+from datetime import date
 from decimal import Decimal
 
 from pydantic import BaseModel, ConfigDict
@@ -11,6 +12,24 @@ class ProfilePlaceStatsResponse(BaseModel):
     third: int
     fourth: int
     fifth: int
+
+
+class ProfileAchievementResponse(BaseModel):
+    id: int
+    season_id: int
+    season_name: str
+    season_starts_at: date
+    kind: str
+    awarded_at: date
+    title: str
+    emoji: str
+    custom_emoji_id: str | None
+
+
+class ProfileCombinationTotalsResponse(BaseModel):
+    royal_flush: int
+    straight_flush: int
+    four_of_a_kind: int
 
 
 class PlayerProfileResponse(BaseModel):
@@ -30,6 +49,8 @@ class PlayerProfileResponse(BaseModel):
     champion_titles_count: int
     knockout_titles_count: int
     achievements: list[str]
+    achievement_occurrences: list[ProfileAchievementResponse]
+    combination_totals: ProfileCombinationTotalsResponse
 
     model_config = ConfigDict(json_schema_extra={"description": "Current player profile."})
 
@@ -69,4 +90,23 @@ class PlayerProfileResponse(BaseModel):
                 1 for honour in view.honours if honour.kind == "ko_rating_winner"
             ),
             achievements=[honour.kind for honour in view.honours],
+            achievement_occurrences=[
+                ProfileAchievementResponse(
+                    id=honour.achievement_id,
+                    season_id=honour.season_id,
+                    season_name=honour.season_name,
+                    season_starts_at=honour.season_starts_at,
+                    kind=honour.kind,
+                    awarded_at=honour.awarded_at,
+                    title=honour.title,
+                    emoji=honour.emoji,
+                    custom_emoji_id=honour.custom_emoji_id,
+                )
+                for honour in view.honours
+            ],
+            combination_totals=ProfileCombinationTotalsResponse(
+                royal_flush=view.royal_flush_count,
+                straight_flush=view.straight_flush_count,
+                four_of_a_kind=view.four_of_a_kind_count,
+            ),
         )

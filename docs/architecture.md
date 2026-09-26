@@ -259,26 +259,28 @@ readiness, result-entry, or fund fields.
 Rating, profile, history, Hall of Fame, and reward endpoints expose semantic
 data from the existing read services. Hall of Fame responses include occurrence
 id, kind, award date, canonical title, fallback emoji, nullable custom emoji id,
-and player. Rating responses currently expose achievement kind only, while the
-service DTO also carries occurrence id, date, title, emoji, and custom emoji
-id. Profile responses expose an ordered list of kinds plus legacy-compatible
-winner counts, while the service DTO carries full honour occurrences. Unicode
-emoji are presentation metadata, not achievement identity. Hall of Fame photos
-are not exposed in the WebApp API because stored values are Telegram `file_id`
-values, not browser-ready media URLs.
+and player. Rating responses expose the same occurrence metadata and preserve
+the service ordering and multiplicity. Profile responses retain the existing
+ordered kind list and legacy-compatible winner counts while also exposing full
+honour occurrences and service-computed lifetime poker-combination totals.
+Player history detail exposes independently identified tournament-combination
+occurrences in repository order. Unicode emoji are presentation metadata, not
+achievement identity. Hall of Fame photos are not exposed in the WebApp API
+because stored values are Telegram `file_id` values, not browser-ready media
+URLs.
 
 ### Known API Contract Gaps / Follow-up
 
-- Rating HTTP schemas discard occurrence id, award date, title, emoji, and
-  custom emoji id that are present in `RatingAchievementView`.
-- Profile HTTP schemas flatten honours to kind strings and counts, so repeated
-  kinds survive only as repeated strings and lack occurrence provenance and
-  presentation metadata.
-- Poker-combination totals are available in the profile service DTO but are not
-  represented in `PlayerProfileResponse`; history responses do not expose
-  tournament combination occurrences.
-- Hall of Fame photos require a browser-media delivery contract before they can
-  be exposed to WebApp clients.
+- Hall of Fame and tournament photos require a browser-media delivery contract
+  before they can be exposed to WebApp clients. Stored Telegram `file_id`
+  values are transport-specific references, not browser URLs.
+- The current HTTP surface is player-facing. Administrative check-in, result
+  entry, planning, correction, season management, Hall of Fame management, and
+  registration review remain real application use-cases without HTTP adapters;
+  adding them requires explicit mutation schemas and role-equivalent API tests,
+  not repository access from routes.
+- Initial player onboarding remains Telegram-specific while WebApp
+  authentication requires an existing active user resolved from signed initData.
 
 Application/auth API errors use a top-level JSON contract:
 

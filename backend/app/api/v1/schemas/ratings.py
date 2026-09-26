@@ -1,8 +1,13 @@
+from datetime import date
 from decimal import Decimal
 
 from pydantic import BaseModel, ConfigDict
 
-from app.services.dto.statistics.rating import KnockoutsRatingView, PointsRatingView
+from app.services.dto.statistics.rating import (
+    KnockoutsRatingView,
+    PointsRatingView,
+    RatingAchievementView,
+)
 
 
 class RatingPlayerResponse(BaseModel):
@@ -11,7 +16,23 @@ class RatingPlayerResponse(BaseModel):
 
 
 class RatingAchievementResponse(BaseModel):
+    id: int
     kind: str
+    awarded_at: date
+    title: str
+    emoji: str
+    custom_emoji_id: str | None
+
+    @classmethod
+    def from_view(cls, view: RatingAchievementView) -> "RatingAchievementResponse":
+        return cls(
+            id=view.id,
+            kind=view.kind,
+            awarded_at=view.awarded_at,
+            title=view.title,
+            emoji=view.emoji,
+            custom_emoji_id=view.custom_emoji_id,
+        )
 
 
 class PointsRatingRowResponse(BaseModel):
@@ -44,7 +65,7 @@ class PointsRatingResponse(BaseModel):
                     tournaments_count=row.tournaments_count,
                     champion_titles_count=row.season_champion_titles_count,
                     achievements=[
-                        RatingAchievementResponse(kind=item.kind)
+                        RatingAchievementResponse.from_view(item)
                         for item in row.hall_of_fame_achievements
                     ],
                 )
@@ -91,7 +112,7 @@ class KnockoutsRatingResponse(BaseModel):
                     tournaments_with_knockouts=row.knockout_tournaments_count,
                     knockout_titles_count=row.season_knockout_leader_titles_count,
                     achievements=[
-                        RatingAchievementResponse(kind=item.kind)
+                        RatingAchievementResponse.from_view(item)
                         for item in row.hall_of_fame_achievements
                     ],
                 )

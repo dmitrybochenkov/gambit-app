@@ -42,9 +42,19 @@ class HistoricalTournamentResultRowView:
 
 
 @dataclass(frozen=True)
+class HistoricalTournamentCombinationView:
+    id: int
+    player_id: int
+    display_name: str
+    combination_type: str
+    rank: str | None
+
+
+@dataclass(frozen=True)
 class HistoricalTournamentResultView:
     tournament: HistoricalTournamentView
     rows: list[HistoricalTournamentResultRowView]
+    combinations: tuple[HistoricalTournamentCombinationView, ...] = ()
 
     @property
     def has_knockouts(self) -> bool:

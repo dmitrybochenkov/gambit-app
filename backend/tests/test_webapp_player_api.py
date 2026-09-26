@@ -28,10 +28,12 @@ from app.db.models import (
     ScoringConfig,
     Season,
     Tournament,
+    TournamentCombination,
     TournamentResult,
 )
 from app.db.models.enums import (
     HallOfFameAchievementKind,
+    TournamentCombinationType,
     TournamentResultSource,
     TournamentStatus,
     UserGender,
@@ -239,6 +241,27 @@ async def seed_player_api_data(session_factory: async_sessionmaker) -> dict[str,
             valid_through=date(2026, 9, 10),
         )
         session.add_all([reward, other_reward])
+        session.add_all(
+            [
+                TournamentCombination(
+                    tournament_id=current.id,
+                    player_id=player.id,
+                    combination_type=TournamentCombinationType.FOUR_OF_A_KIND,
+                    rank="A",
+                ),
+                TournamentCombination(
+                    tournament_id=current.id,
+                    player_id=player.id,
+                    combination_type=TournamentCombinationType.FOUR_OF_A_KIND,
+                    rank="A",
+                ),
+                TournamentCombination(
+                    tournament_id=current.id,
+                    player_id=rival.id,
+                    combination_type=TournamentCombinationType.ROYAL_FLUSH,
+                ),
+            ]
+        )
         await session.commit()
         return {
             "previous_season_id": previous_season.id,
@@ -266,9 +289,16 @@ async def test_ratings_return_semantic_achievement_counts(
     ]
     assert ordinary.json()["items"][1]["points"] == "140.00"
     assert ordinary.json()["items"][1]["champion_titles_count"] == 1
-    assert ordinary.json()["items"][1]["achievements"] == [{"kind": "rating_winner"}]
+    ordinary_achievement = ordinary.json()["items"][1]["achievements"][0]
+    assert ordinary_achievement == {
+        "id": ordinary_achievement["id"],
+        "kind": "rating_winner",
+        "awarded_at": "2026-06-30",
+        "title": "Победитель рейтингового сезона",
+        "emoji": "💍",
+        "custom_emoji_id": None,
+    }
     assert "knockout_titles_count" not in ordinary.json()["items"][0]
-    assert "💍" not in json.dumps(ordinary.json(), ensure_ascii=False)
 
     assert knockouts.status_code == 200
     assert [item["player"]["display_name"] for item in knockouts.json()["items"]] == [
@@ -277,9 +307,16 @@ async def test_ratings_return_semantic_achievement_counts(
     ]
     assert knockouts.json()["items"][0]["total_knockouts_count"] == 10
     assert knockouts.json()["items"][0]["knockout_titles_count"] == 1
-    assert knockouts.json()["items"][0]["achievements"] == [{"kind": "ko_rating_winner"}]
+    knockout_achievement = knockouts.json()["items"][0]["achievements"][0]
+    assert knockout_achievement == {
+        "id": knockout_achievement["id"],
+        "kind": "ko_rating_winner",
+        "awarded_at": "2026-06-30",
+        "title": "Лучший нокаутер сезона",
+        "emoji": "💥",
+        "custom_emoji_id": None,
+    }
     assert "champion_titles_count" not in knockouts.json()["items"][0]
-    assert "💥" not in json.dumps(knockouts.json(), ensure_ascii=False)
 
 
 async def test_rating_supports_explicit_started_season_and_rejects_unknown(
@@ -321,9 +358,26 @@ async def test_profile_returns_current_actor_semantic_stats(
     assert body["champion_titles_count"] == 1
     assert body["knockout_titles_count"] == 0
     assert body["achievements"] == ["rating_winner"]
+    assert body["achievement_occurrences"] == [
+        {
+            "id": body["achievement_occurrences"][0]["id"],
+            "season_id": 1,
+            "season_name": "Весна 2026",
+            "season_starts_at": "2026-04-01",
+            "kind": "rating_winner",
+            "awarded_at": "2026-06-30",
+            "title": "Победитель рейтингового сезона",
+            "emoji": "💍",
+            "custom_emoji_id": None,
+        }
+    ]
+    assert body["combination_totals"] == {
+        "royal_flush": 0,
+        "straight_flush": 0,
+        "four_of_a_kind": 2,
+    }
     assert "display_name_normalized" not in body
     assert "telegram_id" not in body
-    assert "💍" not in json.dumps(body, ensure_ascii=False)
 
 
 async def test_history_is_private_and_uses_public_tournament_names(
@@ -359,6 +413,27 @@ async def test_history_is_private_and_uses_public_tournament_names(
 
     assert own_detail.status_code == 200
     assert own_detail.json()["my_result"]["player_id"] == ids["player_id"]
+    assert own_detail.json()["combinations"] == [
+        {
+            "id": own_detail.json()["combinations"][0]["id"],
+            "player": {"id": ids["player_id"], "display_name": "Player"},
+            "combination_type": "four_of_a_kind",
+            "rank": "A",
+        },
+        {
+            "id": own_detail.json()["combinations"][1]["id"],
+            "player": {"id": ids["player_id"], "display_name": "Player"},
+            "combination_type": "four_of_a_kind",
+            "rank": "A",
+        },
+        {
+            "id": own_detail.json()["combinations"][2]["id"],
+            "player": {"id": ids["rival_id"], "display_name": "Rival"},
+            "combination_type": "royal_flush",
+            "rank": None,
+        },
+    ]
+    assert len({item["id"] for item in own_detail.json()["combinations"]}) == 3
     assert other_detail.status_code == 404
     assert other_detail.json()["error"]["code"] == "not_found"
 
@@ -436,6 +511,70 @@ async def test_hall_of_fame_api_includes_open_season_achievement(
     assert current["achievements"][0]["kind"] == "grand_month"
     profile = await client.get("/api/v1/me/profile", headers=auth_headers())
     assert "grand_month" in profile.json()["achievements"]
+
+
+async def test_rating_and_profile_preserve_repeated_achievement_occurrences(
+    player_api_client: tuple[AsyncClient, async_sessionmaker],
+) -> None:
+    client, session_factory = player_api_client
+    ids = await seed_player_api_data(session_factory)
+    async with session_factory() as session:
+        session.add_all(
+            [
+                HallOfFameAchievement(
+                    season_id=ids["current_season_id"],
+                    player_id=ids["player_id"],
+                    kind=HallOfFameAchievementKind.GRAND_MONTH,
+                    awarded_at=date(2026, 8, 20),
+                ),
+                HallOfFameAchievement(
+                    season_id=ids["current_season_id"],
+                    player_id=ids["player_id"],
+                    kind=HallOfFameAchievementKind.GRAND_MONTH,
+                    awarded_at=date(2026, 8, 10),
+                ),
+            ]
+        )
+        await session.commit()
+
+    rating_response = await client.get("/api/v1/ratings", headers=auth_headers())
+    profile_response = await client.get("/api/v1/me/profile", headers=auth_headers())
+
+    assert rating_response.status_code == 200
+    player_rating = next(
+        item for item in rating_response.json()["items"] if item["player"]["id"] == ids["player_id"]
+    )
+    assert [item["kind"] for item in player_rating["achievements"]] == [
+        "rating_winner",
+        "grand_month",
+        "grand_month",
+    ]
+    assert [item["awarded_at"] for item in player_rating["achievements"][1:]] == [
+        "2026-08-20",
+        "2026-08-10",
+    ]
+    assert len({item["id"] for item in player_rating["achievements"]}) == 3
+
+    assert profile_response.status_code == 200
+    occurrences = profile_response.json()["achievement_occurrences"]
+    assert [item["kind"] for item in occurrences] == [
+        "rating_winner",
+        "grand_month",
+        "grand_month",
+    ]
+    assert [item["season_id"] for item in occurrences[1:]] == [
+        ids["current_season_id"],
+        ids["current_season_id"],
+    ]
+    assert [item["awarded_at"] for item in occurrences[1:]] == [
+        "2026-08-20",
+        "2026-08-10",
+    ]
+    assert profile_response.json()["achievements"] == [
+        "rating_winner",
+        "grand_month",
+        "grand_month",
+    ]
 
 
 async def test_rewards_are_current_actor_active_rewards_only(
