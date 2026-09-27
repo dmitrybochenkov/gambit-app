@@ -29,6 +29,12 @@ class SeasonCreationPreviewView:
 
 
 @dataclass(frozen=True)
+class SeasonFutureDeletePreviewView:
+    future_season: SeasonView
+    previous_season: SeasonView
+
+
+@dataclass(frozen=True)
 class SeasonTimelineView:
     completed_seasons: list[SeasonView]
     current_season: SeasonView | None
@@ -50,6 +56,14 @@ class SeasonTimelineView:
     @property
     def has_future_season(self) -> bool:
         return self.future_season is not None
+
+    @property
+    def can_create_next_season(self) -> bool:
+        return self.current_season is not None and not self.has_future_season
+
+    @property
+    def can_delete_future_season(self) -> bool:
+        return self.has_future_season
 
 
 @dataclass(frozen=True)

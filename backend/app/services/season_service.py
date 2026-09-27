@@ -7,11 +7,13 @@ from app.common.clock import Clock, club_clock
 from app.db.models import ScoringConfig, Season
 from app.db.repositories.scoring_config_repository import ScoringConfigRepository
 from app.db.repositories.season_repository import SeasonRepository
+from app.db.repositories.tournament_repository import TournamentRepository
 from app.db.session import SessionFactory
 from app.services.access_policy import access_policy
 from app.services.dto.seasons import (
     ScoringConfigView,
     SeasonCreationPreviewView,
+    SeasonFutureDeletePreviewView,
     SeasonLifecycleStateView,
     SeasonTimelineView,
     SeasonView,
@@ -56,6 +58,14 @@ class SeasonScheduledConflictError(ValueError):
 
 
 class SeasonDateOverlapError(ValueError):
+    pass
+
+
+class SeasonFutureHasTournamentsError(ValueError):
+    pass
+
+
+class SeasonFutureStaleError(ValueError):
     pass
 
 
@@ -169,10 +179,33 @@ class SeasonService:
             await access_policy.require_superadmin(session, admin_telegram_id)
         return season_name_for_date(starts_at)
 
+    async def get_future_season_delete_preview(
+        self,
+        admin_telegram_id: int,
+    ) -> SeasonFutureDeletePreviewView:
+        business_date = self.clock.today()
+        async with self.session_factory() as session:
+            await access_policy.require_superadmin(session, admin_telegram_id)
+            timeline = await self._season_timeline_view(session, today=business_date)
+            future_season = timeline.future_season
+            if future_season is None:
+                raise SeasonNotFoundError
+            previous_season = await SeasonRepository(session).get_previous_before(
+                future_season.starts_at
+            )
+            if previous_season is None:
+                raise SeasonCurrentNotFoundError
+            if await TournamentRepository(session).exists_for_season(future_season.id):
+                raise SeasonFutureHasTournamentsError
+            return SeasonFutureDeletePreviewView(
+                future_season=future_season,
+                previous_season=season_view(previous_season, today=business_date),
+            )
+
     async def delete_future_season(
         self,
         admin_telegram_id: int,
-        season_id: int,
+        expected_season_id: int,
     ) -> SeasonTimelineView:
         business_date = self.clock.today()
         async with self.session_factory() as session:
@@ -181,9 +214,11 @@ class SeasonService:
                 repository = SeasonRepository(session)
                 future_season = await self._require_future_season(
                     repository,
-                    season_id,
+                    expected_season_id,
                     business_date,
                 )
+                if await TournamentRepository(session).exists_for_season(future_season.id):
+                    raise SeasonFutureHasTournamentsError
                 previous_season = await repository.get_previous_before(future_season.starts_at)
                 if previous_season is None:
                     raise SeasonCurrentNotFoundError
@@ -408,15 +443,18 @@ class SeasonService:
     @staticmethod
     async def _require_future_season(
         repository: SeasonRepository,
-        season_id: int,
+        expected_season_id: int,
         today: date,
     ) -> Season:
-        season = await repository.get_by_id(season_id)
-        if season is None:
+        future_seasons = await repository.list_future_after(today)
+        if not future_seasons:
             raise SeasonNotFoundError
-        if season.starts_at <= today:
-            raise SeasonDateOverlapError
-        return season
+        if len(future_seasons) > 1:
+            raise SeasonScheduledConflictError
+        future_season = future_seasons[0]
+        if future_season.id != expected_season_id:
+            raise SeasonFutureStaleError
+        return future_season
 
     @classmethod
     async def _validate_new_season_timeline(

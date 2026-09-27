@@ -140,6 +140,14 @@ database stores only confirmed business state: seasons, tournaments, templates,
 and results. If the bot restarts, unfinished drafts disappear and the
 administrator starts the flow again.
 
+Normal season management is a SUPERADMIN-only, transport-neutral
+`SeasonService` boundary shared by Telegram and `/api/v1/admin/seasons`.
+Lifecycle is derived from dates. The supported commands create the single next
+season or delete that future season; both re-read the timeline and own their
+transactions. Scoring configuration is derived by the service. Referenced
+future seasons cannot be deleted. `open_season()` remains a bootstrap/legacy
+operation and is not part of the HTTP management API.
+
 Tournament rows are either `active` or `closed`. Cancelled tournaments are
 deleted rather than status-tracked. Existing gaming weeks are not checked
 against templates for completeness: a week is in progress iff at least one real

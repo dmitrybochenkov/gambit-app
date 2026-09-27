@@ -22,6 +22,8 @@ from app.services.season_service import (
     SeasonConflictError,
     SeasonCurrentNotFoundError,
     SeasonDateOverlapError,
+    SeasonFutureHasTournamentsError,
+    SeasonFutureStaleError,
     SeasonNameAlreadyExistsError,
     SeasonNameInvalidError,
     SeasonNotFoundError,
@@ -125,16 +127,9 @@ async def manage_seasons(
             return
 
         if callback_data.action == superadmin_seasons_kb.SeasonManageAction.DELETE_FUTURE:
-            seasons_page = await season_service.list_seasons_page_for_admin(
-                callback.from_user.id,
-                page=0,
-                page_size=1000,
-            )
-            season = next(
-                (item for item in seasons_page.items if item.id == callback_data.season_id),
-                None,
-            )
-            if season is None or season.lifecycle_state != "scheduled":
+            preview = await season_service.get_future_season_delete_preview(callback.from_user.id)
+            season = preview.future_season
+            if season.id != callback_data.season_id:
                 raise SeasonNotFoundError
             await callback.answer()
             if callback.message is not None:
@@ -171,6 +166,8 @@ async def manage_seasons(
         await callback.answer(text.ADMIN_CALENDAR_SEASON_START_INVALID, show_alert=True)
     except SeasonNotFoundError:
         await callback.answer(text.ADMIN_CALENDAR_SEASON_ALREADY_HANDLED, show_alert=True)
+    except SeasonFutureHasTournamentsError:
+        await callback.answer(text.ADMIN_CALENDAR_SEASON_CONFLICT, show_alert=True)
     except (SeasonScoringConfigAmbiguousError, SeasonScoringConfigNotFoundError):
         await callback.answer(text.ADMIN_CALENDAR_SCORING_CONFIG_NOT_FOUND, show_alert=True)
 
@@ -203,16 +200,21 @@ async def select_future_season_delete_action(
     try:
         timeline = await season_service.delete_future_season(
             admin_telegram_id=callback.from_user.id,
-            season_id=callback_data.season_id,
+            expected_season_id=callback_data.season_id,
         )
     except AdminAccessDeniedError:
         await state.clear()
         await callback.answer(panel_text.INSUFFICIENT_RIGHTS, show_alert=True)
         return
-    except (SeasonCurrentNotFoundError, SeasonDateOverlapError, SeasonNotFoundError):
+    except (
+        SeasonCurrentNotFoundError,
+        SeasonDateOverlapError,
+        SeasonFutureStaleError,
+        SeasonNotFoundError,
+    ):
         await callback.answer(text.ADMIN_CALENDAR_SEASON_ALREADY_HANDLED, show_alert=True)
         return
-    except SeasonConflictError:
+    except (SeasonConflictError, SeasonFutureHasTournamentsError):
         await callback.answer(text.ADMIN_CALENDAR_SEASON_CONFLICT, show_alert=True)
         return
 

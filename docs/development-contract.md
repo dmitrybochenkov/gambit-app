@@ -190,11 +190,14 @@ not infer editability, assign seasons/scoring configs, open registration, or
 delete registrations directly. Cancellation recipients are a semantic
 post-commit outcome; Telegram delivery remains best effort.
 
-Season management is intentionally deferred to a separate parity slice. Its
-current lifecycle is date-derived rather than status-driven: at most one future
-season may exist, creating it atomically closes the current season at the prior
-day, and deleting it reopens the previous season. No generic season CRUD or
-client-selected lifecycle state should be introduced.
+Privileged season-management routes live under `/api/v1/admin/seasons` and
+delegate the date-derived timeline to `SeasonService`. At most one future
+season may exist. Creating it atomically closes the current season on the prior
+day; deleting it atomically reopens the previous season and is rejected while
+tournaments reference the future season. The service derives the scoring
+configuration and revalidates authoritative state on apply. No generic season
+CRUD, client-selected lifecycle state, explicit finish command, or achievement
+side effect belongs in this boundary.
 
 The existing-player check-in mutation keeps gender completion, optional reward
 redemption, and result creation in one service-owned transaction. A failed

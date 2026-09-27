@@ -2,17 +2,21 @@ from datetime import date, datetime
 from pathlib import Path
 
 import pytest
+from conftest import seed_tournament_types_async, tournament_type_id
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncEngine, async_sessionmaker, create_async_engine
 
 from app.common.clock import FixedClock
 from app.db.base import Base
 from app.db.factories import create_user
-from app.db.models import ScoringConfig, Season
-from app.db.models.enums import UserRole, UserStatus
+from app.db.models import ScoringConfig, Season, Tournament
+from app.db.models.enums import TournamentStatus, UserRole, UserStatus
 from app.db.repositories.season_repository import SeasonRepository
+from app.services.access_policy import AdminAccessDeniedError
 from app.services.dto.seasons import SeasonLifecycleStateView
 from app.services.season_service import (
+    SeasonFutureHasTournamentsError,
+    SeasonFutureStaleError,
     SeasonNameAlreadyExistsError,
     SeasonNameInvalidError,
     SeasonScheduledConflictError,
@@ -156,6 +160,41 @@ async def test_get_season_timeline_has_no_pending_proposal(
         await engine.dispose()
 
 
+async def test_normal_season_management_requires_superadmin(tmp_path: Path) -> None:
+    service, session_factory, engine = await create_season_service(tmp_path / "access.db")
+    try:
+        await seed_current_season(session_factory)
+        async with session_factory() as session:
+            session.add_all(
+                [
+                    create_user(
+                        telegram_id=200,
+                        display_name="Администратор",
+                        status=UserStatus.ACTIVE,
+                        role=UserRole.ADMIN,
+                    ),
+                    create_user(
+                        telegram_id=300,
+                        display_name="Игрок",
+                        status=UserStatus.ACTIVE,
+                        role=UserRole.PLAYER,
+                    ),
+                ]
+            )
+            await session.commit()
+
+        with pytest.raises(AdminAccessDeniedError):
+            await service.get_season_timeline(200)
+        with pytest.raises(AdminAccessDeniedError):
+            await service.get_creation_preview(
+                300,
+                name="Осень 2026",
+                starts_at=date(2026, 9, 1),
+            )
+    finally:
+        await engine.dispose()
+
+
 async def test_creation_preview_does_not_write_database(tmp_path: Path) -> None:
     service, session_factory, engine = await create_season_service(tmp_path / "preview.db")
     try:
@@ -275,14 +314,95 @@ async def test_delete_future_season_reopens_previous(tmp_path: Path) -> None:
             )
             await session.commit()
 
-        timeline = await service.delete_future_season(100, 2)
+        preview = await service.get_future_season_delete_preview(100)
+        timeline = await service.delete_future_season(100, expected_season_id=2)
 
+        assert preview.future_season.id == 2
+        assert preview.previous_season.name == "Лето 2026"
+        assert preview.previous_season.ends_at == date(2026, 8, 31)
         assert timeline.future_season is None
         async with session_factory() as session:
             current = await SeasonRepository(session).get_by_name("Лето 2026")
             assert current is not None
             assert current.ends_at is None
             assert await SeasonRepository(session).get_by_name("Осень 2026") is None
+    finally:
+        await engine.dispose()
+
+
+async def test_delete_referenced_future_season_fails_with_semantic_conflict(
+    tmp_path: Path,
+) -> None:
+    service, session_factory, engine = await create_season_service(tmp_path / "referenced.db")
+    try:
+        config_id = await seed_current_season(
+            session_factory,
+            ends_at=date(2026, 8, 31),
+        )
+        async with session_factory() as session:
+            await seed_tournament_types_async(session)
+            future = Season(
+                name="Осень 2026",
+                scoring_config_id=config_id,
+                starts_at=date(2026, 9, 1),
+                ends_at=None,
+            )
+            session.add(future)
+            await session.flush()
+            session.add(
+                Tournament(
+                    season_id=future.id,
+                    scoring_config_id=config_id,
+                    tournament_type_id=tournament_type_id("classic_v3"),
+                    date=date(2026, 9, 2),
+                    status=TournamentStatus.ACTIVE,
+                )
+            )
+            await session.commit()
+            future_id = future.id
+
+        with pytest.raises(SeasonFutureHasTournamentsError):
+            await service.get_future_season_delete_preview(100)
+        with pytest.raises(SeasonFutureHasTournamentsError):
+            await service.delete_future_season(100, expected_season_id=future_id)
+
+        async with session_factory() as session:
+            current = await SeasonRepository(session).get_by_name("Лето 2026")
+            future = await SeasonRepository(session).get_by_name("Осень 2026")
+        assert current is not None and current.ends_at == date(2026, 8, 31)
+        assert future is not None
+    finally:
+        await engine.dispose()
+
+
+async def test_delete_future_season_rejects_stale_expected_id_without_mutation(
+    tmp_path: Path,
+) -> None:
+    service, session_factory, engine = await create_season_service(tmp_path / "stale-delete.db")
+    try:
+        config_id = await seed_current_season(
+            session_factory,
+            ends_at=date(2026, 8, 31),
+        )
+        async with session_factory() as session:
+            future = Season(
+                name="Осень 2026",
+                scoring_config_id=config_id,
+                starts_at=date(2026, 9, 1),
+                ends_at=None,
+            )
+            session.add(future)
+            await session.commit()
+            future_id = future.id
+
+        with pytest.raises(SeasonFutureStaleError):
+            await service.delete_future_season(100, expected_season_id=future_id + 999)
+
+        async with session_factory() as session:
+            current = await SeasonRepository(session).get_by_name("Лето 2026")
+            future = await SeasonRepository(session).get_by_name("Осень 2026")
+        assert current is not None and current.ends_at == date(2026, 8, 31)
+        assert future is not None and future.id == future_id
     finally:
         await engine.dispose()
 

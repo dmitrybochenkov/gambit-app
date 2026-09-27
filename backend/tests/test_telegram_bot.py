@@ -9653,6 +9653,74 @@ async def test_confirm_season_creation_calls_public_service(
     message.delete.assert_awaited_once_with()
 
 
+async def test_delete_future_season_reference_conflict_is_controlled(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    service = SimpleNamespace(
+        delete_future_season=AsyncMock(
+            side_effect=superadmin_season_handlers.SeasonFutureHasTournamentsError
+        )
+    )
+    monkeypatch.setattr(superadmin_season_handlers, "season_service", service)
+    callback = SimpleNamespace(
+        from_user=SimpleNamespace(id=100),
+        message=SimpleNamespace(),
+        answer=AsyncMock(),
+    )
+    state = SimpleNamespace(clear=AsyncMock())
+
+    await superadmin_season_handlers.select_future_season_delete_action(
+        callback,
+        SimpleNamespace(
+            action=superadmin_seasons_kb.SeasonDeleteFutureAction.CONFIRM,
+            season_id=2,
+        ),
+        state,
+    )
+
+    service.delete_future_season.assert_awaited_once_with(
+        admin_telegram_id=100,
+        expected_season_id=2,
+    )
+    callback.answer.assert_awaited_once_with(
+        "Не удалось открыть сезон. Попробуй ещё раз.",
+        show_alert=True,
+    )
+    state.clear.assert_not_awaited()
+
+
+async def test_delete_future_season_stale_callback_is_already_handled(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    service = SimpleNamespace(
+        delete_future_season=AsyncMock(
+            side_effect=superadmin_season_handlers.SeasonFutureStaleError
+        )
+    )
+    monkeypatch.setattr(superadmin_season_handlers, "season_service", service)
+    callback = SimpleNamespace(
+        from_user=SimpleNamespace(id=100),
+        message=SimpleNamespace(),
+        answer=AsyncMock(),
+    )
+    state = SimpleNamespace(clear=AsyncMock())
+
+    await superadmin_season_handlers.select_future_season_delete_action(
+        callback,
+        SimpleNamespace(
+            action=superadmin_seasons_kb.SeasonDeleteFutureAction.CONFIRM,
+            season_id=2,
+        ),
+        state,
+    )
+
+    callback.answer.assert_awaited_once_with(
+        "Сценарий открытия сезона уже завершён.",
+        show_alert=True,
+    )
+    state.clear.assert_not_awaited()
+
+
 async def test_admin_panel_registration_requests_button_shows_pending(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

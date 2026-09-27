@@ -24,6 +24,7 @@ from app.api import dependencies
 from app.api.v1 import (
     admin_check_in,
     admin_planning,
+    admin_seasons,
     admin_tournament_close,
     admin_tournaments,
 )
@@ -50,6 +51,7 @@ from app.db.models.enums import (
 from app.main import app
 from app.services.closed_tournament_correction_service import ClosedTournamentCorrectionService
 from app.services.result_service import ResultService
+from app.services.season_service import SeasonService
 from app.services.tournament_check_in_service import TournamentCheckInService
 from app.services.tournament_combination_service import TournamentCombinationService
 from app.services.tournament_participant_service import TournamentParticipantService
@@ -127,6 +129,11 @@ async def admin_api_client(
         admin_planning,
         "tournament_planning_service",
         TournamentPlanningService(session_factory, clock=clock),
+    )
+    monkeypatch.setattr(
+        admin_seasons,
+        "season_service",
+        SeasonService(session_factory, clock=clock),
     )
 
     async with session_factory() as session:
@@ -918,3 +925,130 @@ async def test_superadmin_planning_autofill_and_role_policy(
         )
     assert len(tournaments) == 5
     assert all(not item.registration_open for item in tournaments)
+
+
+async def test_superadmin_season_timeline_create_and_delete_use_shared_contract(
+    admin_api_client: tuple[AsyncClient, async_sessionmaker, dict[str, int]],
+) -> None:
+    client, session_factory, _ids = admin_api_client
+    base = "/api/v1/admin/seasons"
+    command = {"name": "Зима 2026", "starts_at": "2026-10-01"}
+
+    initial = await client.get(base, headers=auth_headers(200))
+    absent_delete_preview = await client.get(
+        f"{base}/future/delete-preview",
+        headers=auth_headers(200),
+    )
+    absent_delete = await client.request(
+        "DELETE",
+        f"{base}/future",
+        headers=auth_headers(200),
+        json={"expected_season_id": 999},
+    )
+    preview = await client.post(
+        f"{base}/next/preview",
+        headers=auth_headers(200),
+        json=command,
+    )
+    created = await client.post(f"{base}/next", headers=auth_headers(200), json=command)
+    repeated = await client.post(f"{base}/next", headers=auth_headers(200), json=command)
+    stale = await client.request(
+        "DELETE",
+        f"{base}/future",
+        headers=auth_headers(200),
+        json={"expected_season_id": created.json()["id"] + 999},
+    )
+    delete_preview = await client.get(
+        f"{base}/future/delete-preview",
+        headers=auth_headers(200),
+    )
+    deleted = await client.request(
+        "DELETE",
+        f"{base}/future",
+        headers=auth_headers(200),
+        json={"expected_season_id": created.json()["id"]},
+    )
+
+    assert initial.status_code == 200
+    assert initial.json()["can_create_next_season"] is True
+    assert absent_delete_preview.status_code == 404
+    assert absent_delete.status_code == 404
+    assert preview.status_code == 200
+    assert preview.json()["active_season_ends_at"] == "2026-09-30"
+    assert created.status_code == 200
+    assert (
+        created.json()["scoring_config_id"] == initial.json()["current_season"]["scoring_config_id"]
+    )
+    assert repeated.status_code == 409
+    assert stale.status_code == 409
+    assert delete_preview.status_code == 200
+    assert delete_preview.json()["future_season"]["id"] == created.json()["id"]
+    assert delete_preview.json()["previous_season"]["ends_at"] == "2026-09-30"
+    assert deleted.status_code == 200
+    assert deleted.json()["future_season"] is None
+    assert deleted.json()["current_season"]["ends_at"] is None
+
+    async with session_factory() as session:
+        seasons = list((await session.scalars(select(Season).order_by(Season.starts_at))).all())
+    assert [(item.name, item.ends_at) for item in seasons] == [("Осень 2026", None)]
+
+
+async def test_superadmin_season_delete_rejects_referenced_future_and_stale_state(
+    admin_api_client: tuple[AsyncClient, async_sessionmaker, dict[str, int]],
+) -> None:
+    client, session_factory, _ids = admin_api_client
+    base = "/api/v1/admin/seasons"
+    command = {"name": "Зима 2026", "starts_at": "2026-10-01"}
+    created = await client.post(f"{base}/next", headers=auth_headers(200), json=command)
+    future_id = created.json()["id"]
+
+    async with session_factory() as session:
+        current = await session.scalar(select(Season).where(Season.name == "Осень 2026"))
+        assert current is not None
+        session.add(
+            Tournament(
+                season_id=future_id,
+                scoring_config_id=created.json()["scoring_config_id"],
+                tournament_type_id=tournament_type_id("classic_v3"),
+                date=date(2026, 10, 2),
+                status=TournamentStatus.ACTIVE,
+            )
+        )
+        await session.commit()
+
+    preview = await client.get(
+        f"{base}/future/delete-preview",
+        headers=auth_headers(200),
+    )
+    rejected = await client.request(
+        "DELETE",
+        f"{base}/future",
+        headers=auth_headers(200),
+        json={"expected_season_id": future_id},
+    )
+    assert preview.status_code == 409
+    assert rejected.status_code == 409
+    async with session_factory() as session:
+        current = await session.scalar(select(Season).where(Season.name == "Осень 2026"))
+        future = await session.get(Season, future_id)
+    assert current is not None and current.ends_at == date(2026, 9, 30)
+    assert future is not None
+
+
+async def test_season_management_preserves_superadmin_policy_and_validates_dates(
+    admin_api_client: tuple[AsyncClient, async_sessionmaker, dict[str, int]],
+) -> None:
+    client, _session_factory, _ids = admin_api_client
+    base = "/api/v1/admin/seasons"
+
+    admin_denied = await client.get(base, headers=auth_headers(100))
+    player_denied = await client.get(base, headers=auth_headers(300))
+    invalid_date = await client.post(
+        f"{base}/next/preview",
+        headers=auth_headers(200),
+        json={"name": "Сегодня", "starts_at": "2026-09-03"},
+    )
+
+    assert admin_denied.status_code == 403
+    assert player_denied.status_code == 403
+    assert invalid_date.status_code == 422

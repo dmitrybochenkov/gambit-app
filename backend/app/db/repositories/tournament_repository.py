@@ -226,6 +226,12 @@ class TournamentRepository:
         )
         return result.scalar_one_or_none() is not None
 
+    async def exists_for_season(self, season_id: int) -> bool:
+        result = await self.session.execute(
+            select(exists().where(Tournament.season_id == season_id))
+        )
+        return bool(result.scalar_one())
+
     async def list_between_dates(
         self,
         start_date: date,
