@@ -15,13 +15,15 @@ from app.services.access_policy import access_policy
 from app.services.dto.registrations import (
     RegistrationCandidateView,
     RegistrationNotificationView,
-    RegistrationReviewResultView,
+    RegistrationReviewDecision,
+    RegistrationReviewOutcomeView,
     RegistrationReviewView,
     RegistrationsOverviewView,
     TournamentRegistrationCountView,
     TournamentRegistrationPlayerView,
     TournamentRegistrationsDetailView,
 )
+from app.services.dto.users import UserView
 from app.services.pagination import Page
 from app.services.registration_service import RegistrationService, find_link_candidates
 from app.services.user_common import (
@@ -210,13 +212,21 @@ class RegistrationReviewService:
         superadmin_telegram_id: int,
         request_id: int,
         candidate_user_id: int | None = None,
-    ) -> RegistrationReviewResultView:
+    ) -> RegistrationReviewOutcomeView:
         async with self.session_factory() as session:
             user_repository = UserRepository(session)
             request_repository = RegistrationRequestRepository(session)
-            await access_policy.require_superadmin(session, superadmin_telegram_id)
+            reviewer = await access_policy.require_superadmin(session, superadmin_telegram_id)
             request = await self._require_pending_request(request_repository, request_id)
-            admins = await user_repository.list_active_superadmins_with_telegram()
+            review = await self._registration_review_view(
+                user_repository,
+                request,
+                selected_user_id=candidate_user_id,
+            )
+            recipients = await self._notification_recipients(
+                user_repository,
+                reviewer_telegram_id=superadmin_telegram_id,
+            )
             if await user_repository.get_by_telegram_id(request.telegram_id) is not None:
                 raise RegistrationNotAllowedError
 
@@ -234,9 +244,12 @@ class RegistrationReviewService:
                     telegram_id=request.telegram_id,
                     display_name=request.requested_display_name,
                 )
+                await self._claim_review_decision(
+                    request_repository,
+                    request,
+                    RegistrationRequestStatus.APPROVED,
+                )
                 user_repository.add(user)
-                request.status = RegistrationRequestStatus.APPROVED
-                request.reviewed_at = self.clock.now()
                 try:
                     await session.commit()
                 except IntegrityError as exc:
@@ -249,9 +262,12 @@ class RegistrationReviewService:
                     request,
                     candidate_user_id,
                 )
+                await self._claim_review_decision(
+                    request_repository,
+                    request,
+                    RegistrationRequestStatus.APPROVED,
+                )
                 user.telegram_id = request.telegram_id
-                request.status = RegistrationRequestStatus.APPROVED
-                request.reviewed_at = self.clock.now()
                 try:
                     await session.commit()
                 except IntegrityError as exc:
@@ -260,32 +276,73 @@ class RegistrationReviewService:
                 await session.refresh(user)
 
             await session.refresh(request)
-            return RegistrationReviewResultView(
+            return RegistrationReviewOutcomeView(
+                decision=RegistrationReviewDecision.APPROVED,
+                review=review,
                 user=required_user_view(user),
                 request=required_registration_request_view(request),
-                admins=[required_user_view(admin) for admin in admins],
+                reviewer=required_user_view(reviewer),
+                notification_recipients=recipients,
             )
 
     async def reject_registration(
         self,
         superadmin_telegram_id: int,
         request_id: int,
-    ) -> RegistrationReviewResultView:
+    ) -> RegistrationReviewOutcomeView:
         async with self.session_factory() as session:
             user_repository = UserRepository(session)
             request_repository = RegistrationRequestRepository(session)
-            await access_policy.require_superadmin(session, superadmin_telegram_id)
+            reviewer = await access_policy.require_superadmin(session, superadmin_telegram_id)
             request = await self._require_pending_request(request_repository, request_id)
-            admins = await user_repository.list_active_superadmins_with_telegram()
-            request.status = RegistrationRequestStatus.REJECTED
-            request.reviewed_at = self.clock.now()
+            review = await self._registration_review_view(user_repository, request)
+            recipients = await self._notification_recipients(
+                user_repository,
+                reviewer_telegram_id=superadmin_telegram_id,
+            )
+            await self._claim_review_decision(
+                request_repository,
+                request,
+                RegistrationRequestStatus.REJECTED,
+            )
             await session.commit()
             await session.refresh(request)
-            return RegistrationReviewResultView(
+            return RegistrationReviewOutcomeView(
+                decision=RegistrationReviewDecision.REJECTED,
+                review=review,
                 user=None,
                 request=required_registration_request_view(request),
-                admins=[required_user_view(admin) for admin in admins],
+                reviewer=required_user_view(reviewer),
+                notification_recipients=recipients,
             )
+
+    async def _claim_review_decision(
+        self,
+        repository: RegistrationRequestRepository,
+        request: RegistrationRequest,
+        status: RegistrationRequestStatus,
+    ) -> None:
+        reviewed_at = self.clock.now()
+        if not await repository.claim_pending_review(
+            request_id=request.id,
+            status=status,
+            reviewed_at=reviewed_at,
+        ):
+            raise RegistrationAlreadyReviewedError
+        request.status = status
+        request.reviewed_at = reviewed_at
+
+    @staticmethod
+    async def _notification_recipients(
+        repository: UserRepository,
+        *,
+        reviewer_telegram_id: int,
+    ) -> list[UserView]:
+        return [
+            required_user_view(user)
+            for user in await repository.list_active_superadmins_with_telegram()
+            if user.telegram_id != reviewer_telegram_id
+        ]
 
     @staticmethod
     async def _registration_review_view(

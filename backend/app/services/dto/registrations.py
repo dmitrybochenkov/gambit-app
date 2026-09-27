@@ -1,5 +1,6 @@
 from dataclasses import dataclass
 from datetime import date
+from enum import StrEnum
 
 from app.services.dto.users import UserView
 
@@ -43,11 +44,19 @@ class RegistrationNotificationView:
     candidates: list[RegistrationCandidateView]
 
 
+class RegistrationReviewDecision(StrEnum):
+    APPROVED = "approved"
+    REJECTED = "rejected"
+
+
 @dataclass(frozen=True)
-class RegistrationReviewResultView:
-    user: UserView | None
+class RegistrationReviewOutcomeView:
+    decision: RegistrationReviewDecision
+    review: RegistrationReviewView
     request: RegistrationRequestView
-    admins: list[UserView]
+    user: UserView | None
+    reviewer: UserView
+    notification_recipients: list[UserView]
 
 
 @dataclass(frozen=True)

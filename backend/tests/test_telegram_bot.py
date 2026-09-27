@@ -72,6 +72,9 @@ from app.bot.telegram.keyboards.superadmin import users as superadmin_users_kb
 from app.bot.telegram.keyboards.user import profile as user_profile_kb
 from app.bot.telegram.keyboards.user import rating as user_rating_kb
 from app.bot.telegram.keyboards.user import tournaments as user_tournaments_kb
+from app.bot.telegram.registration_review_notifications import (
+    TelegramRegistrationReviewNotificationDelivery,
+)
 from app.bot.telegram.states import AdminResultStates, HallOfFameStates, UserRenameStates
 from app.bot.telegram.texts.admin import results as admin_result_text
 from app.bot.telegram.texts.user import registration as registration_text
@@ -112,7 +115,8 @@ from app.services.dto.registrations import (
     RegistrationCandidateView,
     RegistrationNotificationView,
     RegistrationRequestView,
-    RegistrationReviewResultView,
+    RegistrationReviewDecision,
+    RegistrationReviewOutcomeView,
     RegistrationReviewView,
     RegistrationsOverviewView,
     TournamentRegistrationCountView,
@@ -2579,6 +2583,34 @@ def registration_review(player_id: int) -> RegistrationReviewView:
             created_at="27.07.2026 12:00",
         ),
         candidates=[],
+    )
+
+
+def registration_review_outcome(
+    *,
+    request: RegistrationRequestView,
+    decision: RegistrationReviewDecision,
+    user: UserView | None,
+    reviewer: UserView,
+    recipients: list[UserView],
+) -> RegistrationReviewOutcomeView:
+    pending_request = RegistrationRequestView(
+        id=request.id,
+        telegram_id=request.telegram_id,
+        request_type=request.request_type,
+        status="pending",
+        requested_display_name=request.requested_display_name,
+        requested_link_name=request.requested_link_name,
+        candidate_user_id=request.candidate_user_id,
+        created_at=request.created_at,
+    )
+    return RegistrationReviewOutcomeView(
+        decision=decision,
+        review=RegistrationReviewView(request=pending_request, candidates=[]),
+        request=request,
+        user=user,
+        reviewer=reviewer,
+        notification_recipients=recipients,
     )
 
 
@@ -10685,10 +10717,12 @@ async def test_registration_review_reject_deletes_pending_and_notifies_superadmi
     other_superadmin = admin_player(2, 101, UserRole.SUPERADMIN)
     service = SimpleNamespace(
         reject_registration=AsyncMock(
-            return_value=RegistrationReviewResultView(
+            return_value=registration_review_outcome(
+                decision=RegistrationReviewDecision.REJECTED,
                 user=None,
                 request=request,
-                admins=[reviewer, other_superadmin],
+                reviewer=reviewer,
+                recipients=[other_superadmin],
             )
         ),
         list_pending_reviews_page_for_superadmin=AsyncMock(
@@ -10700,13 +10734,13 @@ async def test_registration_review_reject_deletes_pending_and_notifies_superadmi
     )
     monkeypatch.setattr(superadmin_registration_handlers, "registration_review_service", service)
     message = SimpleNamespace(
-        text="Новая заявка на регистрацию\n\nФамилия и имя: Игрок Второй",
+        text="STALE CALLBACK MESSAGE",
         edit_text=AsyncMock(),
         answer=AsyncMock(),
     )
     bot = SimpleNamespace(send_message=AsyncMock())
     callback = SimpleNamespace(
-        from_user=SimpleNamespace(id=100, full_name="Админ 1"),
+        from_user=SimpleNamespace(id=100, full_name="Telegram Alias"),
         message=message,
         bot=bot,
         answer=AsyncMock(),
@@ -10739,6 +10773,8 @@ async def test_registration_review_reject_deletes_pending_and_notifies_superadmi
     admin_call, player_call = bot.send_message.await_args_list
     assert admin_call.kwargs["chat_id"] == 101
     assert "Заявка отклонена: Админ 1" in admin_call.kwargs["text"]
+    assert "STALE CALLBACK MESSAGE" not in admin_call.kwargs["text"]
+    assert "Telegram Alias" not in admin_call.kwargs["text"]
     assert player_call.kwargs["chat_id"] == 200
     assert player_call.kwargs["text"] == registration_text.REGISTRATION_REJECTED
 
@@ -10758,10 +10794,12 @@ async def test_registration_review_result_moves_empty_last_page_to_previous_page
     )
     service = SimpleNamespace(
         approve_registration=AsyncMock(
-            return_value=RegistrationReviewResultView(
+            return_value=registration_review_outcome(
+                decision=RegistrationReviewDecision.APPROVED,
                 user=active_player(),
                 request=request,
-                admins=[admin_player(1, 100, UserRole.SUPERADMIN)],
+                reviewer=admin_player(1, 100, UserRole.SUPERADMIN),
+                recipients=[],
             )
         ),
         list_pending_reviews_page_for_superadmin=AsyncMock(
@@ -10933,10 +10971,12 @@ async def test_confirm_selected_registration_candidate_links_user(
     )
     service = SimpleNamespace(
         approve_registration=AsyncMock(
-            return_value=RegistrationReviewResultView(
+            return_value=registration_review_outcome(
+                decision=RegistrationReviewDecision.APPROVED,
                 user=player,
                 request=request,
-                admins=[admin_player(1, 100, UserRole.SUPERADMIN)],
+                reviewer=admin_player(1, 100, UserRole.SUPERADMIN),
+                recipients=[],
             )
         ),
         list_pending_reviews_page_for_superadmin=AsyncMock(
@@ -11043,7 +11083,8 @@ async def test_registration_review_result_is_sent_to_other_superadmins(
     other_superadmin = admin_player(2, 101, UserRole.SUPERADMIN)
     service = SimpleNamespace(
         approve_registration=AsyncMock(
-            return_value=RegistrationReviewResultView(
+            return_value=registration_review_outcome(
+                decision=RegistrationReviewDecision.APPROVED,
                 user=player,
                 request=RegistrationRequestView(
                     id=10,
@@ -11055,7 +11096,8 @@ async def test_registration_review_result_is_sent_to_other_superadmins(
                     candidate_user_id=None,
                     created_at="27.07.2026 12:00",
                 ),
-                admins=[reviewer, other_superadmin],
+                reviewer=reviewer,
+                recipients=[other_superadmin],
             )
         ),
         list_pending_reviews_page_for_superadmin=AsyncMock(
@@ -11067,13 +11109,13 @@ async def test_registration_review_result_is_sent_to_other_superadmins(
     )
     monkeypatch.setattr(superadmin_registration_handlers, "registration_review_service", service)
     message = SimpleNamespace(
-        text="Новая заявка на регистрацию\n\nФамилия и имя: Игрок Второй",
+        text="STALE CALLBACK MESSAGE",
         edit_text=AsyncMock(),
         answer=AsyncMock(),
     )
     bot = SimpleNamespace(send_message=AsyncMock())
     callback = SimpleNamespace(
-        from_user=SimpleNamespace(id=100, full_name="Админ 1"),
+        from_user=SimpleNamespace(id=100, full_name="Telegram Alias"),
         message=message,
         bot=bot,
         answer=AsyncMock(),
@@ -11106,9 +11148,43 @@ async def test_registration_review_result_is_sent_to_other_superadmins(
     admin_call, player_call = bot.send_message.await_args_list
     assert admin_call.kwargs["chat_id"] == 101
     assert "Заявка одобрена: Админ 1" in admin_call.kwargs["text"]
+    assert "STALE CALLBACK MESSAGE" not in admin_call.kwargs["text"]
+    assert "Telegram Alias" not in admin_call.kwargs["text"]
     assert player_call.kwargs["chat_id"] == 200
     assert player_call.kwargs["text"] == "Ваша заявка одобрена."
     assert labels.MAIN_ADMIN not in keyboard_texts(player_call.kwargs["reply_markup"])
+
+
+async def test_registration_review_notification_failure_does_not_skip_other_recipients() -> None:
+    request = RegistrationRequestView(
+        id=10,
+        telegram_id=200,
+        request_type="new_player",
+        status="approved",
+        requested_display_name="Игрок Второй",
+        requested_link_name=None,
+        candidate_user_id=None,
+        created_at="27.07.2026 12:00",
+    )
+    outcome = registration_review_outcome(
+        decision=RegistrationReviewDecision.APPROVED,
+        user=active_player(),
+        request=request,
+        reviewer=admin_player(1, 100, UserRole.SUPERADMIN),
+        recipients=[
+            admin_player(2, 101, UserRole.SUPERADMIN),
+            admin_player(3, 102, UserRole.SUPERADMIN),
+        ],
+    )
+    failure = TelegramBadRequest(
+        method=SendMessage(chat_id=101, text="notification"),
+        message="bot was blocked",
+    )
+    bot = SimpleNamespace(send_message=AsyncMock(side_effect=[failure, None, None]))
+
+    await TelegramRegistrationReviewNotificationDelivery(bot).deliver(outcome)
+
+    assert [call.kwargs["chat_id"] for call in bot.send_message.await_args_list] == [101, 102, 200]
 
 
 async def test_webhook_rejects_invalid_secret(monkeypatch: pytest.MonkeyPatch) -> None:

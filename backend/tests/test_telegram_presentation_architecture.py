@@ -97,13 +97,14 @@ def test_handlers_do_not_import_formatter_functions_from_top_level_package() -> 
 
 
 def test_registration_player_notifications_live_in_user_texts() -> None:
-    source = (TELEGRAM_ROOT / "handlers" / "superadmin" / "registrations.py").read_text()
+    handler_source = (TELEGRAM_ROOT / "handlers" / "superadmin" / "registrations.py").read_text()
+    delivery_source = (TELEGRAM_ROOT / "registration_review_notifications.py").read_text()
 
-    assert "Ваша заявка одобрена." not in source
-    assert "Ваша заявка отклонена." not in source
-    assert "Попробуй другое имя игрока через /start" not in source
-    assert "user_registration_text.REGISTRATION_APPROVED" in source
-    assert "user_registration_text.REGISTRATION_REJECTED" in source
+    assert "Ваша заявка одобрена." not in handler_source
+    assert "Ваша заявка отклонена." not in handler_source
+    assert "Попробуй другое имя игрока через /start" not in handler_source
+    assert "user_text.REGISTRATION_APPROVED" in delivery_source
+    assert "user_text.REGISTRATION_REJECTED" in delivery_source
 
 
 def test_formatter_text_and_keyboard_modules_keep_presentation_boundaries() -> None:

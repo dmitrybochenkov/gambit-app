@@ -1,4 +1,6 @@
-from sqlalchemy import func, select
+from datetime import datetime
+
+from sqlalchemy import func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.models import RegistrationRequest
@@ -60,3 +62,22 @@ class RegistrationRequestRepository:
 
     def add(self, request: RegistrationRequest) -> None:
         self.session.add(request)
+
+    async def claim_pending_review(
+        self,
+        *,
+        request_id: int,
+        status: RegistrationRequestStatus,
+        reviewed_at: datetime,
+    ) -> bool:
+        result = await self.session.execute(
+            update(RegistrationRequest)
+            .where(
+                RegistrationRequest.id == request_id,
+                RegistrationRequest.status == RegistrationRequestStatus.PENDING,
+                RegistrationRequest.reviewed_at.is_(None),
+            )
+            .values(status=status, reviewed_at=reviewed_at)
+            .execution_options(synchronize_session=False)
+        )
+        return bool(result.rowcount == 1)

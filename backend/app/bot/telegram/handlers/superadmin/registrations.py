@@ -1,8 +1,7 @@
 import logging
 
 from aiogram import F, Router
-from aiogram.exceptions import TelegramBadRequest, TelegramForbiddenError
-from aiogram.types import CallbackQuery, Message, ReplyKeyboardRemove
+from aiogram.types import CallbackQuery, Message
 
 from app.bot.telegram.handlers.admin.shared import (
     delete_callback_message as _delete_callback_message,
@@ -10,19 +9,20 @@ from app.bot.telegram.handlers.admin.shared import (
 from app.bot.telegram.handlers.superadmin.navigation import send_superadmin_panel
 from app.bot.telegram.keyboards import labels
 from app.bot.telegram.keyboards.superadmin import registrations as superadmin_registrations_kb
-from app.bot.telegram.keyboards.user import menu as user_menu_kb
 from app.bot.telegram.message_edit import edit_message_if_changed
 from app.bot.telegram.notifications import format_registration_review
+from app.bot.telegram.registration_review_notifications import (
+    TelegramRegistrationReviewNotificationDelivery,
+)
 from app.bot.telegram.texts.superadmin import panel as panel_text
 from app.bot.telegram.texts.superadmin import registrations as text
-from app.bot.telegram.texts.user import registration as user_registration_text
 from app.services.access_policy import AdminAccessDeniedError
-from app.services.dto.registrations import RegistrationReviewResultView
 from app.services.pagination import Page
 from app.services.registration_review_service import (
     TournamentRegistrationsUnavailableError,
     registration_review_service,
 )
+from app.services.registration_review_use_cases import RegistrationReviewUseCases
 from app.services.user_common import (
     IdentityAlreadyExistsError,
     RegistrationAlreadyReviewedError,
@@ -206,25 +206,23 @@ async def review_registration(
             return
 
         if callback_data.action == superadmin_registrations_kb.RegistrationReviewAction.APPROVE:
-            review_result = await registration_review_service.approve_registration(
-                superadmin_telegram_id=callback.from_user.id,
+            await _registration_review_use_cases().approve(
+                reviewer_telegram_id=callback.from_user.id,
                 request_id=callback_data.request_id,
+                delivery=TelegramRegistrationReviewNotificationDelivery(callback.bot),
             )
             result_text = text.REGISTRATION_APPROVED
-            player_text = user_registration_text.REGISTRATION_APPROVED
-            player_keyboard = user_menu_kb.main_keyboard_after_registration()
         elif callback_data.action == superadmin_registrations_kb.RegistrationReviewAction.CANCEL:
             await callback.answer(text.REGISTRATION_CANCELLED)
             await _return_to_superadmin_menu(callback)
             return
         else:
-            review_result = await registration_review_service.reject_registration(
-                superadmin_telegram_id=callback.from_user.id,
+            await _registration_review_use_cases().reject(
+                reviewer_telegram_id=callback.from_user.id,
                 request_id=callback_data.request_id,
+                delivery=TelegramRegistrationReviewNotificationDelivery(callback.bot),
             )
             result_text = text.REGISTRATION_REJECTED
-            player_text = user_registration_text.REGISTRATION_REJECTED
-            player_keyboard = ReplyKeyboardRemove()
     except AdminAccessDeniedError:
         await callback.answer(panel_text.INSUFFICIENT_RIGHTS, show_alert=True)
         return
@@ -245,12 +243,9 @@ async def review_registration(
         await callback.answer(text.REGISTRATION_NOT_ALLOWED, show_alert=True)
         return
 
-    await _send_registration_review_result(
+    await _finish_registration_review(
         callback=callback,
-        review_result=review_result,
         result_text=result_text,
-        player_text=player_text,
-        player_keyboard=player_keyboard,
         page=callback_data.page,
     )
 
@@ -331,9 +326,10 @@ async def confirm_registration_candidate(
                 )
             return
 
-        review_result = await registration_review_service.approve_registration(
-            superadmin_telegram_id=callback.from_user.id,
+        await _registration_review_use_cases().approve(
+            reviewer_telegram_id=callback.from_user.id,
             request_id=callback_data.request_id,
+            delivery=TelegramRegistrationReviewNotificationDelivery(callback.bot),
             candidate_user_id=callback_data.user_id,
         )
     except AdminAccessDeniedError:
@@ -352,54 +348,26 @@ async def confirm_registration_candidate(
         await callback.answer(text.REGISTRATION_NOT_ALLOWED, show_alert=True)
         return
 
-    await _send_registration_review_result(
+    await _finish_registration_review(
         callback=callback,
-        review_result=review_result,
         result_text=text.REGISTRATION_APPROVED,
-        player_text=user_registration_text.REGISTRATION_APPROVED,
-        player_keyboard=user_menu_kb.main_keyboard_after_registration(),
         page=callback_data.page,
     )
 
 
-async def _send_registration_review_result(
+async def _finish_registration_review(
     callback: CallbackQuery,
-    review_result: RegistrationReviewResultView,
     result_text: str,
-    player_text: str,
-    player_keyboard: object,
     page: int,
 ) -> None:
     await callback.answer(result_text)
-    admin_review_text = callback.message.text if callback.message is not None else ""
-    reviewed_text = text.reviewed_by_admin(
-        review_text=admin_review_text,
-        result_text=result_text,
-        admin_name=callback.from_user.full_name,
-    )
     if callback.message is not None:
         updated_page = await _get_pending_reviews_page(callback.from_user.id, page=page)
         await _edit_pending_reviews(callback, updated_page)
 
-    for admin in review_result.admins:
-        if admin.telegram_id is None or admin.telegram_id == callback.from_user.id:
-            continue
-        try:
-            await callback.bot.send_message(
-                chat_id=admin.telegram_id,
-                text=reviewed_text,
-            )
-        except (TelegramBadRequest, TelegramForbiddenError):
-            continue
 
-    try:
-        await callback.bot.send_message(
-            chat_id=review_result.request.telegram_id,
-            text=player_text,
-            reply_markup=player_keyboard,
-        )
-    except (TelegramBadRequest, TelegramForbiddenError):
-        pass
+def _registration_review_use_cases() -> RegistrationReviewUseCases:
+    return RegistrationReviewUseCases(registration_review_service)
 
 
 async def _get_pending_reviews_page(

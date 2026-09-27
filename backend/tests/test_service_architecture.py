@@ -2,6 +2,7 @@ import ast
 from pathlib import Path
 
 SERVICES_DIR = Path(__file__).resolve().parents[1] / "app" / "services"
+APP_DIR = SERVICES_DIR.parent
 SQLALCHEMY_QUERY_NAMES = {"select", "insert", "update", "delete"}
 SESSION_QUERY_METHODS = {"execute", "scalar", "scalars"}
 SESSION_PERSISTENCE_METHODS = {"add", "delete"}
@@ -144,3 +145,31 @@ def test_check_in_reward_queries_do_not_exchange_sessions_between_services() -> 
         and node.func.id == "PlayerRewardService"
         for node in ast.walk(reward_decision)
     )
+
+
+def test_registration_review_application_boundary_is_transport_neutral() -> None:
+    service_source = (SERVICES_DIR / "registration_review_service.py").read_text()
+    use_case_source = (SERVICES_DIR / "registration_review_use_cases.py").read_text()
+    dto_source = (SERVICES_DIR / "dto" / "registrations.py").read_text()
+
+    for source in (service_source, use_case_source, dto_source):
+        assert "aiogram" not in source
+        assert "app.bot.telegram" not in source
+        assert "CallbackQuery" not in source
+        assert "Message" not in source
+        assert "Bot" not in source
+
+    assert "AsyncSession" not in use_case_source
+    assert "Repository" not in use_case_source
+
+
+def test_registration_review_handler_does_not_own_notification_policy() -> None:
+    handler_source = (
+        APP_DIR / "bot" / "telegram" / "handlers" / "superadmin" / "registrations.py"
+    ).read_text()
+
+    assert "list_active_superadmins_with_telegram" not in handler_source
+    assert "notification_recipients" not in handler_source
+    assert ".send_message(" not in handler_source
+    assert "TelegramRegistrationReviewNotificationDelivery" in handler_source
+    assert "RegistrationReviewUseCases" in handler_source

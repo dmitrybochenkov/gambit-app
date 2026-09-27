@@ -75,6 +75,14 @@ that side effect has been persisted according to the current use-case contract.
 Best-effort notification failures must not undo successful business mutations
 unless the task explicitly changes that contract.
 
+Registration review approve/reject commands atomically claim a pending request
+inside the service-owned transaction, so concurrent decisions have exactly one
+winner and losing commands receive the controlled already-reviewed error. A
+successful command returns a transport-neutral canonical outcome. Shared
+application orchestration delivers applicant and other-superadmin Telegram
+notifications only after commit; delivery is best effort and has no durable
+outbox or retry guarantee.
+
 ## Authorization
 
 Every public administrative service method must receive `actor_telegram_id` and

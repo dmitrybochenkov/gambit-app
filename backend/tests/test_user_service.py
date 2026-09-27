@@ -1,3 +1,4 @@
+import asyncio
 from datetime import date, datetime
 from pathlib import Path
 from typing import Any
@@ -32,12 +33,14 @@ from app.services.registration_review_service import (
     RegistrationReviewService,
     TournamentRegistrationsUnavailableError,
 )
+from app.services.registration_review_use_cases import RegistrationReviewUseCases
 from app.services.registration_service import RegistrationService
 from app.services.user_access_service import UserAccessService
 from app.services.user_common import (
     DisplayNameHistoricalUserExistsError,
     DisplayNameLinkedUserExistsError,
     IdentityAlreadyExistsError,
+    RegistrationAlreadyReviewedError,
     RegistrationCandidateNotFoundError,
     RegistrationNotAllowedError,
     UserNotFoundError,
@@ -84,6 +87,253 @@ async def test_new_player_registration_creates_request_only(tmp_path: Path) -> N
         assert stored_request.status == RegistrationRequestStatus.PENDING
         assert stored_request.requested_display_name == "Ёж"
         assert stored_request.requested_display_name_normalized == "еж"
+    finally:
+        await engine.dispose()
+
+
+@pytest.mark.asyncio
+async def test_registration_review_delivery_observes_committed_decision_and_is_best_effort(
+    tmp_path: Path,
+) -> None:
+    engine = create_async_engine(f"sqlite+aiosqlite:///{tmp_path / 'review-delivery.db'}")
+    async with engine.begin() as connection:
+        await connection.run_sync(Base.metadata.create_all)
+    session_factory = async_sessionmaker(engine, expire_on_commit=False)
+    review_service = RegistrationReviewService(session_factory)
+    registration_service = RegistrationService(session_factory)
+    try:
+        async with session_factory() as session:
+            session.add(
+                create_user(
+                    display_name="Canonical Reviewer",
+                    telegram_id=1,
+                    role=UserRole.SUPERADMIN,
+                )
+            )
+            await session.commit()
+        request = await registration_service.submit_new_player_registration(1001, "Ace")
+
+        class InspectingDelivery:
+            async def deliver(self, outcome: object) -> None:
+                async with session_factory() as session:
+                    stored_request = await session.get(RegistrationRequest, request.id)
+                    stored_user = await session.scalar(select(User).where(User.telegram_id == 1001))
+                assert stored_request is not None
+                assert stored_request.status == RegistrationRequestStatus.APPROVED
+                assert stored_user is not None
+                raise RuntimeError("delivery unavailable")
+
+        outcome = await RegistrationReviewUseCases(review_service).approve(
+            reviewer_telegram_id=1,
+            request_id=request.id,
+            delivery=InspectingDelivery(),
+        )
+
+        assert outcome.reviewer.display_name == "Canonical Reviewer"
+        async with session_factory() as session:
+            stored_request = await session.get(RegistrationRequest, request.id)
+            stored_user = await session.scalar(select(User).where(User.telegram_id == 1001))
+        assert stored_request is not None
+        assert stored_request.status == RegistrationRequestStatus.APPROVED
+        assert stored_user is not None
+    finally:
+        await engine.dispose()
+
+
+@pytest.mark.asyncio
+async def test_registration_review_reject_commits_before_delivery(tmp_path: Path) -> None:
+    engine = create_async_engine(f"sqlite+aiosqlite:///{tmp_path / 'review-reject-delivery.db'}")
+    async with engine.begin() as connection:
+        await connection.run_sync(Base.metadata.create_all)
+    session_factory = async_sessionmaker(engine, expire_on_commit=False)
+    review_service = RegistrationReviewService(session_factory)
+    registration_service = RegistrationService(session_factory)
+    try:
+        async with session_factory() as session:
+            session.add(
+                create_user(
+                    display_name="Canonical Reviewer",
+                    telegram_id=1,
+                    role=UserRole.SUPERADMIN,
+                )
+            )
+            await session.commit()
+        request = await registration_service.submit_new_player_registration(1001, "Ace")
+
+        class InspectingDelivery:
+            async def deliver(self, outcome: object) -> None:
+                async with session_factory() as session:
+                    stored_request = await session.get(RegistrationRequest, request.id)
+                assert stored_request is not None
+                assert stored_request.status == RegistrationRequestStatus.REJECTED
+
+        outcome = await RegistrationReviewUseCases(review_service).reject(
+            reviewer_telegram_id=1,
+            request_id=request.id,
+            delivery=InspectingDelivery(),
+        )
+
+        assert outcome.reviewer.display_name == "Canonical Reviewer"
+        async with session_factory() as session:
+            stored_request = await session.get(RegistrationRequest, request.id)
+        assert stored_request is not None
+        assert stored_request.status == RegistrationRequestStatus.REJECTED
+    finally:
+        await engine.dispose()
+
+
+@pytest.mark.asyncio
+async def test_registration_review_command_failure_does_not_attempt_delivery(
+    tmp_path: Path,
+) -> None:
+    engine = create_async_engine(f"sqlite+aiosqlite:///{tmp_path / 'review-no-delivery.db'}")
+    async with engine.begin() as connection:
+        await connection.run_sync(Base.metadata.create_all)
+    session_factory = async_sessionmaker(engine, expire_on_commit=False)
+    review_service = RegistrationReviewService(session_factory)
+    registration_service = RegistrationService(session_factory)
+    try:
+        async with session_factory() as session:
+            session.add(
+                create_user(
+                    display_name="Reviewer",
+                    telegram_id=1,
+                    role=UserRole.SUPERADMIN,
+                )
+            )
+            await session.commit()
+        request = await registration_service.submit_new_player_registration(1001, "Ace")
+        await review_service.reject_registration(1, request.id)
+
+        class TrackingDelivery:
+            called = False
+
+            async def deliver(self, outcome: object) -> None:
+                del outcome
+                self.called = True
+
+        delivery = TrackingDelivery()
+        with pytest.raises(RegistrationAlreadyReviewedError):
+            await RegistrationReviewUseCases(review_service).approve(
+                reviewer_telegram_id=1,
+                request_id=request.id,
+                delivery=delivery,
+            )
+        assert delivery.called is False
+    finally:
+        await engine.dispose()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("competing_action", ["approve", "reject"])
+async def test_registration_review_new_player_competing_decisions_have_one_winner(
+    tmp_path: Path,
+    competing_action: str,
+) -> None:
+    engine = create_async_engine(
+        f"sqlite+aiosqlite:///{tmp_path / f'review-race-{competing_action}.db'}"
+    )
+    async with engine.begin() as connection:
+        await connection.run_sync(Base.metadata.create_all)
+    session_factory = async_sessionmaker(engine, expire_on_commit=False)
+    registration_service = RegistrationService(session_factory)
+    first = RegistrationReviewService(session_factory)
+    second = RegistrationReviewService(session_factory)
+    try:
+        async with session_factory() as session:
+            session.add_all(
+                [
+                    create_user(
+                        display_name="Reviewer One",
+                        telegram_id=1,
+                        role=UserRole.SUPERADMIN,
+                    ),
+                    create_user(
+                        display_name="Reviewer Two",
+                        telegram_id=2,
+                        role=UserRole.SUPERADMIN,
+                    ),
+                ]
+            )
+            await session.commit()
+        request = await registration_service.submit_new_player_registration(1001, "Ace")
+        second_command = (
+            second.approve_registration(2, request.id)
+            if competing_action == "approve"
+            else second.reject_registration(2, request.id)
+        )
+        results = await asyncio.gather(
+            first.approve_registration(1, request.id),
+            second_command,
+            return_exceptions=True,
+        )
+
+        assert sum(not isinstance(item, Exception) for item in results) == 1
+        assert sum(isinstance(item, RegistrationAlreadyReviewedError) for item in results) == 1
+        async with session_factory() as session:
+            users = list(
+                (await session.scalars(select(User).where(User.telegram_id == 1001))).all()
+            )
+            stored_request = await session.get(RegistrationRequest, request.id)
+        assert len(users) <= 1
+        assert stored_request is not None
+        assert stored_request.status in {
+            RegistrationRequestStatus.APPROVED,
+            RegistrationRequestStatus.REJECTED,
+        }
+    finally:
+        await engine.dispose()
+
+
+@pytest.mark.asyncio
+async def test_registration_review_link_existing_competing_approvals_have_one_winner(
+    tmp_path: Path,
+) -> None:
+    engine = create_async_engine(f"sqlite+aiosqlite:///{tmp_path / 'review-link-race.db'}")
+    async with engine.begin() as connection:
+        await connection.run_sync(Base.metadata.create_all)
+    session_factory = async_sessionmaker(engine, expire_on_commit=False)
+    registration_service = RegistrationService(session_factory)
+    first = RegistrationReviewService(session_factory)
+    second = RegistrationReviewService(session_factory)
+    try:
+        async with session_factory() as session:
+            candidate = create_user(display_name="Historical Player")
+            session.add_all(
+                [
+                    create_user(
+                        display_name="Reviewer One",
+                        telegram_id=1,
+                        role=UserRole.SUPERADMIN,
+                    ),
+                    create_user(
+                        display_name="Reviewer Two",
+                        telegram_id=2,
+                        role=UserRole.SUPERADMIN,
+                    ),
+                    candidate,
+                ]
+            )
+            await session.commit()
+            candidate_id = candidate.id
+        request = await registration_service.submit_link_existing_registration(
+            1001,
+            "Historical Player",
+        )
+        results = await asyncio.gather(
+            first.approve_registration(1, request.id, candidate_user_id=candidate_id),
+            second.approve_registration(2, request.id, candidate_user_id=candidate_id),
+            return_exceptions=True,
+        )
+
+        assert sum(not isinstance(item, Exception) for item in results) == 1
+        assert sum(isinstance(item, RegistrationAlreadyReviewedError) for item in results) == 1
+        async with session_factory() as session:
+            candidate = await session.get(User, candidate_id)
+            stored_request = await session.get(RegistrationRequest, request.id)
+        assert candidate is not None and candidate.telegram_id == 1001
+        assert stored_request is not None
+        assert stored_request.status == RegistrationRequestStatus.APPROVED
     finally:
         await engine.dispose()
 
@@ -612,8 +862,11 @@ async def test_approve_registration_review_recipients_are_active_superadmins_wit
             request_id=request.id,
         )
 
-        assert [(admin.telegram_id, admin.role, admin.status) for admin in result.admins] == [
-            (1, UserRole.SUPERADMIN, UserStatus.ACTIVE),
+        assert result.reviewer.telegram_id == 1
+        assert [
+            (admin.telegram_id, admin.role, admin.status)
+            for admin in result.notification_recipients
+        ] == [
             (2, UserRole.SUPERADMIN, UserStatus.ACTIVE),
         ]
     finally:
@@ -664,8 +917,11 @@ async def test_reject_registration_review_recipients_are_active_superadmins_with
             request_id=request.id,
         )
 
-        assert [(admin.telegram_id, admin.role, admin.status) for admin in result.admins] == [
-            (1, UserRole.SUPERADMIN, UserStatus.ACTIVE),
+        assert result.reviewer.telegram_id == 1
+        assert [
+            (admin.telegram_id, admin.role, admin.status)
+            for admin in result.notification_recipients
+        ] == [
             (2, UserRole.SUPERADMIN, UserStatus.ACTIVE),
         ]
     finally:
@@ -860,6 +1116,8 @@ async def test_link_registration_approves_selected_user_id(tmp_path: Path) -> No
         assert approved.user.id == selected_id
         assert approved.user.display_name == "Журавлёв Антон"
         assert approved.user.telegram_id == 1001
+        assert approved.review.selected_candidate is not None
+        assert approved.review.selected_candidate.user.id == selected_id
     finally:
         await engine.dispose()
 

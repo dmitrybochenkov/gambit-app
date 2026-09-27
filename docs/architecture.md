@@ -78,6 +78,13 @@ presentation/use-case state, such as start or lifecycle screens.
 One public mutation use-case owns one `AsyncSession` and one transaction.
 Repositories used inside that use-case share the same session.
 
+Registration review decisions are committed by `RegistrationReviewService`
+using an atomic pending-request claim. The committed outcome contains canonical
+reviewer, request, decision, and recipient data. `RegistrationReviewUseCases`
+then invokes an injected notification delivery port after commit, allowing
+Telegram and future transports to share the same best-effort side effect
+without exposing sessions or Telegram runtime types in the application DTO.
+
 ## Authorization
 
 Every public administrative service use-case checks the actor inside the
