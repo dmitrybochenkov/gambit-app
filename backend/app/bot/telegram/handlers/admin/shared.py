@@ -7,8 +7,14 @@ from aiogram.types import CallbackQuery, Message
 from app.bot.telegram.keyboards.admin.results import AdminResultField
 from app.bot.telegram.message_edit import edit_reply_markup_if_changed
 from app.services.result_service import ResultField
+from app.services.user_access_service import user_access_service
 
 RESULT_SUMMARY_PARSE_MODE = "Markdown"
+
+
+async def resolve_admin_actor_user_id(telegram_id: int) -> int:
+    actor = await user_access_service.require_active_user(telegram_id)
+    return actor.id
 
 
 async def delete_callback_message(callback: CallbackQuery) -> None:

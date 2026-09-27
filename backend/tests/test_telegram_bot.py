@@ -41,6 +41,7 @@ from app.bot.telegram.handlers.admin import check_in as admin_check_in_handlers
 from app.bot.telegram.handlers.admin import panel as admin_panel_handlers
 from app.bot.telegram.handlers.admin import results as admin_result_handlers
 from app.bot.telegram.handlers.admin import schedule as admin_schedule_handlers
+from app.bot.telegram.handlers.admin import shared as admin_shared_handlers
 from app.bot.telegram.handlers.superadmin import administrators as superadmin_administrator_handlers
 from app.bot.telegram.handlers.superadmin import hall_of_fame as superadmin_hall_of_fame_handlers
 from app.bot.telegram.handlers.superadmin import navigation as superadmin_navigation
@@ -220,6 +221,16 @@ def resolve_migrated_telegram_actor(monkeypatch: pytest.MonkeyPatch) -> None:
         "require_active_user",
         AsyncMock(return_value=SimpleNamespace(id=42)),
     )
+    for module in (
+        admin_check_in_handlers,
+        admin_result_handlers,
+        superadmin_close_handlers,
+    ):
+        monkeypatch.setattr(
+            module,
+            "resolve_admin_actor_user_id",
+            AsyncMock(return_value=1),
+        )
 
 
 async def test_migrated_telegram_actor_resolves_internal_user_id() -> None:
@@ -227,6 +238,13 @@ async def test_migrated_telegram_actor_resolves_internal_user_id() -> None:
 
     assert actor_user_id == 42
     user_shared_handlers.user_access_service.require_active_user.assert_awaited_once_with(123)
+
+
+async def test_migrated_telegram_admin_actor_resolves_internal_user_id() -> None:
+    actor_user_id = await admin_shared_handlers.resolve_admin_actor_user_id(123)
+
+    assert actor_user_id == 42
+    admin_shared_handlers.user_access_service.require_active_user.assert_awaited_once_with(123)
 
 
 def achievement_type_view(kind: HallOfFameAchievementKind) -> AchievementTypeView:
@@ -2862,7 +2880,7 @@ async def test_check_in_database_search_clears_prompt_keyboard(
         reply_markup=None,
     )
     service.search_users.assert_awaited_once_with(
-        admin_telegram_id=100,
+        actor_user_id=1,
         tournament_id=125,
         query="Черепаха",
     )
@@ -2973,12 +2991,12 @@ async def test_check_in_no_candidate_name_flows_through_gender_to_correct_tourna
     )
 
     service.create_user_and_check_in.assert_awaited_once_with(
-        admin_telegram_id=100,
+        actor_user_id=1,
         tournament_id=125,
         display_name="Новая Игрок",
         gender=expected_gender,
     )
-    service.get_check_in.assert_awaited_once_with(admin_telegram_id=100, tournament_id=125)
+    service.get_check_in.assert_awaited_once_with(actor_user_id=1, tournament_id=125)
     assert state.state is None
     assert state.data == {}
 
@@ -3066,7 +3084,7 @@ async def test_check_in_similar_candidate_can_be_selected_and_checked_in(
     )
 
     service.complete_user_check_in.assert_awaited_once_with(
-        admin_telegram_id=100,
+        actor_user_id=1,
         tournament_id=125,
         user_id=10,
         gender_decision=CheckInGenderDecision.KEEP,
@@ -3206,7 +3224,7 @@ async def test_check_in_gender_decision_uses_atomic_completion_contract(
     )
 
     check_in_service.complete_user_check_in.assert_awaited_once_with(
-        admin_telegram_id=100,
+        actor_user_id=1,
         tournament_id=125,
         user_id=10,
         gender_decision=CheckInGenderDecision.FEMALE,
@@ -3253,7 +3271,7 @@ async def test_check_in_new_user_created_after_gender_skip(
     )
 
     service.create_user_and_check_in.assert_awaited_once_with(
-        admin_telegram_id=100,
+        actor_user_id=1,
         tournament_id=125,
         display_name="Новая Игрок",
         gender=None,
@@ -3292,7 +3310,7 @@ async def test_check_in_input_back_returns_to_main_screen(
     )
 
     state.clear.assert_awaited_once()
-    service.get_check_in.assert_awaited_once_with(admin_telegram_id=100, tournament_id=125)
+    service.get_check_in.assert_awaited_once_with(actor_user_id=1, tournament_id=125)
     message.edit_text.assert_awaited_once()
     assert message.edit_text.await_args.args[0].startswith("✅ Чек-ин на турнир")
 
@@ -3331,7 +3349,7 @@ async def test_check_in_registered_list_callback_shows_search_first(
     )
 
     state.clear.assert_awaited_once()
-    service.get_check_in.assert_awaited_once_with(admin_telegram_id=100, tournament_id=125)
+    service.get_check_in.assert_awaited_once_with(actor_user_id=1, tournament_id=125)
     message.edit_text.assert_awaited_once()
     assert message.edit_text.await_args.args[0] == "Выбери зарегистрированного игрока:"
     assert inline_keyboard_texts(message.edit_text.await_args.kwargs["reply_markup"]) == [
@@ -3452,7 +3470,7 @@ async def test_checked_in_players_screen_opens_from_check_in(
     )
 
     service.get_checked_in_players.assert_awaited_once_with(
-        admin_telegram_id=100,
+        actor_user_id=1,
         tournament_id=125,
     )
     callback.answer.assert_awaited_once_with()
@@ -3495,7 +3513,7 @@ async def test_checked_in_players_back_refreshes_main_screen(
         state,
     )
 
-    service.get_check_in.assert_awaited_once_with(admin_telegram_id=100, tournament_id=125)
+    service.get_check_in.assert_awaited_once_with(actor_user_id=1, tournament_id=125)
     message.edit_text.assert_awaited_once()
     assert "👥 Уже отметились (3)" in inline_keyboard_texts(
         message.edit_text.await_args.kwargs["reply_markup"]
@@ -4803,7 +4821,7 @@ async def test_admin_view_single_photo_restores_control_after_photo(
     )
     photo_service = TournamentPhotoService(service.session_factory, clock=service.clock)
     await photo_service.add_photo(
-        admin_telegram_id=100,
+        actor_user_id=1,
         tournament_id=tournament_id,
         telegram_file_id="view-file-1",
         telegram_file_unique_id="view-unique-1",
@@ -4850,7 +4868,7 @@ async def test_admin_view_album_restores_one_control_after_album(
     photo_service = TournamentPhotoService(service.session_factory, clock=service.clock)
     for index in range(2):
         await photo_service.add_photo(
-            admin_telegram_id=100,
+            actor_user_id=1,
             tournament_id=tournament_id,
             telegram_file_id=f"view-album-file-{index}",
             telegram_file_unique_id=f"view-album-unique-{index}",

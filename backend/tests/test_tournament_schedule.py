@@ -879,6 +879,7 @@ async def test_check_in_registered_player_creates_result_without_new_registratio
         )
         await session.commit()
         admin_user_id = admin.id
+        actor_user_id = admin.id
         tournament_id = tournament.id
         player_id = player.id
 
@@ -888,12 +889,12 @@ async def test_check_in_registered_player_creates_result_without_new_registratio
     )
     try:
         first = await check_in_service.check_in_registered(
-            admin_telegram_id=100,
+            actor_user_id=actor_user_id,
             tournament_id=tournament_id,
             user_id=player_id,
         )
         second = await check_in_service.check_in_registered(
-            admin_telegram_id=100,
+            actor_user_id=actor_user_id,
             tournament_id=tournament_id,
             user_id=player_id,
         )
@@ -969,6 +970,7 @@ async def test_check_in_uses_tournament_day_before_start_hour(
             )
         )
         await session.commit()
+        actor_user_id = admin.id
         previous_tournament_id = previous_tournament.id
         current_tournament_id = current_tournament.id
         player_id = player.id
@@ -984,10 +986,10 @@ async def test_check_in_uses_tournament_day_before_start_hour(
         tournament_day_start_hour=11,
     )
     try:
-        today_before_start = await before_start.list_today_tournaments(100)
-        today_at_start = await at_start.list_today_tournaments(100)
+        today_before_start = await before_start.list_today_tournaments(actor_user_id)
+        today_at_start = await at_start.list_today_tournaments(actor_user_id)
         check_in = await before_start.check_in_registered(
-            admin_telegram_id=100,
+            actor_user_id=actor_user_id,
             tournament_id=previous_tournament_id,
             user_id=player_id,
         )
@@ -1039,6 +1041,7 @@ async def test_admin_cannot_check_in_previous_open_tournament_after_business_day
         await session.flush()
         session.add(TournamentRegistration(tournament_id=tournament.id, player_id=player.id))
         await session.commit()
+        actor_user_id = admin.id
         tournament_id = tournament.id
         player_id = player.id
 
@@ -1049,7 +1052,7 @@ async def test_admin_cannot_check_in_previous_open_tournament_after_business_day
     try:
         with pytest.raises(TournamentCheckInClosedError):
             await service.check_in_registered(
-                admin_telegram_id=100,
+                actor_user_id=actor_user_id,
                 tournament_id=tournament_id,
                 user_id=player_id,
             )
@@ -1096,6 +1099,7 @@ async def test_superadmin_can_check_in_previous_open_tournament_with_late_hint(
         await session.flush()
         session.add(TournamentRegistration(tournament_id=tournament.id, player_id=player.id))
         await session.commit()
+        actor_user_id = superadmin.id
         tournament_id = tournament.id
         player_id = player.id
 
@@ -1104,10 +1108,10 @@ async def test_superadmin_can_check_in_previous_open_tournament_with_late_hint(
         clock=FixedClock(datetime(2026, 7, 10, 12, tzinfo=ZoneInfo("Europe/Moscow"))),
     )
     try:
-        tournaments = await service.list_today_tournaments(100)
-        view = await service.get_check_in(100, tournament_id)
+        tournaments = await service.list_today_tournaments(actor_user_id)
+        view = await service.get_check_in(actor_user_id, tournament_id)
         result = await service.check_in_registered(
-            admin_telegram_id=100,
+            actor_user_id=actor_user_id,
             tournament_id=tournament_id,
             user_id=player_id,
         )
@@ -1162,6 +1166,7 @@ async def test_cannot_cancel_tournament_registration_after_check_in(
         await session.flush()
         session.add(TournamentRegistration(tournament_id=tournament.id, player_id=player.id))
         await session.commit()
+        actor_user_id = admin.id
         tournament_id = tournament.id
         player_id = player.id
 
@@ -1175,7 +1180,7 @@ async def test_cannot_cancel_tournament_registration_after_check_in(
     )
     try:
         await check_in_service.check_in_registered(
-            admin_telegram_id=100,
+            actor_user_id=actor_user_id,
             tournament_id=tournament_id,
             user_id=player_id,
         )
@@ -1234,6 +1239,7 @@ async def test_check_in_new_offline_player_creates_active_user_without_review(
         session.add_all([admin, tournament])
         await session.commit()
         admin_user_id = admin.id
+        actor_user_id = admin.id
         tournament_id = tournament.id
 
     check_in_service = TournamentCheckInService(
@@ -1242,7 +1248,7 @@ async def test_check_in_new_offline_player_creates_active_user_without_review(
     )
     try:
         result = await check_in_service.create_user_and_check_in(
-            admin_telegram_id=100,
+            actor_user_id=actor_user_id,
             tournament_id=tournament_id,
             display_name="Новый Игрок",
         )
@@ -1304,6 +1310,7 @@ async def test_check_in_new_player_similarity_search_does_not_mutate_database(
         )
         session.add_all([admin, tournament, existing])
         await session.commit()
+        actor_user_id = admin.id
         tournament_id = tournament.id
 
     check_in_service = TournamentCheckInService(
@@ -1312,7 +1319,7 @@ async def test_check_in_new_player_similarity_search_does_not_mutate_database(
     )
     try:
         _, candidates, exact_exists = await check_in_service.find_new_player_candidates(
-            admin_telegram_id=100,
+            actor_user_id=actor_user_id,
             tournament_id=tournament_id,
             display_name="Дима  Большой",
         )
@@ -1385,6 +1392,7 @@ async def test_check_in_existing_player_search_is_sorted_and_excludes_checked_in
             ]
         )
         await session.commit()
+        actor_user_id = admin.id
         tournament_id = tournament.id
 
     check_in_service = TournamentCheckInService(
@@ -1393,17 +1401,17 @@ async def test_check_in_existing_player_search_is_sorted_and_excludes_checked_in
     )
     try:
         search_results = await check_in_service.search_users(
-            admin_telegram_id=100,
+            actor_user_id=actor_user_id,
             tournament_id=tournament_id,
             query="анна",
         )
         await check_in_service.check_in_existing_user(
-            admin_telegram_id=100,
+            actor_user_id=actor_user_id,
             tournament_id=tournament_id,
             user_id=search_results[0].id,
         )
         after_check_in = await check_in_service.search_users(
-            admin_telegram_id=100,
+            actor_user_id=actor_user_id,
             tournament_id=tournament_id,
             query="анна",
         )
@@ -1475,6 +1483,7 @@ async def test_check_in_existing_user_search_includes_admin_roles(
             ]
         )
         await session.commit()
+        actor_user_id = operator.id
         tournament_id = tournament.id
 
     check_in_service = TournamentCheckInService(
@@ -1483,7 +1492,7 @@ async def test_check_in_existing_user_search_includes_admin_roles(
     )
     try:
         search_results = await check_in_service.search_users(
-            admin_telegram_id=100,
+            actor_user_id=actor_user_id,
             tournament_id=tournament_id,
             query="игрок",
         )
@@ -1586,6 +1595,7 @@ async def test_check_in_registered_search_scope_is_tournament_registrations_minu
             ]
         )
         await session.commit()
+        actor_user_id = operator.id
         tournament_id = tournament.id
 
     check_in_service = TournamentCheckInService(
@@ -1594,7 +1604,7 @@ async def test_check_in_registered_search_scope_is_tournament_registrations_minu
     )
     try:
         search_results = await check_in_service.search_registered(
-            admin_telegram_id=100,
+            actor_user_id=actor_user_id,
             tournament_id=tournament_id,
             query="игрок",
         )
@@ -1702,6 +1712,7 @@ async def test_check_in_summary_counters_use_sources_and_include_admin_players(
             ]
         )
         await session.commit()
+        actor_user_id = operator.id
         tournament_id = tournament.id
 
     check_in_service = TournamentCheckInService(
@@ -1710,11 +1721,11 @@ async def test_check_in_summary_counters_use_sources_and_include_admin_players(
     )
     try:
         view = await check_in_service.get_check_in(
-            admin_telegram_id=100,
+            actor_user_id=actor_user_id,
             tournament_id=tournament_id,
         )
         checked_in_players = await check_in_service.get_checked_in_players(
-            admin_telegram_id=100,
+            actor_user_id=actor_user_id,
             tournament_id=tournament_id,
         )
 

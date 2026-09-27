@@ -55,7 +55,7 @@ async def get_check_in(
     actor: Annotated[AuthenticatedActor, Depends(current_actor)],
 ) -> AdminCheckInResponse:
     try:
-        view = await tournament_check_in_service.get_check_in(actor.telegram_id, tournament_id)
+        view = await tournament_check_in_service.get_check_in(actor.user_id, tournament_id)
     except AdminAccessDeniedError as exc:
         raise errors.forbidden("Admin access required") from exc
     except TournamentCheckInNotFoundError as exc:
@@ -72,7 +72,7 @@ async def get_checked_in_players(
 ) -> AdminCheckedInPlayersResponse:
     try:
         view = await tournament_check_in_service.get_checked_in_players(
-            actor.telegram_id,
+            actor.user_id,
             tournament_id,
         )
     except AdminAccessDeniedError as exc:
@@ -92,7 +92,7 @@ async def search_registered_players(
 ) -> AdminPlayerListResponse:
     try:
         candidates = await tournament_check_in_service.search_registered(
-            actor.telegram_id,
+            actor.user_id,
             tournament_id,
             query,
         )
@@ -118,7 +118,7 @@ async def search_existing_players(
 ) -> AdminPlayerListResponse:
     try:
         users = await tournament_check_in_service.search_users(
-            actor.telegram_id,
+            actor.user_id,
             tournament_id,
             query,
         )
@@ -142,7 +142,7 @@ async def get_check_in_decision(
 ) -> AdminCheckInDecisionResponse:
     try:
         view = await tournament_check_in_service.get_user_check_in_decision(
-            actor.telegram_id,
+            actor.user_id,
             tournament_id,
             player_id,
         )
@@ -168,7 +168,7 @@ async def complete_check_in(
     try:
         if isinstance(request, AdminExistingPlayerCheckInRequest):
             view = await tournament_check_in_service.complete_user_check_in(
-                actor.telegram_id,
+                actor.user_id,
                 tournament_id,
                 request.player_id,
                 gender_decision=request.gender_decision,
@@ -176,7 +176,7 @@ async def complete_check_in(
             )
         else:
             view = await tournament_check_in_service.create_user_and_check_in(
-                actor.telegram_id,
+                actor.user_id,
                 tournament_id,
                 request.display_name,
                 request.gender,
@@ -208,7 +208,7 @@ async def search_participant_candidates(
 ) -> AdminPlayerListResponse:
     try:
         users = await tournament_participant_service.search_existing_users_for_tournament(
-            actor.telegram_id,
+            actor.user_id,
             tournament_id,
             query,
         )
@@ -234,13 +234,13 @@ async def add_participant(
     try:
         if isinstance(request, AdminExistingParticipantRequest):
             view = await tournament_participant_service.add_existing_player_to_tournament(
-                actor.telegram_id,
+                actor.user_id,
                 tournament_id,
                 request.player_id,
             )
         elif isinstance(request, AdminNewParticipantRequest):
             view = await tournament_participant_service.add_new_player_to_tournament(
-                actor.telegram_id,
+                actor.user_id,
                 tournament_id,
                 request.display_name,
             )

@@ -33,11 +33,11 @@ class TournamentPhotoService:
 
     async def list_for_tournament(
         self,
-        admin_telegram_id: int,
+        actor_user_id: int,
         tournament_id: int,
     ) -> list[TournamentPhotoView]:
         async with self.session_factory() as session:
-            actor = await access_policy.require_admin_by_telegram_id(session, admin_telegram_id)
+            actor = await access_policy.require_admin(session, actor_user_id)
             await self._require_editable_tournament_for_actor(
                 session,
                 tournament_id,
@@ -47,11 +47,11 @@ class TournamentPhotoService:
 
     async def count_for_tournament(
         self,
-        admin_telegram_id: int,
+        actor_user_id: int,
         tournament_id: int,
     ) -> int:
         async with self.session_factory() as session:
-            actor = await access_policy.require_admin_by_telegram_id(session, admin_telegram_id)
+            actor = await access_policy.require_admin(session, actor_user_id)
             await self._require_editable_tournament_for_actor(
                 session,
                 tournament_id,
@@ -61,14 +61,14 @@ class TournamentPhotoService:
 
     async def add_photo(
         self,
-        admin_telegram_id: int,
+        actor_user_id: int,
         tournament_id: int,
         *,
         telegram_file_id: str,
         telegram_file_unique_id: str,
     ) -> TournamentPhotoAddView:
         async with self.session_factory() as session:
-            admin = await access_policy.require_admin_by_telegram_id(session, admin_telegram_id)
+            admin = await access_policy.require_admin(session, actor_user_id)
             tournament = await self._require_editable_tournament_for_actor(
                 session,
                 tournament_id,
@@ -108,11 +108,11 @@ class TournamentPhotoService:
 
     async def delete_photos(
         self,
-        admin_telegram_id: int,
+        actor_user_id: int,
         tournament_id: int,
     ) -> int:
         async with self.session_factory() as session:
-            actor = await access_policy.require_admin_by_telegram_id(session, admin_telegram_id)
+            actor = await access_policy.require_admin(session, actor_user_id)
             tournament = await self._require_editable_tournament_for_actor(
                 session,
                 tournament_id,

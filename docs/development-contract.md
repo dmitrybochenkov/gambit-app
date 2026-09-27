@@ -98,12 +98,16 @@ IDs remain valid for authentication, delivery, onboarding, and identity
 mapping. This foundation does not introduce actor middleware or complete the
 remaining service-signature migration.
 
-The migrated player/self slice uses `actor_user_id` for profile, rating,
-history, public Hall of Fame, player tournament reads and registration, and
-current reward reads. HTTP routes pass `AuthenticatedActor.user_id`. Telegram
-player handlers resolve their raw `from_user.id` through the narrow shared
-player-handler resolver before invoking these services. Do not add actor IDs to
-HTTP payloads or pass raw Telegram IDs directly into these migrated methods.
+The migrated player/self slice and ADMIN open-tournament operations use
+`actor_user_id`. This includes check-in, live result editing, combinations,
+participants, photos, and ADMIN reward decisions. HTTP routes pass
+`AuthenticatedActor.user_id`; Telegram handlers resolve raw `from_user.id`
+through narrow transport helpers before invoking shared services. Do not add
+actor IDs to HTTP payloads or pass raw Telegram IDs directly into migrated
+methods. SUPERADMIN-only planning, close/correction, season, Hall of Fame, user
+management, and registration-review contracts remain incremental migration
+debt. Telegram IDs remain legitimate for onboarding, delivery, and media file
+references.
 
 ## Clock And Tournament Day
 

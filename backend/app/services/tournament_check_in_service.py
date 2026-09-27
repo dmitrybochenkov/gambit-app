@@ -100,9 +100,9 @@ class TournamentCheckInService:
         self.clock = clock
         self.tournament_day_start_hour = tournament_day_start_hour
 
-    async def list_today_tournaments(self, admin_telegram_id: int) -> list[TournamentView]:
+    async def list_today_tournaments(self, actor_user_id: int) -> list[TournamentView]:
         async with self.session_factory() as session:
-            actor = await access_policy.require_admin_by_telegram_id(session, admin_telegram_id)
+            actor = await access_policy.require_admin(session, actor_user_id)
             business_date = self._tournament_day()
             repository = TournamentRepository(session)
             if actor.role == UserRole.SUPERADMIN:
@@ -113,11 +113,11 @@ class TournamentCheckInService:
 
     async def get_check_in(
         self,
-        admin_telegram_id: int,
+        actor_user_id: int,
         tournament_id: int,
     ) -> TournamentCheckInView:
         async with self.session_factory() as session:
-            actor = await access_policy.require_admin_by_telegram_id(session, admin_telegram_id)
+            actor = await access_policy.require_admin(session, actor_user_id)
             tournament = await self._require_editable_tournament_for_actor(
                 session,
                 tournament_id,
@@ -127,11 +127,11 @@ class TournamentCheckInService:
 
     async def get_checked_in_players(
         self,
-        admin_telegram_id: int,
+        actor_user_id: int,
         tournament_id: int,
     ) -> CheckedInPlayersView:
         async with self.session_factory() as session:
-            actor = await access_policy.require_admin_by_telegram_id(session, admin_telegram_id)
+            actor = await access_policy.require_admin(session, actor_user_id)
             tournament = await self._require_editable_tournament_for_actor(
                 session,
                 tournament_id,
@@ -153,12 +153,12 @@ class TournamentCheckInService:
 
     async def search_registered(
         self,
-        admin_telegram_id: int,
+        actor_user_id: int,
         tournament_id: int,
         query: str,
     ) -> list[CheckInCandidateView]:
         async with self.session_factory() as session:
-            actor = await access_policy.require_admin_by_telegram_id(session, admin_telegram_id)
+            actor = await access_policy.require_admin(session, actor_user_id)
             tournament = await self._require_editable_tournament_for_actor(
                 session,
                 tournament_id,
@@ -169,12 +169,12 @@ class TournamentCheckInService:
 
     async def search_users(
         self,
-        admin_telegram_id: int,
+        actor_user_id: int,
         tournament_id: int,
         query: str,
     ) -> list[UserView]:
         async with self.session_factory() as session:
-            actor = await access_policy.require_admin_by_telegram_id(session, admin_telegram_id)
+            actor = await access_policy.require_admin(session, actor_user_id)
             tournament = await self._require_editable_tournament_for_actor(
                 session,
                 tournament_id,
@@ -200,13 +200,13 @@ class TournamentCheckInService:
 
     async def find_new_player_candidates(
         self,
-        admin_telegram_id: int,
+        actor_user_id: int,
         tournament_id: int,
         display_name: str,
     ) -> tuple[str, list[UserView], bool]:
         normalized = validate_display_name(display_name)
         async with self.session_factory() as session:
-            actor = await access_policy.require_admin_by_telegram_id(session, admin_telegram_id)
+            actor = await access_policy.require_admin(session, actor_user_id)
             tournament = await self._require_editable_tournament_for_actor(
                 session,
                 tournament_id,
@@ -232,12 +232,12 @@ class TournamentCheckInService:
 
     async def get_user_check_in_confirmation(
         self,
-        admin_telegram_id: int,
+        actor_user_id: int,
         tournament_id: int,
         user_id: int,
     ) -> CheckInResultView:
         async with self.session_factory() as session:
-            actor = await access_policy.require_admin_by_telegram_id(session, admin_telegram_id)
+            actor = await access_policy.require_admin(session, actor_user_id)
             tournament = await self._require_editable_tournament_for_actor(
                 session,
                 tournament_id,
@@ -248,12 +248,12 @@ class TournamentCheckInService:
 
     async def get_user_check_in_decision(
         self,
-        admin_telegram_id: int,
+        actor_user_id: int,
         tournament_id: int,
         user_id: int,
     ) -> CheckInRewardDecisionView:
         async with self.session_factory() as session:
-            actor = await access_policy.require_admin_by_telegram_id(session, admin_telegram_id)
+            actor = await access_policy.require_admin(session, actor_user_id)
             tournament = await self._require_editable_tournament_for_actor(
                 session,
                 tournament_id,
@@ -264,7 +264,7 @@ class TournamentCheckInService:
 
     async def complete_user_check_in(
         self,
-        admin_telegram_id: int,
+        actor_user_id: int,
         tournament_id: int,
         user_id: int,
         *,
@@ -272,7 +272,7 @@ class TournamentCheckInService:
         reward_id: int | None = None,
     ) -> CheckInResultView:
         async with self.session_factory() as session:
-            admin = await access_policy.require_admin_by_telegram_id(session, admin_telegram_id)
+            admin = await access_policy.require_admin(session, actor_user_id)
             tournament = await self._require_editable_tournament_for_actor(
                 session,
                 tournament_id,
@@ -308,12 +308,12 @@ class TournamentCheckInService:
 
     async def get_registered_check_in_decision(
         self,
-        admin_telegram_id: int,
+        actor_user_id: int,
         tournament_id: int,
         user_id: int,
     ) -> CheckInRewardDecisionView:
         async with self.session_factory() as session:
-            actor = await access_policy.require_admin_by_telegram_id(session, admin_telegram_id)
+            actor = await access_policy.require_admin(session, actor_user_id)
             tournament = await self._require_editable_tournament_for_actor(
                 session,
                 tournament_id,
@@ -326,12 +326,12 @@ class TournamentCheckInService:
 
     async def get_existing_user_check_in_decision(
         self,
-        admin_telegram_id: int,
+        actor_user_id: int,
         tournament_id: int,
         user_id: int,
     ) -> CheckInRewardDecisionView:
         async with self.session_factory() as session:
-            actor = await access_policy.require_admin_by_telegram_id(session, admin_telegram_id)
+            actor = await access_policy.require_admin(session, actor_user_id)
             tournament = await self._require_editable_tournament_for_actor(
                 session,
                 tournament_id,
@@ -344,13 +344,13 @@ class TournamentCheckInService:
 
     async def get_new_user_check_in_confirmation(
         self,
-        admin_telegram_id: int,
+        actor_user_id: int,
         tournament_id: int,
         display_name: str,
     ) -> tuple[TournamentView, str]:
         validate_display_name(display_name)
         async with self.session_factory() as session:
-            actor = await access_policy.require_admin_by_telegram_id(session, admin_telegram_id)
+            actor = await access_policy.require_admin(session, actor_user_id)
             tournament = await self._require_editable_tournament_for_actor(
                 session,
                 tournament_id,
@@ -360,13 +360,13 @@ class TournamentCheckInService:
 
     async def check_in_registered(
         self,
-        admin_telegram_id: int,
+        actor_user_id: int,
         tournament_id: int,
         user_id: int,
         reward_id: int | None = None,
     ) -> CheckInResultView:
         async with self.session_factory() as session:
-            admin = await access_policy.require_admin_by_telegram_id(session, admin_telegram_id)
+            admin = await access_policy.require_admin(session, actor_user_id)
             tournament = await self._require_editable_tournament_for_actor(
                 session,
                 tournament_id,
@@ -390,13 +390,13 @@ class TournamentCheckInService:
 
     async def check_in_user(
         self,
-        admin_telegram_id: int,
+        actor_user_id: int,
         tournament_id: int,
         user_id: int,
         reward_id: int | None = None,
     ) -> CheckInResultView:
         async with self.session_factory() as session:
-            admin = await access_policy.require_admin_by_telegram_id(session, admin_telegram_id)
+            admin = await access_policy.require_admin(session, actor_user_id)
             tournament = await self._require_editable_tournament_for_actor(
                 session,
                 tournament_id,
@@ -422,13 +422,13 @@ class TournamentCheckInService:
 
     async def check_in_existing_user(
         self,
-        admin_telegram_id: int,
+        actor_user_id: int,
         tournament_id: int,
         user_id: int,
         reward_id: int | None = None,
     ) -> CheckInResultView:
         async with self.session_factory() as session:
-            admin = await access_policy.require_admin_by_telegram_id(session, admin_telegram_id)
+            admin = await access_policy.require_admin(session, actor_user_id)
             tournament = await self._require_editable_tournament_for_actor(
                 session,
                 tournament_id,
@@ -448,14 +448,14 @@ class TournamentCheckInService:
 
     async def create_user_and_check_in(
         self,
-        admin_telegram_id: int,
+        actor_user_id: int,
         tournament_id: int,
         display_name: str,
         gender: UserGender | None = None,
     ) -> CheckInResultView:
         normalized = validate_display_name(display_name)
         async with self.session_factory() as session:
-            admin = await access_policy.require_admin_by_telegram_id(session, admin_telegram_id)
+            admin = await access_policy.require_admin(session, actor_user_id)
             tournament = await self._require_editable_tournament_for_actor(
                 session,
                 tournament_id,

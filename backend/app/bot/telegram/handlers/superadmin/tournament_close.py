@@ -12,6 +12,7 @@ from app.bot.telegram.formatters import schedules as schedule_fmt
 from app.bot.telegram.formatters import tournaments as tournament_fmt
 from app.bot.telegram.handlers.admin.shared import (
     RESULT_SUMMARY_PARSE_MODE,
+    resolve_admin_actor_user_id,
 )
 from app.bot.telegram.handlers.admin.shared import (
     delete_callback_message as _delete_callback_message,
@@ -1782,7 +1783,7 @@ async def _send_tournament_photos(
 ) -> None:
     try:
         photos = await tournament_photo_service.list_for_tournament(
-            admin_telegram_id=callback.from_user.id,
+            actor_user_id=await resolve_admin_actor_user_id(callback.from_user.id),
             tournament_id=tournament_id,
         )
     except AdminAccessDeniedError:

@@ -202,6 +202,8 @@ async def _build_open_delete_service(
             ]
         )
         ids = {
+            "admin_actor": admin.id,
+            "player_actor": player_actor.id,
             "tournament": tournament.id,
             "other_tournament": other_tournament.id,
             "first": first.id,
@@ -510,14 +512,14 @@ async def test_tournament_combination_occurrences_are_independent(
     )
     for _ in range(3):
         view = await combination_service.add_combination(
-            admin_telegram_id=100,
+            actor_user_id=admin.id,
             tournament_id=tournament_id,
             player_id=first_id,
             combination_type=TournamentCombinationType.STRAIGHT_FLUSH,
         )
     for rank in ("A", "A", "K", "K"):
         view = await combination_service.add_combination(
-            admin_telegram_id=100,
+            actor_user_id=admin.id,
             tournament_id=tournament_id,
             player_id=first_id,
             combination_type=TournamentCombinationType.FOUR_OF_A_KIND,
@@ -542,7 +544,7 @@ async def test_tournament_combination_occurrences_are_independent(
 
     retained_ids = {straight_flushes[0].id, straight_flushes[2].id}
     remaining = await combination_service.delete_combination(
-        admin_telegram_id=100,
+        actor_user_id=admin.id,
         tournament_id=tournament_id,
         combination_id=straight_flushes[1].id,
     )
@@ -629,7 +631,7 @@ async def test_today_result_entry_uses_only_today_active_tournament(
         session_factory,
         clock=FixedClock(datetime(2026, 7, 20, 12, tzinfo=ZoneInfo("Europe/Moscow"))),
     )
-    results = await service.get_today_tournament_results(100)
+    results = await service.get_today_tournament_results(admin.id)
 
     assert results.tournament.date == date(2026, 7, 20)
     assert results.tournament.tournament_type_name == "Фризаут"
@@ -694,12 +696,12 @@ async def test_today_result_entry_uses_tournament_day_boundary(
         tournament_day_start_hour=11,
     )
 
-    assert (await before_start.get_today_tournament_results(100)).tournament.date == date(
+    assert (await before_start.get_today_tournament_results(admin.id)).tournament.date == date(
         2026,
         7,
         19,
     )
-    assert (await at_start.get_today_tournament_results(100)).tournament.date == date(
+    assert (await at_start.get_today_tournament_results(admin.id)).tournament.date == date(
         2026,
         7,
         20,
@@ -828,7 +830,7 @@ async def test_today_result_entry_rejects_when_today_has_no_active_tournament(
         clock=FixedClock(datetime(2026, 7, 20, 12, tzinfo=ZoneInfo("Europe/Moscow"))),
     )
     with pytest.raises(ResultTodayTournamentNotFoundError):
-        await service.get_today_tournament_results(100)
+        await service.get_today_tournament_results(admin.id)
     await engine.dispose()
 
 
@@ -915,34 +917,34 @@ async def test_result_rows_are_edited_directly_and_close_tournament(
         session_factory,
         clock=FixedClock(datetime(2026, 7, 18, 12, tzinfo=ZoneInfo("Europe/Moscow"))),
     )
-    results = await service.get_tournament_results(100, tournament_id)
+    results = await service.get_tournament_results(admin.id, tournament_id)
 
     assert not hasattr(results, "checked_in_count")
     assert results.knockout_mode == KnockoutMode.SMALL_BIG.value
     assert [player.player_id for player in results.players] == player_ids
-    assert await service.validate_results(100, tournament_id) == [
+    assert await service.validate_results(admin.id, tournament_id) == [
         "Введи места: 1, 2, 3, 4, 5.",
         "Введи хотя бы один 🥊 или 👑🥊.",
     ]
 
     await service.update_player_result_field(
-        100, tournament_id, player_ids[0], ResultField.PLACE, 1
+        admin.id, tournament_id, player_ids[0], ResultField.PLACE, 1
     )
     await service.update_player_result_field(
-        100, tournament_id, player_ids[0], ResultField.KNOCKOUTS, 2
+        admin.id, tournament_id, player_ids[0], ResultField.KNOCKOUTS, 2
     )
     await service.update_player_result_field(
-        100, tournament_id, player_ids[0], ResultField.BIG_KNOCKOUTS, 1
+        admin.id, tournament_id, player_ids[0], ResultField.BIG_KNOCKOUTS, 1
     )
     await service.update_player_result_field(
-        100, tournament_id, player_ids[1], ResultField.PLACE, 2
+        admin.id, tournament_id, player_ids[1], ResultField.PLACE, 2
     )
     await service.update_player_result_field(
-        100, tournament_id, player_ids[1], ResultField.KNOCKOUTS, 1
+        admin.id, tournament_id, player_ids[1], ResultField.KNOCKOUTS, 1
     )
     for place, player_id in zip(range(3, 6), player_ids[2:], strict=True):
         await service.update_player_result_field(
-            100, tournament_id, player_id, ResultField.PLACE, place
+            admin.id, tournament_id, player_id, ResultField.PLACE, place
         )
     closed = await service.close_tournament(100, tournament_id, 1000)
 
@@ -1523,7 +1525,7 @@ async def test_mystery_bounty_uses_places_knockouts_and_bonus_without_big_knocko
         session_factory,
         clock=FixedClock(datetime(2026, 7, 18, 12, tzinfo=ZoneInfo("Europe/Moscow"))),
     )
-    results = await service.get_tournament_results(100, tournament_id)
+    results = await service.get_tournament_results(superadmin.id, tournament_id)
 
     assert results.knockout_mode == KnockoutMode.SMALL.value
     assert results.supports_bonus_points is True
@@ -1533,28 +1535,28 @@ async def test_mystery_bounty_uses_places_knockouts_and_bonus_without_big_knocko
         ResultField.BONUS,
     ]
     assert ResultField.BIG_KNOCKOUTS not in ResultService.editable_result_fields(results)
-    assert await service.validate_results(100, tournament_id) == [
+    assert await service.validate_results(superadmin.id, tournament_id) == [
         "Введи места: 1, 2, 3, 4, 5.",
         "Введи хотя бы один 🥊.",
     ]
 
     for place, player_id in zip(range(1, 6), player_ids, strict=True):
         await service.update_player_result_field(
-            100,
+            superadmin.id,
             tournament_id,
             player_id,
             ResultField.PLACE,
             place,
         )
     await service.update_player_result_field(
-        100,
+        superadmin.id,
         tournament_id,
         player_ids[0],
         ResultField.KNOCKOUTS,
         3,
     )
     await service.update_player_result_field(
-        100,
+        superadmin.id,
         tournament_id,
         player_ids[0],
         ResultField.BONUS,
@@ -2053,7 +2055,7 @@ async def test_add_existing_player_to_past_tournament_creates_zero_result(
         session_factory,
         clock=FixedClock(datetime(2026, 7, 20, 12, tzinfo=ZoneInfo("Europe/Moscow"))),
     )
-    results = await service.add_existing_player_to_tournament(100, tournament_id, player_id)
+    results = await service.add_existing_player_to_tournament(admin.id, tournament_id, player_id)
 
     assert [player.display_name for player in results.players] == ["Past Player"]
     async with session_factory() as session:
@@ -2127,9 +2129,9 @@ async def test_add_existing_player_to_tournament_rejects_duplicate_and_missing_u
     )
     try:
         with pytest.raises(ResultPlayerAlreadyAddedError):
-            await service.add_existing_player_to_tournament(100, tournament_id, player_id)
+            await service.add_existing_player_to_tournament(admin.id, tournament_id, player_id)
         with pytest.raises(ResultUserNotFoundError):
-            await service.add_existing_player_to_tournament(100, tournament_id, 999)
+            await service.add_existing_player_to_tournament(admin.id, tournament_id, 999)
     finally:
         await engine.dispose()
 
@@ -2144,19 +2146,19 @@ async def test_add_existing_player_to_tournament_enforces_auth_and_editable_scop
     try:
         with pytest.raises(ActiveUserRequiredError):
             await service.add_existing_player_to_tournament(
-                admin_telegram_id=999,
+                actor_user_id=999,
                 tournament_id=ids["tournament"],
                 user_id=ids["other_only"],
             )
         with pytest.raises(AdminAccessDeniedError):
             await service.add_existing_player_to_tournament(
-                admin_telegram_id=102,
+                actor_user_id=ids["player_actor"],
                 tournament_id=ids["tournament"],
                 user_id=ids["other_only"],
             )
         with pytest.raises(TournamentResultsEditingUnavailableError):
             await service.add_existing_player_to_tournament(
-                admin_telegram_id=101,
+                actor_user_id=ids["admin_actor"],
                 tournament_id=ids["tournament"],
                 user_id=ids["other_only"],
             )
@@ -2208,7 +2210,7 @@ async def test_add_new_player_to_past_tournament_rejects_duplicate_name(
         clock=FixedClock(datetime(2026, 7, 20, 12, tzinfo=ZoneInfo("Europe/Moscow"))),
     )
     with pytest.raises(ResultDuplicateNameError):
-        await service.add_new_player_to_tournament(100, tournament_id, " same   name ")
+        await service.add_new_player_to_tournament(admin.id, tournament_id, " same   name ")
 
     async with session_factory() as session:
         result_count = len((await session.execute(select(TournamentResult))).scalars().all())
@@ -2261,26 +2263,26 @@ async def test_tournament_photos_limit_duplicates_and_delete_all(tmp_path: Path)
         clock=FixedClock(datetime(2026, 7, 20, 12, tzinfo=ZoneInfo("Europe/Moscow"))),
     )
     first = await photo_service.add_photo(
-        100,
+        admin.id,
         tournament_id,
         telegram_file_id="file-1",
         telegram_file_unique_id="unique-1",
     )
     duplicate = await photo_service.add_photo(
-        100,
+        admin.id,
         tournament_id,
         telegram_file_id="file-1-again",
         telegram_file_unique_id="unique-1",
     )
     for index in range(2, 11):
         await photo_service.add_photo(
-            100,
+            admin.id,
             tournament_id,
             telegram_file_id=f"file-{index}",
             telegram_file_unique_id=f"unique-{index}",
         )
     over_limit = await photo_service.add_photo(
-        100,
+        admin.id,
         tournament_id,
         telegram_file_id="file-11",
         telegram_file_unique_id="unique-11",
@@ -2289,14 +2291,14 @@ async def test_tournament_photos_limit_duplicates_and_delete_all(tmp_path: Path)
     assert first.created is True
     assert duplicate.created is False
     assert over_limit.limit_reached is True
-    assert len(await photo_service.list_for_tournament(100, tournament_id)) == 10
+    assert len(await photo_service.list_for_tournament(admin.id, tournament_id)) == 10
 
-    deleted = await photo_service.delete_photos(100, tournament_id)
-    results = await result_service.get_tournament_results(100, tournament_id)
+    deleted = await photo_service.delete_photos(admin.id, tournament_id)
+    results = await result_service.get_tournament_results(admin.id, tournament_id)
 
     assert deleted == 10
     assert results.photo_count == 0
-    assert await photo_service.list_for_tournament(100, tournament_id) == []
+    assert await photo_service.list_for_tournament(admin.id, tournament_id) == []
     await engine.dispose()
 
 
@@ -2434,22 +2436,22 @@ async def test_result_reassigns_occupied_place_for_live_edit(
         clock=FixedClock(datetime(2026, 7, 18, 12, tzinfo=ZoneInfo("Europe/Moscow"))),
     )
     await service.update_player_result_field(
-        100, tournament_id, player_ids[0], ResultField.PLACE, 1
+        admin.id, tournament_id, player_ids[0], ResultField.PLACE, 1
     )
     await service.update_player_result_field(
-        100, tournament_id, player_ids[1], ResultField.PLACE, 1
+        admin.id, tournament_id, player_ids[1], ResultField.PLACE, 1
     )
 
-    results = await service.get_tournament_results(100, tournament_id)
+    results = await service.get_tournament_results(admin.id, tournament_id)
 
     assert [(player.player_id, player.place) for player in results.players] == [
         (player_ids[0], None),
         (player_ids[1], 1),
     ]
     await service.update_player_result_field(
-        100, tournament_id, player_ids[1], ResultField.PLACE, 1
+        admin.id, tournament_id, player_ids[1], ResultField.PLACE, 1
     )
-    results = await service.get_tournament_results(100, tournament_id)
+    results = await service.get_tournament_results(admin.id, tournament_id)
     assert [(player.player_id, player.place) for player in results.players] == [
         (player_ids[0], None),
         (player_ids[1], 1),
@@ -2457,7 +2459,7 @@ async def test_result_reassigns_occupied_place_for_live_edit(
 
     try:
         await service.update_player_result_field(
-            100, tournament_id, player_ids[0], ResultField.PLACE, 7
+            admin.id, tournament_id, player_ids[0], ResultField.PLACE, 7
         )
     except ResultInvalidPlayerDataError:
         pass
@@ -2547,7 +2549,7 @@ async def test_results_use_checked_in_rows_not_pre_registrations(tmp_path: Path)
         session_factory,
         clock=FixedClock(datetime(2026, 7, 18, 12, tzinfo=ZoneInfo("Europe/Moscow"))),
     )
-    results = await service.get_tournament_results(100, tournament_id)
+    results = await service.get_tournament_results(admin.id, tournament_id)
 
     assert [player.player_id for player in results.players] == expected_player_ids
     await engine.dispose()
@@ -2606,7 +2608,7 @@ async def test_admin_previous_open_result_callback_uses_existing_result_policy(
         clock=FixedClock(datetime(2026, 7, 20, 12, tzinfo=ZoneInfo("Europe/Moscow"))),
     )
     await service.update_player_result_field(
-        100,
+        admin.id,
         tournament_id,
         player_id,
         ResultField.PLACE,
@@ -2692,20 +2694,20 @@ async def test_superadmin_can_edit_previous_open_tournament_results_photos_and_c
     )
 
     results = await service.update_player_result_field(
-        100,
+        superadmin.id,
         tournament_id,
         player_id,
         ResultField.PLACE,
         1,
     )
     photo = await photo_service.add_photo(
-        100,
+        superadmin.id,
         tournament_id,
         telegram_file_id="file-1",
         telegram_file_unique_id="unique-1",
     )
     combinations = await combination_service.add_combination(
-        100,
+        superadmin.id,
         tournament_id,
         player_id,
         TournamentCombinationType.STRAIGHT_FLUSH,
@@ -2781,8 +2783,8 @@ async def test_result_tournament_navigation_preserves_admin_scope_and_expands_su
         clock=FixedClock(datetime(2026, 7, 20, 12, tzinfo=ZoneInfo("Europe/Moscow"))),
     )
 
-    admin_tournaments = await service.list_editable_tournaments(100)
-    superadmin_tournaments = await service.list_editable_tournaments(101)
+    admin_tournaments = await service.list_editable_tournaments(admin.id)
+    superadmin_tournaments = await service.list_editable_tournaments(superadmin.id)
 
     assert [tournament.id for tournament in admin_tournaments] == [current_id]
     assert [tournament.id for tournament in superadmin_tournaments] == [
@@ -2865,7 +2867,7 @@ async def test_superadmin_open_edit_rejects_future_and_closed_tournaments(
 
     with pytest.raises(ResultTournamentNotFoundError):
         await service.update_player_result_field(
-            100,
+            superadmin.id,
             closed_id,
             player_id,
             ResultField.PLACE,
@@ -2873,7 +2875,7 @@ async def test_superadmin_open_edit_rejects_future_and_closed_tournaments(
         )
     with pytest.raises(TournamentResultsEditingUnavailableError):
         await service.update_player_result_field(
-            100,
+            superadmin.id,
             future_id,
             player_id,
             ResultField.PLACE,

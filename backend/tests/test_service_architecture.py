@@ -34,7 +34,71 @@ INTERNAL_ACTOR_SERVICE_METHODS = {
         "register_player_for_tournaments",
         "cancel_player_tournament_registrations",
     },
-    "player_reward_service.py": {"list_current_active_rewards_for_player"},
+    "player_reward_service.py": {
+        "list_current_active_rewards_for_player",
+        "list_active_rewards_for_check_in",
+        "get_active_reward_for_player",
+        "redeem_reward",
+    },
+    "tournament_check_in_service.py": {
+        "list_today_tournaments",
+        "get_check_in",
+        "get_checked_in_players",
+        "search_registered",
+        "search_users",
+        "find_new_player_candidates",
+        "get_user_check_in_confirmation",
+        "get_user_check_in_decision",
+        "complete_user_check_in",
+        "get_registered_check_in_decision",
+        "get_existing_user_check_in_decision",
+        "get_new_user_check_in_confirmation",
+        "check_in_registered",
+        "check_in_user",
+        "check_in_existing_user",
+        "create_user_and_check_in",
+    },
+    "result_service.py": {
+        "get_today_tournament_results",
+        "list_editable_tournaments",
+        "get_tournament_results",
+        "update_player_result_field",
+        "validate_results",
+    },
+    "tournament_combination_service.py": {
+        "list_for_tournament",
+        "add_combination",
+        "delete_combination",
+    },
+    "tournament_participant_service.py": {
+        "search_existing_users_for_tournament",
+        "get_existing_player_add_confirmation",
+        "get_new_player_add_confirmation",
+        "add_existing_player_to_tournament",
+        "add_new_player_to_tournament",
+    },
+    "tournament_photo_service.py": {
+        "list_for_tournament",
+        "count_for_tournament",
+        "add_photo",
+        "delete_photos",
+    },
+}
+
+INTERNAL_ADMIN_ACTOR_METHODS = {
+    method_name
+    for filename in (
+        "tournament_check_in_service.py",
+        "result_service.py",
+        "tournament_combination_service.py",
+        "tournament_participant_service.py",
+        "tournament_photo_service.py",
+    )
+    for method_name in INTERNAL_ACTOR_SERVICE_METHODS[filename]
+} | {
+    "list_active_rewards_for_check_in",
+    "get_active_reward_for_player",
+    "redeem_reward",
 }
 
 
@@ -130,7 +194,7 @@ def test_access_policy_keeps_internal_and_telegram_identity_namespaces_explicit(
     assert ambiguous_callers == []
 
 
-def test_player_self_slice_uses_internal_actor_identity() -> None:
+def test_migrated_service_slices_use_internal_actor_identity() -> None:
     for filename, method_names in INTERNAL_ACTOR_SERVICE_METHODS.items():
         path = SERVICES_DIR / filename
         tree = ast.parse(path.read_text(), filename=str(path))
@@ -159,6 +223,27 @@ def test_player_self_slice_uses_internal_actor_identity() -> None:
     ):
         source = (APP_DIR / "api" / "v1" / filename).read_text()
         assert "actor.telegram_id" not in source
+
+
+def test_admin_http_routes_pass_internal_actor_to_migrated_services() -> None:
+    for filename in ("admin_check_in.py", "admin_tournaments.py"):
+        path = APP_DIR / "api" / "v1" / filename
+        tree = ast.parse(path.read_text(), filename=str(path))
+        for node in ast.walk(tree):
+            if not (
+                isinstance(node, ast.Call)
+                and isinstance(node.func, ast.Attribute)
+                and node.func.attr in INTERNAL_ADMIN_ACTOR_METHODS
+            ):
+                continue
+            arguments = [*node.args, *(keyword.value for keyword in node.keywords)]
+            assert not any(
+                isinstance(argument, ast.Attribute)
+                and argument.attr == "telegram_id"
+                and isinstance(argument.value, ast.Name)
+                and argument.value.id == "actor"
+                for argument in arguments
+            ), f"{filename}:{node.lineno} passes actor.telegram_id"
 
 
 def test_migrated_telegram_player_handlers_resolve_actor_before_service_call() -> None:
@@ -202,6 +287,34 @@ def test_migrated_telegram_player_handlers_resolve_actor_before_service_call() -
                     and argument.value.attr == "from_user"
                 ):
                     violations.append(f"{filename}:{node.lineno} passes from_user.id directly")
+
+    assert violations == []
+
+
+def test_migrated_telegram_admin_handlers_resolve_actor_before_service_call() -> None:
+    violations: list[str] = []
+    for path in (
+        APP_DIR / "bot" / "telegram" / "handlers" / "admin" / "check_in.py",
+        APP_DIR / "bot" / "telegram" / "handlers" / "admin" / "results.py",
+        APP_DIR / "bot" / "telegram" / "handlers" / "superadmin" / "tournament_close.py",
+    ):
+        tree = ast.parse(path.read_text(), filename=str(path))
+        for node in ast.walk(tree):
+            if not (
+                isinstance(node, ast.Call)
+                and isinstance(node.func, ast.Attribute)
+                and node.func.attr in INTERNAL_ADMIN_ACTOR_METHODS
+            ):
+                continue
+            arguments = [*node.args, *(keyword.value for keyword in node.keywords)]
+            for argument in arguments:
+                if (
+                    isinstance(argument, ast.Attribute)
+                    and argument.attr == "id"
+                    and isinstance(argument.value, ast.Attribute)
+                    and argument.value.attr == "from_user"
+                ):
+                    violations.append(f"{path.name}:{node.lineno} passes from_user.id directly")
 
     assert violations == []
 

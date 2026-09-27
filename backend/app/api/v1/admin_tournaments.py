@@ -31,7 +31,7 @@ async def list_editable_tournaments(
     actor: Annotated[AuthenticatedActor, Depends(current_actor)],
 ) -> AdminTournamentListResponse:
     try:
-        tournaments = await result_service.list_editable_tournaments(actor.telegram_id)
+        tournaments = await result_service.list_editable_tournaments(actor.user_id)
     except AdminAccessDeniedError as exc:
         raise errors.forbidden("Admin access required") from exc
     return AdminTournamentListResponse(
@@ -45,7 +45,7 @@ async def get_tournament_results(
     actor: Annotated[AuthenticatedActor, Depends(current_actor)],
 ) -> AdminTournamentResultsResponse:
     try:
-        view = await result_service.get_tournament_results(actor.telegram_id, tournament_id)
+        view = await result_service.get_tournament_results(actor.user_id, tournament_id)
     except AdminAccessDeniedError as exc:
         raise errors.forbidden("Admin access required") from exc
     except ResultTournamentNotFoundError as exc:
@@ -67,7 +67,7 @@ async def update_tournament_result(
 ) -> AdminTournamentResultsResponse:
     try:
         view = await result_service.update_player_result_field(
-            actor.telegram_id,
+            actor.user_id,
             tournament_id,
             player_id,
             request.field,
@@ -94,7 +94,7 @@ async def list_tournament_combinations(
 ) -> AdminTournamentCombinationsResponse:
     try:
         view = await tournament_combination_service.list_for_tournament(
-            actor.telegram_id,
+            actor.user_id,
             tournament_id,
         )
     except AdminAccessDeniedError as exc:
@@ -118,7 +118,7 @@ async def add_tournament_combination(
 ) -> AdminTournamentCombinationsResponse:
     try:
         view = await tournament_combination_service.add_combination(
-            actor.telegram_id,
+            actor.user_id,
             tournament_id,
             request.player_id,
             request.combination_type,
@@ -146,7 +146,7 @@ async def delete_tournament_combination(
 ) -> AdminTournamentCombinationsResponse:
     try:
         view = await tournament_combination_service.delete_combination(
-            actor.telegram_id,
+            actor.user_id,
             tournament_id,
             combination_id,
         )

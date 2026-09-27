@@ -11,6 +11,9 @@ from app.bot.telegram.formatters import check_in as check_in_fmt
 from app.bot.telegram.handlers.admin.shared import (
     delete_callback_message as _delete_callback_message,
 )
+from app.bot.telegram.handlers.admin.shared import (
+    resolve_admin_actor_user_id,
+)
 from app.bot.telegram.keyboards import labels
 from app.bot.telegram.keyboards.admin import check_in as admin_check_in_kb
 from app.bot.telegram.keyboards.admin import panel as admin_panel_kb
@@ -54,7 +57,9 @@ async def show_admin_check_in(message: Message) -> None:
         return
 
     try:
-        tournaments = await tournament_check_in_service.list_today_tournaments(message.from_user.id)
+        tournaments = await tournament_check_in_service.list_today_tournaments(
+            await resolve_admin_actor_user_id(message.from_user.id)
+        )
     except AdminAccessDeniedError:
         await message.answer(panel_text.ACCESS_DENIED)
         return
@@ -76,7 +81,7 @@ async def show_admin_check_in(message: Message) -> None:
         return
 
     view = await tournament_check_in_service.get_check_in(
-        admin_telegram_id=message.from_user.id,
+        actor_user_id=await resolve_admin_actor_user_id(message.from_user.id),
         tournament_id=tournaments[0].id,
     )
     await message.answer(
@@ -118,7 +123,7 @@ async def select_check_in_action(
                 await callback.answer()
             await state.clear()
             view = await tournament_check_in_service.get_check_in(
-                admin_telegram_id=callback.from_user.id,
+                actor_user_id=await resolve_admin_actor_user_id(callback.from_user.id),
                 tournament_id=callback_data.tournament_id,
             )
             if callback.message is not None:
@@ -131,7 +136,7 @@ async def select_check_in_action(
 
         if callback_data.action == admin_check_in_kb.AdminCheckInAction.SHOW_CHECKED_IN:
             view = await tournament_check_in_service.get_checked_in_players(
-                admin_telegram_id=callback.from_user.id,
+                actor_user_id=await resolve_admin_actor_user_id(callback.from_user.id),
                 tournament_id=callback_data.tournament_id,
             )
             await callback.answer()
@@ -159,7 +164,7 @@ async def select_check_in_action(
 
         if callback_data.action == admin_check_in_kb.AdminCheckInAction.SEARCH_REGISTERED:
             view = await tournament_check_in_service.get_check_in(
-                admin_telegram_id=callback.from_user.id,
+                actor_user_id=await resolve_admin_actor_user_id(callback.from_user.id),
                 tournament_id=callback_data.tournament_id,
             )
             if not view.registered_candidates:
@@ -224,7 +229,7 @@ async def select_check_in_action(
 
         if callback_data.action == admin_check_in_kb.AdminCheckInAction.CONFIRM_REGISTERED:
             confirmation = await tournament_check_in_service.get_registered_check_in_decision(
-                admin_telegram_id=callback.from_user.id,
+                actor_user_id=await resolve_admin_actor_user_id(callback.from_user.id),
                 tournament_id=callback_data.tournament_id,
                 user_id=callback_data.player_id,
             )
@@ -239,7 +244,7 @@ async def select_check_in_action(
 
         if callback_data.action == admin_check_in_kb.AdminCheckInAction.CONFIRM_EXISTING:
             confirmation = await tournament_check_in_service.get_existing_user_check_in_decision(
-                admin_telegram_id=callback.from_user.id,
+                actor_user_id=await resolve_admin_actor_user_id(callback.from_user.id),
                 tournament_id=callback_data.tournament_id,
                 user_id=callback_data.player_id,
             )
@@ -259,7 +264,7 @@ async def select_check_in_action(
                 tournament,
                 display_name,
             ) = await tournament_check_in_service.get_new_user_check_in_confirmation(
-                admin_telegram_id=callback.from_user.id,
+                actor_user_id=await resolve_admin_actor_user_id(callback.from_user.id),
                 tournament_id=callback_data.tournament_id,
                 display_name=display_name,
             )
@@ -285,7 +290,7 @@ async def select_check_in_action(
             await callback.answer(result_text.ADMIN_RESULTS_NOT_FOUND, show_alert=True)
             return
         view = await tournament_check_in_service.get_check_in(
-            admin_telegram_id=callback.from_user.id,
+            actor_user_id=await resolve_admin_actor_user_id(callback.from_user.id),
             tournament_id=callback_data.tournament_id,
         )
     except AdminAccessDeniedError:
@@ -350,7 +355,7 @@ async def _handle_reward_or_gender_action(
         return False
 
     result = await tournament_check_in_service.complete_user_check_in(
-        admin_telegram_id=callback.from_user.id,
+        actor_user_id=await resolve_admin_actor_user_id(callback.from_user.id),
         tournament_id=callback_data.tournament_id,
         user_id=callback_data.player_id,
         gender_decision=await _gender_decision_from_state(state),
@@ -361,7 +366,7 @@ async def _handle_reward_or_gender_action(
         ),
     )
     view = await tournament_check_in_service.get_check_in(
-        admin_telegram_id=callback.from_user.id,
+        actor_user_id=await resolve_admin_actor_user_id(callback.from_user.id),
         tournament_id=callback_data.tournament_id,
     )
     await _finish_check_in_callback(callback, state, result, view)
@@ -378,7 +383,7 @@ async def _complete_confirmed_check_in(
     }:
         return None
     return await tournament_check_in_service.complete_user_check_in(
-        admin_telegram_id=callback.from_user.id,
+        actor_user_id=await resolve_admin_actor_user_id(callback.from_user.id),
         tournament_id=callback_data.tournament_id,
         user_id=callback_data.player_id,
         gender_decision=CheckInGenderDecision.KEEP,
@@ -412,7 +417,7 @@ async def _show_reward_selection(
     callback_data: admin_check_in_kb.AdminCheckInCallback,
 ) -> None:
     decision = await tournament_check_in_service.get_user_check_in_decision(
-        admin_telegram_id=callback.from_user.id,
+        actor_user_id=await resolve_admin_actor_user_id(callback.from_user.id),
         tournament_id=callback_data.tournament_id,
         user_id=callback_data.player_id,
     )
@@ -440,7 +445,7 @@ async def _show_reward_confirmation(
     callback_data: admin_check_in_kb.AdminCheckInCallback,
 ) -> None:
     decision = await tournament_check_in_service.get_user_check_in_decision(
-        admin_telegram_id=callback.from_user.id,
+        actor_user_id=await resolve_admin_actor_user_id(callback.from_user.id),
         tournament_id=callback_data.tournament_id,
         user_id=callback_data.player_id,
     )
@@ -476,13 +481,13 @@ async def _handle_gender_decision(
     if callback_data.player_id == 0:
         data = await state.get_data()
         result = await tournament_check_in_service.create_user_and_check_in(
-            admin_telegram_id=callback.from_user.id,
+            actor_user_id=await resolve_admin_actor_user_id(callback.from_user.id),
             tournament_id=callback_data.tournament_id,
             display_name=str(data.get("new_check_in_display_name", "")),
             gender=gender,
         )
         view = await tournament_check_in_service.get_check_in(
-            admin_telegram_id=callback.from_user.id,
+            actor_user_id=await resolve_admin_actor_user_id(callback.from_user.id),
             tournament_id=callback_data.tournament_id,
         )
         await _finish_check_in_callback(callback, state, result, view)
@@ -495,7 +500,7 @@ async def _handle_gender_decision(
     }[callback_data.action]
     await state.update_data(check_in_gender_decision=gender_decision.value)
     decision = await tournament_check_in_service.get_user_check_in_decision(
-        admin_telegram_id=callback.from_user.id,
+        actor_user_id=await resolve_admin_actor_user_id(callback.from_user.id),
         tournament_id=callback_data.tournament_id,
         user_id=callback_data.player_id,
     )
@@ -503,13 +508,13 @@ async def _handle_gender_decision(
         await _show_reward_selection(callback, callback_data)
         return
     result = await tournament_check_in_service.complete_user_check_in(
-        admin_telegram_id=callback.from_user.id,
+        actor_user_id=await resolve_admin_actor_user_id(callback.from_user.id),
         tournament_id=callback_data.tournament_id,
         user_id=callback_data.player_id,
         gender_decision=gender_decision,
     )
     view = await tournament_check_in_service.get_check_in(
-        admin_telegram_id=callback.from_user.id,
+        actor_user_id=await resolve_admin_actor_user_id(callback.from_user.id),
         tournament_id=callback_data.tournament_id,
     )
     await _finish_check_in_callback(callback, state, result, view)
@@ -589,7 +594,7 @@ async def _handle_check_in_tournament_navigation(
 ) -> bool:
     if callback_data.action == admin_check_in_kb.AdminCheckInAction.PAGE_TOURNAMENTS:
         tournaments = await tournament_check_in_service.list_today_tournaments(
-            callback.from_user.id
+            await resolve_admin_actor_user_id(callback.from_user.id)
         )
         page = pagination_service.paginate(
             tournaments,
@@ -616,7 +621,7 @@ async def _handle_check_in_tournament_navigation(
 
     if callback_data.action == admin_check_in_kb.AdminCheckInAction.OPEN_TOURNAMENT:
         view = await tournament_check_in_service.get_check_in(
-            admin_telegram_id=callback.from_user.id,
+            actor_user_id=await resolve_admin_actor_user_id(callback.from_user.id),
             tournament_id=callback_data.tournament_id,
         )
         await callback.answer()
@@ -639,7 +644,7 @@ async def _show_registered_candidates(
     page: int,
 ) -> None:
     view = await tournament_check_in_service.get_check_in(
-        admin_telegram_id=callback.from_user.id,
+        actor_user_id=await resolve_admin_actor_user_id(callback.from_user.id),
         tournament_id=tournament_id,
     )
     if state is not None:
@@ -687,7 +692,7 @@ async def _restore_check_in_previous_screen(
     query = str(data.get("check_in_query", ""))
     if back_screen == "registered_search":
         players = await tournament_check_in_service.search_registered(
-            admin_telegram_id=callback.from_user.id,
+            actor_user_id=await resolve_admin_actor_user_id(callback.from_user.id),
             tournament_id=tournament_id,
             query=query,
         )
@@ -709,7 +714,7 @@ async def _restore_check_in_previous_screen(
         return True
     if back_screen == "database_search":
         players = await tournament_check_in_service.search_users(
-            admin_telegram_id=callback.from_user.id,
+            actor_user_id=await resolve_admin_actor_user_id(callback.from_user.id),
             tournament_id=tournament_id,
             query=query,
         )
@@ -729,7 +734,7 @@ async def _restore_check_in_previous_screen(
     if back_screen == "new_player_candidates":
         display_name = str(data.get("new_check_in_display_name", ""))
         _, candidates, exact_exists = await tournament_check_in_service.find_new_player_candidates(
-            admin_telegram_id=callback.from_user.id,
+            actor_user_id=await resolve_admin_actor_user_id(callback.from_user.id),
             tournament_id=tournament_id,
             display_name=display_name,
         )
@@ -774,7 +779,7 @@ async def enter_registered_check_in_search(message: Message, state: FSMContext) 
     await _clear_check_in_prompt_markup(message, data)
     try:
         players = await tournament_check_in_service.search_registered(
-            admin_telegram_id=message.from_user.id,
+            actor_user_id=await resolve_admin_actor_user_id(message.from_user.id),
             tournament_id=tournament_id,
             query=query,
         )
@@ -827,7 +832,7 @@ async def enter_database_check_in_search(message: Message, state: FSMContext) ->
     await _clear_check_in_prompt_markup(message, data)
     try:
         players = await tournament_check_in_service.search_users(
-            admin_telegram_id=message.from_user.id,
+            actor_user_id=await resolve_admin_actor_user_id(message.from_user.id),
             tournament_id=tournament_id,
             query=query,
         )
@@ -884,7 +889,7 @@ async def enter_new_check_in_player(message: Message, state: FSMContext) -> None
             candidates,
             exact_exists,
         ) = await tournament_check_in_service.find_new_player_candidates(
-            admin_telegram_id=message.from_user.id,
+            actor_user_id=await resolve_admin_actor_user_id(message.from_user.id),
             tournament_id=tournament_id,
             display_name=display_name,
         )
@@ -898,7 +903,7 @@ async def enter_new_check_in_player(message: Message, state: FSMContext) -> None
             _tournament,
             display_name,
         ) = await tournament_check_in_service.get_new_user_check_in_confirmation(
-            admin_telegram_id=message.from_user.id,
+            actor_user_id=await resolve_admin_actor_user_id(message.from_user.id),
             tournament_id=tournament_id,
             display_name=display_name,
         )

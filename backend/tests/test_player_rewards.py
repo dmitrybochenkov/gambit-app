@@ -894,7 +894,7 @@ async def test_reward_expiration_is_inclusive_and_redemption_is_one_per_tourname
     assert [reward.reward_id for reward in active] == [first_id, second_id]
 
     await service.redeem_reward(
-        admin_telegram_id=100,
+        actor_user_id=admin.id,
         tournament_id=today_id,
         reward_id=first_id,
     )
@@ -905,7 +905,7 @@ async def test_reward_expiration_is_inclusive_and_redemption_is_one_per_tourname
     assert [reward.reward_id for reward in active_after_first_redeem] == [second_id]
     with pytest.raises(PlayerRewardAlreadyRedeemedTodayError):
         await service.redeem_reward(
-            admin_telegram_id=100,
+            actor_user_id=admin.id,
             tournament_id=today_id,
             reward_id=second_id,
         )
@@ -915,7 +915,7 @@ async def test_reward_expiration_is_inclusive_and_redemption_is_one_per_tourname
         clock=FixedClock(datetime(2026, 8, 27, 12, tzinfo=ZoneInfo("Europe/Moscow"))),
     )
     await next_day_service.redeem_reward(
-        admin_telegram_id=100,
+        actor_user_id=admin.id,
         tournament_id=tomorrow_id,
         reward_id=second_id,
     )
@@ -987,7 +987,7 @@ async def test_check_in_reward_decision_precedes_atomic_check_in(tmp_path: Path)
     )
 
     decision = await service.get_existing_user_check_in_decision(
-        admin_telegram_id=100,
+        actor_user_id=admin.id,
         tournament_id=today_id,
         user_id=player_id,
     )
@@ -1002,14 +1002,14 @@ async def test_check_in_reward_decision_precedes_atomic_check_in(tmp_path: Path)
         assert stored_reward.redeemed_tournament_id is None
 
     result = await service.complete_user_check_in(
-        admin_telegram_id=100,
+        actor_user_id=admin.id,
         tournament_id=today_id,
         user_id=player_id,
         gender_decision=CheckInGenderDecision.SKIP,
         reward_id=reward_id,
     )
     repeated = await service.complete_user_check_in(
-        admin_telegram_id=100,
+        actor_user_id=admin.id,
         tournament_id=today_id,
         user_id=player_id,
         gender_decision=CheckInGenderDecision.FEMALE,
@@ -1075,7 +1075,7 @@ async def test_check_in_reward_failure_creates_no_result(tmp_path: Path) -> None
 
     with pytest.raises(TournamentCheckInGenderDecisionRequiredError):
         await service.complete_user_check_in(
-            admin_telegram_id=100,
+            actor_user_id=admin.id,
             tournament_id=today_id,
             user_id=player_id,
             gender_decision=CheckInGenderDecision.KEEP,
@@ -1083,7 +1083,7 @@ async def test_check_in_reward_failure_creates_no_result(tmp_path: Path) -> None
 
     with pytest.raises(PlayerRewardNotFoundError):
         await service.complete_user_check_in(
-            admin_telegram_id=100,
+            actor_user_id=admin.id,
             tournament_id=today_id,
             user_id=player_id,
             gender_decision=CheckInGenderDecision.FEMALE,

@@ -58,11 +58,11 @@ class TournamentCombinationService:
 
     async def list_for_tournament(
         self,
-        admin_telegram_id: int,
+        actor_user_id: int,
         tournament_id: int,
     ) -> TournamentCombinationsView:
         async with self.session_factory() as session:
-            actor = await access_policy.require_admin_by_telegram_id(session, admin_telegram_id)
+            actor = await access_policy.require_admin(session, actor_user_id)
             tournament = await self._require_editable_tournament_for_actor(
                 session,
                 tournament_id,
@@ -72,7 +72,7 @@ class TournamentCombinationService:
 
     async def add_combination(
         self,
-        admin_telegram_id: int,
+        actor_user_id: int,
         tournament_id: int,
         player_id: int,
         combination_type: TournamentCombinationType,
@@ -80,7 +80,7 @@ class TournamentCombinationService:
     ) -> TournamentCombinationsView:
         self._validate_rank(combination_type, rank)
         async with self.session_factory() as session:
-            actor = await access_policy.require_admin_by_telegram_id(session, admin_telegram_id)
+            actor = await access_policy.require_admin(session, actor_user_id)
             tournament = await self._require_editable_tournament_for_actor(
                 session,
                 tournament_id,
@@ -107,12 +107,12 @@ class TournamentCombinationService:
 
     async def delete_combination(
         self,
-        admin_telegram_id: int,
+        actor_user_id: int,
         tournament_id: int,
         combination_id: int,
     ) -> TournamentCombinationsView:
         async with self.session_factory() as session:
-            actor = await access_policy.require_admin_by_telegram_id(session, admin_telegram_id)
+            actor = await access_policy.require_admin(session, actor_user_id)
             tournament = await self._require_editable_tournament_for_actor(
                 session,
                 tournament_id,

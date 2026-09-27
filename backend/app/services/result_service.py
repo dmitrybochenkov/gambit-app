@@ -112,10 +112,10 @@ class ResultService:
 
     async def get_today_tournament_results(
         self,
-        admin_telegram_id: int,
+        actor_user_id: int,
     ) -> TournamentResultsView:
         async with self.session_factory() as session:
-            await access_policy.require_admin_by_telegram_id(session, admin_telegram_id)
+            await access_policy.require_admin(session, actor_user_id)
             business_date = self._tournament_day()
             tournaments = await TournamentRepository(session).list_active_on_date(business_date)
             if not tournaments:
@@ -134,10 +134,10 @@ class ResultService:
 
     async def list_editable_tournaments(
         self,
-        admin_telegram_id: int,
+        actor_user_id: int,
     ) -> list[TournamentView]:
         async with self.session_factory() as session:
-            actor = await access_policy.require_admin_by_telegram_id(session, admin_telegram_id)
+            actor = await access_policy.require_admin(session, actor_user_id)
             business_date = self._tournament_day()
             repository = TournamentRepository(session)
             if actor.role == UserRole.SUPERADMIN:
@@ -160,11 +160,11 @@ class ResultService:
 
     async def get_tournament_results(
         self,
-        admin_telegram_id: int,
+        actor_user_id: int,
         tournament_id: int,
     ) -> TournamentResultsView:
         async with self.session_factory() as session:
-            actor = await access_policy.require_admin_by_telegram_id(session, admin_telegram_id)
+            actor = await access_policy.require_admin(session, actor_user_id)
             tournament = await self._require_editable_tournament_for_actor(
                 session,
                 tournament_id,
@@ -174,14 +174,14 @@ class ResultService:
 
     async def update_player_result_field(
         self,
-        admin_telegram_id: int,
+        actor_user_id: int,
         tournament_id: int,
         player_id: int,
         field: ResultField,
         value: int,
     ) -> TournamentResultsView:
         async with self.session_factory() as session:
-            actor = await access_policy.require_admin_by_telegram_id(session, admin_telegram_id)
+            actor = await access_policy.require_admin(session, actor_user_id)
             tournament = await self._require_editable_tournament_for_actor(
                 session,
                 tournament_id,
@@ -321,11 +321,11 @@ class ResultService:
 
     async def validate_results(
         self,
-        admin_telegram_id: int,
+        actor_user_id: int,
         tournament_id: int,
     ) -> list[str]:
         async with self.session_factory() as session:
-            actor = await access_policy.require_admin_by_telegram_id(session, admin_telegram_id)
+            actor = await access_policy.require_admin(session, actor_user_id)
             tournament = await self._require_editable_tournament_for_actor(
                 session,
                 tournament_id,

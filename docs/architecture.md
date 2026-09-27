@@ -101,13 +101,15 @@ The canonical `AccessPolicy.require_active_user()`, `require_admin()`, and
 service contracts while those use-cases are migrated incrementally. This is a
 temporary application boundary, not a second canonical actor namespace.
 
-Player/self profile, rating, history, Hall of Fame, tournament schedule and
-self-registration, and current-reward reads now accept internal actor IDs end
-to end. HTTP supplies `AuthenticatedActor.user_id`. Telegram player handlers
-resolve `from_user.id` through the existing `UserAccessService` mapping before
-calling those shared services. Onboarding, account linking, and Telegram
-delivery continue to use Telegram IDs by design; administrative service
-contracts remain incremental migration work.
+Player/self operations and ADMIN open-tournament operations now accept internal
+actor IDs end to end. The ADMIN slice includes check-in, live results,
+combinations, participant additions, photos, and check-in reward decisions.
+HTTP supplies `AuthenticatedActor.user_id`; Telegram handlers resolve
+`from_user.id` through `UserAccessService` before calling shared services.
+SUPERADMIN-only planning, close/correction, season, Hall of Fame, user
+management, and registration-review contracts remain incremental migration
+work. Onboarding, account linking, Telegram delivery, and Telegram media file
+references continue to use Telegram IDs by design.
 
 ## Clock
 

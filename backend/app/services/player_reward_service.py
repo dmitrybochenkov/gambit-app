@@ -144,13 +144,13 @@ class PlayerRewardService:
     async def list_active_rewards_for_check_in(
         self,
         *,
-        admin_telegram_id: int,
+        actor_user_id: int,
         tournament_id: int,
         player_id: int,
     ) -> tuple[PlayerRewardView, ...]:
         business_date = self._tournament_day()
         async with self.session_factory() as session:
-            actor = await access_policy.require_admin_by_telegram_id(session, admin_telegram_id)
+            actor = await access_policy.require_admin(session, actor_user_id)
             tournament = await TournamentRepository(session).get_by_id(tournament_id)
             if tournament is None or not can_edit_open_tournament_for_actor(
                 actor_role=actor.role,
@@ -172,13 +172,13 @@ class PlayerRewardService:
     async def get_active_reward_for_player(
         self,
         *,
-        admin_telegram_id: int,
+        actor_user_id: int,
         player_id: int,
         reward_id: int,
     ) -> PlayerRewardView:
         business_date = self._tournament_day()
         async with self.session_factory() as session:
-            await access_policy.require_admin_by_telegram_id(session, admin_telegram_id)
+            await access_policy.require_admin(session, actor_user_id)
             reward = await PlayerRewardRepository(session).get_active_for_player(
                 reward_id=reward_id,
                 player_id=player_id,
@@ -195,13 +195,13 @@ class PlayerRewardService:
     async def redeem_reward(
         self,
         *,
-        admin_telegram_id: int,
+        actor_user_id: int,
         tournament_id: int,
         reward_id: int,
     ) -> PlayerRewardView:
         business_date = self._tournament_day()
         async with self.session_factory() as session:
-            admin = await access_policy.require_admin_by_telegram_id(session, admin_telegram_id)
+            admin = await access_policy.require_admin(session, actor_user_id)
             tournament = await TournamentRepository(session).get_by_id(tournament_id)
             if tournament is None or not can_edit_open_tournament_for_actor(
                 actor_role=admin.role,
