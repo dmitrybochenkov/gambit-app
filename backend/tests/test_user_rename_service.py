@@ -23,6 +23,7 @@ from app.services.user_rename_service import (
     UserRenameNameOccupiedError,
     UserRenameSameNameError,
     UserRenameService,
+    UserRenameStaleError,
 )
 
 
@@ -214,6 +215,28 @@ async def test_user_rename_confirmation_updates_name_only_and_keeps_relations(
         assert stored.role == UserRole.ADMIN
         assert stored.status == UserStatus.ACTIVE
         assert result_player_id == target_id
+    finally:
+        await engine.dispose()
+
+
+@pytest.mark.asyncio
+async def test_user_rename_rejects_stale_expected_name_without_mutation(tmp_path: Path) -> None:
+    service, engine = await create_rename_service(tmp_path / "rename-stale.db")
+    try:
+        async with async_sessionmaker(engine, expire_on_commit=False)() as session:
+            root = create_user(display_name="Root", telegram_id=1, role=UserRole.SUPERADMIN)
+            target = create_user(display_name="Current Name", telegram_id=10)
+            session.add_all([root, target])
+            await session.commit()
+            target_id = target.id
+
+        with pytest.raises(UserRenameStaleError):
+            await service.rename_user(1, target_id, "New Name", "Stale Name")
+
+        async with async_sessionmaker(engine, expire_on_commit=False)() as session:
+            stored = await session.get(User, target_id)
+        assert stored is not None
+        assert stored.display_name == "Current Name"
     finally:
         await engine.dispose()
 

@@ -27,6 +27,7 @@ from app.services.user_common import UserNotFoundError
 from app.services.user_rename_service import (
     UserRenameNameOccupiedError,
     UserRenameSameNameError,
+    UserRenameStaleError,
     user_rename_service,
 )
 
@@ -311,7 +312,12 @@ async def confirm_user_rename(
     except (ActiveUserRequiredError, AdminAccessDeniedError):
         await callback.answer(panel_text.INSUFFICIENT_RIGHTS, show_alert=True)
         return
-    except (UserNotFoundError, UserRenameNameOccupiedError, UserRenameSameNameError):
+    except (
+        UserNotFoundError,
+        UserRenameNameOccupiedError,
+        UserRenameSameNameError,
+        UserRenameStaleError,
+    ):
         await callback.answer(text.USER_RENAME_STALE, show_alert=True)
         return
     except InvalidDisplayNameError:

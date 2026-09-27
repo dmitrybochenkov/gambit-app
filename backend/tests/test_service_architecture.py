@@ -173,3 +173,18 @@ def test_registration_review_handler_does_not_own_notification_policy() -> None:
     assert ".send_message(" not in handler_source
     assert "TelegramRegistrationReviewNotificationDelivery" in handler_source
     assert "RegistrationReviewUseCases" in handler_source
+
+
+def test_admin_promotion_boundary_is_transport_neutral_and_shared() -> None:
+    use_case_source = (SERVICES_DIR / "admin_management_use_cases.py").read_text()
+    handler_source = (
+        APP_DIR / "bot" / "telegram" / "handlers" / "superadmin" / "administrators.py"
+    ).read_text()
+
+    assert "aiogram" not in use_case_source
+    assert "app.bot.telegram" not in use_case_source
+    assert "AsyncSession" not in use_case_source
+    assert "Repository" not in use_case_source
+    assert ".send_message(" not in handler_source
+    assert "AdminManagementUseCases" in handler_source
+    assert "TelegramAdminPromotionNotificationDelivery" in handler_source

@@ -13,6 +13,10 @@ from app.services.user_common import (
 )
 
 
+class AdminPromotionNotEligibleError(ValueError):
+    pass
+
+
 class AdminManagementService:
     def __init__(self, session_factory: async_sessionmaker[AsyncSession]) -> None:
         self.session_factory = session_factory
@@ -45,8 +49,10 @@ class AdminManagementService:
             repository = UserRepository(session)
             await access_policy.require_superadmin(session, superadmin_telegram_id)
             user = await repository.get_by_id(user_id)
-            if user is None or user.status != UserStatus.ACTIVE or user.telegram_id is None:
+            if user is None:
                 raise UserNotFoundError
+            if user.status != UserStatus.ACTIVE or user.telegram_id is None:
+                raise AdminPromotionNotEligibleError
             if user.role != UserRole.PLAYER:
                 raise UserRoleAlreadyAssignedError
 

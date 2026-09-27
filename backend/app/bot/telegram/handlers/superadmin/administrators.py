@@ -1,10 +1,13 @@
 import logging
 
 from aiogram import F, Router
-from aiogram.exceptions import TelegramBadRequest, TelegramForbiddenError
+from aiogram.exceptions import TelegramBadRequest
 from aiogram.fsm.context import FSMContext
 from aiogram.types import CallbackQuery, Message
 
+from app.bot.telegram.admin_management_notifications import (
+    TelegramAdminPromotionNotificationDelivery,
+)
 from app.bot.telegram.handlers.admin.shared import (
     delete_callback_message as _delete_callback_message,
 )
@@ -12,14 +15,17 @@ from app.bot.telegram.handlers.superadmin.navigation import send_superadmin_pane
 from app.bot.telegram.handlers.user.shared import clean_text as _clean_text
 from app.bot.telegram.keyboards import labels
 from app.bot.telegram.keyboards.superadmin import administrators as superadmin_administrators_kb
-from app.bot.telegram.keyboards.user import menu as user_menu_kb
 from app.bot.telegram.message_edit import edit_message_reply_markup_by_id_if_changed
 from app.bot.telegram.states import AdminAddStates
 from app.bot.telegram.texts.admin import calendar as calendar_text
 from app.bot.telegram.texts.superadmin import administrators as administrator_text
 from app.bot.telegram.texts.superadmin import panel as panel_text
 from app.services.access_policy import AdminAccessDeniedError
-from app.services.admin_management_service import admin_management_service
+from app.services.admin_management_service import (
+    AdminPromotionNotEligibleError,
+    admin_management_service,
+)
+from app.services.admin_management_use_cases import AdminManagementUseCases
 from app.services.user_common import (
     UserNotFoundError,
     UserRoleAlreadyAssignedError,
@@ -191,14 +197,15 @@ async def confirm_add_admin(
         return
 
     try:
-        player = await admin_management_service.add_admin(
+        player = await _admin_management_use_cases().promote_admin(
             superadmin_telegram_id=callback.from_user.id,
             user_id=callback_data.player_id,
+            delivery=TelegramAdminPromotionNotificationDelivery(callback.bot),
         )
     except AdminAccessDeniedError:
         await callback.answer(panel_text.INSUFFICIENT_RIGHTS, show_alert=True)
         return
-    except UserNotFoundError:
+    except (AdminPromotionNotEligibleError, UserNotFoundError):
         await callback.answer(administrator_text.PLAYER_NOT_FOUND, show_alert=True)
         return
     except UserRoleAlreadyAssignedError:
@@ -216,14 +223,9 @@ async def confirm_add_admin(
         )
     await state.clear()
 
-    try:
-        await callback.bot.send_message(
-            chat_id=player.telegram_id,
-            text=administrator_text.ADMIN_ADDED_FOR_PLAYER,
-            reply_markup=user_menu_kb.main_keyboard_after_role_update(player),
-        )
-    except (TelegramBadRequest, TelegramForbiddenError):
-        pass
+
+def _admin_management_use_cases() -> AdminManagementUseCases:
+    return AdminManagementUseCases(admin_management_service)
 
 
 async def _clear_admin_candidate_prompt_markup(

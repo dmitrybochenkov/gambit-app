@@ -27,7 +27,10 @@ from app.db.models.enums import (
     UserRole,
     UserStatus,
 )
-from app.services.admin_management_service import AdminManagementService
+from app.services.admin_management_service import (
+    AdminManagementService,
+    AdminPromotionNotEligibleError,
+)
 from app.services.dto.users import UserStartStatusView
 from app.services.registration_review_service import (
     RegistrationReviewService,
@@ -43,7 +46,6 @@ from app.services.user_common import (
     RegistrationAlreadyReviewedError,
     RegistrationCandidateNotFoundError,
     RegistrationNotAllowedError,
-    UserNotFoundError,
     UserRoleAlreadyAssignedError,
 )
 
@@ -1396,9 +1398,9 @@ async def test_add_admin_requires_active_linked_player(tmp_path: Path) -> None:
             admin_id = admin.id
             player_id = player.id
 
-        with pytest.raises(UserNotFoundError):
+        with pytest.raises(AdminPromotionNotEligibleError):
             await service.add_admin(1, offline_id)
-        with pytest.raises(UserNotFoundError):
+        with pytest.raises(AdminPromotionNotEligibleError):
             await service.add_admin(1, blocked_id)
         with pytest.raises(UserRoleAlreadyAssignedError):
             await service.add_admin(1, admin_id)

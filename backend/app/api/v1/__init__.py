@@ -7,6 +7,7 @@ from app.api.v1 import (
     admin_seasons,
     admin_tournament_close,
     admin_tournaments,
+    admin_users,
     hall_of_fame,
     history,
     me,
@@ -23,6 +24,7 @@ router.include_router(admin_registrations.router)
 router.include_router(admin_seasons.router)
 router.include_router(admin_tournament_close.router)
 router.include_router(admin_tournaments.router)
+router.include_router(admin_users.router)
 router.include_router(hall_of_fame.router)
 router.include_router(history.router)
 router.include_router(me.router)

@@ -347,6 +347,11 @@ targeted tests, then run the agreed final tier once.
   `telegram_id`. This is the current authorization contract and keeps trusted
   identity resolution inside services, but it also couples application
   use-cases to the Telegram identity namespace as HTTP/WebApp grows.
+- `UserRepository` currently contains query and persistence primitives only;
+  the audited tree has no commit-owning compatibility methods. User/admin HTTP
+  commands must continue through `UserRenameService`, `AdminManagementService`,
+  or an explicit use-case boundary rather than acquiring repository workflow
+  methods. Registration review remains a separate service/use-case boundary.
 - Deployment and migration ordering is operational documentation rather than
   repository automation. Operators must keep new-schema-dependent application
   code stopped until `alembic upgrade head` succeeds.

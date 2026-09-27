@@ -333,18 +333,41 @@ command that opens registration. Deletion returns committed cancellation
 notification recipients, while Telegram delivery remains a best-effort
 post-commit transport effect.
 
+SUPERADMIN user management is shared by Telegram and HTTP through
+`UserRenameService`, `AdminManagementService`, and the narrow
+`AdminManagementUseCases` promotion boundary. The WebApp surface provides user
+search/detail, eligible ADMIN-candidate search, explicit PLAYER-to-ADMIN
+promotion, display-name correction with a stale-name precondition, and gender
+correction. These services own actor authorization, target validation, and
+transactions. ADMIN promotion commits before its existing personal Telegram
+notification is attempted through a best-effort delivery port.
+
+The bounded HTTP surface is:
+
+- `GET /api/v1/admin/users`;
+- `GET /api/v1/admin/users/admin-candidates`;
+- `GET /api/v1/admin/users/{user_id}`;
+- `POST /api/v1/admin/users/{user_id}/promote-admin`;
+- `PATCH /api/v1/admin/users/{user_id}/name`;
+- `PATCH /api/v1/admin/users/{user_id}/gender`.
+
+This surface deliberately has no generic role/status mutation, ADMIN demotion,
+block/unblock, identity reassignment, user deletion, or SUPERADMIN assignment.
+Promotion accepts only an ACTIVE, Telegram-linked PLAYER. Rename and gender
+correction preserve the current Telegram semantics: a SUPERADMIN may correct
+its own or another SUPERADMIN's non-privilege metadata, but cannot change a role
+or status through these commands. Registration review remains a separate
+application boundary owned by `RegistrationReviewService` and
+`RegistrationReviewUseCases`.
+
 ### Known API Contract Gaps / Follow-up
 
 - Hall of Fame and tournament photos require a browser-media delivery contract
   before they can be exposed to WebApp clients. Stored Telegram `file_id`
   values are transport-specific references, not browser URLs.
-- Season management, Hall of Fame management,
-  user/admin management, registration
-  review, and publication remain real application use-cases without HTTP
+- Hall of Fame management and publication remain real application use-cases without HTTP
   adapters. Adding them requires explicit mutation schemas and role-equivalent
   API tests, not repository access from routes.
-- Registration-review mutations still require a transport-neutral audit of
-  their post-commit notification semantics before an HTTP adapter is added.
 - Initial player onboarding remains Telegram-specific while WebApp
   authentication requires an existing active user resolved from signed initData.
 

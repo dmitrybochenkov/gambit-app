@@ -21,6 +21,10 @@ class UserRenameSameNameError(ValueError):
     pass
 
 
+class UserRenameStaleError(ValueError):
+    pass
+
+
 class UserRenameService:
     def __init__(self, session_factory: async_sessionmaker[AsyncSession]) -> None:
         self.session_factory = session_factory
@@ -119,8 +123,10 @@ class UserRenameService:
             await access_policy.require_superadmin(session, superadmin_telegram_id)
             repository = UserRepository(session)
             target = await repository.get_by_id(target_user_id)
-            if target is None or target.display_name != expected_old_display_name:
+            if target is None:
                 raise UserNotFoundError
+            if target.display_name != expected_old_display_name:
+                raise UserRenameStaleError
             clean_display_name = _clean_display_name(display_name)
             normalized = _valid_normalized_name(clean_display_name)
             if target.display_name_normalized == normalized:
