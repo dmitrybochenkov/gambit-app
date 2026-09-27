@@ -40,6 +40,7 @@ from app.db.models.enums import (
 from app.db.repositories.tournament_result_repository import TournamentResultRepository
 from app.services.access_policy import ActiveUserRequiredError, AdminAccessDeniedError
 from app.services.closed_tournament_correction_service import ClosedTournamentCorrectionService
+from app.services.player_reward_service import PlayerRewardService
 from app.services.result_fields import ResultField
 from app.services.result_rules import editable_result_fields, find_result_player
 from app.services.result_service import (
@@ -1814,6 +1815,220 @@ async def test_closed_correction_add_delete_and_fund_are_draft_only(tmp_path: Pa
 
         assert persisted_player_ids == {ids["first"], ids["second"]}
         assert tournament.tournament_fund == 10
+    finally:
+        await engine.dispose()
+
+
+async def test_close_rolls_back_all_mutations_when_reward_issuance_fails(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    participant_service, session_factory, engine, ids = await _build_open_delete_service(
+        tmp_path / "close-reward-rollback.db"
+    )
+    service = ResultService(
+        session_factory,
+        clock=FixedClock(datetime(2026, 8, 26, 12, tzinfo=ZoneInfo("Europe/Moscow"))),
+    )
+    try:
+        async with session_factory() as session:
+            tournament = await session.get(Tournament, ids["tournament"])
+            assert tournament is not None
+            session.add(
+                TournamentPhoto(
+                    tournament_id=tournament.id,
+                    telegram_file_id="rollback-photo",
+                    telegram_file_unique_id="rollback-photo-unique",
+                    uploaded_by_user_id=ids["superadmin_actor"],
+                    position=0,
+                )
+            )
+            second = await TournamentResultRepository(session).get_by_tournament_and_player(
+                tournament.id,
+                ids["second"],
+            )
+            assert second is not None
+            second.place = 2
+            await session.commit()
+
+        async def fail_reward_issuance(*args: object, **kwargs: object) -> None:
+            raise RuntimeError("forced reward failure")
+
+        monkeypatch.setattr(
+            PlayerRewardService,
+            "issue_prize_stack_bonuses_for_closed_tournament",
+            fail_reward_issuance,
+        )
+
+        with pytest.raises(RuntimeError, match="forced reward failure"):
+            await service.close_tournament(ids["superadmin_actor"], ids["tournament"], 1000)
+
+        async with session_factory() as session:
+            tournament = await session.get(Tournament, ids["tournament"])
+            results = list(
+                (
+                    await session.execute(
+                        select(TournamentResult).where(
+                            TournamentResult.tournament_id == ids["tournament"]
+                        )
+                    )
+                ).scalars()
+            )
+            rewards = list((await session.execute(select(PlayerReward))).scalars())
+        assert tournament is not None
+        assert tournament.status == TournamentStatus.ACTIVE
+        assert tournament.tournament_fund is None
+        assert all(result.tournament_points == 0 for result in results)
+        assert all(result.knockout_points == 0 for result in results)
+        assert rewards == []
+    finally:
+        await engine.dispose()
+
+
+async def test_correction_rolls_back_all_mutations_when_reward_reconciliation_fails(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    participant_service, session_factory, engine, ids = await _build_open_delete_service(
+        tmp_path / "correction-reward-rollback.db",
+        tournament_status=TournamentStatus.CLOSED,
+    )
+    service = ClosedTournamentCorrectionService(session_factory)
+    try:
+        draft = await service.begin_closed_tournament_correction(
+            ids["superadmin_actor"], ids["tournament"]
+        )
+        draft = await service.delete_closed_tournament_draft_player(
+            ids["superadmin_actor"], draft, player_id=ids["first"]
+        )
+        draft = await service.update_closed_tournament_draft_result_field(
+            ids["superadmin_actor"],
+            draft,
+            ids["second"],
+            ResultField.PLACE,
+            1,
+        )
+        draft = await service.update_closed_tournament_draft_fund(
+            ids["superadmin_actor"], draft, 1000
+        )
+
+        async def fail_reward_reconciliation(*args: object, **kwargs: object) -> None:
+            raise RuntimeError("forced reconciliation failure")
+
+        monkeypatch.setattr(service, "_apply_reward_reconciliation", fail_reward_reconciliation)
+
+        with pytest.raises(RuntimeError, match="forced reconciliation failure"):
+            await service.apply_closed_tournament_correction(ids["superadmin_actor"], draft)
+
+        async with session_factory() as session:
+            tournament = await session.get(Tournament, ids["tournament"])
+            second = await TournamentResultRepository(session).get_by_tournament_and_player(
+                ids["tournament"], ids["second"]
+            )
+            first = await TournamentResultRepository(session).get_by_tournament_and_player(
+                ids["tournament"], ids["first"]
+            )
+            combinations = list(
+                (
+                    await session.execute(
+                        select(TournamentCombination).where(
+                            TournamentCombination.tournament_id == ids["tournament"]
+                        )
+                    )
+                ).scalars()
+            )
+            rewards = list((await session.execute(select(PlayerReward))).scalars())
+        assert tournament is not None
+        assert tournament.tournament_fund == 10
+        assert first is not None
+        assert second is not None
+        assert second.place is None
+        assert second.tournament_points == 0
+        assert len(combinations) == 1
+        assert rewards == []
+    finally:
+        await engine.dispose()
+
+
+async def test_closed_correction_uses_tournament_bound_historical_scoring(
+    tmp_path: Path,
+) -> None:
+    participant_service, session_factory, engine, ids = await _build_open_delete_service(
+        tmp_path / "correction-bound-scoring.db",
+        tournament_status=TournamentStatus.CLOSED,
+    )
+    service = ClosedTournamentCorrectionService(session_factory)
+    try:
+        async with session_factory() as session:
+            tournament = await session.get(Tournament, ids["tournament"])
+            assert tournament is not None
+            bound_config_id = tournament.scoring_config_id
+            season = await session.get(Season, tournament.season_id)
+            assert season is not None
+            current_config = ScoringConfig(
+                place_1_coefficient=Decimal("0.90"),
+                place_2_coefficient=Decimal("0.05"),
+            )
+            session.add(current_config)
+            await session.flush()
+            season.scoring_config_id = current_config.id
+            await session.commit()
+
+        draft = await service.begin_closed_tournament_correction(
+            ids["superadmin_actor"], ids["tournament"]
+        )
+        draft = await service.update_closed_tournament_draft_result_field(
+            ids["superadmin_actor"], draft, ids["second"], ResultField.PLACE, 2
+        )
+        draft = await service.update_closed_tournament_draft_fund(
+            ids["superadmin_actor"], draft, 1000
+        )
+        await service.apply_closed_tournament_correction(ids["superadmin_actor"], draft)
+
+        async with session_factory() as session:
+            tournament = await session.get(Tournament, ids["tournament"])
+            first = await TournamentResultRepository(session).get_by_tournament_and_player(
+                ids["tournament"], ids["first"]
+            )
+            second = await TournamentResultRepository(session).get_by_tournament_and_player(
+                ids["tournament"], ids["second"]
+            )
+        assert tournament is not None
+        assert tournament.scoring_config_id == bound_config_id
+        assert first is not None and first.tournament_points == Decimal("450.00")
+        assert second is not None and second.tournament_points == Decimal("250.00")
+    finally:
+        await engine.dispose()
+
+
+async def test_closed_tournament_combinations_cannot_change_during_correction(
+    tmp_path: Path,
+) -> None:
+    participant_service, session_factory, engine, ids = await _build_open_delete_service(
+        tmp_path / "closed-combination-gate.db",
+        tournament_status=TournamentStatus.CLOSED,
+    )
+    combination_service = TournamentCombinationService(session_factory)
+    try:
+        with pytest.raises(TournamentResultsEditingUnavailableError):
+            await combination_service.add_combination(
+                ids["superadmin_actor"],
+                ids["tournament"],
+                ids["first"],
+                TournamentCombinationType.ROYAL_FLUSH,
+            )
+
+        async with session_factory() as session:
+            combinations = list(
+                (
+                    await session.execute(
+                        select(TournamentCombination).where(
+                            TournamentCombination.tournament_id == ids["tournament"]
+                        )
+                    )
+                ).scalars()
+            )
+        assert len(combinations) == 1
     finally:
         await engine.dispose()
 

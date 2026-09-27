@@ -75,6 +75,11 @@ that side effect has been persisted according to the current use-case contract.
 Best-effort notification failures must not undo successful business mutations
 unless the task explicitly changes that contract.
 
+Repositories never complete transactions with `commit()` or `rollback()`.
+The application service that owns the use-case also owns transaction completion.
+Transport actor identities must be resolved to internal `User.id` before calling
+application services; actor authorization parameters are never Telegram IDs.
+
 Registration review approve/reject commands atomically claim a pending request
 inside the service-owned transaction, so concurrent decisions have exactly one
 winner and losing commands receive the controlled already-reviewed error. A

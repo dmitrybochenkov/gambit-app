@@ -22,12 +22,19 @@ from app.db.models import (
     TournamentEconomyConfig,
     TournamentRebuyConfig,
     TournamentRegistration,
+    TournamentResult,
     TournamentType,
     TournamentTypeRule,
     User,
     WeeklyTournamentTemplate,
 )
-from app.db.models.enums import KnockoutMode, TournamentStatus, UserRole, UserStatus
+from app.db.models.enums import (
+    KnockoutMode,
+    TournamentResultSource,
+    TournamentStatus,
+    UserRole,
+    UserStatus,
+)
 from app.services.access_policy import AdminAccessDeniedError
 from app.services.season_service import SeasonService
 from app.services.tournament_planning_service import (
@@ -124,6 +131,68 @@ async def test_next_complete_game_week_uses_wednesday_to_sunday() -> None:
         date(2026, 8, 15),
         date(2026, 8, 16),
     )
+
+
+@pytest.mark.parametrize("row_number", [0, -1, 99])
+async def test_calendar_week_rejects_out_of_range_rows(
+    tmp_path: Path,
+    row_number: int,
+) -> None:
+    service, session_factory, engine = await create_planning_service(
+        tmp_path / f"calendar-row-{row_number}.db"
+    )
+    try:
+        await seed_calendar_data(session_factory)
+        with pytest.raises(CalendarWeeklyPlanIntegrityError):
+            await service.get_calendar_week(1, year=2026, month=8, row_number=row_number)
+    finally:
+        await engine.dispose()
+
+
+async def test_future_type_change_rejects_existing_fact_data(tmp_path: Path) -> None:
+    service, session_factory, engine = await create_planning_service(
+        tmp_path / "future-type-facts.db"
+    )
+    try:
+        await seed_calendar_data(session_factory)
+        async with session_factory() as session:
+            player = build_player(telegram_id=200, display_name="Player")
+            session.add(player)
+            await session.flush()
+            tournament = Tournament(
+                season_id=1,
+                scoring_config_id=1,
+                tournament_type_id=tournament_type_id("classic_v3"),
+                date=date(2026, 8, 12),
+                status=TournamentStatus.ACTIVE,
+            )
+            session.add(tournament)
+            await session.flush()
+            session.add(
+                TournamentResult(
+                    tournament_id=tournament.id,
+                    player_id=player.id,
+                    source=TournamentResultSource.WALK_IN_EXISTING,
+                    checked_in_by_user_id=1,
+                )
+            )
+            await session.commit()
+            tournament_id = tournament.id
+            original_type_id = tournament.tournament_type_id
+
+        with pytest.raises(CalendarTournamentNotEditableError):
+            await service.change_calendar_tournament_type(
+                1,
+                tournament_id=tournament_id,
+                new_tournament_type_id=tournament_type_id("bounty_v3"),
+            )
+
+        async with session_factory() as session:
+            tournament = await session.get(Tournament, tournament_id)
+            assert tournament is not None
+            assert tournament.tournament_type_id == original_type_id
+    finally:
+        await engine.dispose()
 
 
 async def test_calendar_month_uses_db_calendar_codes_and_month_type_order(

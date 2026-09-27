@@ -508,6 +508,75 @@ def test_closed_correction_uses_result_rules_without_result_service_dependency()
     )
 
 
+def test_application_actor_parameters_do_not_regress_to_transport_identity() -> None:
+    violations: list[str] = []
+    for path in sorted(SERVICES_DIR.glob("*.py")):
+        tree = ast.parse(path.read_text(), filename=str(path))
+        for node in ast.walk(tree):
+            if not isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                continue
+            argument_names = {argument.arg for argument in (*node.args.args, *node.args.kwonlyargs)}
+            forbidden = argument_names & {"actor_telegram_id", "reviewer_telegram_id"}
+            for name in sorted(forbidden):
+                violations.append(f"{path.name}:{node.lineno} {node.name} accepts {name}")
+
+    assert violations == []
+
+
+def test_audited_services_do_not_call_private_methods_of_service_dependencies() -> None:
+    violations: list[str] = []
+    for filename in (
+        "result_service.py",
+        "closed_tournament_correction_service.py",
+        "tournament_planning_service.py",
+    ):
+        path = SERVICES_DIR / filename
+        tree = ast.parse(path.read_text(), filename=str(path))
+        for node in ast.walk(tree):
+            if not isinstance(node, ast.Call) or not isinstance(node.func, ast.Attribute):
+                continue
+            receiver = node.func.value
+            if node.func.attr.startswith("_") and (
+                (
+                    isinstance(receiver, ast.Attribute)
+                    and isinstance(receiver.value, ast.Name)
+                    and receiver.value.id == "self"
+                    and receiver.attr.endswith("service")
+                )
+                or (
+                    isinstance(receiver, ast.Name)
+                    and receiver.id.endswith("service")
+                    and receiver.id != "self"
+                )
+                or (
+                    isinstance(receiver, ast.Call)
+                    and isinstance(receiver.func, ast.Name)
+                    and receiver.func.id.endswith("Service")
+                )
+            ):
+                violations.append(
+                    f"{filename}:{node.lineno} calls private dependency method {node.func.attr}()"
+                )
+
+    assert violations == []
+
+
+def test_repositories_do_not_own_transaction_completion() -> None:
+    repositories_dir = APP_DIR / "db" / "repositories"
+    violations: list[str] = []
+    for path in sorted(repositories_dir.glob("*.py")):
+        tree = ast.parse(path.read_text(), filename=str(path))
+        for node in ast.walk(tree):
+            if (
+                isinstance(node, ast.Call)
+                and isinstance(node.func, ast.Attribute)
+                and node.func.attr in {"commit", "rollback"}
+            ):
+                violations.append(f"{path.name}:{node.lineno} calls {node.func.attr}()")
+
+    assert violations == []
+
+
 def test_telegram_check_in_uses_shared_application_mutation_boundary() -> None:
     path = SERVICES_DIR.parent / "bot" / "telegram" / "handlers" / "admin" / "check_in.py"
     tree = ast.parse(path.read_text(), filename=str(path))

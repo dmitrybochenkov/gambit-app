@@ -318,7 +318,7 @@ class TournamentPlanningService:
         async with self.session_factory() as session:
             await access_policy.require_superadmin(session, actor_user_id)
             plan = await self._build_next_week_plan(session, business_date)
-            return await self.plan_view(session, plan)
+            return await self._plan_view(session, plan)
 
     async def inspect_next_week(
         self,
@@ -620,6 +620,8 @@ class TournamentPlanningService:
             try:
                 await access_policy.require_superadmin(session, actor_user_id)
                 tournament = await self._require_future_calendar_tournament(session, tournament_id)
+                if await self._has_tournament_fact_data(session, tournament.id):
+                    raise CalendarTournamentNotEditableError
                 tournament_type = await self._calendar_type_option(
                     session,
                     new_tournament_type_id,
@@ -710,7 +712,7 @@ class TournamentPlanningService:
     ) -> WeeklyTournamentPlanView:
         async with self.session_factory() as session:
             await access_policy.require_superadmin(session, actor_user_id)
-            return await self.plan_view(session, plan)
+            return await self._plan_view(session, plan)
 
     async def update_plan_day_type(
         self,
@@ -724,7 +726,7 @@ class TournamentPlanningService:
             if await self._creatable_tournament_type_detail(session, tournament_type_id) is None:
                 raise CalendarTournamentTypeNotFoundError
             updated_plan = plan.with_tournament_type(tournament_date, tournament_type_id)
-            return await self.plan_view(session, updated_plan)
+            return await self._plan_view(session, updated_plan)
 
     async def remove_plan_day(
         self,
@@ -735,7 +737,7 @@ class TournamentPlanningService:
         async with self.session_factory() as session:
             await access_policy.require_superadmin(session, actor_user_id)
             updated_plan = plan.without_date(tournament_date)
-            return await self.plan_view(session, updated_plan)
+            return await self._plan_view(session, updated_plan)
 
     async def create_weekly_schedule(
         self,
@@ -778,7 +780,7 @@ class TournamentPlanningService:
             except Exception:
                 await session.rollback()
                 raise
-            return await self.plan_view(session, plan)
+            return await self._plan_view(session, plan)
 
     async def _build_next_week_plan(
         self,
@@ -846,6 +848,8 @@ class TournamentPlanningService:
         month: int,
         row_number: int,
     ) -> TournamentCalendarWeekDetailView:
+        if row_number <= 0:
+            raise CalendarWeeklyPlanIntegrityError
         month_view = await self._calendar_month_view(session, year, month)
         try:
             week = month_view.weeks[row_number - 1]
@@ -1033,7 +1037,7 @@ class TournamentPlanningService:
         plan = await self._build_plan_for_dates(session, target_dates)
         return WeeklyPlanningCheckView(
             status=WeeklyPlanningStatus.READY,
-            plan=await self.plan_view(session, plan),
+            plan=await self._plan_view(session, plan),
         )
 
     async def _build_plan_for_dates(
@@ -1131,7 +1135,7 @@ class TournamentPlanningService:
             )
         return self.sunday_rotation.fallback_code_for(target_date, rotation_codes)
 
-    async def plan_view(
+    async def _plan_view(
         self,
         session: AsyncSession,
         plan: WeeklyTournamentPlan,

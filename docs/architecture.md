@@ -346,6 +346,11 @@ command that opens registration. Deletion returns committed cancellation
 notification recipients, while Telegram delivery remains a best-effort
 post-commit transport effect.
 
+Calendar week selection rejects non-positive and out-of-range row numbers at
+the service boundary. Future tournament type changes and deletion both reject
+tournaments that already have factual result, photo, combination, reward, or
+publication data; registrations remain removable planning data.
+
 SUPERADMIN user management is shared by Telegram and HTTP through
 `UserRenameService`, `AdminManagementService`, and the narrow
 `AdminManagementUseCases` promotion boundary. The WebApp surface provides user
