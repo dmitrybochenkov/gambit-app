@@ -3,6 +3,7 @@ from fastapi import APIRouter
 from app.api.v1 import (
     admin_check_in,
     admin_planning,
+    admin_registrations,
     admin_seasons,
     admin_tournament_close,
     admin_tournaments,
@@ -18,6 +19,7 @@ from app.api.v1 import (
 router = APIRouter(prefix="/api/v1")
 router.include_router(admin_check_in.router)
 router.include_router(admin_planning.router)
+router.include_router(admin_registrations.router)
 router.include_router(admin_seasons.router)
 router.include_router(admin_tournament_close.router)
 router.include_router(admin_tournaments.router)

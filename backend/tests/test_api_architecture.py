@@ -86,3 +86,48 @@ def test_api_schemas_do_not_leak_into_services() -> None:
             offenders.append(path.relative_to(PROJECT_ROOT).as_posix())
 
     assert offenders == []
+
+
+def test_registration_review_api_uses_shared_application_boundary() -> None:
+    path = API_ROOT / "v1" / "admin_registrations.py"
+    source = path.read_text()
+    tree = ast.parse(source)
+    calls = [
+        node
+        for node in ast.walk(tree)
+        if isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute)
+    ]
+
+    assert "app.bot.telegram" not in source
+    assert "app.db.repositories" not in source
+    assert "app.db.models" not in source
+    assert "AsyncSession" not in source
+    assert "notification_recipients" not in source
+    assert "send_message" not in source
+    assert any(
+        isinstance(call.func.value, ast.Name)
+        and call.func.value.id == "registration_review_use_cases"
+        and call.func.attr == "approve"
+        for call in calls
+    )
+    assert any(
+        isinstance(call.func.value, ast.Name)
+        and call.func.value.id == "registration_review_use_cases"
+        and call.func.attr == "reject"
+        for call in calls
+    )
+    assert not any(
+        isinstance(call.func.value, ast.Name)
+        and call.func.value.id == "registration_review_service"
+        and call.func.attr in {"approve_registration", "reject_registration"}
+        for call in calls
+    )
+
+
+def test_registration_review_http_delivery_uses_existing_bot_adapter() -> None:
+    source = (API_ROOT / "registration_review_dependencies.py").read_text()
+
+    assert "from app.bot.telegram import runtime" in source
+    assert "bot = runtime.telegram_bot" in source
+    assert "TelegramRegistrationReviewNotificationDelivery(bot)" in source
+    assert "Bot(" not in source

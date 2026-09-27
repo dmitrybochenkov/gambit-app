@@ -84,6 +84,9 @@ reviewer, request, decision, and recipient data. `RegistrationReviewUseCases`
 then invokes an injected notification delivery port after commit, allowing
 Telegram and future transports to share the same best-effort side effect
 without exposing sessions or Telegram runtime types in the application DTO.
+The SUPERADMIN WebApp registration-review routes use this same boundary. Their
+FastAPI delivery dependency adapts the existing runtime Bot explicitly; routes
+do not own Telegram rendering, recipient policy, or delivery orchestration.
 
 ## Authorization
 

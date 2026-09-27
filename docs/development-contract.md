@@ -180,6 +180,21 @@ application-service adapters:
 - `POST /api/v1/admin/tournaments/{tournament_id}/correction-preview`
 - `POST /api/v1/admin/tournaments/{tournament_id}/correction`
 
+SUPERADMIN registration-review routes expose the same application boundary as
+Telegram:
+
+- `GET /api/v1/admin/registrations/pending`
+- `GET /api/v1/admin/registrations/{request_id}`
+- `POST /api/v1/admin/registrations/{request_id}/candidate`
+- `POST /api/v1/admin/registrations/{request_id}/approve`
+- `POST /api/v1/admin/registrations/{request_id}/reject`
+
+Candidate selection is validation-only and is revalidated during approval.
+Approve/reject mutations use `RegistrationReviewUseCases`, so their Telegram
+notifications run after commit with the same best-effort semantics as Telegram
+initiated reviews. Stale/already-reviewed decisions map to HTTP conflict. This
+surface does not provide general user, administrator, or role management.
+
 `ResultService` owns close validation, scoring, status transition, reward
 issuance, and commit. `ClosedTournamentCorrectionService` owns canonical
 snapshots, fail-closed draft validation, stale detection, rescoring, reward
