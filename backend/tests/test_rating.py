@@ -209,19 +209,19 @@ async def test_rating_filters_current_season_and_all_time(tmp_path: Path) -> Non
     service = RatingService(session_factory)
     try:
         current_rating = await service.get_rating_for_player(
-            telegram_id=second_player.telegram_id,
+            actor_user_id=second_player.id,
             kind=RatingKind.CURRENT_SEASON,
         )
         all_time_rating = await service.get_rating_for_player(
-            telegram_id=second_player.telegram_id,
+            actor_user_id=second_player.id,
             kind=RatingKind.ALL_TIME,
         )
         current_knockouts_rating = await service.get_rating_for_player(
-            telegram_id=second_player.telegram_id,
+            actor_user_id=second_player.id,
             kind=RatingKind.KNOCKOUTS_CURRENT_SEASON,
         )
         all_time_knockouts_rating = await service.get_rating_for_player(
-            telegram_id=first_player.telegram_id,
+            actor_user_id=first_player.id,
             kind=RatingKind.KNOCKOUTS_ALL_TIME,
         )
         current_title = current_rating.title
@@ -569,7 +569,7 @@ async def test_rating_counts_historical_tied_places_with_authoritative_points(
     service = RatingService(session_factory)
     try:
         rating = await service.get_rating_for_player(
-            telegram_id=first.telegram_id,
+            actor_user_id=first.id,
             kind=RatingKind.ALL_TIME,
         )
 
@@ -911,12 +911,12 @@ async def test_rating_badges_are_shared_across_rating_kinds(tmp_path: Path) -> N
     service = RatingService(session_factory)
     try:
         points_rating = await service.get_rating_for_player(
-            telegram_id=100,
+            actor_user_id=1,
             kind=RatingKind.ALL_TIME,
             today=date(2026, 4, 2),
         )
         knockout_rating = await service.get_rating_for_player(
-            telegram_id=100,
+            actor_user_id=1,
             kind=RatingKind.KNOCKOUTS_ALL_TIME,
             today=date(2026, 4, 2),
         )
@@ -1064,12 +1064,12 @@ async def test_rating_achievements_are_ordered_chronologically_across_all_rating
     service = RatingService(session_factory)
     try:
         points_rating = await service.get_rating_for_player(
-            telegram_id=100,
+            actor_user_id=1,
             kind=RatingKind.ALL_TIME,
             today=date(2026, 9, 2),
         )
         knockout_rating = await service.get_rating_for_player(
-            telegram_id=100,
+            actor_user_id=1,
             kind=RatingKind.KNOCKOUTS_ALL_TIME,
             today=date(2026, 9, 2),
         )
@@ -1154,7 +1154,7 @@ async def test_active_superadmin_can_open_rating_after_new_session(tmp_path: Pat
     service = RatingService(session_factory)
     try:
         rating = await service.get_rating_for_player(
-            telegram_id=100,
+            actor_user_id=1,
             kind=RatingKind.ALL_TIME,
         )
 
@@ -1320,12 +1320,12 @@ async def test_knockout_games_count_and_completed_season_title_tiebreakers(
     service = RatingService(session_factory)
     try:
         knockout_rating = await service.get_rating_for_player(
-            telegram_id=low_id_player.telegram_id,
+            actor_user_id=low_id_player.id,
             kind=RatingKind.KNOCKOUTS_ALL_TIME,
             today=date(2026, 7, 29),
         )
         points_rating = await service.get_rating_for_player(
-            telegram_id=low_id_player.telegram_id,
+            actor_user_id=low_id_player.id,
             kind=RatingKind.ALL_TIME,
             today=date(2026, 7, 29),
         )
@@ -1431,12 +1431,12 @@ async def test_rating_current_season_uses_season_covering_supplied_date(
     service = RatingService(session_factory)
     try:
         before_transition = await service.get_rating_for_player(
-            telegram_id=100,
+            actor_user_id=1,
             kind=RatingKind.CURRENT_SEASON,
             today=date(2026, 8, 9),
         )
         on_transition = await service.get_rating_for_player(
-            telegram_id=100,
+            actor_user_id=1,
             kind=RatingKind.CURRENT_SEASON,
             today=date(2026, 8, 10),
         )
@@ -1468,7 +1468,7 @@ async def test_rating_current_season_returns_empty_when_no_season_covers_today(
     service = RatingService(session_factory)
     try:
         rating = await service.get_rating_for_player(
-            telegram_id=100,
+            actor_user_id=1,
             kind=RatingKind.CURRENT_SEASON,
             today=date(2026, 8, 9),
         )
@@ -1572,15 +1572,15 @@ async def test_rating_selected_season_and_season_picker_exclude_future(
 
     service = RatingService(session_factory)
     try:
-        seasons = await service.list_rating_seasons(100, today=date(2026, 8, 10))
+        seasons = await service.list_rating_seasons(1, today=date(2026, 8, 10))
         rating = await service.get_rating_for_player(
-            100,
+            1,
             RatingKind.SELECTED_SEASON,
             season_id=completed_id,
             today=date(2026, 8, 10),
         )
         all_time_rating = await service.get_rating_for_player(
-            100,
+            1,
             RatingKind.ALL_TIME,
             today=date(2026, 8, 10),
         )
@@ -1591,7 +1591,7 @@ async def test_rating_selected_season_and_season_picker_exclude_future(
         assert [row.total_points for row in all_time_rating.rows] == [Decimal("350")]
         with pytest.raises(RatingFutureSeasonError):
             await service.get_rating_for_player(
-                100,
+                1,
                 RatingKind.SELECTED_SEASON,
                 season_id=future_id,
                 today=date(2026, 8, 10),

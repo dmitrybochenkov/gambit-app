@@ -18,7 +18,7 @@ async def get_hall_of_fame(
     actor: Annotated[AuthenticatedActor, Depends(current_actor)],
 ) -> HallOfFameResponse:
     try:
-        seasons = await user_statistics_service.get_hall_of_fame(actor.telegram_id)
+        seasons = await user_statistics_service.get_hall_of_fame(actor.user_id)
     except HallOfFameNotAllowedError as exc:
         raise errors.forbidden("Hall of Fame is unavailable") from exc
     return HallOfFameResponse.from_views(seasons)

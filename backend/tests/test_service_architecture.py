@@ -6,6 +6,36 @@ APP_DIR = SERVICES_DIR.parent
 SQLALCHEMY_QUERY_NAMES = {"select", "insert", "update", "delete"}
 SESSION_QUERY_METHODS = {"execute", "scalar", "scalars"}
 SESSION_PERSISTENCE_METHODS = {"add", "delete"}
+INTERNAL_ACTOR_SERVICE_METHODS = {
+    "profile_service.py": {
+        "get_profile_for_player",
+        "list_profile_seasons",
+        "list_prize_tournaments_for_player",
+    },
+    "rating_service.py": {"get_rating_for_player", "list_rating_seasons"},
+    "user_statistics_service.py": {
+        "list_history_years",
+        "list_history_months",
+        "list_history_tournaments",
+        "get_historical_tournament_result",
+        "list_player_history",
+        "get_player_history_tournament_result",
+        "get_hall_of_fame",
+        "_ensure_user_can_view_statistics",
+    },
+    "tournament_service.py": {
+        "get_schedule_for_player",
+        "get_schedule_tournament_details_for_player",
+        "get_registration_options_for_player",
+        "get_player_upcoming_registrations",
+        "get_current_week_tournaments_for_player",
+        "get_current_week_tournament_for_player",
+        "get_current_week_registrations_for_player",
+        "register_player_for_tournaments",
+        "cancel_player_tournament_registrations",
+    },
+    "player_reward_service.py": {"list_current_active_rewards_for_player"},
+}
 
 
 def _method_calls(method: ast.FunctionDef | ast.AsyncFunctionDef) -> set[str]:
@@ -80,17 +110,100 @@ def test_access_policy_keeps_internal_and_telegram_identity_namespaces_explicit(
         if path == policy_path:
             continue
         caller_tree = ast.parse(path.read_text(), filename=str(path))
-        for node in ast.walk(caller_tree):
-            if (
-                isinstance(node, ast.Call)
-                and isinstance(node.func, ast.Attribute)
-                and isinstance(node.func.value, ast.Name)
-                and node.func.value.id == "access_policy"
-                and node.func.attr in {"require_active_user", "require_admin", "require_superadmin"}
-            ):
-                ambiguous_callers.append(f"{path.name}:{node.lineno} {node.func.attr}")
+        for method in ast.walk(caller_tree):
+            if not isinstance(method, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                continue
+            for node in ast.walk(method):
+                if (
+                    isinstance(node, ast.Call)
+                    and isinstance(node.func, ast.Attribute)
+                    and isinstance(node.func.value, ast.Name)
+                    and node.func.value.id == "access_policy"
+                    and node.func.attr
+                    in {"require_active_user", "require_admin", "require_superadmin"}
+                    and method.name not in INTERNAL_ACTOR_SERVICE_METHODS.get(path.name, set())
+                ):
+                    ambiguous_callers.append(
+                        f"{path.name}:{node.lineno} {method.name} calls {node.func.attr}"
+                    )
 
     assert ambiguous_callers == []
+
+
+def test_player_self_slice_uses_internal_actor_identity() -> None:
+    for filename, method_names in INTERNAL_ACTOR_SERVICE_METHODS.items():
+        path = SERVICES_DIR / filename
+        tree = ast.parse(path.read_text(), filename=str(path))
+        methods = {
+            node.name: node
+            for node in ast.walk(tree)
+            if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
+        }
+        for method_name in method_names:
+            method = methods[method_name]
+            argument_names = {
+                argument.arg for argument in (*method.args.args, *method.args.kwonlyargs)
+            }
+            assert "actor_user_id" in argument_names, f"{filename}:{method_name}"
+            assert not any(name.endswith("_by_telegram_id") for name in _method_calls(method)), (
+                f"{filename}:{method_name}"
+            )
+
+    for filename in (
+        "profile.py",
+        "ratings.py",
+        "history.py",
+        "hall_of_fame.py",
+        "rewards.py",
+        "tournaments.py",
+    ):
+        source = (APP_DIR / "api" / "v1" / filename).read_text()
+        assert "actor.telegram_id" not in source
+
+
+def test_migrated_telegram_player_handlers_resolve_actor_before_service_call() -> None:
+    migrated_methods = {
+        "get_profile_for_player",
+        "list_profile_seasons",
+        "list_prize_tournaments_for_player",
+        "get_rating_for_player",
+        "list_rating_seasons",
+        "list_history_years",
+        "list_history_months",
+        "list_history_tournaments",
+        "get_historical_tournament_result",
+        "get_hall_of_fame",
+        "get_schedule_for_player",
+        "get_schedule_tournament_details_for_player",
+        "get_registration_options_for_player",
+        "get_player_upcoming_registrations",
+        "register_player_for_tournaments",
+        "cancel_player_tournament_registrations",
+    }
+    handler_dir = APP_DIR / "bot" / "telegram" / "handlers" / "user"
+    violations: list[str] = []
+
+    for filename in ("profile.py", "rating.py", "history.py", "hall_of_fame.py", "tournaments.py"):
+        path = handler_dir / filename
+        tree = ast.parse(path.read_text(), filename=str(path))
+        for node in ast.walk(tree):
+            if not (
+                isinstance(node, ast.Call)
+                and isinstance(node.func, ast.Attribute)
+                and node.func.attr in migrated_methods
+            ):
+                continue
+            direct_arguments = [*node.args, *(keyword.value for keyword in node.keywords)]
+            for argument in direct_arguments:
+                if (
+                    isinstance(argument, ast.Attribute)
+                    and argument.attr == "id"
+                    and isinstance(argument.value, ast.Attribute)
+                    and argument.value.attr == "from_user"
+                ):
+                    violations.append(f"{filename}:{node.lineno} passes from_user.id directly")
+
+    assert violations == []
 
 
 def test_result_service_does_not_own_photo_or_combination_repositories() -> None:

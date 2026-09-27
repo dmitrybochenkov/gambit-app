@@ -65,22 +65,22 @@ class UserStatisticsService:
         self.session_factory = session_factory
         self.clock = clock
 
-    async def list_history_years(self, telegram_id: int) -> list[HistoryYearView]:
+    async def list_history_years(self, actor_user_id: int) -> list[HistoryYearView]:
         async with self.session_factory() as session:
             await self._ensure_user_can_view_statistics(
-                session, telegram_id, HistoryNotAllowedError
+                session, actor_user_id, HistoryNotAllowedError
             )
             years = await TournamentRepository(session).list_result_years()
             return [HistoryYearView(year=year) for year in years]
 
     async def list_history_months(
         self,
-        telegram_id: int,
+        actor_user_id: int,
         year: int,
     ) -> list[HistoryMonthView]:
         async with self.session_factory() as session:
             await self._ensure_user_can_view_statistics(
-                session, telegram_id, HistoryNotAllowedError
+                session, actor_user_id, HistoryNotAllowedError
             )
             months = await TournamentRepository(session).list_result_months(year)
             return [
@@ -94,13 +94,13 @@ class UserStatisticsService:
 
     async def list_history_tournaments(
         self,
-        telegram_id: int,
+        actor_user_id: int,
         year: int,
         month: int,
     ) -> list[HistoricalTournamentView]:
         async with self.session_factory() as session:
             await self._ensure_user_can_view_statistics(
-                session, telegram_id, HistoryNotAllowedError
+                session, actor_user_id, HistoryNotAllowedError
             )
             rows = await TournamentRepository(session).list_result_tournaments(year, month)
             return [
@@ -119,12 +119,12 @@ class UserStatisticsService:
 
     async def get_historical_tournament_result(
         self,
-        telegram_id: int,
+        actor_user_id: int,
         tournament_id: int,
     ) -> HistoricalTournamentResultView:
         async with self.session_factory() as session:
             await self._ensure_user_can_view_statistics(
-                session, telegram_id, HistoryNotAllowedError
+                session, actor_user_id, HistoryNotAllowedError
             )
             rows = await TournamentRepository(session).get_tournament_result(tournament_id)
             if not rows:
@@ -134,22 +134,22 @@ class UserStatisticsService:
             )
             return historical_tournament_result_view(rows, combinations)
 
-    async def list_player_history(self, telegram_id: int) -> list[PlayerHistoryTournamentView]:
+    async def list_player_history(self, actor_user_id: int) -> list[PlayerHistoryTournamentView]:
         async with self.session_factory() as session:
             player = await self._ensure_user_can_view_statistics(
-                session, telegram_id, HistoryNotAllowedError
+                session, actor_user_id, HistoryNotAllowedError
             )
             rows = await TournamentRepository(session).list_player_result_tournaments(player.id)
             return [player_history_tournament_view(row) for row in rows]
 
     async def get_player_history_tournament_result(
         self,
-        telegram_id: int,
+        actor_user_id: int,
         tournament_id: int,
     ) -> HistoricalTournamentResultView:
         async with self.session_factory() as session:
             player = await self._ensure_user_can_view_statistics(
-                session, telegram_id, HistoryNotAllowedError
+                session, actor_user_id, HistoryNotAllowedError
             )
             rows = await TournamentRepository(session).get_tournament_result(tournament_id)
             if not rows or all(row.player_id != player.id for row in rows):
@@ -159,10 +159,10 @@ class UserStatisticsService:
             )
             return historical_tournament_result_view(rows, combinations)
 
-    async def get_hall_of_fame(self, telegram_id: int) -> list[HallOfFameSeasonView]:
+    async def get_hall_of_fame(self, actor_user_id: int) -> list[HallOfFameSeasonView]:
         async with self.session_factory() as session:
             await self._ensure_user_can_view_statistics(
-                session, telegram_id, HallOfFameNotAllowedError
+                session, actor_user_id, HallOfFameNotAllowedError
             )
             rows = await HallOfFameRepository(session).list_public_entries(self.clock.today())
             return [
@@ -203,11 +203,11 @@ class UserStatisticsService:
     @staticmethod
     async def _ensure_user_can_view_statistics(
         session: AsyncSession,
-        telegram_id: int,
+        actor_user_id: int,
         error_class: type[ValueError],
     ) -> User:
         try:
-            return await access_policy.require_active_user_by_telegram_id(session, telegram_id)
+            return await access_policy.require_active_user(session, actor_user_id)
         except ActiveUserRequiredError as exc:
             raise error_class from exc
 

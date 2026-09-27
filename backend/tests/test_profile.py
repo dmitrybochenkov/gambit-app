@@ -370,15 +370,15 @@ async def test_profile_filters_current_season_and_all_time(tmp_path: Path) -> No
     service = ProfileService(session_factory)
     try:
         current_title, current_stats = await service.get_profile_for_player(
-            telegram_id=100,
+            actor_user_id=1,
             kind=ProfileKind.CURRENT_SEASON,
         )
         all_time_title, all_time_stats = await service.get_profile_for_player(
-            telegram_id=100,
+            actor_user_id=1,
             kind=ProfileKind.ALL_TIME,
         )
         _, empty_stats = await service.get_profile_for_player(
-            telegram_id=200,
+            actor_user_id=2,
             kind=ProfileKind.CURRENT_SEASON,
         )
 
@@ -494,12 +494,12 @@ async def test_profile_rating_position_and_prize_percent_use_scope(
     service = ProfileService(session_factory)
     try:
         _title, stats = await service.get_profile_for_player(
-            telegram_id=100,
+            actor_user_id=1,
             kind=ProfileKind.CURRENT_SEASON,
             today=date(2026, 7, 10),
         )
         _zero_title, zero_stats = await service.get_profile_for_player(
-            telegram_id=102,
+            actor_user_id=3,
             kind=ProfileKind.CURRENT_SEASON,
             today=date(2026, 7, 10),
         )
@@ -594,18 +594,18 @@ async def test_profile_prize_tournaments_scope_order_and_labels(
     service = ProfileService(session_factory)
     try:
         current_prizes = await service.list_prize_tournaments_for_player(
-            100,
+            1,
             ProfileKind.CURRENT_SEASON,
             today=date(2026, 7, 15),
         )
         previous_prizes = await service.list_prize_tournaments_for_player(
-            100,
+            1,
             ProfileKind.SELECTED_SEASON,
             season_id=previous_id,
             today=date(2026, 7, 15),
         )
         all_time_prizes = await service.list_prize_tournaments_for_player(
-            100,
+            1,
             ProfileKind.ALL_TIME,
             today=date(2026, 7, 15),
         )
@@ -646,7 +646,7 @@ async def test_active_superadmin_can_open_profile_after_new_session(tmp_path: Pa
     service = ProfileService(session_factory)
     try:
         title, stats = await service.get_profile_for_player(
-            telegram_id=100,
+            actor_user_id=1,
             kind=ProfileKind.ALL_TIME,
         )
 
@@ -735,12 +735,12 @@ async def test_profile_current_season_switches_on_transition_date(tmp_path: Path
     service = ProfileService(session_factory)
     try:
         _title, before_transition = await service.get_profile_for_player(
-            telegram_id=100,
+            actor_user_id=1,
             kind=ProfileKind.CURRENT_SEASON,
             today=date(2026, 8, 9),
         )
         _title, on_transition = await service.get_profile_for_player(
-            telegram_id=100,
+            actor_user_id=1,
             kind=ProfileKind.CURRENT_SEASON,
             today=date(2026, 8, 10),
         )
@@ -774,7 +774,7 @@ async def test_profile_current_season_returns_empty_profile_without_current_seas
     service = ProfileService(session_factory)
     try:
         title, stats = await service.get_profile_for_player(
-            telegram_id=100,
+            actor_user_id=1,
             kind=ProfileKind.CURRENT_SEASON,
             today=date(2026, 8, 9),
         )
@@ -878,15 +878,15 @@ async def test_profile_selected_season_and_picker_exclude_future(tmp_path: Path)
 
     service = ProfileService(session_factory)
     try:
-        seasons = await service.list_profile_seasons(100, today=date(2026, 8, 10))
+        seasons = await service.list_profile_seasons(1, today=date(2026, 8, 10))
         title, stats = await service.get_profile_for_player(
-            100,
+            1,
             ProfileKind.SELECTED_SEASON,
             season_id=completed_id,
             today=date(2026, 8, 10),
         )
         _all_time_title, all_time_stats = await service.get_profile_for_player(
-            100,
+            1,
             ProfileKind.ALL_TIME,
             today=date(2026, 8, 10),
         )
@@ -899,7 +899,7 @@ async def test_profile_selected_season_and_picker_exclude_future(tmp_path: Path)
         assert all_time_stats.total_points == Decimal("350")
         with pytest.raises(ProfileFutureSeasonError):
             await service.get_profile_for_player(
-                100,
+                1,
                 ProfileKind.SELECTED_SEASON,
                 season_id=future_id,
                 today=date(2026, 8, 10),

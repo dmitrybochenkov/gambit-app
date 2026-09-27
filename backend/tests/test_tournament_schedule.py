@@ -185,7 +185,7 @@ async def test_schedule_tournament_details_are_db_driven(tmp_path: Path) -> None
 
     service = TournamentService(session_factory, clock=FixedClock(datetime(2026, 8, 22)))
     try:
-        details = await service.get_schedule_tournament_details_for_player(123, tournament_id)
+        details = await service.get_schedule_tournament_details_for_player(1, tournament_id)
         text = tournament_fmt.schedule_detail(details)
 
         assert details.tournament_type_name == "Тестовый DB-турнир"
@@ -278,7 +278,7 @@ async def test_player_schedule_is_limited_to_current_business_week(tmp_path: Pat
         clock=FixedClock(datetime(2026, 8, 7, 12, tzinfo=ZoneInfo("Europe/Moscow"))),
     )
     try:
-        schedule = await service.get_schedule_for_player(100)
+        schedule = await service.get_schedule_for_player(1)
 
         assert [item.date for item in schedule] == [
             date(2026, 8, 3),
@@ -348,11 +348,11 @@ async def test_player_registration_is_limited_to_current_business_week(
         clock=FixedClock(datetime(2026, 8, 7, 12, tzinfo=ZoneInfo("Europe/Moscow"))),
     )
     try:
-        options = await service.get_registration_options_for_player(100)
+        options = await service.get_registration_options_for_player(1)
 
         assert [item.id for item in options] == [approved_current_id]
         with pytest.raises(TournamentUnavailableError):
-            await service.register_player_for_tournaments(100, [next_week_id])
+            await service.register_player_for_tournaments(1, [next_week_id])
     finally:
         await engine.dispose()
 
@@ -403,8 +403,8 @@ async def test_next_week_registration_becomes_available_after_business_week_boun
         clock=FixedClock(datetime(2026, 8, 10, 11, 0, tzinfo=ZoneInfo("Europe/Moscow"))),
     )
     try:
-        assert await before_boundary.get_registration_options_for_player(100) == []
-        available_after_boundary = await after_boundary.get_registration_options_for_player(100)
+        assert await before_boundary.get_registration_options_for_player(1) == []
+        available_after_boundary = await after_boundary.get_registration_options_for_player(1)
         assert [item.date for item in available_after_boundary] == [date(2026, 8, 10)]
     finally:
         await engine.dispose()
@@ -672,7 +672,7 @@ async def test_active_player_can_register_for_multiple_tournaments(tmp_path: Pat
     service = TournamentService(session_factory)
     try:
         registered_tournaments = await service.register_player_for_tournaments(
-            telegram_id=100,
+            actor_user_id=1,
             tournament_ids=tournament_ids,
             from_date=date(2026, 7, 6),
         )
@@ -680,7 +680,7 @@ async def test_active_player_can_register_for_multiple_tournaments(tmp_path: Pat
         assert [tournament.id for tournament in registered_tournaments] == tournament_ids
 
         await service.register_player_for_tournaments(
-            telegram_id=100,
+            actor_user_id=1,
             tournament_ids=tournament_ids,
             from_date=date(2026, 7, 6),
         )
@@ -699,7 +699,7 @@ async def test_active_player_can_register_for_multiple_tournaments(tmp_path: Pat
         assert all(registration.player_id == player_id for registration in registrations)
 
         upcoming_registrations = await service.get_player_upcoming_registrations(
-            telegram_id=100,
+            actor_user_id=1,
             from_date=date(2026, 7, 6),
         )
         assert [tournament.id for tournament in upcoming_registrations] == tournament_ids
@@ -709,7 +709,7 @@ async def test_active_player_can_register_for_multiple_tournaments(tmp_path: Pat
         ]
 
         cancelled_tournaments = await service.cancel_player_tournament_registrations(
-            telegram_id=100,
+            actor_user_id=1,
             tournament_ids=tournament_ids,
             from_date=date(2026, 7, 6),
         )
@@ -726,7 +726,7 @@ async def test_active_player_can_register_for_multiple_tournaments(tmp_path: Pat
         assert cancelled_registrations == []
         assert (
             await service.get_player_upcoming_registrations(
-                telegram_id=100,
+                actor_user_id=1,
                 from_date=date(2026, 7, 6),
             )
             == []
@@ -786,15 +786,15 @@ async def test_active_admin_roles_can_use_player_tournament_flows_after_new_sess
     service = TournamentService(session_factory)
     try:
         schedule = await service.get_schedule_for_player(
-            telegram_id=100,
+            actor_user_id=1,
             from_date=date(2026, 7, 6),
         )
         options = await service.get_registration_options_for_player(
-            telegram_id=100,
+            actor_user_id=1,
             from_date=date(2026, 7, 6),
         )
         registered = await service.register_player_for_tournaments(
-            telegram_id=100,
+            actor_user_id=1,
             tournament_ids=[tournament_id],
             from_date=date(2026, 7, 6),
         )
@@ -813,11 +813,11 @@ async def test_active_admin_roles_can_use_player_tournament_flows_after_new_sess
         assert stored_registration is not None
 
         upcoming_registrations = await service.get_player_upcoming_registrations(
-            telegram_id=100,
+            actor_user_id=1,
             from_date=date(2026, 7, 6),
         )
         cancelled = await service.cancel_player_tournament_registrations(
-            telegram_id=100,
+            actor_user_id=1,
             tournament_ids=[tournament_id],
             from_date=date(2026, 7, 6),
         )
@@ -1182,7 +1182,7 @@ async def test_cannot_cancel_tournament_registration_after_check_in(
 
         with pytest.raises(TournamentRegistrationAlreadyCheckedInError):
             await tournament_service.cancel_player_tournament_registrations(
-                telegram_id=101,
+                actor_user_id=2,
                 tournament_ids=[tournament_id],
                 from_date=date(2026, 7, 9),
             )

@@ -6,6 +6,9 @@ from app.bot.telegram.formatters.statistics import profile as profile_fmt
 from app.bot.telegram.handlers.user.shared import (
     delete_message as _delete_message,
 )
+from app.bot.telegram.handlers.user.shared import (
+    resolve_actor_user_id,
+)
 from app.bot.telegram.keyboards import labels
 from app.bot.telegram.keyboards.user import history as user_history_kb
 from app.bot.telegram.keyboards.user import profile as user_profile_kb
@@ -86,7 +89,9 @@ async def show_profile_season_picker(
     callback_data: user_profile_kb.ProfileSeasonPageCallback,
 ) -> None:
     try:
-        seasons = await profile_service.list_profile_seasons(callback.from_user.id)
+        seasons = await profile_service.list_profile_seasons(
+            await resolve_actor_user_id(callback.from_user.id, ProfileNotAllowedError)
+        )
     except ProfileNotAllowedError:
         await callback.answer(text.PROFILE_ACTIVE_ONLY, show_alert=True)
         return
@@ -231,7 +236,9 @@ async def show_profile_prize_tournaments(
 ) -> None:
     try:
         tournaments = await profile_service.list_prize_tournaments_for_player(
-            telegram_id=callback.from_user.id,
+            actor_user_id=await resolve_actor_user_id(
+                callback.from_user.id, ProfileNotAllowedError
+            ),
             kind=callback_data.kind,
             season_id=callback_data.season_id or None,
         )
@@ -268,7 +275,9 @@ async def show_profile_prize_tournament_result(
 ) -> None:
     try:
         result = await user_statistics_service.get_historical_tournament_result(
-            telegram_id=callback.from_user.id,
+            actor_user_id=await resolve_actor_user_id(
+                callback.from_user.id, HistoryNotAllowedError
+            ),
             tournament_id=callback_data.tournament_id,
         )
     except HistoryNotAllowedError:
@@ -331,7 +340,7 @@ async def _load_profile(
     season_id: int,
 ) -> tuple[str, object | None]:
     return await profile_service.get_profile_for_player(
-        telegram_id=callback.from_user.id,
+        actor_user_id=await resolve_actor_user_id(callback.from_user.id, ProfileNotAllowedError),
         kind=kind,
         season_id=season_id or None,
     )

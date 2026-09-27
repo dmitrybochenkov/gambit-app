@@ -8,6 +8,9 @@ from app.bot.telegram.handlers.user.shared import (
 from app.bot.telegram.handlers.user.shared import (
     edit_history_message as _edit_history_message,
 )
+from app.bot.telegram.handlers.user.shared import (
+    resolve_actor_user_id,
+)
 from app.bot.telegram.keyboards import labels
 from app.bot.telegram.keyboards.user import history as user_history_kb
 from app.bot.telegram.texts.user import history as text
@@ -27,7 +30,9 @@ async def show_history_years(message: Message) -> None:
         return
 
     try:
-        years = await user_statistics_service.list_history_years(message.from_user.id)
+        years = await user_statistics_service.list_history_years(
+            await resolve_actor_user_id(message.from_user.id, HistoryNotAllowedError)
+        )
     except HistoryNotAllowedError:
         await message.answer(text.HISTORY_UNAVAILABLE)
         return
@@ -49,7 +54,9 @@ async def show_history_years_page(
     callback_data: user_history_kb.HistoryYearsPageCallback,
 ) -> None:
     try:
-        years = await user_statistics_service.list_history_years(callback.from_user.id)
+        years = await user_statistics_service.list_history_years(
+            await resolve_actor_user_id(callback.from_user.id, HistoryNotAllowedError)
+        )
     except HistoryNotAllowedError:
         await callback.answer(text.HISTORY_UNAVAILABLE, show_alert=True)
         return
@@ -73,7 +80,9 @@ async def show_history_months(
 ) -> None:
     try:
         months = await user_statistics_service.list_history_months(
-            telegram_id=callback.from_user.id,
+            actor_user_id=await resolve_actor_user_id(
+                callback.from_user.id, HistoryNotAllowedError
+            ),
             year=callback_data.year,
         )
     except HistoryNotAllowedError:
@@ -99,7 +108,9 @@ async def show_history_tournaments(
 ) -> None:
     try:
         tournaments = await user_statistics_service.list_history_tournaments(
-            telegram_id=callback.from_user.id,
+            actor_user_id=await resolve_actor_user_id(
+                callback.from_user.id, HistoryNotAllowedError
+            ),
             year=callback_data.year,
             month=callback_data.month,
         )
@@ -131,7 +142,9 @@ async def show_history_tournaments_page(
 ) -> None:
     try:
         tournaments = await user_statistics_service.list_history_tournaments(
-            telegram_id=callback.from_user.id,
+            actor_user_id=await resolve_actor_user_id(
+                callback.from_user.id, HistoryNotAllowedError
+            ),
             year=callback_data.year,
             month=callback_data.month,
         )
@@ -163,7 +176,9 @@ async def show_historical_tournament_result(
 ) -> None:
     try:
         result = await user_statistics_service.get_historical_tournament_result(
-            telegram_id=callback.from_user.id,
+            actor_user_id=await resolve_actor_user_id(
+                callback.from_user.id, HistoryNotAllowedError
+            ),
             tournament_id=callback_data.tournament_id,
         )
     except HistoryNotAllowedError:

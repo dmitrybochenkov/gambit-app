@@ -58,7 +58,7 @@ class ProfileService:
 
     async def get_profile_for_player(
         self,
-        telegram_id: int,
+        actor_user_id: int,
         kind: ProfileKind,
         season_id: int | None = None,
         today: date | None = None,
@@ -66,7 +66,7 @@ class ProfileService:
         business_date = today or self.clock.today()
         async with self.session_factory() as session:
             try:
-                user = await access_policy.require_active_user_by_telegram_id(session, telegram_id)
+                user = await access_policy.require_active_user(session, actor_user_id)
             except ActiveUserRequiredError as exc:
                 raise ProfileNotAllowedError from exc
             return await self._get_profile(
@@ -84,20 +84,20 @@ class ProfileService:
 
     async def list_profile_seasons(
         self,
-        telegram_id: int,
+        actor_user_id: int,
         today: date | None = None,
     ) -> list[SeasonOptionView]:
         business_date = today or self.clock.today()
         async with self.session_factory() as session:
             try:
-                await access_policy.require_active_user_by_telegram_id(session, telegram_id)
+                await access_policy.require_active_user(session, actor_user_id)
             except ActiveUserRequiredError as exc:
                 raise ProfileNotAllowedError from exc
             return await list_started_season_options(SeasonRepository(session), business_date)
 
     async def list_prize_tournaments_for_player(
         self,
-        telegram_id: int,
+        actor_user_id: int,
         kind: ProfileKind,
         season_id: int | None = None,
         today: date | None = None,
@@ -105,7 +105,7 @@ class ProfileService:
         business_date = today or self.clock.today()
         async with self.session_factory() as session:
             try:
-                user = await access_policy.require_active_user_by_telegram_id(session, telegram_id)
+                user = await access_policy.require_active_user(session, actor_user_id)
             except ActiveUserRequiredError as exc:
                 raise ProfileNotAllowedError from exc
             profile_repository = ProfileRepository(session)

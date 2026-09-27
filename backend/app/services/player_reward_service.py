@@ -19,7 +19,7 @@ from app.db.repositories.user_repository import UserRepository
 from app.db.session import SessionFactory
 from app.domain.open_tournament_edit_policy import can_edit_open_tournament_for_actor
 from app.domain.tournament_day import resolve_tournament_day
-from app.services.access_policy import access_policy
+from app.services.access_policy import ActiveUserRequiredError, access_policy
 from app.services.dto.rewards import (
     PlayerRewardCorrectionChangeView,
     PlayerRewardCorrectionNotificationView,
@@ -83,12 +83,18 @@ class PlayerRewardService:
     async def list_current_active_rewards_for_player(
         self,
         *,
-        player_id: int,
+        actor_user_id: int,
     ) -> tuple[PlayerRewardView, ...]:
-        return await self.list_active_rewards_for_player(
-            player_id=player_id,
-            business_date=self._tournament_day(),
-        )
+        async with self.session_factory() as session:
+            try:
+                player = await access_policy.require_active_user(session, actor_user_id)
+            except ActiveUserRequiredError as exc:
+                raise PlayerRewardUserNotFoundError from exc
+            return await list_active_reward_views(
+                PlayerRewardRepository(session),
+                player_id=player.id,
+                business_date=self._tournament_day(),
+            )
 
     async def list_due_expiration_reminder_groups(
         self,

@@ -26,7 +26,7 @@ async def get_current_week_tournaments(
 ) -> PlayerTournamentListResponse:
     try:
         tournaments = await tournament_service.get_current_week_tournaments_for_player(
-            actor.telegram_id
+            actor.user_id
         )
     except TournamentScheduleNotAllowedError as exc:
         raise errors.forbidden("Tournament schedule is unavailable") from exc
@@ -42,7 +42,7 @@ async def get_tournament_details(
 ) -> PlayerTournamentResponse:
     try:
         tournament = await tournament_service.get_current_week_tournament_for_player(
-            actor.telegram_id,
+            actor.user_id,
             tournament_id,
         )
     except TournamentScheduleNotAllowedError as exc:
@@ -58,7 +58,7 @@ async def get_my_registrations(
 ) -> PlayerTournamentListResponse:
     try:
         tournaments = await tournament_service.get_current_week_registrations_for_player(
-            actor.telegram_id
+            actor.user_id
         )
     except TournamentRegistrationNotAllowedError as exc:
         raise errors.forbidden("Tournament registration is unavailable") from exc
@@ -77,11 +77,11 @@ async def register_for_tournament(
 ) -> PlayerTournamentResponse:
     try:
         await tournament_service.register_player_for_tournaments(
-            actor.telegram_id,
+            actor.user_id,
             [tournament_id],
         )
         tournament = await tournament_service.get_current_week_tournament_for_player(
-            actor.telegram_id,
+            actor.user_id,
             tournament_id,
         )
     except TournamentRegistrationNotAllowedError as exc:
@@ -101,11 +101,11 @@ async def cancel_tournament_registration(
 ) -> PlayerTournamentResponse:
     try:
         await tournament_service.cancel_player_tournament_registrations(
-            actor.telegram_id,
+            actor.user_id,
             [tournament_id],
         )
         tournament = await tournament_service.get_current_week_tournament_for_player(
-            actor.telegram_id,
+            actor.user_id,
             tournament_id,
         )
     except TournamentRegistrationNotAllowedError as exc:

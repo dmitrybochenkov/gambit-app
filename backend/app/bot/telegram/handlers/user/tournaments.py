@@ -6,6 +6,9 @@ from app.bot.telegram.formatters import tournaments as tournament_fmt
 from app.bot.telegram.handlers.user.shared import (
     delete_message as _delete_message,
 )
+from app.bot.telegram.handlers.user.shared import (
+    resolve_actor_user_id,
+)
 from app.bot.telegram.keyboards import labels
 from app.bot.telegram.keyboards.user import tournaments as user_tournaments_kb
 from app.bot.telegram.message_edit import edit_message_if_changed, edit_reply_markup_if_changed
@@ -29,7 +32,9 @@ async def show_tournament_schedule(message: Message) -> None:
         return
 
     try:
-        tournaments = await tournament_service.get_schedule_for_player(message.from_user.id)
+        tournaments = await tournament_service.get_schedule_for_player(
+            await resolve_actor_user_id(message.from_user.id, TournamentScheduleNotAllowedError)
+        )
     except TournamentScheduleNotAllowedError:
         await message.answer(text.SCHEDULE_UNAVAILABLE)
         return
@@ -58,7 +63,7 @@ async def navigate_tournament_schedule(
 
     try:
         details = await tournament_service.get_schedule_tournament_details_for_player(
-            callback.from_user.id,
+            await resolve_actor_user_id(callback.from_user.id, TournamentScheduleNotAllowedError),
             callback_data.tournament_id,
         )
     except TournamentScheduleNotAllowedError:
@@ -85,7 +90,7 @@ async def show_tournaments_for_registration(message: Message, state: FSMContext)
 
     try:
         tournaments = await tournament_service.get_registration_options_for_player(
-            message.from_user.id
+            await resolve_actor_user_id(message.from_user.id, TournamentRegistrationNotAllowedError)
         )
     except TournamentRegistrationNotAllowedError:
         await message.answer(text.TOURNAMENT_REGISTRATION_UNAVAILABLE)
@@ -96,7 +101,7 @@ async def show_tournaments_for_registration(message: Message, state: FSMContext)
         return
 
     registered_tournaments = await tournament_service.get_player_upcoming_registrations(
-        message.from_user.id
+        await resolve_actor_user_id(message.from_user.id, TournamentRegistrationNotAllowedError)
     )
     registered_tournament_ids = {tournament.id for tournament in registered_tournaments}
     selected_tournament_ids = [
@@ -136,7 +141,9 @@ async def register_for_tournament(
 
     try:
         tournaments = await tournament_service.get_registration_options_for_player(
-            callback.from_user.id
+            await resolve_actor_user_id(
+                callback.from_user.id, TournamentRegistrationNotAllowedError
+            )
         )
     except TournamentRegistrationNotAllowedError:
         await callback.answer(
@@ -180,7 +187,9 @@ async def confirm_tournament_registration(
 
     try:
         tournaments = await tournament_service.register_player_for_tournaments(
-            telegram_id=callback.from_user.id,
+            actor_user_id=await resolve_actor_user_id(
+                callback.from_user.id, TournamentRegistrationNotAllowedError
+            ),
             tournament_ids=tournament_ids,
         )
     except TournamentRegistrationNotAllowedError:
@@ -225,7 +234,7 @@ async def show_tournaments_for_cancellation(
 
     try:
         tournaments = await tournament_service.get_player_upcoming_registrations(
-            message.from_user.id
+            await resolve_actor_user_id(message.from_user.id, TournamentRegistrationNotAllowedError)
         )
     except TournamentRegistrationNotAllowedError:
         await message.answer(text.TOURNAMENT_CANCELLATION_UNAVAILABLE)
@@ -266,7 +275,9 @@ async def select_tournament_for_cancellation(
 
     try:
         tournaments = await tournament_service.get_player_upcoming_registrations(
-            callback.from_user.id
+            await resolve_actor_user_id(
+                callback.from_user.id, TournamentRegistrationNotAllowedError
+            )
         )
     except TournamentRegistrationNotAllowedError:
         await callback.answer(
@@ -310,7 +321,9 @@ async def confirm_tournament_cancellation(
 
     try:
         tournaments = await tournament_service.cancel_player_tournament_registrations(
-            telegram_id=callback.from_user.id,
+            actor_user_id=await resolve_actor_user_id(
+                callback.from_user.id, TournamentRegistrationNotAllowedError
+            ),
             tournament_ids=tournament_ids,
         )
     except TournamentRegistrationNotAllowedError:
@@ -357,7 +370,9 @@ async def cancel_tournament_cancellation_selection(
 
 async def _edit_schedule_root(callback: CallbackQuery) -> None:
     try:
-        tournaments = await tournament_service.get_schedule_for_player(callback.from_user.id)
+        tournaments = await tournament_service.get_schedule_for_player(
+            await resolve_actor_user_id(callback.from_user.id, TournamentScheduleNotAllowedError)
+        )
     except TournamentScheduleNotAllowedError:
         await callback.answer(text.SCHEDULE_UNAVAILABLE, show_alert=True)
         return

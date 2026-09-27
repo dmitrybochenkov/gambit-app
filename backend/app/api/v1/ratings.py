@@ -24,7 +24,7 @@ async def get_rating(
 ) -> PointsRatingResponse:
     try:
         result = await rating_service.get_rating_for_player(
-            actor.telegram_id,
+            actor.user_id,
             kind=RatingKind.SELECTED_SEASON if season_id is not None else RatingKind.CURRENT_SEASON,
             season_id=season_id,
         )
@@ -47,7 +47,7 @@ async def get_knockouts_rating(
 ) -> KnockoutsRatingResponse:
     try:
         result = await rating_service.get_rating_for_player(
-            actor.telegram_id,
+            actor.user_id,
             kind=(
                 RatingKind.KNOCKOUTS_SELECTED_SEASON
                 if season_id is not None

@@ -5,6 +5,9 @@ from app.bot.telegram.formatters.statistics import rating as rating_fmt
 from app.bot.telegram.handlers.user.shared import (
     delete_message as _delete_message,
 )
+from app.bot.telegram.handlers.user.shared import (
+    resolve_actor_user_id,
+)
 from app.bot.telegram.keyboards import labels
 from app.bot.telegram.keyboards.user import rating as user_rating_kb
 from app.bot.telegram.message_edit import edit_message_if_changed
@@ -46,7 +49,7 @@ async def show_rating(
 ) -> None:
     try:
         rating = await rating_service.get_rating_for_player(
-            telegram_id=callback.from_user.id,
+            actor_user_id=await resolve_actor_user_id(callback.from_user.id, RatingNotAllowedError),
             kind=callback_data.kind,
             season_id=getattr(callback_data, "season_id", 0) or None,
         )
@@ -91,7 +94,9 @@ async def show_rating_season_picker(
     callback_data: user_rating_kb.RatingSeasonPageCallback,
 ) -> None:
     try:
-        seasons = await rating_service.list_rating_seasons(callback.from_user.id)
+        seasons = await rating_service.list_rating_seasons(
+            await resolve_actor_user_id(callback.from_user.id, RatingNotAllowedError)
+        )
     except RatingNotAllowedError:
         await callback.answer(text.RATING_ACTIVE_ONLY, show_alert=True)
         return
@@ -117,7 +122,7 @@ async def show_rating_for_selected_season(
 ) -> None:
     try:
         rating = await rating_service.get_rating_for_player(
-            telegram_id=callback.from_user.id,
+            actor_user_id=await resolve_actor_user_id(callback.from_user.id, RatingNotAllowedError),
             kind=callback_data.kind,
             season_id=callback_data.season_id,
         )

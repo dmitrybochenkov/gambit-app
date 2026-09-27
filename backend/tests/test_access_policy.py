@@ -9,6 +9,7 @@ from app.services.access_policy import (
     ActiveUserRequiredError,
     AdminAccessDeniedError,
 )
+from app.services.profile_service import ProfileKind, ProfileService
 
 
 @pytest.fixture
@@ -119,3 +120,23 @@ async def test_neutral_and_telegram_policy_reject_blocked_or_missing_users(
     async with access_policy_data() as session:
         with pytest.raises(ActiveUserRequiredError):
             await getattr(policy, method_name)(session, actor_id)
+
+
+async def test_profile_service_treats_actor_value_only_as_internal_user_id(
+    access_policy_data,
+) -> None:
+    service = ProfileService(access_policy_data)
+
+    _, internal_actor_profile = await service.get_profile_for_player(
+        actor_user_id=101,
+        kind=ProfileKind.ALL_TIME,
+    )
+    _, colliding_actor_profile = await service.get_profile_for_player(
+        actor_user_id=202,
+        kind=ProfileKind.ALL_TIME,
+    )
+
+    assert internal_actor_profile is not None
+    assert internal_actor_profile.display_name == "Player"
+    assert colliding_actor_profile is not None
+    assert colliding_actor_profile.display_name == "Admin"

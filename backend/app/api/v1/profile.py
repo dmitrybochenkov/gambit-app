@@ -23,7 +23,7 @@ async def get_my_profile(
 ) -> PlayerProfileResponse:
     try:
         title, profile = await profile_service.get_profile_for_player(
-            actor.telegram_id,
+            actor.user_id,
             kind=(
                 ProfileKind.SELECTED_SEASON if season_id is not None else ProfileKind.CURRENT_SEASON
             ),

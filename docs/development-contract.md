@@ -98,6 +98,13 @@ IDs remain valid for authentication, delivery, onboarding, and identity
 mapping. This foundation does not introduce actor middleware or complete the
 remaining service-signature migration.
 
+The migrated player/self slice uses `actor_user_id` for profile, rating,
+history, public Hall of Fame, player tournament reads and registration, and
+current reward reads. HTTP routes pass `AuthenticatedActor.user_id`. Telegram
+player handlers resolve their raw `from_user.id` through the narrow shared
+player-handler resolver before invoking these services. Do not add actor IDs to
+HTTP payloads or pass raw Telegram IDs directly into these migrated methods.
+
 ## Clock And Tournament Day
 
 Domain decisions use injected `Clock` and `resolve_tournament_day()`. Do not use
@@ -351,10 +358,10 @@ targeted tests, then run the agreed final tier once.
 - `ResultService` remains responsible for normal result editing and tournament
   close orchestration. Shared validation and point calculations are explicit
   public result contracts, while service-specific view assembly remains private.
-- Existing public application-service interfaces still identify actors
-  primarily by `telegram_id` and use explicit `AccessPolicy.*_by_telegram_id()`
-  compatibility methods. Canonical policy methods now use internal `users.id`;
-  migrating service signatures remains deliberate follow-up work.
+- Player/self application-service interfaces use internal `actor_user_id`.
+  Existing administrative interfaces still identify actors primarily by
+  `telegram_id` and use explicit `AccessPolicy.*_by_telegram_id()` compatibility
+  methods; migrating those signatures remains deliberate follow-up work.
 - `UserRepository` currently contains query and persistence primitives only;
   the audited tree has no commit-owning compatibility methods. User/admin HTTP
   commands must continue through `UserRenameService`, `AdminManagementService`,

@@ -55,6 +55,7 @@ from app.bot.telegram.handlers.user import history as user_history_handlers
 from app.bot.telegram.handlers.user import profile as user_profile_handlers
 from app.bot.telegram.handlers.user import rating as user_rating_handlers
 from app.bot.telegram.handlers.user import registration as user_registration_handlers
+from app.bot.telegram.handlers.user import shared as user_shared_handlers
 from app.bot.telegram.handlers.user import start as user_start_handlers
 from app.bot.telegram.handlers.user import tournaments as user_tournament_handlers
 from app.bot.telegram.keyboards import labels
@@ -210,6 +211,22 @@ from app.services.tournament_planning_service import (
 from app.services.tournament_publication_service import TournamentPublicationService
 from app.services.tournament_service import TournamentRegistrationAlreadyCheckedInError
 from app.services.user_access_service import UserAccessService
+
+
+@pytest.fixture(autouse=True)
+def resolve_migrated_telegram_actor(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(
+        user_shared_handlers.user_access_service,
+        "require_active_user",
+        AsyncMock(return_value=SimpleNamespace(id=42)),
+    )
+
+
+async def test_migrated_telegram_actor_resolves_internal_user_id() -> None:
+    actor_user_id = await user_shared_handlers.resolve_actor_user_id(123, ValueError)
+
+    assert actor_user_id == 42
+    user_shared_handlers.user_access_service.require_active_user.assert_awaited_once_with(123)
 
 
 def achievement_type_view(kind: HallOfFameAchievementKind) -> AchievementTypeView:
@@ -5043,7 +5060,7 @@ async def test_historical_admin_can_open_schedule_after_start(
     await user_tournament_handlers.show_tournament_schedule(schedule_message)
 
     user_service.get_start_view.assert_awaited_once_with(123)
-    tournament_service.get_schedule_for_player.assert_awaited_once_with(123)
+    tournament_service.get_schedule_for_player.assert_awaited_once_with(42)
     assert start_message.answer.await_args.args[0] == "Админ 1, добро пожаловать!"
     assert schedule_message.answer.await_args.args[0] == (
         "Расписание турниров\n\n"
@@ -5122,7 +5139,7 @@ async def test_schedule_still_requires_registered_user(
 
     await user_tournament_handlers.show_tournament_schedule(message)
 
-    tournament_service.get_schedule_for_player.assert_awaited_once_with(404)
+    tournament_service.get_schedule_for_player.assert_awaited_once_with(42)
     message.answer.assert_awaited_once_with(tournament_text.SCHEDULE_UNAVAILABLE)
 
 
@@ -5166,7 +5183,7 @@ async def test_schedule_tournament_button_opens_db_driven_detail(
 
     await user_tournament_handlers.navigate_tournament_schedule(callback, callback_data)
 
-    tournament_service.get_schedule_tournament_details_for_player.assert_awaited_once_with(123, 7)
+    tournament_service.get_schedule_tournament_details_for_player.assert_awaited_once_with(42, 7)
     text = message.edit_text.await_args.args[0]
     assert "Суббота, 22 августа — Тестовый DB-турнир" in text
     assert "Уникальное описание из DTO" in text
@@ -5241,7 +5258,7 @@ async def test_schedule_detail_back_reloads_root(
         ),
     )
 
-    tournament_service.get_schedule_for_player.assert_awaited_once_with(123)
+    tournament_service.get_schedule_for_player.assert_awaited_once_with(42)
     assert message.edit_text.await_args.args[0] == (
         "Расписание турниров\n\n"
         "Нажми на кнопку турнира, про который хочешь узнать более подробную информацию."
@@ -5391,7 +5408,7 @@ async def test_history_button_shows_years(
 
     await user_history_handlers.show_history_years(message)
 
-    service.list_history_years.assert_awaited_once_with(123)
+    service.list_history_years.assert_awaited_once_with(42)
     answer = message.answer.await_args
     assert answer.args[0] == "Выберите год"
     assert inline_keyboard_texts(answer.kwargs["reply_markup"]) == [
@@ -5548,7 +5565,7 @@ async def test_hall_of_fame_button_shows_message(
 
     await user_hall_of_fame_handlers.show_hall_of_fame(message)
 
-    service.get_hall_of_fame.assert_awaited_once_with(123)
+    service.get_hall_of_fame.assert_awaited_once_with(42)
     first_answer = message.answer.await_args_list[0]
     second_answer = message.answer.await_args_list[1]
     assert first_answer.args[0] == (
@@ -6490,7 +6507,7 @@ async def test_rating_callback_edits_selected_rating(
     await user_rating_handlers.show_rating(callback, callback_data)
 
     rating_service.get_rating_for_player.assert_awaited_once_with(
-        telegram_id=123,
+        actor_user_id=42,
         kind=RatingKind.CURRENT_SEASON,
         season_id=None,
     )
@@ -6591,7 +6608,7 @@ async def test_rating_selected_season_picker_and_result(
         user_rating_kb.RatingSeasonPageCallback(kind=RatingKind.SELECTED_SEASON, page=0),
     )
 
-    rating_service.list_rating_seasons.assert_awaited_once_with(123)
+    rating_service.list_rating_seasons.assert_awaited_once_with(42)
     assert message.edit_text.await_args.args[0] == "Выбери сезон."
     assert inline_keyboard_texts(message.edit_text.await_args.kwargs["reply_markup"]) == [
         "Лето 2026",
@@ -6610,7 +6627,7 @@ async def test_rating_selected_season_picker_and_result(
     )
 
     rating_service.get_rating_for_player.assert_awaited_once_with(
-        telegram_id=123,
+        actor_user_id=42,
         kind=RatingKind.SELECTED_SEASON,
         season_id=1,
     )
@@ -6696,7 +6713,7 @@ async def test_profile_callback_sends_selected_profile(
     await user_profile_handlers.show_profile(callback, callback_data)
 
     profile_service.get_profile_for_player.assert_awaited_once_with(
-        telegram_id=123,
+        actor_user_id=42,
         kind=ProfileKind.CURRENT_SEASON,
         season_id=None,
     )
@@ -6793,7 +6810,7 @@ async def test_profile_selected_season_picker_and_result(
         user_profile_kb.ProfileSeasonPageCallback(page=0),
     )
 
-    profile_service.list_profile_seasons.assert_awaited_once_with(123)
+    profile_service.list_profile_seasons.assert_awaited_once_with(42)
     assert message.edit_text.await_args.args[0] == "Выбери сезон."
     assert inline_keyboard_texts(message.edit_text.await_args.kwargs["reply_markup"]) == [
         "Лето 2026",
@@ -6808,7 +6825,7 @@ async def test_profile_selected_season_picker_and_result(
     )
 
     profile_service.get_profile_for_player.assert_awaited_once_with(
-        telegram_id=123,
+        actor_user_id=42,
         kind=ProfileKind.SELECTED_SEASON,
         season_id=1,
     )
@@ -6894,7 +6911,7 @@ async def test_profile_details_list_and_tournament_card(
     )
 
     statistics_service.get_historical_tournament_result.assert_awaited_once_with(
-        telegram_id=123,
+        actor_user_id=42,
         tournament_id=2,
     )
     assert "⏳ История" in message.edit_text.await_args.args[0]
@@ -7289,7 +7306,7 @@ async def test_multiple_tournament_registration_sends_confirmation(
     await user_tournament_handlers.confirm_tournament_registration(callback, state)
 
     service.register_player_for_tournaments.assert_awaited_once_with(
-        telegram_id=123,
+        actor_user_id=42,
         tournament_ids=[7, 8],
     )
     message.delete.assert_awaited_once_with()
@@ -7363,7 +7380,7 @@ async def test_multiple_tournament_cancellation_sends_confirmation(
     await user_tournament_handlers.confirm_tournament_cancellation(callback, state)
 
     service.cancel_player_tournament_registrations.assert_awaited_once_with(
-        telegram_id=123,
+        actor_user_id=42,
         tournament_ids=[7, 8],
     )
     message.delete.assert_awaited_once_with()

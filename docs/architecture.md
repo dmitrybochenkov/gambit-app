@@ -101,6 +101,14 @@ The canonical `AccessPolicy.require_active_user()`, `require_admin()`, and
 service contracts while those use-cases are migrated incrementally. This is a
 temporary application boundary, not a second canonical actor namespace.
 
+Player/self profile, rating, history, Hall of Fame, tournament schedule and
+self-registration, and current-reward reads now accept internal actor IDs end
+to end. HTTP supplies `AuthenticatedActor.user_id`. Telegram player handlers
+resolve `from_user.id` through the existing `UserAccessService` mapping before
+calling those shared services. Onboarding, account linking, and Telegram
+delivery continue to use Telegram IDs by design; administrative service
+contracts remain incremental migration work.
+
 ## Clock
 
 Business-date operations use `Clock`, `ClubClock`, or `FixedClock`. Code should

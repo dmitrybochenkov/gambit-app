@@ -71,12 +71,12 @@ class TournamentService:
 
     async def get_schedule_for_player(
         self,
-        telegram_id: int,
+        actor_user_id: int,
         from_date: date | None = None,
     ) -> list[TournamentView]:
         async with self.session_factory() as session:
             try:
-                await access_policy.require_active_user_by_telegram_id(session, telegram_id)
+                await access_policy.require_active_user(session, actor_user_id)
             except ActiveUserRequiredError as exc:
                 raise TournamentScheduleNotAllowedError from exc
             week_start, week_end = self._current_week_range(from_date)
@@ -89,13 +89,13 @@ class TournamentService:
 
     async def get_schedule_tournament_details_for_player(
         self,
-        telegram_id: int,
+        actor_user_id: int,
         tournament_id: int,
         from_date: date | None = None,
     ) -> TournamentScheduleDetailsView:
         async with self.session_factory() as session:
             try:
-                await access_policy.require_active_user_by_telegram_id(session, telegram_id)
+                await access_policy.require_active_user(session, actor_user_id)
             except ActiveUserRequiredError as exc:
                 raise TournamentScheduleNotAllowedError from exc
 
@@ -114,12 +114,12 @@ class TournamentService:
 
     async def get_registration_options_for_player(
         self,
-        telegram_id: int,
+        actor_user_id: int,
         from_date: date | None = None,
     ) -> list[TournamentView]:
         async with self.session_factory() as session:
             try:
-                await access_policy.require_active_user_by_telegram_id(session, telegram_id)
+                await access_policy.require_active_user(session, actor_user_id)
             except ActiveUserRequiredError as exc:
                 raise TournamentRegistrationNotAllowedError from exc
             week_start, week_end = self._current_week_range(from_date)
@@ -132,14 +132,12 @@ class TournamentService:
 
     async def get_player_upcoming_registrations(
         self,
-        telegram_id: int,
+        actor_user_id: int,
         from_date: date | None = None,
     ) -> list[TournamentView]:
         async with self.session_factory() as session:
             try:
-                player = await access_policy.require_active_user_by_telegram_id(
-                    session, telegram_id
-                )
+                player = await access_policy.require_active_user(session, actor_user_id)
             except ActiveUserRequiredError as exc:
                 raise TournamentRegistrationNotAllowedError from exc
             week_start, week_end = self._current_week_range(from_date)
@@ -154,14 +152,12 @@ class TournamentService:
 
     async def get_current_week_tournaments_for_player(
         self,
-        telegram_id: int,
+        actor_user_id: int,
         from_date: date | None = None,
     ) -> list[PlayerTournamentView]:
         async with self.session_factory() as session:
             try:
-                player = await access_policy.require_active_user_by_telegram_id(
-                    session, telegram_id
-                )
+                player = await access_policy.require_active_user(session, actor_user_id)
             except ActiveUserRequiredError as exc:
                 raise TournamentScheduleNotAllowedError from exc
 
@@ -175,15 +171,13 @@ class TournamentService:
 
     async def get_current_week_tournament_for_player(
         self,
-        telegram_id: int,
+        actor_user_id: int,
         tournament_id: int,
         from_date: date | None = None,
     ) -> PlayerTournamentView:
         async with self.session_factory() as session:
             try:
-                player = await access_policy.require_active_user_by_telegram_id(
-                    session, telegram_id
-                )
+                player = await access_policy.require_active_user(session, actor_user_id)
             except ActiveUserRequiredError as exc:
                 raise TournamentScheduleNotAllowedError from exc
 
@@ -203,14 +197,12 @@ class TournamentService:
 
     async def get_current_week_registrations_for_player(
         self,
-        telegram_id: int,
+        actor_user_id: int,
         from_date: date | None = None,
     ) -> list[PlayerTournamentView]:
         async with self.session_factory() as session:
             try:
-                player = await access_policy.require_active_user_by_telegram_id(
-                    session, telegram_id
-                )
+                player = await access_policy.require_active_user(session, actor_user_id)
             except ActiveUserRequiredError as exc:
                 raise TournamentRegistrationNotAllowedError from exc
             week_start, week_end = self._current_week_range(from_date)
@@ -225,7 +217,7 @@ class TournamentService:
 
     async def register_player_for_tournaments(
         self,
-        telegram_id: int,
+        actor_user_id: int,
         tournament_ids: list[int],
         from_date: date | None = None,
     ) -> list[TournamentView]:
@@ -235,9 +227,7 @@ class TournamentService:
 
         async with self.session_factory() as session:
             try:
-                player = await access_policy.require_active_user_by_telegram_id(
-                    session, telegram_id
-                )
+                player = await access_policy.require_active_user(session, actor_user_id)
             except ActiveUserRequiredError as exc:
                 raise TournamentRegistrationNotAllowedError from exc
 
@@ -275,7 +265,7 @@ class TournamentService:
 
     async def cancel_player_tournament_registrations(
         self,
-        telegram_id: int,
+        actor_user_id: int,
         tournament_ids: list[int],
         from_date: date | None = None,
     ) -> list[TournamentView]:
@@ -285,9 +275,7 @@ class TournamentService:
 
         async with self.session_factory() as session:
             try:
-                player = await access_policy.require_active_user_by_telegram_id(
-                    session, telegram_id
-                )
+                player = await access_policy.require_active_user(session, actor_user_id)
             except ActiveUserRequiredError as exc:
                 raise TournamentRegistrationNotAllowedError from exc
 

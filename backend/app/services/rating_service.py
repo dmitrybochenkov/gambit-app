@@ -56,7 +56,7 @@ class RatingService:
 
     async def get_rating_for_player(
         self,
-        telegram_id: int,
+        actor_user_id: int,
         kind: RatingKind,
         season_id: int | None = None,
         today: date | None = None,
@@ -64,9 +64,7 @@ class RatingService:
         business_date = today or self.clock.today()
         async with self.session_factory() as session:
             try:
-                player = await access_policy.require_active_user_by_telegram_id(
-                    session, telegram_id
-                )
+                player = await access_policy.require_active_user(session, actor_user_id)
             except ActiveUserRequiredError as exc:
                 raise RatingNotAllowedError from exc
             title, rows = await self._get_rating(
@@ -84,13 +82,13 @@ class RatingService:
 
     async def list_rating_seasons(
         self,
-        telegram_id: int,
+        actor_user_id: int,
         today: date | None = None,
     ) -> list[SeasonOptionView]:
         business_date = today or self.clock.today()
         async with self.session_factory() as session:
             try:
-                await access_policy.require_active_user_by_telegram_id(session, telegram_id)
+                await access_policy.require_active_user(session, actor_user_id)
             except ActiveUserRequiredError as exc:
                 raise RatingNotAllowedError from exc
             return await list_started_season_options(SeasonRepository(session), business_date)

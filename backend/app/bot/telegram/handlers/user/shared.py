@@ -7,6 +7,19 @@ from aiogram.types import CallbackQuery, Message
 from app.bot.telegram.keyboards.user import registration as user_registration_kb
 from app.bot.telegram.message_edit import edit_message_if_changed
 from app.bot.telegram.texts.user import registration as registration_text
+from app.services.access_policy import ActiveUserRequiredError
+from app.services.user_access_service import user_access_service
+
+
+async def resolve_actor_user_id(
+    telegram_id: int,
+    error_class: type[ValueError],
+) -> int:
+    try:
+        user = await user_access_service.require_active_user(telegram_id)
+    except ActiveUserRequiredError as exc:
+        raise error_class from exc
+    return user.id
 
 
 def clean_text(value: str) -> str:

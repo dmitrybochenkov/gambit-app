@@ -19,7 +19,7 @@ async def get_my_history(
     actor: Annotated[AuthenticatedActor, Depends(current_actor)],
 ) -> PlayerHistoryListResponse:
     try:
-        history = await user_statistics_service.list_player_history(actor.telegram_id)
+        history = await user_statistics_service.list_player_history(actor.user_id)
     except HistoryNotAllowedError as exc:
         raise errors.forbidden("History is unavailable") from exc
     return PlayerHistoryListResponse.from_views(history)
@@ -32,7 +32,7 @@ async def get_my_history_detail(
 ) -> PlayerHistoryDetailResponse:
     try:
         result = await user_statistics_service.get_player_history_tournament_result(
-            actor.telegram_id,
+            actor.user_id,
             tournament_id,
         )
     except HistoryNotAllowedError as exc:

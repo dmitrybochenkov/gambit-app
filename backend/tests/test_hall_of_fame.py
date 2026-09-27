@@ -110,7 +110,7 @@ async def test_hall_of_fame_uses_manual_entries_from_completed_seasons(
         clock=FixedClock(datetime(2026, 7, 1, 12, tzinfo=ZoneInfo("Europe/Moscow"))),
     )
     try:
-        seasons = await service.get_hall_of_fame(100)
+        seasons = await service.get_hall_of_fame(1)
 
         assert [season.season_name for season in seasons] == [
             "Открытый сезон",
@@ -162,7 +162,7 @@ async def test_hall_of_fame_ignores_mathematical_winners_without_manual_entry(
         clock=FixedClock(datetime(2026, 7, 1, 12, tzinfo=ZoneInfo("Europe/Moscow"))),
     )
     try:
-        assert await service.get_hall_of_fame(100) == []
+        assert await service.get_hall_of_fame(1) == []
     finally:
         await engine.dispose()
 

@@ -1097,14 +1097,15 @@ async def test_calendar_autofill_creates_unapproved_week_and_approval_opens_regi
     try:
         await seed_calendar_data(session_factory)
         async with session_factory() as session:
-            session.add(
-                build_player(
-                    telegram_id=200,
-                    display_name="Player",
-                    status=UserStatus.ACTIVE,
-                    role=UserRole.PLAYER,
-                )
+            player = build_player(
+                telegram_id=200,
+                display_name="Player",
+                status=UserStatus.ACTIVE,
+                role=UserRole.PLAYER,
             )
+            session.add(player)
+            await session.flush()
+            player_id = player.id
             await session.commit()
 
         preview = await service.create_calendar_autofill_week(
@@ -1123,7 +1124,7 @@ async def test_calendar_autofill_creates_unapproved_week_and_approval_opens_regi
         ]
         assert (
             await TournamentService(session_factory).get_registration_options_for_player(
-                200,
+                player_id,
                 from_date=date(2026, 8, 12),
             )
             == []
@@ -1144,7 +1145,7 @@ async def test_calendar_autofill_creates_unapproved_week_and_approval_opens_regi
             date(2026, 8, 16),
         ]
         options = await TournamentService(session_factory).get_registration_options_for_player(
-            200,
+            player_id,
             from_date=date(2026, 8, 12),
         )
         assert [item.date for item in options] == [

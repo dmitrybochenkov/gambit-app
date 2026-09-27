@@ -150,12 +150,12 @@ async def test_history_lists_only_periods_and_tournaments_with_results(
 
     service = UserStatisticsService(session_factory)
     try:
-        years = await service.list_history_years(100)
-        months = await service.list_history_months(100, 2026)
-        tournaments = await service.list_history_tournaments(100, 2026, 7)
+        years = await service.list_history_years(1)
+        months = await service.list_history_months(1, 2026)
+        tournaments = await service.list_history_tournaments(1, 2026, 7)
         with pytest.raises(HistoricalTournamentNotFoundError):
             await service.get_historical_tournament_result(
-                100,
+                1,
                 active_with_result_tournament.id,
             )
 
@@ -391,7 +391,7 @@ async def test_history_result_sorting_and_formatter(tmp_path: Path) -> None:
 
     service = UserStatisticsService(session_factory)
     try:
-        result = await service.get_historical_tournament_result(100, 1)
+        result = await service.get_historical_tournament_result(1, 1)
 
         assert [row.display_name for row in result.rows] == [
             "Борис",
@@ -504,11 +504,11 @@ async def test_history_chronological_order_and_legacy_display_names(tmp_path: Pa
 
     service = UserStatisticsService(session_factory)
     try:
-        years = await service.list_history_years(100)
-        months = await service.list_history_months(100, 2026)
-        tournaments = await service.list_history_tournaments(100, 2026, 1)
-        first_result = await service.get_historical_tournament_result(100, first.id)
-        second_result = await service.get_historical_tournament_result(100, second.id)
+        years = await service.list_history_years(1)
+        months = await service.list_history_months(1, 2026)
+        tournaments = await service.list_history_tournaments(1, 2026, 1)
+        first_result = await service.get_historical_tournament_result(1, first.id)
+        second_result = await service.get_historical_tournament_result(1, second.id)
 
         assert [item.year for item in years] == [2025, 2026]
         assert [(item.month, item.label) for item in months] == [(1, "Январь")]
@@ -574,7 +574,7 @@ async def test_history_tournament_list_uses_short_names_for_real_types(
 
     service = UserStatisticsService(session_factory)
     try:
-        history_tournaments = await service.list_history_tournaments(100, 2026, 1)
+        history_tournaments = await service.list_history_tournaments(1, 2026, 1)
 
         assert [item.display_name for item in history_tournaments] == [
             TOURNAMENT_TYPE_SHORT_NAMES[code] for code in type_codes
