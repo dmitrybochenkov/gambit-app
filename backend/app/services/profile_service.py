@@ -66,7 +66,7 @@ class ProfileService:
         business_date = today or self.clock.today()
         async with self.session_factory() as session:
             try:
-                user = await access_policy.require_active_user(session, telegram_id)
+                user = await access_policy.require_active_user_by_telegram_id(session, telegram_id)
             except ActiveUserRequiredError as exc:
                 raise ProfileNotAllowedError from exc
             return await self._get_profile(
@@ -90,7 +90,7 @@ class ProfileService:
         business_date = today or self.clock.today()
         async with self.session_factory() as session:
             try:
-                await access_policy.require_active_user(session, telegram_id)
+                await access_policy.require_active_user_by_telegram_id(session, telegram_id)
             except ActiveUserRequiredError as exc:
                 raise ProfileNotAllowedError from exc
             return await list_started_season_options(SeasonRepository(session), business_date)
@@ -105,7 +105,7 @@ class ProfileService:
         business_date = today or self.clock.today()
         async with self.session_factory() as session:
             try:
-                user = await access_policy.require_active_user(session, telegram_id)
+                user = await access_policy.require_active_user_by_telegram_id(session, telegram_id)
             except ActiveUserRequiredError as exc:
                 raise ProfileNotAllowedError from exc
             profile_repository = ProfileRepository(session)

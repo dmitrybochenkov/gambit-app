@@ -62,7 +62,7 @@ class TournamentCombinationService:
         tournament_id: int,
     ) -> TournamentCombinationsView:
         async with self.session_factory() as session:
-            actor = await access_policy.require_admin(session, admin_telegram_id)
+            actor = await access_policy.require_admin_by_telegram_id(session, admin_telegram_id)
             tournament = await self._require_editable_tournament_for_actor(
                 session,
                 tournament_id,
@@ -80,7 +80,7 @@ class TournamentCombinationService:
     ) -> TournamentCombinationsView:
         self._validate_rank(combination_type, rank)
         async with self.session_factory() as session:
-            actor = await access_policy.require_admin(session, admin_telegram_id)
+            actor = await access_policy.require_admin_by_telegram_id(session, admin_telegram_id)
             tournament = await self._require_editable_tournament_for_actor(
                 session,
                 tournament_id,
@@ -112,7 +112,7 @@ class TournamentCombinationService:
         combination_id: int,
     ) -> TournamentCombinationsView:
         async with self.session_factory() as session:
-            actor = await access_policy.require_admin(session, admin_telegram_id)
+            actor = await access_policy.require_admin_by_telegram_id(session, admin_telegram_id)
             tournament = await self._require_editable_tournament_for_actor(
                 session,
                 tournament_id,

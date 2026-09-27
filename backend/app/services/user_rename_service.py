@@ -31,7 +31,7 @@ class UserRenameService:
 
     async def require_rename_access(self, superadmin_telegram_id: int) -> None:
         async with self.session_factory() as session:
-            await access_policy.require_superadmin(session, superadmin_telegram_id)
+            await access_policy.require_superadmin_by_telegram_id(session, superadmin_telegram_id)
 
     async def search_users_for_rename(
         self,
@@ -39,7 +39,7 @@ class UserRenameService:
         query: str,
     ) -> list[UserView]:
         async with self.session_factory() as session:
-            await access_policy.require_superadmin(session, superadmin_telegram_id)
+            await access_policy.require_superadmin_by_telegram_id(session, superadmin_telegram_id)
             repository = UserRepository(session)
             candidates = rank_player_candidates(
                 await repository.list_all_for_management(),
@@ -54,7 +54,7 @@ class UserRenameService:
         user_id: int,
     ) -> UserView:
         async with self.session_factory() as session:
-            await access_policy.require_superadmin(session, superadmin_telegram_id)
+            await access_policy.require_superadmin_by_telegram_id(session, superadmin_telegram_id)
             user = await UserRepository(session).get_by_id(user_id)
             if user is None:
                 raise UserNotFoundError
@@ -67,7 +67,7 @@ class UserRenameService:
         gender: UserGender | None,
     ) -> UserView:
         async with self.session_factory() as session:
-            await access_policy.require_admin(session, actor_telegram_id)
+            await access_policy.require_admin_by_telegram_id(session, actor_telegram_id)
             repository = UserRepository(session)
             target = await repository.get_by_id(target_user_id)
             if target is None:
@@ -84,7 +84,7 @@ class UserRenameService:
         gender: UserGender | None,
     ) -> UserView:
         async with self.session_factory() as session:
-            await access_policy.require_superadmin(session, superadmin_telegram_id)
+            await access_policy.require_superadmin_by_telegram_id(session, superadmin_telegram_id)
             repository = UserRepository(session)
             target = await repository.get_by_id(target_user_id)
             if target is None:
@@ -101,7 +101,7 @@ class UserRenameService:
         display_name: str,
     ) -> str:
         async with self.session_factory() as session:
-            await access_policy.require_superadmin(session, superadmin_telegram_id)
+            await access_policy.require_superadmin_by_telegram_id(session, superadmin_telegram_id)
             repository = UserRepository(session)
             target = await repository.get_by_id(target_user_id)
             if target is None:
@@ -120,7 +120,7 @@ class UserRenameService:
         expected_old_display_name: str,
     ) -> UserView:
         async with self.session_factory() as session:
-            await access_policy.require_superadmin(session, superadmin_telegram_id)
+            await access_policy.require_superadmin_by_telegram_id(session, superadmin_telegram_id)
             repository = UserRepository(session)
             target = await repository.get_by_id(target_user_id)
             if target is None:

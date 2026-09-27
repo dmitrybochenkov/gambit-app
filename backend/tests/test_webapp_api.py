@@ -133,11 +133,15 @@ def test_webapp_init_data_verifier_rejects_malformed_auth_date() -> None:
         verifier().verify(raw)
 
 
-async def get_me(raw_init_data: str | None = None) -> tuple[int, dict]:
+async def get_me(
+    raw_init_data: str | None = None,
+    *,
+    params: dict[str, int] | None = None,
+) -> tuple[int, dict]:
     transport = ASGITransport(app=app)
     headers = {"Authorization": f"tma {raw_init_data}"} if raw_init_data is not None else {}
     async with AsyncClient(transport=transport, base_url="http://test") as client:
-        response = await client.get("/api/v1/me", headers=headers)
+        response = await client.get("/api/v1/me", headers=headers, params=params)
     return response.status_code, response.json()
 
 
@@ -244,6 +248,29 @@ async def test_me_returns_active_user_payload_for_all_roles(
     }
     assert "display_name_normalized" not in body
     assert "telegram_id" not in body
+
+
+async def test_current_actor_keeps_internal_id_distinct_from_telegram_identity(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    service = SimpleNamespace(
+        get_by_telegram_id=AsyncMock(
+            return_value=user_view(user_id=42, telegram_id=123),
+        )
+    )
+    monkeypatch.setattr(dependencies, "user_access_service", service)
+    monkeypatch.setattr(dependencies.settings, "telegram_bot_token", TEST_BOT_TOKEN)
+    monkeypatch.setattr(dependencies.settings, "telegram_webapp_auth_max_age_seconds", 60)
+
+    status_code, body = await get_me(
+        signed_init_data(telegram_id=123, auth_date=datetime.now(UTC)),
+        params={"actor_user_id": 999},
+    )
+
+    assert status_code == 200
+    assert body["id"] == 42
+    assert body["id"] != 123
+    service.get_by_telegram_id.assert_awaited_once_with(123)
 
 
 async def test_me_appears_in_openapi() -> None:

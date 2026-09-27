@@ -75,7 +75,7 @@ class ClosedTournamentCorrectionService:
         superadmin_telegram_id: int,
     ) -> list[TournamentView]:
         async with self.session_factory() as session:
-            await access_policy.require_superadmin(session, superadmin_telegram_id)
+            await access_policy.require_superadmin_by_telegram_id(session, superadmin_telegram_id)
             tournaments = await TournamentRepository(session).list_closed()
             return [tournament_view(tournament) for tournament in tournaments]
 
@@ -85,7 +85,7 @@ class ClosedTournamentCorrectionService:
         tournament_id: int,
     ) -> TournamentResultsView:
         async with self.session_factory() as session:
-            await access_policy.require_superadmin(session, superadmin_telegram_id)
+            await access_policy.require_superadmin_by_telegram_id(session, superadmin_telegram_id)
             tournament = await self._require_closed_tournament(session, tournament_id)
             return await self._stored_results_view(session, tournament)
 
@@ -118,7 +118,7 @@ class ClosedTournamentCorrectionService:
         draft: ClosedTournamentCorrectionDraftView,
     ) -> TournamentResultsView:
         async with self.session_factory() as session:
-            await access_policy.require_superadmin(session, superadmin_telegram_id)
+            await access_policy.require_superadmin_by_telegram_id(session, superadmin_telegram_id)
             tournament = await self._require_closed_tournament(session, draft.tournament_id)
             return await self._results_view_from_snapshot(
                 session,
@@ -136,7 +136,7 @@ class ClosedTournamentCorrectionService:
         value: int,
     ) -> ClosedTournamentCorrectionDraftView:
         async with self.session_factory() as session:
-            await access_policy.require_superadmin(session, superadmin_telegram_id)
+            await access_policy.require_superadmin_by_telegram_id(session, superadmin_telegram_id)
             tournament = await self._require_closed_tournament(session, draft.tournament_id)
             await self._validate_draft_current(session, tournament, draft)
             proposed = list(draft.proposed_results)
@@ -177,7 +177,7 @@ class ClosedTournamentCorrectionService:
         new_player_id: int,
     ) -> ClosedTournamentCorrectionDraftView:
         async with self.session_factory() as session:
-            await access_policy.require_superadmin(session, superadmin_telegram_id)
+            await access_policy.require_superadmin_by_telegram_id(session, superadmin_telegram_id)
             tournament = await self._require_closed_tournament(session, draft.tournament_id)
             await self._validate_draft_current(session, tournament, draft)
             proposed = list(draft.proposed_results)
@@ -211,7 +211,7 @@ class ClosedTournamentCorrectionService:
     ) -> ClosedTournamentCorrectionDraftView:
         fund = ResultService.validate_tournament_fund(tournament_fund)
         async with self.session_factory() as session:
-            await access_policy.require_superadmin(session, superadmin_telegram_id)
+            await access_policy.require_superadmin_by_telegram_id(session, superadmin_telegram_id)
             tournament = await self._require_closed_tournament(session, draft.tournament_id)
             await self._validate_draft_current(session, tournament, draft)
             return replace(draft, proposed_tournament_fund=fund)
@@ -223,7 +223,7 @@ class ClosedTournamentCorrectionService:
         query: str,
     ) -> list[UserView]:
         async with self.session_factory() as session:
-            await access_policy.require_superadmin(session, superadmin_telegram_id)
+            await access_policy.require_superadmin_by_telegram_id(session, superadmin_telegram_id)
             tournament = await self._require_closed_tournament(session, draft.tournament_id)
             await self._validate_draft_current(session, tournament, draft)
             existing_player_ids = {item.player_id for item in draft.proposed_results}
@@ -244,7 +244,7 @@ class ClosedTournamentCorrectionService:
         user_id: int,
     ) -> ClosedTournamentCorrectionDraftView:
         async with self.session_factory() as session:
-            await access_policy.require_superadmin(session, superadmin_telegram_id)
+            await access_policy.require_superadmin_by_telegram_id(session, superadmin_telegram_id)
             tournament = await self._require_closed_tournament(session, draft.tournament_id)
             await self._validate_draft_current(session, tournament, draft)
             if any(item.player_id == user_id for item in draft.proposed_results):
@@ -275,7 +275,7 @@ class ClosedTournamentCorrectionService:
         user_id: int,
     ) -> tuple[TournamentResultsView, UserView]:
         async with self.session_factory() as session:
-            await access_policy.require_superadmin(session, superadmin_telegram_id)
+            await access_policy.require_superadmin_by_telegram_id(session, superadmin_telegram_id)
             tournament = await self._require_closed_tournament(session, draft.tournament_id)
             await self._validate_draft_current(session, tournament, draft)
             if any(item.player_id == user_id for item in draft.proposed_results):
@@ -300,7 +300,7 @@ class ClosedTournamentCorrectionService:
         player_id: int,
     ) -> ClosedTournamentCorrectionDraftView:
         async with self.session_factory() as session:
-            await access_policy.require_superadmin(session, superadmin_telegram_id)
+            await access_policy.require_superadmin_by_telegram_id(session, superadmin_telegram_id)
             tournament = await self._require_closed_tournament(session, draft.tournament_id)
             await self._validate_draft_current(session, tournament, draft)
             if not any(item.player_id == player_id for item in draft.proposed_results):
@@ -320,7 +320,7 @@ class ClosedTournamentCorrectionService:
         query: str,
     ) -> list[UserView]:
         async with self.session_factory() as session:
-            await access_policy.require_superadmin(session, superadmin_telegram_id)
+            await access_policy.require_superadmin_by_telegram_id(session, superadmin_telegram_id)
             tournament = await self._require_closed_tournament(session, draft.tournament_id)
             await self._validate_draft_current(session, tournament, draft)
             if not any(item.player_id == current_player_id for item in draft.proposed_results):
@@ -344,7 +344,7 @@ class ClosedTournamentCorrectionService:
         new_player_id: int,
     ) -> tuple[TournamentResultsView, TournamentResultPlayerView, UserView]:
         async with self.session_factory() as session:
-            await access_policy.require_superadmin(session, superadmin_telegram_id)
+            await access_policy.require_superadmin_by_telegram_id(session, superadmin_telegram_id)
             tournament = await self._require_closed_tournament(session, draft.tournament_id)
             await self._validate_draft_current(session, tournament, draft)
             results = await self._results_view_from_snapshot(
@@ -368,7 +368,7 @@ class ClosedTournamentCorrectionService:
         draft: ClosedTournamentCorrectionDraftView,
     ) -> ClosedTournamentCorrectionResultView:
         async with self.session_factory() as session:
-            await access_policy.require_superadmin(session, superadmin_telegram_id)
+            await access_policy.require_superadmin_by_telegram_id(session, superadmin_telegram_id)
             tournament = await self._require_closed_tournament(session, draft.tournament_id)
             await self._validate_draft_current(session, tournament, draft)
             draft = await self._validate_and_canonicalize_proposed_draft(
@@ -433,7 +433,9 @@ class ClosedTournamentCorrectionService:
     ) -> ClosedTournamentCorrectionResultView:
         async with self.session_factory() as session:
             try:
-                superadmin = await access_policy.require_superadmin(session, superadmin_telegram_id)
+                superadmin = await access_policy.require_superadmin_by_telegram_id(
+                    session, superadmin_telegram_id
+                )
                 tournament = await self._require_closed_tournament(session, draft.tournament_id)
                 await self._validate_draft_current(session, tournament, draft)
                 draft = await self._validate_and_canonicalize_proposed_draft(

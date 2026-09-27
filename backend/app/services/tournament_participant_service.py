@@ -82,7 +82,7 @@ class TournamentParticipantService:
         query: str,
     ) -> list[UserView]:
         async with self.session_factory() as session:
-            actor = await access_policy.require_admin(session, admin_telegram_id)
+            actor = await access_policy.require_admin_by_telegram_id(session, admin_telegram_id)
             tournament = await self._require_editable_tournament_for_actor(
                 session,
                 tournament_id,
@@ -108,7 +108,7 @@ class TournamentParticipantService:
         user_id: int,
     ) -> tuple[TournamentView, UserView]:
         async with self.session_factory() as session:
-            actor = await access_policy.require_admin(session, admin_telegram_id)
+            actor = await access_policy.require_admin_by_telegram_id(session, admin_telegram_id)
             tournament = await self._require_editable_tournament_for_actor(
                 session,
                 tournament_id,
@@ -127,7 +127,7 @@ class TournamentParticipantService:
     ) -> tuple[TournamentView, str]:
         normalized = validate_display_name(display_name)
         async with self.session_factory() as session:
-            actor = await access_policy.require_admin(session, admin_telegram_id)
+            actor = await access_policy.require_admin_by_telegram_id(session, admin_telegram_id)
             tournament = await self._require_editable_tournament_for_actor(
                 session,
                 tournament_id,
@@ -147,7 +147,7 @@ class TournamentParticipantService:
         user_id: int,
     ) -> TournamentResultsView:
         async with self.session_factory() as session:
-            admin = await access_policy.require_admin(session, admin_telegram_id)
+            admin = await access_policy.require_admin_by_telegram_id(session, admin_telegram_id)
             tournament = await self._require_editable_tournament_for_actor(
                 session,
                 tournament_id,
@@ -176,7 +176,7 @@ class TournamentParticipantService:
     ) -> TournamentResultsView:
         normalized = validate_display_name(display_name)
         async with self.session_factory() as session:
-            admin = await access_policy.require_admin(session, admin_telegram_id)
+            admin = await access_policy.require_admin_by_telegram_id(session, admin_telegram_id)
             tournament = await self._require_editable_tournament_for_actor(
                 session,
                 tournament_id,
@@ -211,7 +211,7 @@ class TournamentParticipantService:
         player_id: int,
     ) -> OpenTournamentPlayerDeletePreviewView:
         async with self.session_factory() as session:
-            await access_policy.require_superadmin(session, superadmin_telegram_id)
+            await access_policy.require_superadmin_by_telegram_id(session, superadmin_telegram_id)
             tournament = await self._require_closeable_tournament(session, tournament_id)
             player = await self._require_tournament_result_player(
                 session,
@@ -238,7 +238,7 @@ class TournamentParticipantService:
         page_size: int = OPEN_TOURNAMENT_DELETE_PLAYER_PAGE_SIZE,
     ) -> Page[TournamentResultPlayerView]:
         async with self.session_factory() as session:
-            await access_policy.require_superadmin(session, superadmin_telegram_id)
+            await access_policy.require_superadmin_by_telegram_id(session, superadmin_telegram_id)
             tournament = await self._require_closeable_tournament(session, tournament_id)
             results = await self._results_view(session, tournament.id)
             return pagination_service.paginate(results.players, page=page, page_size=page_size)
@@ -251,7 +251,9 @@ class TournamentParticipantService:
     ) -> OpenTournamentPlayerDeleteResultView:
         async with self.session_factory() as session:
             try:
-                await access_policy.require_superadmin(session, superadmin_telegram_id)
+                await access_policy.require_superadmin_by_telegram_id(
+                    session, superadmin_telegram_id
+                )
                 tournament = await self._require_closeable_tournament(session, tournament_id)
                 player = await self._require_tournament_result_player(
                     session,

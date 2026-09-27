@@ -207,7 +207,7 @@ class UserStatisticsService:
         error_class: type[ValueError],
     ) -> User:
         try:
-            return await access_policy.require_active_user(session, telegram_id)
+            return await access_policy.require_active_user_by_telegram_id(session, telegram_id)
         except ActiveUserRequiredError as exc:
             raise error_class from exc
 

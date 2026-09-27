@@ -85,10 +85,18 @@ outbox or retry guarantee.
 
 ## Authorization
 
-Every public administrative service method must receive `actor_telegram_id` and
-call `AccessPolicy.require_admin()` or `AccessPolicy.require_superadmin()`
-inside the service. Telegram handlers may hide buttons for UX, but the service
-check is authoritative.
+Canonical authorization uses internal `users.id`: the neutral
+`AccessPolicy.require_active_user()`, `require_admin()`, and
+`require_superadmin()` methods accept `actor_user_id`. Existing public service
+methods that still receive `actor_telegram_id` must call the explicitly named
+`*_by_telegram_id()` compatibility methods inside the service. Telegram
+handlers may hide buttons for UX, but the service check is authoritative.
+
+The compatibility methods are temporary migration boundaries. New
+transport-neutral application contracts must use internal actor IDs; Telegram
+IDs remain valid for authentication, delivery, onboarding, and identity
+mapping. This foundation does not introduce actor middleware or complete the
+remaining service-signature migration.
 
 ## Clock And Tournament Day
 
@@ -343,10 +351,10 @@ targeted tests, then run the agreed final tier once.
 - `ResultService` remains responsible for normal result editing and tournament
   close orchestration. Shared validation and point calculations are explicit
   public result contracts, while service-specific view assembly remains private.
-- Public application-service interfaces identify actors primarily by
-  `telegram_id`. This is the current authorization contract and keeps trusted
-  identity resolution inside services, but it also couples application
-  use-cases to the Telegram identity namespace as HTTP/WebApp grows.
+- Existing public application-service interfaces still identify actors
+  primarily by `telegram_id` and use explicit `AccessPolicy.*_by_telegram_id()`
+  compatibility methods. Canonical policy methods now use internal `users.id`;
+  migrating service signatures remains deliberate follow-up work.
 - `UserRepository` currently contains query and persistence primitives only;
   the audited tree has no commit-owning compatibility methods. User/admin HTTP
   commands must continue through `UserRenameService`, `AdminManagementService`,

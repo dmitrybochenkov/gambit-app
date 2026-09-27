@@ -23,7 +23,7 @@ class AdminManagementService:
 
     async def require_add_admin_access(self, superadmin_telegram_id: int) -> None:
         async with self.session_factory() as session:
-            await access_policy.require_superadmin(session, superadmin_telegram_id)
+            await access_policy.require_superadmin_by_telegram_id(session, superadmin_telegram_id)
 
     async def search_admin_candidates_for_superadmin(
         self,
@@ -32,7 +32,7 @@ class AdminManagementService:
     ) -> list[UserView]:
         async with self.session_factory() as session:
             repository = UserRepository(session)
-            await access_policy.require_superadmin(session, superadmin_telegram_id)
+            await access_policy.require_superadmin_by_telegram_id(session, superadmin_telegram_id)
             candidates = rank_player_candidates(
                 await repository.list_admin_candidates(),
                 query,
@@ -47,7 +47,7 @@ class AdminManagementService:
     ) -> UserView:
         async with self.session_factory() as session:
             repository = UserRepository(session)
-            await access_policy.require_superadmin(session, superadmin_telegram_id)
+            await access_policy.require_superadmin_by_telegram_id(session, superadmin_telegram_id)
             user = await repository.get_by_id(user_id)
             if user is None:
                 raise UserNotFoundError

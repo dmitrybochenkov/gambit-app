@@ -72,7 +72,7 @@ class TournamentPublicationService:
         tournament_id: int,
     ) -> TournamentResultPublicationView:
         async with self.session_factory() as session:
-            await access_policy.require_superadmin(session, superadmin_telegram_id)
+            await access_policy.require_superadmin_by_telegram_id(session, superadmin_telegram_id)
             tournament = await TournamentRepository(session).get_by_id(tournament_id)
             if tournament is None:
                 raise ResultTournamentNotFoundError
@@ -92,7 +92,7 @@ class TournamentPublicationService:
         tournament_id: int,
     ) -> TournamentResultPublicationView:
         async with self.session_factory() as session:
-            await access_policy.require_superadmin(session, superadmin_telegram_id)
+            await access_policy.require_superadmin_by_telegram_id(session, superadmin_telegram_id)
             tournament = await TournamentRepository(session).get_by_id(tournament_id)
             if tournament is None:
                 raise ResultTournamentNotFoundError
@@ -117,7 +117,7 @@ class TournamentPublicationService:
         )
 
         async with self.session_factory() as session:
-            await access_policy.require_superadmin(session, superadmin_telegram_id)
+            await access_policy.require_superadmin_by_telegram_id(session, superadmin_telegram_id)
             tournament = await TournamentRepository(session).get_by_id(tournament_id)
             if tournament is None:
                 raise ResultTournamentNotFoundError
@@ -135,7 +135,7 @@ class TournamentPublicationService:
         superadmin_telegram_id: int,
     ) -> SchedulePublicationView:
         async with self.session_factory() as session:
-            await access_policy.require_superadmin(session, superadmin_telegram_id)
+            await access_policy.require_superadmin_by_telegram_id(session, superadmin_telegram_id)
             destinations = self._destinations()
             if not destinations:
                 raise TournamentPublicationNoDestinationsError
@@ -178,7 +178,9 @@ class TournamentPublicationService:
         telegram_message_id: int | None,
     ) -> None:
         async with self.session_factory() as session:
-            actor = await access_policy.require_superadmin(session, superadmin_telegram_id)
+            actor = await access_policy.require_superadmin_by_telegram_id(
+                session, superadmin_telegram_id
+            )
             try:
                 await TournamentPublicationRepository(session).add(
                     tournament_id=tournament_id,

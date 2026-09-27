@@ -36,7 +36,8 @@ HTTP router/dependency
 - Exposes versioned routes under `/api/v1`.
 - Authenticates Telegram Mini App requests by verifying signed initData from
   `Authorization: tma <raw_init_data>`.
-- Resolves the trusted Telegram identity through application services.
+- Resolves the trusted Telegram identity to the canonical internal `User.id`
+  through application services. `telegram_id` remains transport metadata.
 - Returns API schemas, not ORM models.
 - Does not import repositories or ORM models directly.
 
@@ -93,6 +94,12 @@ do not own Telegram rendering, recipient policy, or delivery orchestration.
 Every public administrative service use-case checks the actor inside the
 service through `AccessPolicy`. Telegram handlers may hide buttons for UX, but
 service-level authorization is authoritative.
+
+The canonical `AccessPolicy.require_active_user()`, `require_admin()`, and
+`require_superadmin()` methods accept internal `users.id`. Explicit
+`*_by_telegram_id()` compatibility methods preserve existing Telegram-facing
+service contracts while those use-cases are migrated incrementally. This is a
+temporary application boundary, not a second canonical actor namespace.
 
 ## Clock
 
@@ -262,9 +269,9 @@ Authorization: tma <raw Telegram WebApp initData>
 
 The backend verifies the Telegram signature server-side using the configured
 bot token, checks `auth_date` against
-`TELEGRAM_WEBAPP_AUTH_MAX_AGE_SECONDS`, and extracts the trusted Telegram user
-id only after signature validation. The API never trusts identity or role from
-request bodies, query parameters, or frontend state.
+`TELEGRAM_WEBAPP_AUTH_MAX_AGE_SECONDS`, and resolves the signed Telegram user
+id to a canonical internal `User.id`. The API never trusts identity or role
+from request bodies, query parameters, or frontend state.
 
 Current `/me` response contains only bootstrap-safe fields: internal user id,
 display name, role, gender, and active status. It intentionally omits

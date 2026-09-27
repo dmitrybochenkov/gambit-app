@@ -144,7 +144,7 @@ class PlayerRewardService:
     ) -> tuple[PlayerRewardView, ...]:
         business_date = self._tournament_day()
         async with self.session_factory() as session:
-            actor = await access_policy.require_admin(session, admin_telegram_id)
+            actor = await access_policy.require_admin_by_telegram_id(session, admin_telegram_id)
             tournament = await TournamentRepository(session).get_by_id(tournament_id)
             if tournament is None or not can_edit_open_tournament_for_actor(
                 actor_role=actor.role,
@@ -172,7 +172,7 @@ class PlayerRewardService:
     ) -> PlayerRewardView:
         business_date = self._tournament_day()
         async with self.session_factory() as session:
-            await access_policy.require_admin(session, admin_telegram_id)
+            await access_policy.require_admin_by_telegram_id(session, admin_telegram_id)
             reward = await PlayerRewardRepository(session).get_active_for_player(
                 reward_id=reward_id,
                 player_id=player_id,
@@ -195,7 +195,7 @@ class PlayerRewardService:
     ) -> PlayerRewardView:
         business_date = self._tournament_day()
         async with self.session_factory() as session:
-            admin = await access_policy.require_admin(session, admin_telegram_id)
+            admin = await access_policy.require_admin_by_telegram_id(session, admin_telegram_id)
             tournament = await TournamentRepository(session).get_by_id(tournament_id)
             if tournament is None or not can_edit_open_tournament_for_actor(
                 actor_role=admin.role,

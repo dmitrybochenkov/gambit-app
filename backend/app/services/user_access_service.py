@@ -39,12 +39,12 @@ class UserAccessService:
 
     async def require_active_user(self, telegram_id: int) -> UserView:
         async with self.session_factory() as session:
-            user = await access_policy.require_active_user(session, telegram_id)
+            user = await access_policy.require_active_user_by_telegram_id(session, telegram_id)
             return required_user_view(user)
 
     async def require_superadmin(self, telegram_id: int) -> UserView:
         async with self.session_factory() as session:
-            user = await access_policy.require_superadmin(session, telegram_id)
+            user = await access_policy.require_superadmin_by_telegram_id(session, telegram_id)
             return required_user_view(user)
 
     async def get_superadmin_panel_for_superadmin(
@@ -52,7 +52,9 @@ class UserAccessService:
         superadmin_telegram_id: int,
     ) -> AdminPanelView:
         async with self.session_factory() as session:
-            superadmin = await access_policy.require_superadmin(session, superadmin_telegram_id)
+            superadmin = await access_policy.require_superadmin_by_telegram_id(
+                session, superadmin_telegram_id
+            )
             return AdminPanelView(admin=required_user_view(superadmin), reviews=[])
 
     async def get_admin_panel_for_admin(
@@ -60,7 +62,7 @@ class UserAccessService:
         admin_telegram_id: int,
     ) -> AdminPanelView:
         async with self.session_factory() as session:
-            admin = await access_policy.require_admin(session, admin_telegram_id)
+            admin = await access_policy.require_admin_by_telegram_id(session, admin_telegram_id)
             return AdminPanelView(
                 admin=required_user_view(admin),
                 reviews=[],

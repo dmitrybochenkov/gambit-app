@@ -8,6 +8,14 @@ SESSION_QUERY_METHODS = {"execute", "scalar", "scalars"}
 SESSION_PERSISTENCE_METHODS = {"add", "delete"}
 
 
+def _method_calls(method: ast.FunctionDef | ast.AsyncFunctionDef) -> set[str]:
+    return {
+        node.func.attr
+        for node in ast.walk(method)
+        if isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute)
+    }
+
+
 def test_services_do_not_build_sqlalchemy_queries_directly() -> None:
     violations: list[str] = []
     for path in sorted(SERVICES_DIR.rglob("*.py")):
@@ -40,6 +48,49 @@ def test_services_do_not_use_dunder_dict_as_dto_mapping() -> None:
                 violations.append(f"{path.relative_to(SERVICES_DIR.parent)} uses .__dict__")
 
     assert violations == []
+
+
+def test_access_policy_keeps_internal_and_telegram_identity_namespaces_explicit() -> None:
+    policy_path = SERVICES_DIR / "access_policy.py"
+    tree = ast.parse(policy_path.read_text(), filename=str(policy_path))
+    policy_class = next(
+        node for node in tree.body if isinstance(node, ast.ClassDef) and node.name == "AccessPolicy"
+    )
+    methods = {
+        node.name: node
+        for node in policy_class.body
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
+    }
+
+    assert "get_by_id" in _method_calls(methods["require_active_user"])
+    for method_name in ("require_active_user", "require_admin", "require_superadmin"):
+        assert "get_by_telegram_id" not in _method_calls(methods[method_name])
+    for method_name in (
+        "require_active_user_by_telegram_id",
+        "require_admin_by_telegram_id",
+        "require_superadmin_by_telegram_id",
+    ):
+        assert method_name in methods
+    for method_name, method in methods.items():
+        if not method_name.startswith("_") and "get_by_telegram_id" in _method_calls(method):
+            assert method_name.endswith("_by_telegram_id")
+
+    ambiguous_callers: list[str] = []
+    for path in sorted(SERVICES_DIR.glob("*.py")):
+        if path == policy_path:
+            continue
+        caller_tree = ast.parse(path.read_text(), filename=str(path))
+        for node in ast.walk(caller_tree):
+            if (
+                isinstance(node, ast.Call)
+                and isinstance(node.func, ast.Attribute)
+                and isinstance(node.func.value, ast.Name)
+                and node.func.value.id == "access_policy"
+                and node.func.attr in {"require_active_user", "require_admin", "require_superadmin"}
+            ):
+                ambiguous_callers.append(f"{path.name}:{node.lineno} {node.func.attr}")
+
+    assert ambiguous_callers == []
 
 
 def test_result_service_does_not_own_photo_or_combination_repositories() -> None:

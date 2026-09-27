@@ -28,7 +28,7 @@ class TournamentScheduleService:
         plan: WeeklyTournamentPlan,
     ) -> WeeklyScheduleView:
         async with self.session_factory() as session:
-            await access_policy.require_superadmin(session, actor_telegram_id)
+            await access_policy.require_superadmin_by_telegram_id(session, actor_telegram_id)
             return await self._created_weekly_schedule_view(session, plan)
 
     async def _created_weekly_schedule_view(

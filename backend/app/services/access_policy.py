@@ -17,30 +17,60 @@ class AccessPolicy:
     async def require_active_user(
         self,
         session: AsyncSession,
-        telegram_id: int,
+        actor_user_id: int,
     ) -> User:
-        user = await UserRepository(session).get_by_telegram_id(telegram_id)
-        if user is None or user.status != UserStatus.ACTIVE:
-            raise ActiveUserRequiredError
-        return user
+        user = await UserRepository(session).get_by_id(actor_user_id)
+        return self._require_active(user)
 
     async def require_admin(
         self,
         session: AsyncSession,
-        telegram_id: int,
+        actor_user_id: int,
     ) -> User:
-        user = await self.require_active_user(session, telegram_id)
-        if user.role not in {UserRole.ADMIN, UserRole.SUPERADMIN}:
-            raise AdminAccessDeniedError
-        return user
+        user = await self.require_active_user(session, actor_user_id)
+        return self._require_role(user, {UserRole.ADMIN, UserRole.SUPERADMIN})
 
     async def require_superadmin(
         self,
         session: AsyncSession,
+        actor_user_id: int,
+    ) -> User:
+        user = await self.require_active_user(session, actor_user_id)
+        return self._require_role(user, {UserRole.SUPERADMIN})
+
+    async def require_active_user_by_telegram_id(
+        self,
+        session: AsyncSession,
         telegram_id: int,
     ) -> User:
-        user = await self.require_active_user(session, telegram_id)
-        if user.role != UserRole.SUPERADMIN:
+        user = await UserRepository(session).get_by_telegram_id(telegram_id)
+        return self._require_active(user)
+
+    async def require_admin_by_telegram_id(
+        self,
+        session: AsyncSession,
+        telegram_id: int,
+    ) -> User:
+        user = await self.require_active_user_by_telegram_id(session, telegram_id)
+        return self._require_role(user, {UserRole.ADMIN, UserRole.SUPERADMIN})
+
+    async def require_superadmin_by_telegram_id(
+        self,
+        session: AsyncSession,
+        telegram_id: int,
+    ) -> User:
+        user = await self.require_active_user_by_telegram_id(session, telegram_id)
+        return self._require_role(user, {UserRole.SUPERADMIN})
+
+    @staticmethod
+    def _require_active(user: User | None) -> User:
+        if user is None or user.status != UserStatus.ACTIVE:
+            raise ActiveUserRequiredError
+        return user
+
+    @staticmethod
+    def _require_role(user: User, allowed_roles: set[UserRole]) -> User:
+        if user.role not in allowed_roles:
             raise AdminAccessDeniedError
         return user
 

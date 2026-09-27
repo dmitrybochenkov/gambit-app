@@ -37,7 +37,7 @@ class TournamentPhotoService:
         tournament_id: int,
     ) -> list[TournamentPhotoView]:
         async with self.session_factory() as session:
-            actor = await access_policy.require_admin(session, admin_telegram_id)
+            actor = await access_policy.require_admin_by_telegram_id(session, admin_telegram_id)
             await self._require_editable_tournament_for_actor(
                 session,
                 tournament_id,
@@ -51,7 +51,7 @@ class TournamentPhotoService:
         tournament_id: int,
     ) -> int:
         async with self.session_factory() as session:
-            actor = await access_policy.require_admin(session, admin_telegram_id)
+            actor = await access_policy.require_admin_by_telegram_id(session, admin_telegram_id)
             await self._require_editable_tournament_for_actor(
                 session,
                 tournament_id,
@@ -68,7 +68,7 @@ class TournamentPhotoService:
         telegram_file_unique_id: str,
     ) -> TournamentPhotoAddView:
         async with self.session_factory() as session:
-            admin = await access_policy.require_admin(session, admin_telegram_id)
+            admin = await access_policy.require_admin_by_telegram_id(session, admin_telegram_id)
             tournament = await self._require_editable_tournament_for_actor(
                 session,
                 tournament_id,
@@ -112,7 +112,7 @@ class TournamentPhotoService:
         tournament_id: int,
     ) -> int:
         async with self.session_factory() as session:
-            actor = await access_policy.require_admin(session, admin_telegram_id)
+            actor = await access_policy.require_admin_by_telegram_id(session, admin_telegram_id)
             tournament = await self._require_editable_tournament_for_actor(
                 session,
                 tournament_id,
