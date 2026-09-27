@@ -73,17 +73,7 @@ async def test_neutral_policy_uses_internal_user_id_namespace(access_policy_data
     assert admin.telegram_id == 303
 
 
-async def test_telegram_compatibility_policy_uses_telegram_id_namespace(
-    access_policy_data,
-) -> None:
-    async with access_policy_data() as session:
-        player = await AccessPolicy().require_active_user_by_telegram_id(session, 202)
-
-    assert player.id == 101
-    assert player.telegram_id == 202
-
-
-async def test_neutral_and_telegram_role_checks_share_existing_semantics(
+async def test_internal_role_checks_preserve_existing_semantics(
     access_policy_data,
 ) -> None:
     policy = AccessPolicy()
@@ -91,15 +81,10 @@ async def test_neutral_and_telegram_role_checks_share_existing_semantics(
         assert (await policy.require_admin(session, 202)).role == UserRole.ADMIN
         assert (await policy.require_admin(session, 303)).role == UserRole.SUPERADMIN
         assert (await policy.require_superadmin(session, 303)).role == UserRole.SUPERADMIN
-        assert (await policy.require_admin_by_telegram_id(session, 303)).role == UserRole.ADMIN
-        assert (
-            await policy.require_superadmin_by_telegram_id(session, 404)
-        ).role == UserRole.SUPERADMIN
-
         with pytest.raises(AdminAccessDeniedError):
             await policy.require_admin(session, 101)
         with pytest.raises(AdminAccessDeniedError):
-            await policy.require_superadmin_by_telegram_id(session, 303)
+            await policy.require_superadmin(session, 202)
 
 
 @pytest.mark.parametrize(
@@ -107,11 +92,9 @@ async def test_neutral_and_telegram_role_checks_share_existing_semantics(
     [
         ("require_active_user", 404),
         ("require_active_user", 999),
-        ("require_active_user_by_telegram_id", 505),
-        ("require_active_user_by_telegram_id", 999),
     ],
 )
-async def test_neutral_and_telegram_policy_reject_blocked_or_missing_users(
+async def test_internal_policy_rejects_blocked_or_missing_users(
     access_policy_data,
     method_name: str,
     actor_id: int,

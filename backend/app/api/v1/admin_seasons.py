@@ -66,7 +66,7 @@ async def get_season_timeline(
     actor: Annotated[AuthenticatedActor, Depends(current_actor)],
 ) -> SeasonTimelineResponse:
     try:
-        view = await season_service.get_season_timeline(actor.telegram_id)
+        view = await season_service.get_season_timeline(actor.user_id)
     except AdminAccessDeniedError as exc:
         raise errors.forbidden("Superadmin access required") from exc
     except SEASON_EXPECTED_ERRORS as exc:
@@ -81,7 +81,7 @@ async def preview_next_season(
 ) -> SeasonCreationPreviewResponse:
     try:
         view = await season_service.get_creation_preview(
-            actor.telegram_id,
+            actor.user_id,
             name=request.name,
             starts_at=request.starts_at,
         )
@@ -99,7 +99,7 @@ async def create_next_season(
 ) -> SeasonResponse:
     try:
         view = await season_service.create_next_season(
-            actor.telegram_id,
+            actor.user_id,
             name=request.name,
             starts_at=request.starts_at,
         )
@@ -115,7 +115,7 @@ async def preview_future_season_deletion(
     actor: Annotated[AuthenticatedActor, Depends(current_actor)],
 ) -> SeasonFutureDeletePreviewResponse:
     try:
-        view = await season_service.get_future_season_delete_preview(actor.telegram_id)
+        view = await season_service.get_future_season_delete_preview(actor.user_id)
     except AdminAccessDeniedError as exc:
         raise errors.forbidden("Superadmin access required") from exc
     except SEASON_EXPECTED_ERRORS as exc:
@@ -130,7 +130,7 @@ async def delete_future_season(
 ) -> SeasonTimelineResponse:
     try:
         view = await season_service.delete_future_season(
-            actor.telegram_id,
+            actor.user_id,
             expected_season_id=request.expected_season_id,
         )
     except AdminAccessDeniedError as exc:

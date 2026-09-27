@@ -11,6 +11,9 @@ from app.bot.telegram.admin_management_notifications import (
 from app.bot.telegram.handlers.admin.shared import (
     delete_callback_message as _delete_callback_message,
 )
+from app.bot.telegram.handlers.admin.shared import (
+    resolve_admin_actor_user_id,
+)
 from app.bot.telegram.handlers.superadmin.navigation import send_superadmin_panel
 from app.bot.telegram.handlers.user.shared import clean_text as _clean_text
 from app.bot.telegram.keyboards import labels
@@ -43,7 +46,9 @@ async def prompt_admin_candidate_search(message: Message, state: FSMContext) -> 
         return
 
     try:
-        await admin_management_service.require_add_admin_access(message.from_user.id)
+        await admin_management_service.require_add_admin_access(
+            await resolve_admin_actor_user_id(message.from_user.id)
+        )
     except AdminAccessDeniedError:
         await message.answer(panel_text.INSUFFICIENT_RIGHTS)
         return
@@ -66,7 +71,7 @@ async def search_admin_candidate(message: Message, state: FSMContext) -> None:
     await _clear_admin_candidate_prompt_markup(message, data)
     try:
         candidates = await admin_management_service.search_admin_candidates_for_superadmin(
-            message.from_user.id,
+            await resolve_admin_actor_user_id(message.from_user.id),
             query,
         )
     except AdminAccessDeniedError:
@@ -129,7 +134,7 @@ async def select_admin_candidate(
         data = await state.get_data()
         query = data.get("admin_candidate_query", "")
         players = await admin_management_service.search_admin_candidates_for_superadmin(
-            callback.from_user.id,
+            await resolve_admin_actor_user_id(callback.from_user.id),
             str(query),
         )
     except AdminAccessDeniedError:
@@ -172,7 +177,7 @@ async def confirm_add_admin(
         query = data.get("admin_candidate_query", "")
         try:
             candidates = await admin_management_service.search_admin_candidates_for_superadmin(
-                callback.from_user.id,
+                await resolve_admin_actor_user_id(callback.from_user.id),
                 str(query),
             )
         except AdminAccessDeniedError:
@@ -198,7 +203,7 @@ async def confirm_add_admin(
 
     try:
         player = await _admin_management_use_cases().promote_admin(
-            superadmin_telegram_id=callback.from_user.id,
+            actor_user_id=await resolve_admin_actor_user_id(callback.from_user.id),
             user_id=callback_data.player_id,
             delivery=TelegramAdminPromotionNotificationDelivery(callback.bot),
         )

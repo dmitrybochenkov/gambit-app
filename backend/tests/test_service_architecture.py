@@ -144,7 +144,7 @@ def test_services_do_not_use_dunder_dict_as_dto_mapping() -> None:
     assert violations == []
 
 
-def test_access_policy_keeps_internal_and_telegram_identity_namespaces_explicit() -> None:
+def test_access_policy_uses_only_internal_actor_identity() -> None:
     policy_path = SERVICES_DIR / "access_policy.py"
     tree = ast.parse(policy_path.read_text(), filename=str(policy_path))
     policy_class = next(
@@ -164,14 +164,14 @@ def test_access_policy_keeps_internal_and_telegram_identity_namespaces_explicit(
         "require_admin_by_telegram_id",
         "require_superadmin_by_telegram_id",
     ):
-        assert method_name in methods
+        assert method_name not in methods
     for method_name, method in methods.items():
         if not method_name.startswith("_") and "get_by_telegram_id" in _method_calls(method):
             assert method_name.endswith("_by_telegram_id")
 
     ambiguous_callers: list[str] = []
     for path in sorted(SERVICES_DIR.glob("*.py")):
-        if path == policy_path:
+        if path == policy_path or path.name == "user_access_service.py":
             continue
         caller_tree = ast.parse(path.read_text(), filename=str(path))
         for method in ast.walk(caller_tree):
@@ -185,13 +185,51 @@ def test_access_policy_keeps_internal_and_telegram_identity_namespaces_explicit(
                     and node.func.value.id == "access_policy"
                     and node.func.attr
                     in {"require_active_user", "require_admin", "require_superadmin"}
-                    and method.name not in INTERNAL_ACTOR_SERVICE_METHODS.get(path.name, set())
+                    and "actor_user_id"
+                    not in {
+                        argument.arg for argument in (*method.args.args, *method.args.kwonlyargs)
+                    }
                 ):
                     ambiguous_callers.append(
                         f"{path.name}:{node.lineno} {method.name} calls {node.func.attr}"
                     )
 
     assert ambiguous_callers == []
+
+
+def test_migrated_admin_telegram_handlers_resolve_actor_before_service_calls() -> None:
+    handler_paths = [
+        APP_DIR / "bot" / "telegram" / "handlers" / "admin" / filename
+        for filename in ("calendar.py", "schedule.py", "results.py")
+    ] + [
+        APP_DIR / "bot" / "telegram" / "handlers" / "superadmin" / filename
+        for filename in (
+            "administrators.py",
+            "hall_of_fame.py",
+            "registrations.py",
+            "seasons.py",
+            "tournament_close.py",
+            "tournaments.py",
+            "users.py",
+        )
+    ]
+    violations: list[str] = []
+    for path in handler_paths:
+        for line_number, line in enumerate(path.read_text().splitlines(), start=1):
+            if "from_user.id" not in line:
+                continue
+            if any(
+                allowed in line
+                for allowed in (
+                    "resolve_admin_actor_user_id",
+                    "user_access_service",
+                    "superadmin_telegram_id=",
+                )
+            ):
+                continue
+            violations.append(f"{path.name}:{line_number} passes raw from_user.id")
+
+    assert violations == []
 
 
 def test_migrated_service_slices_use_internal_actor_identity() -> None:

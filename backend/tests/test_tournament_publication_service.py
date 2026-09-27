@@ -78,7 +78,7 @@ async def test_schedule_publication_uses_detail_dto_and_hash_changes_with_econom
         club_chat_id=-100,
         club_channel_id=-200,
     )
-    first = await service.get_schedule_publication_preview(100)
+    first = await service.get_schedule_publication_preview(1)
 
     assert len(first.tournaments) == 1
     assert first.tournaments[0].tournament_type_name == "Классика"
@@ -97,7 +97,7 @@ async def test_schedule_publication_uses_detail_dto_and_hash_changes_with_econom
         economy.entry_stack = 25_000
         await session.commit()
 
-    second = await service.get_schedule_publication_preview(100)
+    second = await service.get_schedule_publication_preview(1)
 
     assert second.tournaments[0].economy is not None
     assert second.tournaments[0].economy.entry_stack == 25_000
@@ -150,11 +150,11 @@ async def test_schedule_publication_does_not_modify_registration_open(
         clock=FixedClock(datetime(2026, 8, 22, 12, tzinfo=ZoneInfo("Europe/Moscow"))),
         club_chat_id=-100,
     )
-    preview = await service.get_schedule_publication_preview(100)
+    preview = await service.get_schedule_publication_preview(1)
 
     assert len(preview.tournaments) == 1
     await service.record_publication_success(
-        100,
+        1,
         tournament_id=None,
         publication_type=TournamentPublicationType.SCHEDULE,
         destination_type=TournamentPublicationDestination.GROUP,
@@ -249,7 +249,7 @@ async def test_mystery_bounty_result_publication_includes_top_knockouters(
         club_chat_id=-100,
     )
 
-    preview = await service.get_result_publication_preview(100, tournament_id)
+    preview = await service.get_result_publication_preview(1, tournament_id)
 
     assert preview.places[0].gender == UserGender.FEMALE
     assert [

@@ -87,27 +87,17 @@ outbox or retry guarantee.
 
 Canonical authorization uses internal `users.id`: the neutral
 `AccessPolicy.require_active_user()`, `require_admin()`, and
-`require_superadmin()` methods accept `actor_user_id`. Existing public service
-methods that still receive `actor_telegram_id` must call the explicitly named
-`*_by_telegram_id()` compatibility methods inside the service. Telegram
-handlers may hide buttons for UX, but the service check is authoritative.
+`require_superadmin()` methods accept `actor_user_id`. All transport-neutral
+application actor contracts use internal IDs; Telegram IDs remain valid only
+for authentication, delivery, onboarding, linking, and identity mapping.
+Telegram handlers may hide buttons for UX, but the service check is
+authoritative.
 
-The compatibility methods are temporary migration boundaries. New
-transport-neutral application contracts must use internal actor IDs; Telegram
-IDs remain valid for authentication, delivery, onboarding, and identity
-mapping. This foundation does not introduce actor middleware or complete the
-remaining service-signature migration.
-
-The migrated player/self slice and ADMIN open-tournament operations use
-`actor_user_id`. This includes check-in, live result editing, combinations,
-participants, photos, and ADMIN reward decisions. HTTP routes pass
+HTTP routes pass
 `AuthenticatedActor.user_id`; Telegram handlers resolve raw `from_user.id`
 through narrow transport helpers before invoking shared services. Do not add
 actor IDs to HTTP payloads or pass raw Telegram IDs directly into migrated
-methods. SUPERADMIN-only planning, close/correction, season, Hall of Fame, user
-management, and registration-review contracts remain incremental migration
-debt. Telegram IDs remain legitimate for onboarding, delivery, and media file
-references.
+methods.
 
 ## Clock And Tournament Day
 
@@ -362,10 +352,9 @@ targeted tests, then run the agreed final tier once.
 - `ResultService` remains responsible for normal result editing and tournament
   close orchestration. Shared validation and point calculations are explicit
   public result contracts, while service-specific view assembly remains private.
-- Player/self application-service interfaces use internal `actor_user_id`.
-  Existing administrative interfaces still identify actors primarily by
-  `telegram_id` and use explicit `AccessPolicy.*_by_telegram_id()` compatibility
-  methods; migrating those signatures remains deliberate follow-up work.
+- Application-service actor interfaces use internal `actor_user_id` across
+  player, ADMIN, and SUPERADMIN operations. Telegram identity mapping remains a
+  transport concern in `UserAccessService`.
 - `UserRepository` currently contains query and persistence primitives only;
   the audited tree has no commit-owning compatibility methods. User/admin HTTP
   commands must continue through `UserRenameService`, `AdminManagementService`,

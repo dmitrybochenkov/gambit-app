@@ -49,7 +49,7 @@ async def list_pending_registration_reviews(
 ) -> AdminRegistrationReviewPageResponse:
     try:
         result = await registration_review_service.list_pending_reviews_page_for_superadmin(
-            actor.telegram_id,
+            actor.user_id,
             page=page,
             page_size=page_size,
         )
@@ -65,7 +65,7 @@ async def get_registration_review(
 ) -> AdminRegistrationReviewResponse:
     try:
         view = await registration_review_service.get_registration_review_for_admin(
-            actor.telegram_id,
+            actor.user_id,
             request_id,
         )
     except AdminAccessDeniedError as exc:
@@ -86,7 +86,7 @@ async def validate_registration_candidate(
 ) -> AdminRegistrationReviewResponse:
     try:
         view = await registration_review_service.select_registration_candidate(
-            actor.telegram_id,
+            actor.user_id,
             request_id,
             request.candidate_user_id,
         )
@@ -113,7 +113,7 @@ async def approve_registration(
 ) -> AdminRegistrationReviewOutcomeResponse:
     try:
         outcome = await registration_review_use_cases.approve(
-            reviewer_telegram_id=actor.telegram_id,
+            actor_user_id=actor.user_id,
             request_id=request_id,
             candidate_user_id=request.candidate_user_id,
             delivery=delivery,
@@ -142,7 +142,7 @@ async def reject_registration(
 ) -> AdminRegistrationReviewOutcomeResponse:
     try:
         outcome = await registration_review_use_cases.reject(
-            reviewer_telegram_id=actor.telegram_id,
+            actor_user_id=actor.user_id,
             request_id=request_id,
             delivery=delivery,
         )

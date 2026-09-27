@@ -71,12 +71,12 @@ class RegistrationReviewService:
 
     async def list_pending_reviews_for_superadmin(
         self,
-        superadmin_telegram_id: int,
+        actor_user_id: int,
     ) -> list[RegistrationReviewView]:
         async with self.session_factory() as session:
             user_repository = UserRepository(session)
             request_repository = RegistrationRequestRepository(session)
-            await access_policy.require_superadmin_by_telegram_id(session, superadmin_telegram_id)
+            await access_policy.require_superadmin(session, actor_user_id)
             return [
                 await self._registration_review_view(user_repository, request)
                 for request in await request_repository.list_pending()
@@ -84,7 +84,7 @@ class RegistrationReviewService:
 
     async def list_pending_reviews_page_for_superadmin(
         self,
-        superadmin_telegram_id: int,
+        actor_user_id: int,
         *,
         page: int,
         page_size: int,
@@ -92,7 +92,7 @@ class RegistrationReviewService:
         async with self.session_factory() as session:
             user_repository = UserRepository(session)
             request_repository = RegistrationRequestRepository(session)
-            await access_policy.require_superadmin_by_telegram_id(session, superadmin_telegram_id)
+            await access_policy.require_superadmin(session, actor_user_id)
             total_items = await request_repository.count_pending()
             normalized_page = self._normalize_page(
                 page=page,
@@ -115,10 +115,10 @@ class RegistrationReviewService:
 
     async def get_registrations_overview_for_superadmin(
         self,
-        superadmin_telegram_id: int,
+        actor_user_id: int,
     ) -> RegistrationsOverviewView:
         async with self.session_factory() as session:
-            await access_policy.require_superadmin_by_telegram_id(session, superadmin_telegram_id)
+            await access_policy.require_superadmin(session, actor_user_id)
             user_repository = UserRepository(session)
             request_repository = RegistrationRequestRepository(session)
             tournament_registrations = TournamentRegistrationRepository(session)
@@ -147,11 +147,11 @@ class RegistrationReviewService:
 
     async def get_tournament_registrations_detail_for_superadmin(
         self,
-        superadmin_telegram_id: int,
+        actor_user_id: int,
         tournament_id: int,
     ) -> TournamentRegistrationsDetailView:
         async with self.session_factory() as session:
-            await access_policy.require_superadmin_by_telegram_id(session, superadmin_telegram_id)
+            await access_policy.require_superadmin(session, actor_user_id)
             detail = await TournamentRegistrationRepository(
                 session
             ).get_active_tournament_registration_detail(
@@ -178,12 +178,12 @@ class RegistrationReviewService:
 
     async def get_registration_review_for_admin(
         self,
-        admin_telegram_id: int,
+        actor_user_id: int,
         request_id: int,
     ) -> RegistrationReviewView:
         async with self.session_factory() as session:
             user_repository = UserRepository(session)
-            await access_policy.require_superadmin_by_telegram_id(session, admin_telegram_id)
+            await access_policy.require_superadmin(session, actor_user_id)
             request = await self._require_pending_request(
                 RegistrationRequestRepository(session),
                 request_id,
@@ -192,14 +192,14 @@ class RegistrationReviewService:
 
     async def select_registration_candidate(
         self,
-        superadmin_telegram_id: int,
+        actor_user_id: int,
         request_id: int,
         user_id: int,
     ) -> RegistrationReviewView:
         async with self.session_factory() as session:
             user_repository = UserRepository(session)
             request_repository = RegistrationRequestRepository(session)
-            await access_policy.require_superadmin_by_telegram_id(session, superadmin_telegram_id)
+            await access_policy.require_superadmin(session, actor_user_id)
             request = await self._require_pending_request(request_repository, request_id)
             return await self._registration_review_view(
                 user_repository,
@@ -209,16 +209,14 @@ class RegistrationReviewService:
 
     async def approve_registration(
         self,
-        superadmin_telegram_id: int,
+        actor_user_id: int,
         request_id: int,
         candidate_user_id: int | None = None,
     ) -> RegistrationReviewOutcomeView:
         async with self.session_factory() as session:
             user_repository = UserRepository(session)
             request_repository = RegistrationRequestRepository(session)
-            reviewer = await access_policy.require_superadmin_by_telegram_id(
-                session, superadmin_telegram_id
-            )
+            reviewer = await access_policy.require_superadmin(session, actor_user_id)
             request = await self._require_pending_request(request_repository, request_id)
             review = await self._registration_review_view(
                 user_repository,
@@ -227,7 +225,7 @@ class RegistrationReviewService:
             )
             recipients = await self._notification_recipients(
                 user_repository,
-                reviewer_telegram_id=superadmin_telegram_id,
+                actor_user_id=actor_user_id,
             )
             if await user_repository.get_by_telegram_id(request.telegram_id) is not None:
                 raise RegistrationNotAllowedError
@@ -289,20 +287,18 @@ class RegistrationReviewService:
 
     async def reject_registration(
         self,
-        superadmin_telegram_id: int,
+        actor_user_id: int,
         request_id: int,
     ) -> RegistrationReviewOutcomeView:
         async with self.session_factory() as session:
             user_repository = UserRepository(session)
             request_repository = RegistrationRequestRepository(session)
-            reviewer = await access_policy.require_superadmin_by_telegram_id(
-                session, superadmin_telegram_id
-            )
+            reviewer = await access_policy.require_superadmin(session, actor_user_id)
             request = await self._require_pending_request(request_repository, request_id)
             review = await self._registration_review_view(user_repository, request)
             recipients = await self._notification_recipients(
                 user_repository,
-                reviewer_telegram_id=superadmin_telegram_id,
+                actor_user_id=actor_user_id,
             )
             await self._claim_review_decision(
                 request_repository,
@@ -340,12 +336,12 @@ class RegistrationReviewService:
     async def _notification_recipients(
         repository: UserRepository,
         *,
-        reviewer_telegram_id: int,
+        actor_user_id: int,
     ) -> list[UserView]:
         return [
             required_user_view(user)
             for user in await repository.list_active_superadmins_with_telegram()
-            if user.telegram_id != reviewer_telegram_id
+            if user.telegram_id != actor_user_id
         ]
 
     @staticmethod

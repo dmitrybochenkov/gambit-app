@@ -57,7 +57,7 @@ async def search_users(
     query: Annotated[str, Query(min_length=1)],
 ) -> AdminUserListResponse:
     try:
-        users = await user_rename_service.search_users_for_rename(actor.telegram_id, query)
+        users = await user_rename_service.search_users_for_rename(actor.user_id, query)
     except (ActiveUserRequiredError, AdminAccessDeniedError) as exc:
         raise errors.forbidden("Superadmin access required") from exc
     return AdminUserListResponse(items=[AdminUserResponse.from_view(user) for user in users])
@@ -70,7 +70,7 @@ async def search_admin_candidates(
 ) -> AdminUserListResponse:
     try:
         users = await admin_management_service.search_admin_candidates_for_superadmin(
-            actor.telegram_id,
+            actor.user_id,
             query,
         )
     except (ActiveUserRequiredError, AdminAccessDeniedError) as exc:
@@ -84,7 +84,7 @@ async def get_user(
     actor: Annotated[AuthenticatedActor, Depends(current_actor)],
 ) -> AdminUserResponse:
     try:
-        user = await user_rename_service.get_target_for_rename(actor.telegram_id, user_id)
+        user = await user_rename_service.get_target_for_rename(actor.user_id, user_id)
     except (ActiveUserRequiredError, AdminAccessDeniedError) as exc:
         raise errors.forbidden("Superadmin access required") from exc
     except UserNotFoundError as exc:
@@ -103,7 +103,7 @@ async def promote_admin(
 ) -> AdminUserResponse:
     try:
         user = await admin_management_use_cases.promote_admin(
-            superadmin_telegram_id=actor.telegram_id,
+            actor_user_id=actor.user_id,
             user_id=user_id,
             delivery=delivery,
         )
@@ -126,7 +126,7 @@ async def rename_user(
 ) -> AdminUserResponse:
     try:
         user = await user_rename_service.rename_user(
-            actor.telegram_id,
+            actor.user_id,
             user_id,
             request.display_name,
             request.expected_old_display_name,
@@ -152,7 +152,7 @@ async def set_user_gender(
 ) -> AdminUserResponse:
     try:
         user = await user_rename_service.set_user_gender_by_superadmin(
-            actor.telegram_id,
+            actor.user_id,
             user_id,
             request.gender,
         )

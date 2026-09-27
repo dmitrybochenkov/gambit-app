@@ -270,7 +270,7 @@ async def delete_participant(
 ) -> AdminParticipantDeleteResponse:
     try:
         view = await tournament_participant_service.delete_player_from_open_tournament(
-            actor.telegram_id,
+            actor.user_id,
             tournament_id,
             player_id,
         )

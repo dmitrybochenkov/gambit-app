@@ -126,7 +126,7 @@ async def test_registration_review_delivery_observes_committed_decision_and_is_b
                 raise RuntimeError("delivery unavailable")
 
         outcome = await RegistrationReviewUseCases(review_service).approve(
-            reviewer_telegram_id=1,
+            actor_user_id=1,
             request_id=request.id,
             delivery=InspectingDelivery(),
         )
@@ -170,7 +170,7 @@ async def test_registration_review_reject_commits_before_delivery(tmp_path: Path
                 assert stored_request.status == RegistrationRequestStatus.REJECTED
 
         outcome = await RegistrationReviewUseCases(review_service).reject(
-            reviewer_telegram_id=1,
+            actor_user_id=1,
             request_id=request.id,
             delivery=InspectingDelivery(),
         )
@@ -217,7 +217,7 @@ async def test_registration_review_command_failure_does_not_attempt_delivery(
         delivery = TrackingDelivery()
         with pytest.raises(RegistrationAlreadyReviewedError):
             await RegistrationReviewUseCases(review_service).approve(
-                reviewer_telegram_id=1,
+                actor_user_id=1,
                 request_id=request.id,
                 delivery=delivery,
             )
@@ -758,7 +758,7 @@ async def test_approve_new_player_registration_creates_active_player(tmp_path: P
 
         request = await service.submit_new_player_registration(telegram_id=1001, display_name="Ace")
         result = await service.approve_registration(
-            superadmin_telegram_id=1,
+            actor_user_id=1,
             request_id=request.id,
         )
 
@@ -860,7 +860,7 @@ async def test_approve_registration_review_recipients_are_active_superadmins_wit
 
         request = await service.submit_new_player_registration(telegram_id=1001, display_name="Ace")
         result = await service.approve_registration(
-            superadmin_telegram_id=1,
+            actor_user_id=1,
             request_id=request.id,
         )
 
@@ -915,7 +915,7 @@ async def test_reject_registration_review_recipients_are_active_superadmins_with
 
         request = await service.submit_new_player_registration(telegram_id=1001, display_name="Ace")
         result = await service.reject_registration(
-            superadmin_telegram_id=1,
+            actor_user_id=1,
             request_id=request.id,
         )
 
@@ -953,7 +953,7 @@ async def test_approve_new_player_registration_rechecks_display_name_conflict(
 
         with pytest.raises(DisplayNameLinkedUserExistsError):
             await service.approve_registration(
-                superadmin_telegram_id=1,
+                actor_user_id=1,
                 request_id=request.id,
             )
 
@@ -1039,12 +1039,12 @@ async def test_approve_link_registration_attaches_telegram_id(tmp_path: Path) ->
         )
         review = await service.get_registration_review_for_admin(1, request.id)
         result = await service.select_registration_candidate(
-            superadmin_telegram_id=1,
+            actor_user_id=1,
             request_id=request.id,
             user_id=review.candidates[0].user.id,
         )
         approved = await service.approve_registration(
-            superadmin_telegram_id=1,
+            actor_user_id=1,
             request_id=result.request.id,
         )
 

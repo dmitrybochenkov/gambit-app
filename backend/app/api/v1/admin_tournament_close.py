@@ -43,7 +43,7 @@ async def get_close_readiness(
     actor: Annotated[AuthenticatedActor, Depends(current_actor)],
 ) -> AdminCloseReadinessResponse:
     try:
-        view = await result_service.get_close_readiness(actor.telegram_id, tournament_id)
+        view = await result_service.get_close_readiness(actor.user_id, tournament_id)
     except AdminAccessDeniedError as exc:
         raise errors.forbidden("Superadmin access required") from exc
     except ResultTournamentNotFoundError as exc:
@@ -66,7 +66,7 @@ async def preview_tournament_close(
 ) -> AdminClosePreviewResponse:
     try:
         view = await result_service.preview_tournament_close(
-            actor.telegram_id,
+            actor.user_id,
             tournament_id,
             request.tournament_fund,
         )
@@ -96,7 +96,7 @@ async def close_tournament(
 ) -> AdminTournamentCloseResponse:
     try:
         view = await result_service.close_tournament(
-            actor.telegram_id,
+            actor.user_id,
             tournament_id,
             request.tournament_fund,
         )
@@ -125,11 +125,11 @@ async def begin_closed_tournament_correction(
 ) -> AdminCorrectionDraftResponse:
     try:
         draft = await closed_tournament_correction_service.begin_closed_tournament_correction(
-            actor.telegram_id,
+            actor.user_id,
             tournament_id,
         )
         results = await closed_tournament_correction_service.get_closed_tournament_draft_results(
-            actor.telegram_id,
+            actor.user_id,
             draft,
         )
     except AdminAccessDeniedError as exc:
@@ -157,7 +157,7 @@ async def preview_closed_tournament_correction(
     try:
         view = (
             await closed_tournament_correction_service.build_closed_tournament_correction_preview(
-                actor.telegram_id,
+                actor.user_id,
                 draft,
             )
         )
@@ -188,7 +188,7 @@ async def apply_closed_tournament_correction(
         raise errors.validation_error("Correction tournament does not match route")
     try:
         view = await closed_tournament_correction_service.apply_closed_tournament_correction(
-            actor.telegram_id,
+            actor.user_id,
             draft,
         )
     except AdminAccessDeniedError as exc:

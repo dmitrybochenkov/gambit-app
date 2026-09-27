@@ -79,7 +79,7 @@ async def select_admin_calendar_section(
     state: FSMContext,
 ) -> None:
     try:
-        await user_access_service.require_superadmin(callback.from_user.id)
+        admin = await user_access_service.require_superadmin(callback.from_user.id)
     except AdminAccessDeniedError:
         await callback.answer(superadmin_panel_text.INSUFFICIENT_RIGHTS, show_alert=True)
         return
@@ -95,7 +95,7 @@ async def select_admin_calendar_section(
 
     if callback_data.action == admin_calendar_kb.AdminCalendarAction.SEASONS:
         try:
-            timeline = await season_service.get_season_timeline(callback.from_user.id)
+            timeline = await season_service.get_season_timeline(admin.id)
         except AdminAccessDeniedError:
             await state.clear()
             await callback.answer(superadmin_panel_text.INSUFFICIENT_RIGHTS, show_alert=True)
@@ -122,7 +122,7 @@ async def select_admin_calendar_section(
         return
 
     try:
-        planning = await tournament_planning_service.inspect_next_week(callback.from_user.id)
+        planning = await tournament_planning_service.inspect_next_week(admin.id)
     except (
         CalendarDefaultTournamentTypeNotFoundError,
         CalendarWeeklyPlanIntegrityError,

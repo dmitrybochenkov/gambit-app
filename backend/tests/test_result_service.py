@@ -202,6 +202,7 @@ async def _build_open_delete_service(
             ]
         )
         ids = {
+            "superadmin_actor": superadmin.id,
             "admin_actor": admin.id,
             "player_actor": player_actor.id,
             "tournament": tournament.id,
@@ -226,7 +227,7 @@ async def test_delete_player_from_open_tournament_removes_scoped_rows_only(
     )
     try:
         result = await service.delete_player_from_open_tournament(
-            superadmin_telegram_id=100,
+            actor_user_id=ids["superadmin_actor"],
             tournament_id=ids["tournament"],
             player_id=ids["first"],
         )
@@ -272,14 +273,16 @@ async def test_delete_player_from_open_tournament_refreshes_readiness(
         clock=FixedClock(datetime(2026, 8, 26, 12, tzinfo=ZoneInfo("Europe/Moscow"))),
     )
     try:
-        before = await result_service.get_close_readiness(100, ids["tournament"])
+        before = await result_service.get_close_readiness(
+            ids["superadmin_actor"], ids["tournament"]
+        )
 
         await service.delete_player_from_open_tournament(
-            superadmin_telegram_id=100,
+            actor_user_id=ids["superadmin_actor"],
             tournament_id=ids["tournament"],
             player_id=ids["first"],
         )
-        after = await result_service.get_close_readiness(100, ids["tournament"])
+        after = await result_service.get_close_readiness(ids["superadmin_actor"], ids["tournament"])
 
         assert before.players_count == 2
         assert after.players_count == 1
@@ -293,7 +296,7 @@ async def test_open_tournament_delete_player_list_uses_selected_tournament_only(
     service, _, engine, ids = await _build_open_delete_service(tmp_path / "delete-list.db")
     try:
         page = await service.list_open_tournament_players_for_delete(
-            superadmin_telegram_id=100,
+            actor_user_id=ids["superadmin_actor"],
             tournament_id=ids["tournament"],
             page=0,
         )
@@ -311,7 +314,7 @@ async def test_delete_player_from_open_tournament_requires_superadmin(
     try:
         with pytest.raises(AdminAccessDeniedError):
             await service.delete_player_from_open_tournament(
-                superadmin_telegram_id=101,
+                actor_user_id=ids["admin_actor"],
                 tournament_id=ids["tournament"],
                 player_id=ids["first"],
             )
@@ -329,13 +332,13 @@ async def test_delete_player_from_open_tournament_rejects_closed_and_stale_playe
     try:
         with pytest.raises(ResultTournamentNotFoundError):
             await service.delete_player_from_open_tournament(
-                superadmin_telegram_id=100,
+                actor_user_id=ids["superadmin_actor"],
                 tournament_id=ids["tournament"],
                 player_id=ids["first"],
             )
         with pytest.raises(ResultTournamentNotFoundError):
             await service.get_open_tournament_player_delete_preview(
-                superadmin_telegram_id=100,
+                actor_user_id=ids["superadmin_actor"],
                 tournament_id=ids["tournament"],
                 player_id=ids["first"],
             )
@@ -349,7 +352,7 @@ async def test_delete_player_from_open_tournament_rejects_closed_and_stale_playe
     try:
         with pytest.raises(FutureTournamentCannotBeClosedError):
             await service.delete_player_from_open_tournament(
-                superadmin_telegram_id=100,
+                actor_user_id=ids["superadmin_actor"],
                 tournament_id=ids["tournament"],
                 player_id=ids["first"],
             )
@@ -360,7 +363,7 @@ async def test_delete_player_from_open_tournament_rejects_closed_and_stale_playe
     try:
         with pytest.raises(ResultUserNotFoundError):
             await service.delete_player_from_open_tournament(
-                superadmin_telegram_id=100,
+                actor_user_id=ids["superadmin_actor"],
                 tournament_id=ids["tournament"],
                 player_id=999,
             )
@@ -391,7 +394,7 @@ async def test_delete_player_from_open_tournament_blocks_existing_reward(
 
         with pytest.raises(ResultPlayerRewardConflictError):
             await service.delete_player_from_open_tournament(
-                superadmin_telegram_id=100,
+                actor_user_id=ids["superadmin_actor"],
                 tournament_id=ids["tournament"],
                 player_id=ids["first"],
             )
@@ -414,7 +417,7 @@ async def test_delete_player_from_open_tournament_rolls_back_on_delete_failure(
     try:
         with pytest.raises(RuntimeError, match="delete failed"):
             await service.delete_player_from_open_tournament(
-                superadmin_telegram_id=100,
+                actor_user_id=ids["superadmin_actor"],
                 tournament_id=ids["tournament"],
                 player_id=ids["first"],
             )
@@ -766,8 +769,8 @@ async def test_superadmin_close_horizon_uses_tournament_day_boundary(
         tournament_day_start_hour=11,
     )
 
-    before_start_items = await before_start.list_unclosed_tournaments_for_superadmin(100)
-    at_start_items = await at_start.list_unclosed_tournaments_for_superadmin(100)
+    before_start_items = await before_start.list_unclosed_tournaments_for_superadmin(1)
+    at_start_items = await at_start.list_unclosed_tournaments_for_superadmin(1)
 
     assert [item.tournament.id for item in before_start_items] == [previous_tournament_id]
     assert {item.tournament.id for item in at_start_items} == {
@@ -946,7 +949,7 @@ async def test_result_rows_are_edited_directly_and_close_tournament(
         await service.update_player_result_field(
             admin.id, tournament_id, player_id, ResultField.PLACE, place
         )
-    closed = await service.close_tournament(100, tournament_id, 1000)
+    closed = await service.close_tournament(1, tournament_id, 1000)
 
     assert closed.tournament_fund == 1000
     async with session_factory() as session:
@@ -1049,7 +1052,7 @@ async def test_tournament_scoring_config_is_bound_to_tournament_not_mutable_seas
         session_factory,
         clock=FixedClock(datetime(2026, 9, 10, 12, tzinfo=ZoneInfo("Europe/Moscow"))),
     )
-    await service.close_tournament(100, tournament_id, 1000)
+    await service.close_tournament(1, tournament_id, 1000)
 
     async with session_factory() as session:
         tournament = await session.get(Tournament, tournament_id)
@@ -1145,7 +1148,7 @@ async def test_main_ko_uses_main_knockout_coefficients(
         session_factory,
         clock=FixedClock(datetime(2026, 9, 13, 12, tzinfo=ZoneInfo("Europe/Moscow"))),
     )
-    await service.close_tournament(100, tournament_id, 1000)
+    await service.close_tournament(1, tournament_id, 1000)
 
     async with session_factory() as session:
         result = (
@@ -1234,7 +1237,7 @@ async def test_main_ko_with_v1_config_fails_explicitly(
         clock=FixedClock(datetime(2026, 9, 13, 12, tzinfo=ZoneInfo("Europe/Moscow"))),
     )
     with pytest.raises(ResultInvalidTournamentTypeRuleError):
-        await service.close_tournament(100, tournament_id, 1000)
+        await service.close_tournament(1, tournament_id, 1000)
     await engine.dispose()
 
 
@@ -1321,12 +1324,12 @@ async def test_deep_stack_uses_ordinary_multiplier_without_changing_double_doubl
     )
 
     double_double_preview = await service.preview_tournament_close(
-        100,
+        1,
         double_double.id,
         1000,
     )
     deep_stack_preview = await service.preview_tournament_close(
-        100,
+        1,
         deep_stack.id,
         1000,
     )
@@ -1428,7 +1431,7 @@ async def test_closeable_tournaments_use_business_date_and_status(
         session_factory,
         clock=FixedClock(datetime(2026, 7, 20, 12, tzinfo=ZoneInfo("Europe/Moscow"))),
     )
-    closeable = await service.list_unclosed_tournaments_for_superadmin(100)
+    closeable = await service.list_unclosed_tournaments_for_superadmin(1)
 
     assert [item.tournament.id for item in closeable] == [
         today_active_id,
@@ -1562,7 +1565,7 @@ async def test_mystery_bounty_uses_places_knockouts_and_bonus_without_big_knocko
         ResultField.BONUS,
         12,
     )
-    closed = await service.close_tournament(100, tournament_id, 1000)
+    closed = await service.close_tournament(1, tournament_id, 1000)
 
     player = ResultService.find_result_player(closed, player_ids[0])
     assert player is not None
@@ -1659,12 +1662,12 @@ async def test_closed_mystery_bounty_correction_updates_knockouts_without_big_kn
         session_factory,
         clock=FixedClock(datetime(2026, 7, 18, 12, tzinfo=ZoneInfo("Europe/Moscow"))),
     )
-    await service.close_tournament(100, tournament_id, 1000)
+    await service.close_tournament(1, tournament_id, 1000)
     correction_service = ClosedTournamentCorrectionService(
         session_factory,
         clock=FixedClock(datetime(2026, 7, 18, 12, tzinfo=ZoneInfo("Europe/Moscow"))),
     )
-    results = await correction_service.get_closed_tournament_results(100, tournament_id)
+    results = await correction_service.get_closed_tournament_results(1, tournament_id)
 
     assert results.knockout_mode == KnockoutMode.SMALL.value
     assert ResultService.editable_result_fields(results) == [
@@ -1674,33 +1677,33 @@ async def test_closed_mystery_bounty_correction_updates_knockouts_without_big_kn
     ]
     assert ResultField.BIG_KNOCKOUTS not in ResultService.editable_result_fields(results)
 
-    draft = await correction_service.begin_closed_tournament_correction(100, tournament_id)
+    draft = await correction_service.begin_closed_tournament_correction(1, tournament_id)
     draft = await correction_service.update_closed_tournament_draft_result_field(
-        100,
+        1,
         draft,
         first_player_id,
         ResultField.KNOCKOUTS,
         5,
     )
-    updated = await correction_service.get_closed_tournament_draft_results(100, draft)
+    updated = await correction_service.get_closed_tournament_draft_results(1, draft)
     player = ResultService.find_result_player(updated, first_player_id)
     assert player is not None
     assert player.knockout_points == Decimal("75.00")
     persisted = ResultService.find_result_player(
-        await correction_service.get_closed_tournament_results(100, tournament_id),
+        await correction_service.get_closed_tournament_results(1, tournament_id),
         first_player_id,
     )
     assert persisted is not None
     assert persisted.knockouts_count == 3
 
-    correction = await correction_service.build_closed_tournament_correction_preview(100, draft)
+    correction = await correction_service.build_closed_tournament_correction_preview(1, draft)
 
     assert [
         (change.display_name, [(field.label, field.before, field.after) for field in change.fields])
         for change in correction.result_changes
     ] == [("Player 1", [("КО", "3", "5")])]
     assert correction.reward_changes == ()
-    await correction_service.apply_closed_tournament_correction(100, draft)
+    await correction_service.apply_closed_tournament_correction(1, draft)
     await engine.dispose()
 
 
@@ -1764,9 +1767,9 @@ async def test_closed_correction_stale_draft_is_rejected(tmp_path: Path) -> None
         first_player_id = players[0].id
 
     service = ClosedTournamentCorrectionService(session_factory)
-    draft = await service.begin_closed_tournament_correction(100, tournament_id)
+    draft = await service.begin_closed_tournament_correction(1, tournament_id)
     draft = await service.update_closed_tournament_draft_result_field(
-        100,
+        1,
         draft,
         first_player_id,
         ResultField.PLACE,
@@ -1782,7 +1785,7 @@ async def test_closed_correction_stale_draft_is_rejected(tmp_path: Path) -> None
         await session.commit()
 
     with pytest.raises(ClosedTournamentCorrectionStaleError):
-        await service.apply_closed_tournament_correction(100, draft)
+        await service.apply_closed_tournament_correction(1, draft)
     await engine.dispose()
 
 
@@ -1796,27 +1799,28 @@ async def test_closed_correction_add_delete_and_fund_are_draft_only(tmp_path: Pa
         clock=FixedClock(datetime(2026, 8, 26, 12, tzinfo=ZoneInfo("Europe/Moscow"))),
     )
     try:
-        draft = await service.begin_closed_tournament_correction(100, ids["tournament"])
+        actor_user_id = ids["superadmin_actor"]
+        draft = await service.begin_closed_tournament_correction(actor_user_id, ids["tournament"])
 
         candidates = await service.search_closed_draft_add_player_users(
-            100,
+            actor_user_id,
             draft,
             query="Только",
         )
         assert [candidate.id for candidate in candidates] == [ids["other_only"]]
 
         draft = await service.add_closed_tournament_draft_existing_player(
-            100,
+            actor_user_id,
             draft,
             user_id=ids["other_only"],
         )
         draft = await service.delete_closed_tournament_draft_player(
-            100,
+            actor_user_id,
             draft,
             player_id=ids["second"],
         )
-        draft = await service.update_closed_tournament_draft_fund(100, draft, 2000)
-        draft_results = await service.get_closed_tournament_draft_results(100, draft)
+        draft = await service.update_closed_tournament_draft_fund(actor_user_id, draft, 2000)
+        draft_results = await service.get_closed_tournament_draft_results(actor_user_id, draft)
 
         assert {player.player_id for player in draft_results.players} == {
             ids["first"],
@@ -1852,11 +1856,12 @@ async def test_closed_correction_duplicate_draft_player_is_rejected(tmp_path: Pa
         clock=FixedClock(datetime(2026, 8, 26, 12, tzinfo=ZoneInfo("Europe/Moscow"))),
     )
     try:
-        draft = await service.begin_closed_tournament_correction(100, ids["tournament"])
+        actor_user_id = ids["superadmin_actor"]
+        draft = await service.begin_closed_tournament_correction(actor_user_id, ids["tournament"])
 
         with pytest.raises(ResultPlayerAlreadyAddedError):
             await service.add_closed_tournament_draft_existing_player(
-                100,
+                actor_user_id,
                 draft,
                 user_id=ids["first"],
             )
@@ -1873,7 +1878,8 @@ async def test_closed_correction_forged_duplicate_player_is_rejected_without_mut
     )
     service = ClosedTournamentCorrectionService(participant_service.session_factory)
     try:
-        draft = await service.begin_closed_tournament_correction(100, ids["tournament"])
+        actor_user_id = ids["superadmin_actor"]
+        draft = await service.begin_closed_tournament_correction(actor_user_id, ids["tournament"])
         forged = replace(
             draft,
             proposed_results=(
@@ -1886,9 +1892,9 @@ async def test_closed_correction_forged_duplicate_player_is_rejected_without_mut
         )
 
         with pytest.raises(ResultPlayerAlreadyAddedError):
-            await service.build_closed_tournament_correction_preview(100, forged)
+            await service.build_closed_tournament_correction_preview(actor_user_id, forged)
         with pytest.raises(ResultPlayerAlreadyAddedError):
-            await service.apply_closed_tournament_correction(100, forged)
+            await service.apply_closed_tournament_correction(actor_user_id, forged)
 
         async with session_factory() as session:
             stored = list(
@@ -1914,16 +1920,17 @@ async def test_closed_correction_forged_duplicate_places_are_rejected_without_mu
     )
     service = ClosedTournamentCorrectionService(participant_service.session_factory)
     try:
-        draft = await service.begin_closed_tournament_correction(100, ids["tournament"])
+        actor_user_id = ids["superadmin_actor"]
+        draft = await service.begin_closed_tournament_correction(actor_user_id, ids["tournament"])
         forged = replace(
             draft,
             proposed_results=tuple(replace(item, place=1) for item in draft.proposed_results),
         )
 
         with pytest.raises(ResultValidationError, match="Дублируются места: 1"):
-            await service.build_closed_tournament_correction_preview(100, forged)
+            await service.build_closed_tournament_correction_preview(actor_user_id, forged)
         with pytest.raises(ResultValidationError, match="Дублируются места: 1"):
-            await service.apply_closed_tournament_correction(100, forged)
+            await service.apply_closed_tournament_correction(actor_user_id, forged)
 
         async with session_factory() as session:
             stored = list(
@@ -1958,17 +1965,18 @@ async def test_closed_correction_zero_clearing_respects_field_capabilities(
         await session.commit()
     service = ClosedTournamentCorrectionService(participant_service.session_factory)
     try:
-        draft = await service.begin_closed_tournament_correction(100, ids["tournament"])
+        actor_user_id = ids["superadmin_actor"]
+        draft = await service.begin_closed_tournament_correction(actor_user_id, ids["tournament"])
 
         ko_cleared = await service.update_closed_tournament_draft_result_field(
-            100,
+            actor_user_id,
             draft,
             ids["first"],
             ResultField.KNOCKOUTS,
             0,
         )
         bonus_cleared = await service.update_closed_tournament_draft_result_field(
-            100,
+            actor_user_id,
             draft,
             ids["first"],
             ResultField.BONUS,
@@ -1976,7 +1984,7 @@ async def test_closed_correction_zero_clearing_respects_field_capabilities(
         )
         with pytest.raises(ResultInvalidPlayerDataError):
             await service.update_closed_tournament_draft_result_field(
-                100,
+                actor_user_id,
                 draft,
                 ids["first"],
                 ResultField.BIG_KNOCKOUTS,
@@ -2004,9 +2012,9 @@ async def test_closed_correction_zero_clearing_respects_field_capabilities(
             ),
         )
         with pytest.raises(ResultInvalidPlayerDataError):
-            await service.build_closed_tournament_correction_preview(100, forged)
+            await service.build_closed_tournament_correction_preview(actor_user_id, forged)
         with pytest.raises(ResultInvalidPlayerDataError):
-            await service.apply_closed_tournament_correction(100, forged)
+            await service.apply_closed_tournament_correction(1, forged)
     finally:
         await engine.dispose()
 
@@ -2360,7 +2368,7 @@ async def test_close_tournament_rejects_future_tournament_without_mutation(
         clock=FixedClock(datetime(2026, 7, 20, 12, tzinfo=ZoneInfo("Europe/Moscow"))),
     )
     with pytest.raises(FutureTournamentCannotBeClosedError):
-        await service.close_tournament(100, tournament_id, 1000)
+        await service.close_tournament(1, tournament_id, 1000)
 
     async with session_factory() as session:
         tournament = await session.get(Tournament, tournament_id)

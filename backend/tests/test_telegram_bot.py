@@ -224,7 +224,14 @@ def resolve_migrated_telegram_actor(monkeypatch: pytest.MonkeyPatch) -> None:
     for module in (
         admin_check_in_handlers,
         admin_result_handlers,
+        admin_schedule_handlers,
+        superadmin_administrator_handlers,
         superadmin_close_handlers,
+        superadmin_hall_of_fame_handlers,
+        superadmin_registration_handlers,
+        superadmin_season_handlers,
+        superadmin_tournament_handlers,
+        superadmin_user_handlers,
     ):
         monkeypatch.setattr(
             module,
@@ -997,7 +1004,7 @@ async def test_superadmin_calendar_format_help_changes_markup_only(
         MutableState(),
     )
 
-    planning_service.get_calendar_month.assert_awaited_once_with(100, year=2026, month=10)
+    planning_service.get_calendar_month.assert_awaited_once_with(1, year=2026, month=10)
     message.edit_reply_markup.assert_awaited_once()
     message.edit_text.assert_not_awaited()
     assert inline_keyboard_texts(message.edit_reply_markup.await_args.kwargs["reply_markup"]) == [
@@ -1056,12 +1063,12 @@ async def test_superadmin_calendar_format_detail_and_back_keep_source_month(
     )
 
     planning_service.get_calendar_format_detail.assert_awaited_once_with(
-        100,
+        1,
         year=2026,
         month=10,
         tournament_type_id=16,
     )
-    planning_service.get_calendar_month.assert_awaited_once_with(100, year=2026, month=10)
+    planning_service.get_calendar_month.assert_awaited_once_with(1, year=2026, month=10)
     assert message.edit_text.await_args_list[0].args[0] == "🏆 MAIN KO\n\nОписание из базы"
     assert "ОКТЯБРЬ 2026" in message.edit_text.await_args_list[1].args[0]
 
@@ -1093,7 +1100,7 @@ async def test_superadmin_calendar_format_list_back_restores_calendar_keyboard_o
         MutableState(),
     )
 
-    planning_service.get_calendar_month.assert_awaited_once_with(100, year=2026, month=10)
+    planning_service.get_calendar_month.assert_awaited_once_with(1, year=2026, month=10)
     message.edit_reply_markup.assert_awaited_once()
     message.edit_text.assert_not_awaited()
     assert superadmin_tournaments_kb.CALENDAR_FORMAT_HELP_LABEL in inline_keyboard_texts(
@@ -4255,7 +4262,7 @@ async def test_publish_button_shows_confirmation_without_second_full_preview(
         state,
     )
 
-    service.get_result_publication_preview.assert_awaited_once_with(100, 125)
+    service.get_result_publication_preview.assert_awaited_once_with(1, 125)
     text = message.edit_text.await_args.args[0]
     assert text == ("Опубликовать результаты?\n\nГруппа: будет отправлено\nКанал: уже опубликовано")
     assert "ЕЖЕДНЕВНЫЙ ОТЧЁТ" not in text
@@ -4337,7 +4344,7 @@ async def test_close_tournament_single_ready_tournament_root_shows_list(
 
     await superadmin_close_handlers.show_close_tournament_flow(message, state)
 
-    service.list_unclosed_tournaments_for_superadmin.assert_awaited_once_with(100)
+    service.list_unclosed_tournaments_for_superadmin.assert_awaited_once_with(1)
     service.get_closeable_tournament_results.assert_not_awaited()
     service.get_close_readiness.assert_not_awaited()
     assert state.state is None
@@ -4387,7 +4394,7 @@ async def test_close_tournament_fund_back_returns_to_root(
         state,
     )
 
-    service.list_unclosed_tournaments_for_superadmin.assert_awaited_once_with(100)
+    service.list_unclosed_tournaments_for_superadmin.assert_awaited_once_with(1)
     callback.answer.assert_awaited_once_with()
     assert state.state is None
     assert "🔒 Закрыть турнир" in message.edit_text.await_args.args[0]
@@ -4503,7 +4510,7 @@ async def test_close_tournament_change_fund_deletes_preview_and_waits_for_new_va
     )
 
     service.get_close_readiness.assert_awaited_once_with(
-        superadmin_telegram_id=100,
+        actor_user_id=1,
         tournament_id=125,
     )
     callback.answer.assert_awaited_once_with()
@@ -4594,12 +4601,12 @@ async def test_close_tournament_valid_fund_replaces_root_preview_with_prompt(
         await bot.session.close()
 
     publication_service.get_pre_close_result_publication_preview.assert_awaited_once_with(
-        superadmin_telegram_id=100,
+        actor_user_id=1,
         tournament_id=125,
         tournament_fund=15000,
     )
     service.get_closeable_tournament_results.assert_awaited_once_with(
-        superadmin_telegram_id=100,
+        actor_user_id=1,
         tournament_id=125,
     )
     method_names = [call.__class__.__name__ for call in bot.calls]
@@ -5765,7 +5772,7 @@ async def test_superadmin_hall_of_fame_lists_completed_seasons(
 
     await superadmin_hall_of_fame_handlers.show_hall_of_fame_management(message, state)
 
-    service.list_seasons.assert_awaited_once_with(123)
+    service.list_seasons.assert_awaited_once_with(1)
     answer = message.answer.await_args
     assert answer.args[0] == "🏆 Наполнение Зала славы\n\nВыбери сезон:"
     assert inline_keyboard_texts(answer.kwargs["reply_markup"]) == ["Лето 2026", "❌ Отмена"]
@@ -5900,7 +5907,7 @@ async def test_hall_of_fame_delete_all_photos_requires_confirmation(
         ),
         state,
     )
-    service.delete_all_photos.assert_awaited_once_with(123, 1)
+    service.delete_all_photos.assert_awaited_once_with(1, 1)
 
 
 async def test_hall_of_fame_inline_kind_back_cycles_edit_one_message(
@@ -6197,7 +6204,7 @@ async def test_hall_of_fame_delete_flow_targets_exact_occurrence(
         state,
     )
 
-    service.delete_achievement.assert_awaited_once_with(123, 42)
+    service.delete_achievement.assert_awaited_once_with(1, 42)
     assert message.edit_text.await_args.args[0].startswith("🗑 Удалена награда")
     assert message.edit_text.await_args.kwargs["reply_markup"] is None
     assert "🏅 Иван (15.08.2026)" in message.answer.await_args.kwargs["text"]
@@ -6276,7 +6283,7 @@ async def test_superadmin_hall_of_fame_opens_card_and_searches_candidate(
 
     await superadmin_hall_of_fame_handlers.search_hall_of_fame_player(search_message, state)
 
-    service.search_players.assert_awaited_once_with(123, "Иван")
+    service.search_players.assert_awaited_once_with(1, "Иван")
     search_answer = search_message.answer.await_args
     assert search_answer.args[0] == "Выбери игрока:"
     assert inline_keyboard_texts(search_answer.kwargs["reply_markup"]) == [
@@ -7941,7 +7948,7 @@ async def test_superadmin_tournaments_button_opens_tournament_hub(
 
     await superadmin_tournament_handlers.open_tournament_hub(message)
 
-    planning_service.get_superadmin_tournament_hub.assert_awaited_once_with(100)
+    planning_service.get_superadmin_tournament_hub.assert_awaited_once_with(1)
     assert message.answer.await_args.args[0] == "🏆 Турниры"
     assert inline_keyboard_texts(message.answer.await_args.kwargs["reply_markup"]) == [
         "📅 Календарь",
@@ -8013,8 +8020,8 @@ async def test_superadmin_tournament_hub_calendar_opens_month(
         state,
     )
 
-    planning_service.get_superadmin_tournament_hub.assert_awaited_once_with(100)
-    planning_service.get_calendar_month.assert_awaited_once_with(100, year=None, month=None)
+    planning_service.get_superadmin_tournament_hub.assert_awaited_once_with(1)
+    planning_service.get_calendar_month.assert_awaited_once_with(1, year=None, month=None)
     assert message.edit_text.await_args.args[0].startswith("📅 Календарь")
     assert inline_keyboard_texts(message.edit_text.await_args.kwargs["reply_markup"]) == [
         "1",
@@ -8058,8 +8065,8 @@ async def test_superadmin_tournament_hub_open_shows_empty_list(
         state,
     )
 
-    planning_service.get_superadmin_tournament_hub.assert_awaited_once_with(100)
-    planning_service.list_open_tournaments_for_superadmin.assert_awaited_once_with(100, page=0)
+    planning_service.get_superadmin_tournament_hub.assert_awaited_once_with(1)
+    planning_service.list_open_tournaments_for_superadmin.assert_awaited_once_with(1, page=0)
     assert message.edit_text.await_args.args[0] == ("🔑 Открытые турниры\n\nОткрытых турниров нет.")
     assert inline_keyboard_texts(message.edit_text.await_args.kwargs["reply_markup"]) == [
         "⬅️ Назад",
@@ -8107,7 +8114,7 @@ async def test_superadmin_open_tournaments_list_is_paginated(
         state,
     )
 
-    planning_service.list_open_tournaments_for_superadmin.assert_awaited_once_with(100, page=1)
+    planning_service.list_open_tournaments_for_superadmin.assert_awaited_once_with(1, page=1)
     assert message.edit_text.await_args.args[0] == "🔑 Открытые турниры\n\n2-2 из 3"
     assert inline_keyboard_texts(message.edit_text.await_args.kwargs["reply_markup"]) == [
         "26.08 — Mystery Bounty",
@@ -8158,7 +8165,7 @@ async def test_superadmin_open_tournament_card_shows_readiness(
     )
 
     service.get_close_readiness.assert_awaited_once_with(
-        superadmin_telegram_id=100,
+        actor_user_id=1,
         tournament_id=12,
     )
     assert message.edit_text.await_args.args[0] == (
@@ -8206,7 +8213,7 @@ async def test_superadmin_open_tournament_card_back_returns_list(
         state,
     )
 
-    planning_service.list_open_tournaments_for_superadmin.assert_awaited_once_with(100, page=1)
+    planning_service.list_open_tournaments_for_superadmin.assert_awaited_once_with(1, page=1)
     assert message.edit_text.await_args.args[0] == ("🔑 Открытые турниры\n\nОткрытых турниров нет.")
 
 
@@ -8274,7 +8281,7 @@ async def test_superadmin_open_tournament_delete_player_lists_players(
 
     service.get_close_readiness.assert_awaited_once()
     participant_service.list_open_tournament_players_for_delete.assert_awaited_once_with(
-        superadmin_telegram_id=100,
+        actor_user_id=1,
         tournament_id=12,
         page=0,
         page_size=1000,
@@ -8336,7 +8343,7 @@ async def test_superadmin_open_tournament_delete_player_confirmation(
     )
 
     participant_service.get_open_tournament_player_delete_preview.assert_awaited_once_with(
-        superadmin_telegram_id=100,
+        actor_user_id=1,
         tournament_id=12,
         player_id=7,
     )
@@ -8406,7 +8413,7 @@ async def test_superadmin_open_tournament_delete_player_confirm_refreshes_card(
     )
 
     participant_service.delete_player_from_open_tournament.assert_awaited_once_with(
-        superadmin_telegram_id=100,
+        actor_user_id=1,
         tournament_id=12,
         player_id=7,
     )
@@ -8522,8 +8529,8 @@ async def test_superadmin_tournament_hub_closed_shows_closed_list(
         state,
     )
 
-    planning_service.get_superadmin_tournament_hub.assert_awaited_once_with(100)
-    correction_service_mock.list_closed_tournaments_for_superadmin.assert_awaited_once_with(100)
+    planning_service.get_superadmin_tournament_hub.assert_awaited_once_with(1)
+    correction_service_mock.list_closed_tournaments_for_superadmin.assert_awaited_once_with(1)
     assert message.edit_text.await_args.args[0] == (
         "🔒 Закрытые турниры\n\nСреда, 26 августа — Mystery Bounty"
     )
@@ -8568,7 +8575,7 @@ async def test_superadmin_open_tournament_close_uses_existing_close_flow(
     )
 
     service.get_close_readiness.assert_awaited_once_with(
-        superadmin_telegram_id=100,
+        actor_user_id=1,
         tournament_id=12,
     )
     assert message.edit_text.await_args.args[0] == (
@@ -8615,7 +8622,7 @@ async def test_close_flow_back_with_open_context_returns_open_list(
         state,
     )
 
-    planning_service.list_open_tournaments_for_superadmin.assert_awaited_once_with(100, page=2)
+    planning_service.list_open_tournaments_for_superadmin.assert_awaited_once_with(1, page=2)
     assert state.data == {}
     assert message.edit_text.await_args.args[0] == ("🔑 Открытые турниры\n\nОткрытых турниров нет.")
 
@@ -8661,7 +8668,7 @@ async def test_superadmin_rename_button_prompts_for_user_name(
 
     await superadmin_user_handlers.prompt_user_rename_search(message, state)
 
-    service.require_rename_access.assert_awaited_once_with(100)
+    service.require_rename_access.assert_awaited_once_with(1)
     assert state.state == UserRenameStates.entering_current_name
     assert state.data == {"user_rename_prompt_message_id": 77}
     answer = message.answer.await_args
@@ -8690,7 +8697,7 @@ async def test_superadmin_rename_search_shows_multiple_users_without_ids(
 
     await superadmin_user_handlers.search_user_to_rename(message, state)
 
-    service.search_users_for_rename.assert_awaited_once_with(100, "Иван")
+    service.search_users_for_rename.assert_awaited_once_with(1, "Иван")
     assert message.bot.edit_message_reply_markup.await_count == 1
     answer = message.answer.await_args
     assert answer.args[0] == "Выбери пользователя:"
@@ -8723,7 +8730,7 @@ async def test_superadmin_user_single_search_opens_edit_card(
 
     await superadmin_user_handlers.search_user_to_rename(message, state)
 
-    service.get_target_for_rename.assert_awaited_once_with(100, 10)
+    service.get_target_for_rename.assert_awaited_once_with(1, 10)
     assert message.answer.await_args.args[0] == "👤 Анна\n\nИмя: Анна\nПол: Женский"
     assert inline_keyboard_texts(message.answer.await_args.kwargs["reply_markup"]) == [
         "✏️ Изменить имя",
@@ -8754,7 +8761,7 @@ async def test_superadmin_user_gender_update_returns_to_card(
         MutableState(),
     )
 
-    service.set_user_gender_by_superadmin.assert_awaited_once_with(100, 10, UserGender.MALE)
+    service.set_user_gender_by_superadmin.assert_awaited_once_with(1, 10, UserGender.MALE)
     callback.answer.assert_awaited_once_with("Пол обновлён.")
     callback.message.edit_text.assert_awaited_once()
     assert callback.message.edit_text.await_args.args[0] == "👤 Анна\n\nИмя: Анна\nПол: Мужской"
@@ -8775,7 +8782,7 @@ async def test_superadmin_rename_new_name_confirmation_does_not_mutate_user(
 
     await superadmin_user_handlers.enter_new_user_display_name(message, state)
 
-    service.validate_new_display_name.assert_awaited_once_with(100, 10, "Иван Петров")
+    service.validate_new_display_name.assert_awaited_once_with(1, 10, "Иван Петров")
     assert state.state == UserRenameStates.confirming_user_rename
     assert state.data["new_display_name"] == "Иван Петров"
     answer = message.answer.await_args
@@ -8887,7 +8894,7 @@ async def test_superadmin_rename_confirm_updates_and_does_not_notify_target(
         state,
     )
 
-    service.rename_user.assert_awaited_once_with(100, 10, "Иван Петров", "Иван Иванов")
+    service.rename_user.assert_awaited_once_with(1, 10, "Иван Петров", "Иван Иванов")
     bot.send_message.assert_not_called()
     callback.answer.assert_awaited_once_with(
         "✅ Пользователь переименован\n\nИван Иванов → Иван Петров"
@@ -8940,7 +8947,7 @@ async def test_add_admin_button_shows_candidates(
 
     await superadmin_administrator_handlers.prompt_admin_candidate_search(message, state)
 
-    service.require_add_admin_access.assert_awaited_once_with(100)
+    service.require_add_admin_access.assert_awaited_once_with(1)
     assert state.state == superadmin_administrator_handlers.AdminAddStates.entering_candidate_name
     message.answer.assert_awaited_once()
     assert message.answer.await_args.args[0] == "Введи ник игрока"
@@ -8986,7 +8993,7 @@ async def test_add_admin_search_with_one_candidate_shows_confirmation(
 
     await superadmin_administrator_handlers.search_admin_candidate(message, state)
 
-    service.search_admin_candidates_for_superadmin.assert_awaited_once_with(100, "Игрок")
+    service.search_admin_candidates_for_superadmin.assert_awaited_once_with(1, "Игрок")
     message.bot.edit_message_reply_markup.assert_awaited_once_with(
         chat_id=100,
         message_id=77,
@@ -9096,10 +9103,10 @@ async def test_confirm_add_admin_promotes_player_and_notifies(
         def __init__(self) -> None:
             self.calls: list[dict[str, int]] = []
 
-        async def add_admin(self, *, superadmin_telegram_id: int, user_id: int) -> UserView:
+        async def add_admin(self, *, actor_user_id: int, user_id: int) -> UserView:
             self.calls.append(
                 {
-                    "superadmin_telegram_id": superadmin_telegram_id,
+                    "actor_user_id": actor_user_id,
                     "user_id": user_id,
                 }
             )
@@ -9132,7 +9139,7 @@ async def test_confirm_add_admin_promotes_player_and_notifies(
 
     await superadmin_administrator_handlers.confirm_add_admin(callback, callback_data, state)
 
-    assert service.calls == [{"superadmin_telegram_id": 100, "user_id": 2}]
+    assert service.calls == [{"actor_user_id": 1, "user_id": 2}]
     callback.answer.assert_awaited_once_with("✅ Админ 2 назначен администратором.")
     message.delete.assert_awaited_once_with()
     panel_service.get_superadmin_panel_for_superadmin.assert_awaited_once_with(100)
@@ -9166,7 +9173,7 @@ async def test_admin_calendar_seasons_callback_shows_timeline_management(
     await admin_calendar_handlers.select_admin_calendar_section(callback, callback_data, state)
 
     user_service.require_superadmin.assert_awaited_once_with(100)
-    season_service.get_season_timeline.assert_awaited_once_with(100)
+    season_service.get_season_timeline.assert_awaited_once_with(1)
     state.set_state.assert_not_awaited()
     state.update_data.assert_not_awaited()
     state.clear.assert_awaited_once()
@@ -9231,7 +9238,7 @@ async def test_admin_calendar_tournaments_callback_shows_stateless_plan_preview(
         state,
     )
 
-    planning_service.inspect_next_week.assert_awaited_once_with(100)
+    planning_service.inspect_next_week.assert_awaited_once_with(1)
     state.clear.assert_awaited_once()
     state.update_data.assert_not_called()
     message.delete.assert_awaited_once_with()
@@ -9480,7 +9487,7 @@ async def test_tournament_edit_button_starts_fsm_from_stateless_preview(
         state,
     )
 
-    planning_service.build_next_week_plan.assert_awaited_once_with(100)
+    planning_service.build_next_week_plan.assert_awaited_once_with(1)
     state.update_data.assert_awaited_once()
     assert state.update_data.await_args.kwargs[admin_schedule_handlers.FSM_PLAN_KEY][0] == {
         "date": "2026-07-22",
@@ -9675,7 +9682,7 @@ async def test_enter_season_start_date_returns_preview(
     await superadmin_season_handlers.enter_season_starts_at(message, state)
 
     season_service.get_creation_preview.assert_awaited_once_with(
-        100,
+        1,
         name="Осень 2026",
         starts_at=date(2026, 9, 1),
     )
@@ -9711,7 +9718,7 @@ async def test_confirm_season_creation_calls_public_service(
     )
 
     season_service.create_next_season.assert_awaited_once_with(
-        admin_telegram_id=100,
+        actor_user_id=1,
         name="Осень 2026",
         starts_at=date(2026, 9, 1),
     )
@@ -9746,7 +9753,7 @@ async def test_delete_future_season_reference_conflict_is_controlled(
     )
 
     service.delete_future_season.assert_awaited_once_with(
-        admin_telegram_id=100,
+        actor_user_id=1,
         expected_season_id=2,
     )
     callback.answer.assert_awaited_once_with(
@@ -9807,7 +9814,7 @@ async def test_admin_panel_registration_requests_button_shows_pending(
 
     await superadmin_registration_handlers.show_pending_registrations(message)
 
-    service.get_registrations_overview_for_superadmin.assert_awaited_once_with(100)
+    service.get_registrations_overview_for_superadmin.assert_awaited_once_with(1)
     service.list_pending_reviews_page_for_superadmin.assert_not_awaited()
     message.answer.assert_awaited_once()
     assert message.answer.await_args.args[0] == "Регистрации"
@@ -9838,7 +9845,7 @@ async def test_admin_panel_registration_requests_button_shows_hub_with_counts(
 
     await superadmin_registration_handlers.show_pending_registrations(message)
 
-    service.get_registrations_overview_for_superadmin.assert_awaited_once_with(100)
+    service.get_registrations_overview_for_superadmin.assert_awaited_once_with(1)
     service.list_pending_reviews_page_for_superadmin.assert_not_awaited()
     message.answer.assert_awaited_once()
     answer = message.answer.await_args
@@ -9864,7 +9871,7 @@ async def test_registrations_button_shows_hub_when_both_registration_types_exist
 
     await superadmin_registration_handlers.show_pending_registrations(message)
 
-    service.get_registrations_overview_for_superadmin.assert_awaited_once_with(100)
+    service.get_registrations_overview_for_superadmin.assert_awaited_once_with(1)
     service.list_pending_reviews_page_for_superadmin.assert_not_awaited()
     assert message.answer.await_args.args[0] == "Регистрации"
     assert inline_keyboard_texts(message.answer.await_args.kwargs["reply_markup"]) == [
@@ -9910,7 +9917,7 @@ async def test_registrations_button_shows_hub_when_tournament_registrations_abse
 
     await superadmin_registration_handlers.show_pending_registrations(message)
 
-    service.get_registrations_overview_for_superadmin.assert_awaited_once_with(100)
+    service.get_registrations_overview_for_superadmin.assert_awaited_once_with(1)
     service.list_pending_reviews_page_for_superadmin.assert_not_awaited()
     assert message.answer.await_args.args[0] == "Регистрации"
     assert inline_keyboard_texts(message.answer.await_args.kwargs["reply_markup"]) == [
@@ -9947,7 +9954,7 @@ async def test_registrations_hub_empty_user_branch_shows_back(
     )
 
     service.list_pending_reviews_page_for_superadmin.assert_awaited_once_with(
-        100,
+        1,
         page=0,
         page_size=5,
     )
@@ -9985,7 +9992,7 @@ async def test_registrations_hub_empty_tournament_branch_shows_back(
         ),
     )
 
-    service.get_registrations_overview_for_superadmin.assert_awaited_once_with(100)
+    service.get_registrations_overview_for_superadmin.assert_awaited_once_with(1)
     assert message.edit_text.await_args.args[0] == ("🎲 Регистрации на турниры\n\nРегистраций нет.")
     assert inline_keyboard_texts(message.edit_text.await_args.kwargs["reply_markup"]) == [
         "⬅️ Назад",
@@ -10016,7 +10023,7 @@ async def test_registrations_hub_back_rereads_counts(
         ),
     )
 
-    service.get_registrations_overview_for_superadmin.assert_awaited_once_with(100)
+    service.get_registrations_overview_for_superadmin.assert_awaited_once_with(1)
     assert message.edit_text.await_args.args[0] == "Регистрации"
     assert inline_keyboard_texts(message.edit_text.await_args.kwargs["reply_markup"]) == [
         "📝 Регистрации пользователей (3)",
@@ -10084,7 +10091,7 @@ async def test_tournament_registrations_detail_shows_players_and_back(
     )
 
     callback.answer.assert_awaited_once_with()
-    service.get_tournament_registrations_detail_for_superadmin.assert_awaited_once_with(100, 1)
+    service.get_tournament_registrations_detail_for_superadmin.assert_awaited_once_with(1, 1)
     assert message.edit_text.await_args.args[0] == (
         "🎲 Регистрации на турнир\n\n"
         "Суббота, 22 августа — Double Double\n\n"
@@ -10123,7 +10130,7 @@ async def test_tournament_registrations_detail_back_rereads_root(
     )
 
     callback.answer.assert_awaited_once_with()
-    service.get_registrations_overview_for_superadmin.assert_awaited_once_with(100)
+    service.get_registrations_overview_for_superadmin.assert_awaited_once_with(1)
     assert message.edit_text.await_args.args[0] == "🎲 Регистрации на турниры"
     assert inline_keyboard_texts(message.edit_text.await_args.kwargs["reply_markup"]) == [
         "Среда, 19 августа — Баунти (9)",
@@ -10250,7 +10257,7 @@ async def test_admin_registration_list_page_callback_edits_list(
     await superadmin_registration_handlers.review_registration_list(callback, callback_data)
 
     service.list_pending_reviews_page_for_superadmin.assert_awaited_once_with(
-        100,
+        1,
         page=1,
         page_size=5,
     )
@@ -10349,7 +10356,7 @@ async def test_admin_registration_list_open_edits_message_to_review(
     await superadmin_registration_handlers.review_registration_list(callback, callback_data)
 
     service.get_registration_review_for_admin.assert_awaited_once_with(
-        admin_telegram_id=100,
+        actor_user_id=1,
         request_id=10,
     )
     callback.answer.assert_awaited_once_with()
@@ -10393,7 +10400,7 @@ async def test_admin_registration_list_open_suppresses_not_modified_edit(
     await superadmin_registration_handlers.review_registration_list(callback, callback_data)
 
     service.get_registration_review_for_admin.assert_awaited_once_with(
-        admin_telegram_id=100,
+        actor_user_id=1,
         request_id=10,
     )
     callback.answer.assert_awaited_once_with()
@@ -10426,7 +10433,7 @@ async def test_registration_review_back_returns_to_source_page(
     await superadmin_registration_handlers.review_registration(callback, callback_data)
 
     service.list_pending_reviews_page_for_superadmin.assert_awaited_once_with(
-        100,
+        1,
         page=1,
         page_size=5,
     )
@@ -10789,11 +10796,11 @@ async def test_registration_review_reject_deletes_pending_and_notifies_superadmi
     await superadmin_registration_handlers.review_registration(callback, callback_data)
 
     service.reject_registration.assert_awaited_once_with(
-        superadmin_telegram_id=100,
+        actor_user_id=1,
         request_id=10,
     )
     service.list_pending_reviews_page_for_superadmin.assert_awaited_once_with(
-        100,
+        1,
         page=0,
         page_size=5,
     )
@@ -10867,7 +10874,7 @@ async def test_registration_review_result_moves_empty_last_page_to_previous_page
     await superadmin_registration_handlers.review_registration(callback, callback_data)
 
     service.list_pending_reviews_page_for_superadmin.assert_awaited_once_with(
-        100,
+        1,
         page=1,
         page_size=5,
     )
@@ -10919,7 +10926,7 @@ async def test_registration_review_with_multiple_matches_shows_selection(
     await superadmin_registration_handlers.review_registration(callback, callback_data)
 
     service.get_registration_review_for_admin.assert_awaited_once_with(
-        admin_telegram_id=100,
+        actor_user_id=1,
         request_id=10,
     )
     service.approve_registration.assert_not_awaited()
@@ -10968,7 +10975,7 @@ async def test_selected_registration_candidate_shows_confirmation_without_mutati
     await superadmin_registration_handlers.select_registration_candidate(callback, callback_data)
 
     service.select_registration_candidate.assert_awaited_once_with(
-        superadmin_telegram_id=100,
+        actor_user_id=1,
         request_id=10,
         user_id=21,
     )
@@ -11043,12 +11050,12 @@ async def test_confirm_selected_registration_candidate_links_user(
     )
 
     service.approve_registration.assert_awaited_once_with(
-        superadmin_telegram_id=100,
+        actor_user_id=1,
         request_id=10,
         candidate_user_id=21,
     )
     service.list_pending_reviews_page_for_superadmin.assert_awaited_once_with(
-        100,
+        1,
         page=0,
         page_size=5,
     )
@@ -11093,7 +11100,7 @@ async def test_registration_candidate_confirmation_back_returns_to_candidate_lis
     )
 
     service.get_registration_review_for_admin.assert_awaited_once_with(
-        admin_telegram_id=100,
+        actor_user_id=1,
         request_id=10,
     )
     assert inline_keyboard_texts(message.edit_text.await_args.kwargs["reply_markup"]) == [
@@ -11164,11 +11171,11 @@ async def test_registration_review_result_is_sent_to_other_superadmins(
     await superadmin_registration_handlers.review_registration(callback, callback_data)
 
     service.approve_registration.assert_awaited_once_with(
-        superadmin_telegram_id=100,
+        actor_user_id=1,
         request_id=10,
     )
     service.list_pending_reviews_page_for_superadmin.assert_awaited_once_with(
-        100,
+        1,
         page=0,
         page_size=5,
     )

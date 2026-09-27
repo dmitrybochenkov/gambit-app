@@ -1,5 +1,6 @@
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
+from app.db.models import User
 from app.db.models.enums import UserStatus
 from app.db.repositories.registration_request_repository import RegistrationRequestRepository
 from app.db.repositories.user_repository import UserRepository
@@ -39,12 +40,13 @@ class UserAccessService:
 
     async def require_active_user(self, telegram_id: int) -> UserView:
         async with self.session_factory() as session:
-            user = await access_policy.require_active_user_by_telegram_id(session, telegram_id)
+            user = await self._resolve_active_telegram_user(session, telegram_id)
             return required_user_view(user)
 
     async def require_superadmin(self, telegram_id: int) -> UserView:
         async with self.session_factory() as session:
-            user = await access_policy.require_superadmin_by_telegram_id(session, telegram_id)
+            user = await self._resolve_active_telegram_user(session, telegram_id)
+            user = await access_policy.require_superadmin(session, user.id)
             return required_user_view(user)
 
     async def get_superadmin_panel_for_superadmin(
@@ -52,9 +54,8 @@ class UserAccessService:
         superadmin_telegram_id: int,
     ) -> AdminPanelView:
         async with self.session_factory() as session:
-            superadmin = await access_policy.require_superadmin_by_telegram_id(
-                session, superadmin_telegram_id
-            )
+            user = await self._resolve_active_telegram_user(session, superadmin_telegram_id)
+            superadmin = await access_policy.require_superadmin(session, user.id)
             return AdminPanelView(admin=required_user_view(superadmin), reviews=[])
 
     async def get_admin_panel_for_admin(
@@ -62,11 +63,20 @@ class UserAccessService:
         admin_telegram_id: int,
     ) -> AdminPanelView:
         async with self.session_factory() as session:
-            admin = await access_policy.require_admin_by_telegram_id(session, admin_telegram_id)
+            user = await self._resolve_active_telegram_user(session, admin_telegram_id)
+            admin = await access_policy.require_admin(session, user.id)
             return AdminPanelView(
                 admin=required_user_view(admin),
                 reviews=[],
             )
+
+    @staticmethod
+    async def _resolve_active_telegram_user(
+        session: AsyncSession,
+        telegram_id: int,
+    ) -> User:
+        user = await UserRepository(session).get_by_telegram_id(telegram_id)
+        return await access_policy.require_active_user(session, user.id if user is not None else -1)
 
 
 user_access_service = UserAccessService(SessionFactory)

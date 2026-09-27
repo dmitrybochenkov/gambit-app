@@ -38,30 +38,6 @@ class AccessPolicy:
         user = await self.require_active_user(session, actor_user_id)
         return self._require_role(user, {UserRole.SUPERADMIN})
 
-    async def require_active_user_by_telegram_id(
-        self,
-        session: AsyncSession,
-        telegram_id: int,
-    ) -> User:
-        user = await UserRepository(session).get_by_telegram_id(telegram_id)
-        return self._require_active(user)
-
-    async def require_admin_by_telegram_id(
-        self,
-        session: AsyncSession,
-        telegram_id: int,
-    ) -> User:
-        user = await self.require_active_user_by_telegram_id(session, telegram_id)
-        return self._require_role(user, {UserRole.ADMIN, UserRole.SUPERADMIN})
-
-    async def require_superadmin_by_telegram_id(
-        self,
-        session: AsyncSession,
-        telegram_id: int,
-    ) -> User:
-        user = await self.require_active_user_by_telegram_id(session, telegram_id)
-        return self._require_role(user, {UserRole.SUPERADMIN})
-
     @staticmethod
     def _require_active(user: User | None) -> User:
         if user is None or user.status != UserStatus.ACTIVE:

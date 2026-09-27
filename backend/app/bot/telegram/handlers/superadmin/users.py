@@ -8,6 +8,9 @@ from aiogram.types import CallbackQuery, Message
 from app.bot.telegram.handlers.admin.shared import (
     delete_callback_message as _delete_callback_message,
 )
+from app.bot.telegram.handlers.admin.shared import (
+    resolve_admin_actor_user_id,
+)
 from app.bot.telegram.handlers.superadmin.navigation import send_superadmin_panel
 from app.bot.telegram.handlers.user.shared import clean_text as _clean_text
 from app.bot.telegram.keyboards import labels
@@ -42,7 +45,9 @@ async def prompt_user_rename_search(message: Message, state: FSMContext) -> None
         return
 
     try:
-        await user_rename_service.require_rename_access(message.from_user.id)
+        await user_rename_service.require_rename_access(
+            await resolve_admin_actor_user_id(message.from_user.id)
+        )
     except (ActiveUserRequiredError, AdminAccessDeniedError):
         await message.answer(panel_text.INSUFFICIENT_RIGHTS)
         return
@@ -65,7 +70,7 @@ async def search_user_to_rename(message: Message, state: FSMContext) -> None:
     await _clear_user_rename_prompt_markup(message, data)
     try:
         candidates = await user_rename_service.search_users_for_rename(
-            message.from_user.id,
+            await resolve_admin_actor_user_id(message.from_user.id),
             query,
         )
     except (ActiveUserRequiredError, AdminAccessDeniedError):
@@ -82,7 +87,12 @@ async def search_user_to_rename(message: Message, state: FSMContext) -> None:
         return
 
     if len(candidates) == 1:
-        await _show_user_edit_card(message, state, message.from_user.id, candidates[0].id)
+        await _show_user_edit_card(
+            message,
+            state,
+            await resolve_admin_actor_user_id(message.from_user.id),
+            candidates[0].id,
+        )
         return
 
     await message.answer(
@@ -119,7 +129,7 @@ async def select_user_to_rename(
         await _show_user_edit_card(
             callback.message,
             state,
-            callback.from_user.id,
+            await resolve_admin_actor_user_id(callback.from_user.id),
             callback_data.user_id,
         )
 
@@ -153,14 +163,14 @@ async def select_user_edit_action(
             await _show_new_name_prompt(
                 callback.message,
                 state,
-                callback.from_user.id,
+                await resolve_admin_actor_user_id(callback.from_user.id),
                 callback_data.user_id,
             )
         return
 
     try:
         target = await user_rename_service.get_target_for_rename(
-            callback.from_user.id,
+            await resolve_admin_actor_user_id(callback.from_user.id),
             callback_data.user_id,
         )
     except (ActiveUserRequiredError, AdminAccessDeniedError):
@@ -196,7 +206,7 @@ async def select_user_gender(
             await _show_user_edit_card(
                 callback.message,
                 state,
-                callback.from_user.id,
+                await resolve_admin_actor_user_id(callback.from_user.id),
                 callback_data.user_id,
                 edit=True,
             )
@@ -209,7 +219,7 @@ async def select_user_gender(
     }[callback_data.action]
     try:
         updated = await user_rename_service.set_user_gender_by_superadmin(
-            callback.from_user.id,
+            await resolve_admin_actor_user_id(callback.from_user.id),
             callback_data.user_id,
             gender,
         )
@@ -246,7 +256,7 @@ async def enter_new_user_display_name(message: Message, state: FSMContext) -> No
     new_display_name = _clean_text(message.text or "")
     try:
         await user_rename_service.validate_new_display_name(
-            message.from_user.id,
+            await resolve_admin_actor_user_id(message.from_user.id),
             target_user_id,
             new_display_name,
         )
@@ -304,7 +314,7 @@ async def confirm_user_rename(
 
     try:
         renamed = await user_rename_service.rename_user(
-            callback.from_user.id,
+            await resolve_admin_actor_user_id(callback.from_user.id),
             target_user_id,
             new_display_name,
             old_display_name,
@@ -338,11 +348,11 @@ async def confirm_user_rename(
 async def _show_new_name_prompt(
     message: Message,
     state: FSMContext,
-    actor_telegram_id: int,
+    actor_user_id: int,
     user_id: int,
 ) -> None:
     try:
-        target = await user_rename_service.get_target_for_rename(actor_telegram_id, user_id)
+        target = await user_rename_service.get_target_for_rename(actor_user_id, user_id)
     except (ActiveUserRequiredError, AdminAccessDeniedError):
         await state.clear()
         await message.answer(panel_text.INSUFFICIENT_RIGHTS)
@@ -359,13 +369,13 @@ async def _show_new_name_prompt(
 async def _show_user_edit_card(
     message: Message,
     state: FSMContext,
-    actor_telegram_id: int,
+    actor_user_id: int,
     user_id: int,
     *,
     edit: bool = False,
 ) -> None:
     try:
-        target = await user_rename_service.get_target_for_rename(actor_telegram_id, user_id)
+        target = await user_rename_service.get_target_for_rename(actor_user_id, user_id)
     except (ActiveUserRequiredError, AdminAccessDeniedError):
         await state.clear()
         await message.answer(panel_text.INSUFFICIENT_RIGHTS)

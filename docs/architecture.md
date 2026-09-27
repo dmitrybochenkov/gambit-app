@@ -96,19 +96,13 @@ service through `AccessPolicy`. Telegram handlers may hide buttons for UX, but
 service-level authorization is authoritative.
 
 The canonical `AccessPolicy.require_active_user()`, `require_admin()`, and
-`require_superadmin()` methods accept internal `users.id`. Explicit
-`*_by_telegram_id()` compatibility methods preserve existing Telegram-facing
-service contracts while those use-cases are migrated incrementally. This is a
-temporary application boundary, not a second canonical actor namespace.
+`require_superadmin()` methods accept internal `users.id`. Shared application
+services use `actor_user_id` end to end; there is no Telegram-ID compatibility
+authorization API.
 
-Player/self operations and ADMIN open-tournament operations now accept internal
-actor IDs end to end. The ADMIN slice includes check-in, live results,
-combinations, participant additions, photos, and check-in reward decisions.
-HTTP supplies `AuthenticatedActor.user_id`; Telegram handlers resolve
+HTTP supplies `AuthenticatedActor.user_id`. Telegram handlers resolve
 `from_user.id` through `UserAccessService` before calling shared services.
-SUPERADMIN-only planning, close/correction, season, Hall of Fame, user
-management, and registration-review contracts remain incremental migration
-work. Onboarding, account linking, Telegram delivery, and Telegram media file
+Onboarding, account linking, Telegram delivery, and Telegram media file
 references continue to use Telegram IDs by design.
 
 ## Clock

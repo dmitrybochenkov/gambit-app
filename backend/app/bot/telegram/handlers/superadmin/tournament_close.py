@@ -93,7 +93,7 @@ async def show_close_tournament_flow(message: Message, state: FSMContext) -> Non
     await state.clear()
     try:
         tournaments = await result_service.list_unclosed_tournaments_for_superadmin(
-            message.from_user.id
+            await resolve_admin_actor_user_id(message.from_user.id)
         )
     except AdminAccessDeniedError:
         await message.answer(panel_text.INSUFFICIENT_RIGHTS)
@@ -141,7 +141,7 @@ async def select_close_tournament_action(
 
         if callback_data.action == superadmin_tournament_close_kb.AdminCloseTournamentAction.PAGE:
             tournaments = await result_service.list_unclosed_tournaments_for_superadmin(
-                callback.from_user.id
+                await resolve_admin_actor_user_id(callback.from_user.id)
             )
             page = pagination_service.paginate(
                 tournaments,
@@ -207,7 +207,7 @@ async def select_close_tournament_action(
             data = await state.get_data()
 
             readiness = await result_service.get_close_readiness(
-                superadmin_telegram_id=callback.from_user.id,
+                actor_user_id=await resolve_admin_actor_user_id(callback.from_user.id),
                 tournament_id=callback_data.tournament_id,
             )
             if not readiness.is_ready:
@@ -246,7 +246,7 @@ async def select_close_tournament_action(
             data = await state.get_data()
             tournament_fund = int(data["tournament_fund"])
             results = await result_service.close_tournament(
-                superadmin_telegram_id=callback.from_user.id,
+                actor_user_id=await resolve_admin_actor_user_id(callback.from_user.id),
                 tournament_id=callback_data.tournament_id,
                 tournament_fund=tournament_fund,
             )
@@ -275,7 +275,7 @@ async def select_close_tournament_action(
             == superadmin_tournament_close_kb.AdminCloseTournamentAction.PUBLISH_PREVIEW
         ):
             preview = await tournament_publication_service.get_result_publication_preview(
-                callback.from_user.id,
+                await resolve_admin_actor_user_id(callback.from_user.id),
                 callback_data.tournament_id,
             )
             await callback.answer()
@@ -294,7 +294,7 @@ async def select_close_tournament_action(
             == superadmin_tournament_close_kb.AdminCloseTournamentAction.PUBLISH_CONFIRM
         ):
             preview = await tournament_publication_service.get_result_publication_preview(
-                callback.from_user.id,
+                await resolve_admin_actor_user_id(callback.from_user.id),
                 callback_data.tournament_id,
             )
             summary = await _publish_result_report(callback, preview)
@@ -382,12 +382,12 @@ async def select_closed_correction_action(
             == superadmin_tournament_close_kb.AdminClosedCorrectionAction.PLAYERS
         ):
             draft = await _closed_correction_draft(
-                callback.from_user.id,
+                await resolve_admin_actor_user_id(callback.from_user.id),
                 callback_data.tournament_id,
                 state,
             )
             results = await correction_service.get_closed_tournament_draft_results(
-                callback.from_user.id,
+                await resolve_admin_actor_user_id(callback.from_user.id),
                 draft,
             )
             await callback.answer()
@@ -403,12 +403,12 @@ async def select_closed_correction_action(
             return
         if callback_data.action == superadmin_tournament_close_kb.AdminClosedCorrectionAction.DATA:
             draft = await _closed_correction_draft(
-                callback.from_user.id,
+                await resolve_admin_actor_user_id(callback.from_user.id),
                 callback_data.tournament_id,
                 state,
             )
             results = await correction_service.get_closed_tournament_draft_results(
-                callback.from_user.id,
+                await resolve_admin_actor_user_id(callback.from_user.id),
                 draft,
             )
             page = pagination_service.paginate(
@@ -430,12 +430,12 @@ async def select_closed_correction_action(
             return
         if callback_data.action == superadmin_tournament_close_kb.AdminClosedCorrectionAction.FUND:
             draft = await _closed_correction_draft(
-                callback.from_user.id,
+                await resolve_admin_actor_user_id(callback.from_user.id),
                 callback_data.tournament_id,
                 state,
             )
             results = await correction_service.get_closed_tournament_draft_results(
-                callback.from_user.id,
+                await resolve_admin_actor_user_id(callback.from_user.id),
                 draft,
             )
             await callback.answer()
@@ -454,12 +454,12 @@ async def select_closed_correction_action(
             == superadmin_tournament_close_kb.AdminClosedCorrectionAction.FUND_INPUT
         ):
             draft = await _closed_correction_draft(
-                callback.from_user.id,
+                await resolve_admin_actor_user_id(callback.from_user.id),
                 callback_data.tournament_id,
                 state,
             )
             results = await correction_service.get_closed_tournament_draft_results(
-                callback.from_user.id,
+                await resolve_admin_actor_user_id(callback.from_user.id),
                 draft,
             )
             await state.set_state(AdminResultStates.entering_closed_tournament_fund)
@@ -483,12 +483,12 @@ async def select_closed_correction_action(
             == superadmin_tournament_close_kb.AdminClosedCorrectionAction.FINISH
         ):
             draft = await _closed_correction_draft(
-                callback.from_user.id,
+                await resolve_admin_actor_user_id(callback.from_user.id),
                 callback_data.tournament_id,
                 state,
             )
             result = await correction_service.build_closed_tournament_correction_preview(
-                callback.from_user.id,
+                await resolve_admin_actor_user_id(callback.from_user.id),
                 draft,
             )
             await callback.answer()
@@ -507,12 +507,12 @@ async def select_closed_correction_action(
             == superadmin_tournament_close_kb.AdminClosedCorrectionAction.CONFIRM
         ):
             draft = await _closed_correction_draft(
-                callback.from_user.id,
+                await resolve_admin_actor_user_id(callback.from_user.id),
                 callback_data.tournament_id,
                 state,
             )
             result = await correction_service.apply_closed_tournament_correction(
-                callback.from_user.id,
+                await resolve_admin_actor_user_id(callback.from_user.id),
                 draft,
             )
             await _clear_closed_correction_draft(state, callback_data.tournament_id)
@@ -565,12 +565,12 @@ async def select_closed_result_player(
             await _return_to_superadmin_menu(callback, text.ADMIN_RESULTS_CANCELLED)
             return
         draft = await _closed_correction_draft(
-            callback.from_user.id,
+            await resolve_admin_actor_user_id(callback.from_user.id),
             callback_data.tournament_id,
             state,
         )
         results = await correction_service.get_closed_tournament_draft_results(
-            callback.from_user.id,
+            await resolve_admin_actor_user_id(callback.from_user.id),
             draft,
         )
         page = pagination_service.paginate(
@@ -604,7 +604,7 @@ async def select_closed_result_player(
             == superadmin_tournament_close_kb.AdminClosedResultPlayerAction.ADD_CONFIRM
         ):
             results, user = await correction_service.get_closed_draft_add_player_confirmation(
-                callback.from_user.id,
+                await resolve_admin_actor_user_id(callback.from_user.id),
                 draft,
                 user_id=callback_data.target_player_id,
             )
@@ -626,13 +626,13 @@ async def select_closed_result_player(
             == superadmin_tournament_close_kb.AdminClosedResultPlayerAction.ADD_APPLY
         ):
             draft = await correction_service.add_closed_tournament_draft_existing_player(
-                callback.from_user.id,
+                await resolve_admin_actor_user_id(callback.from_user.id),
                 draft,
                 user_id=callback_data.target_player_id,
             )
             await _store_closed_correction_draft(state, draft)
             results = await correction_service.get_closed_tournament_draft_results(
-                callback.from_user.id,
+                await resolve_admin_actor_user_id(callback.from_user.id),
                 draft,
             )
             await callback.answer("Игрок добавлен в черновик.")
@@ -686,13 +686,13 @@ async def select_closed_result_player(
             == superadmin_tournament_close_kb.AdminClosedResultPlayerAction.DELETE_APPLY
         ):
             draft = await correction_service.delete_closed_tournament_draft_player(
-                callback.from_user.id,
+                await resolve_admin_actor_user_id(callback.from_user.id),
                 draft,
                 player_id=callback_data.player_id,
             )
             await _store_closed_correction_draft(state, draft)
             results = await correction_service.get_closed_tournament_draft_results(
-                callback.from_user.id,
+                await resolve_admin_actor_user_id(callback.from_user.id),
                 draft,
             )
             await callback.answer("Игрок удалён из черновика.")
@@ -784,12 +784,12 @@ async def select_closed_result_field(
             await _return_to_superadmin_menu(callback, text.ADMIN_RESULTS_CANCELLED)
             return
         draft = await _closed_correction_draft(
-            callback.from_user.id,
+            await resolve_admin_actor_user_id(callback.from_user.id),
             callback_data.tournament_id,
             state,
         )
         results = await correction_service.get_closed_tournament_draft_results(
-            callback.from_user.id,
+            await resolve_admin_actor_user_id(callback.from_user.id),
             draft,
         )
         player = ResultService.find_result_player(results, callback_data.player_id)
@@ -840,12 +840,12 @@ async def select_closed_result_value(
         service_field = ResultField(callback_data.field.value)
         if callback_data.action == superadmin_tournament_close_kb.AdminClosedResultValueAction.SET:
             draft = await _closed_correction_draft(
-                callback.from_user.id,
+                await resolve_admin_actor_user_id(callback.from_user.id),
                 callback_data.tournament_id,
                 state,
             )
             draft = await correction_service.update_closed_tournament_draft_result_field(
-                callback.from_user.id,
+                await resolve_admin_actor_user_id(callback.from_user.id),
                 draft,
                 player_id=callback_data.player_id,
                 field=service_field,
@@ -853,7 +853,7 @@ async def select_closed_result_value(
             )
             await _store_closed_correction_draft(state, draft)
             results = await correction_service.get_closed_tournament_draft_results(
-                callback.from_user.id,
+                await resolve_admin_actor_user_id(callback.from_user.id),
                 draft,
             )
             player = ResultService.find_result_player(results, callback_data.player_id)
@@ -873,12 +873,12 @@ async def select_closed_result_value(
                 )
             return
         draft = await _closed_correction_draft(
-            callback.from_user.id,
+            await resolve_admin_actor_user_id(callback.from_user.id),
             callback_data.tournament_id,
             state,
         )
         results = await correction_service.get_closed_tournament_draft_results(
-            callback.from_user.id,
+            await resolve_admin_actor_user_id(callback.from_user.id),
             draft,
         )
         player = ResultService.find_result_player(results, callback_data.player_id)
@@ -940,7 +940,7 @@ async def select_closed_result_replacement(
             == superadmin_tournament_close_kb.AdminClosedResultReplacementAction.CONFIRM
         ):
             draft = await _closed_correction_draft(
-                callback.from_user.id,
+                await resolve_admin_actor_user_id(callback.from_user.id),
                 callback_data.tournament_id,
                 state,
             )
@@ -949,7 +949,7 @@ async def select_closed_result_replacement(
                 current_player,
                 user,
             ) = await correction_service.get_closed_draft_replacement_confirmation(
-                callback.from_user.id,
+                await resolve_admin_actor_user_id(callback.from_user.id),
                 draft,
                 current_player_id=callback_data.current_player_id,
                 new_player_id=callback_data.new_player_id,
@@ -977,19 +977,19 @@ async def select_closed_result_replacement(
             == superadmin_tournament_close_kb.AdminClosedResultReplacementAction.APPLY
         ):
             draft = await _closed_correction_draft(
-                callback.from_user.id,
+                await resolve_admin_actor_user_id(callback.from_user.id),
                 callback_data.tournament_id,
                 state,
             )
             draft = await correction_service.replace_closed_tournament_draft_result_player(
-                callback.from_user.id,
+                await resolve_admin_actor_user_id(callback.from_user.id),
                 draft,
                 current_player_id=callback_data.current_player_id,
                 new_player_id=callback_data.new_player_id,
             )
             await _store_closed_correction_draft(state, draft)
             results = await correction_service.get_closed_tournament_draft_results(
-                callback.from_user.id,
+                await resolve_admin_actor_user_id(callback.from_user.id),
                 draft,
             )
             await state.set_state(None)
@@ -1045,7 +1045,7 @@ async def _send_calendar_planning_notification_after_close(
         return
     try:
         planning = await tournament_planning_service.inspect_after_tournament_close(
-            callback.from_user.id,
+            await resolve_admin_actor_user_id(callback.from_user.id),
             closed_tournament_date,
         )
     except (
@@ -1085,7 +1085,7 @@ async def _publish_result_report(callback: CallbackQuery, preview: object) -> ob
             failed.append(destination.destination_type)
             continue
         await tournament_publication_service.record_publication_success(
-            superadmin_telegram_id=callback.from_user.id,
+            actor_user_id=await resolve_admin_actor_user_id(callback.from_user.id),
             tournament_id=preview.tournament.id,
             publication_type=TournamentPublicationType.RESULTS,
             destination_type=TournamentPublicationDestination(destination.destination_type),
@@ -1184,12 +1184,12 @@ async def enter_closed_add_player_search(message: Message, state: FSMContext) ->
     page = int(data["closed_add_page"])
     try:
         draft = await _closed_correction_draft(
-            message.from_user.id,
+            await resolve_admin_actor_user_id(message.from_user.id),
             tournament_id,
             state,
         )
         players = await correction_service.search_closed_draft_add_player_users(
-            message.from_user.id,
+            await resolve_admin_actor_user_id(message.from_user.id),
             draft,
             query=message.text or "",
         )
@@ -1233,12 +1233,12 @@ async def enter_closed_result_replacement_search(message: Message, state: FSMCon
     page = int(data["closed_replace_page"])
     try:
         draft = await _closed_correction_draft(
-            message.from_user.id,
+            await resolve_admin_actor_user_id(message.from_user.id),
             tournament_id,
             state,
         )
         players = await correction_service.search_closed_draft_replacement_users(
-            message.from_user.id,
+            await resolve_admin_actor_user_id(message.from_user.id),
             draft,
             current_player_id=current_player_id,
             query=message.text or "",
@@ -1283,18 +1283,18 @@ async def enter_closed_tournament_fund(message: Message, state: FSMContext) -> N
     page = int(data["closed_fund_page"])
     try:
         draft = await _closed_correction_draft(
-            message.from_user.id,
+            await resolve_admin_actor_user_id(message.from_user.id),
             tournament_id,
             state,
         )
         draft = await correction_service.update_closed_tournament_draft_fund(
-            message.from_user.id,
+            await resolve_admin_actor_user_id(message.from_user.id),
             draft,
             tournament_fund=int(message.text or ""),
         )
         await _store_closed_correction_draft(state, draft)
         results = await correction_service.get_closed_tournament_draft_results(
-            message.from_user.id,
+            await resolve_admin_actor_user_id(message.from_user.id),
             draft,
         )
     except AdminAccessDeniedError:
@@ -1333,16 +1333,16 @@ async def _send_close_tournament_card(
     *,
     message: Message,
     state: FSMContext,
-    superadmin_telegram_id: int,
+    actor_user_id: int,
     tournament_id: int,
     page: int,
 ) -> None:
     results = await result_service.get_closeable_tournament_results(
-        superadmin_telegram_id=superadmin_telegram_id,
+        actor_user_id=actor_user_id,
         tournament_id=tournament_id,
     )
     readiness = await result_service.get_close_readiness(
-        superadmin_telegram_id=superadmin_telegram_id,
+        actor_user_id=actor_user_id,
         tournament_id=tournament_id,
     )
     if not readiness.is_ready:
@@ -1380,7 +1380,7 @@ async def _edit_close_tournament_card(
     return_context: dict[str, int | str] | None = None,
 ) -> None:
     readiness = await result_service.get_close_readiness(
-        superadmin_telegram_id=callback.from_user.id,
+        actor_user_id=await resolve_admin_actor_user_id(callback.from_user.id),
         tournament_id=tournament_id,
     )
     if not readiness.is_ready:
@@ -1432,7 +1432,7 @@ async def open_close_tournament_card_from_tournament_hub(
 
 async def _edit_closed_correction_list(callback: CallbackQuery, *, page: int) -> None:
     tournaments = await correction_service.list_closed_tournaments_for_superadmin(
-        callback.from_user.id
+        await resolve_admin_actor_user_id(callback.from_user.id)
     )
     page_view = pagination_service.paginate(
         tournaments,
@@ -1467,12 +1467,12 @@ async def _edit_closed_correction_card(
     page: int,
 ) -> None:
     draft = await _closed_correction_draft(
-        callback.from_user.id,
+        await resolve_admin_actor_user_id(callback.from_user.id),
         tournament_id,
         state,
     )
     results = await correction_service.get_closed_tournament_draft_results(
-        callback.from_user.id,
+        await resolve_admin_actor_user_id(callback.from_user.id),
         draft,
     )
     await callback.answer()
@@ -1489,7 +1489,9 @@ async def _edit_closed_correction_card(
 
 
 async def _edit_tournament_hub(callback: CallbackQuery) -> None:
-    hub = await tournament_planning_service.get_superadmin_tournament_hub(callback.from_user.id)
+    hub = await tournament_planning_service.get_superadmin_tournament_hub(
+        await resolve_admin_actor_user_id(callback.from_user.id)
+    )
     await callback.answer()
     if callback.message is None:
         return
@@ -1505,7 +1507,7 @@ def _closed_correction_draft_key(tournament_id: int) -> str:
 
 
 async def _closed_correction_draft(
-    superadmin_telegram_id: int,
+    actor_user_id: int,
     tournament_id: int,
     state: FSMContext,
     *,
@@ -1520,7 +1522,7 @@ async def _closed_correction_draft(
     )
     if draft is None:
         draft = await correction_service.begin_closed_tournament_correction(
-            superadmin_telegram_id,
+            actor_user_id,
             tournament_id,
         )
         await _store_closed_correction_draft(state, draft)
@@ -1553,12 +1555,12 @@ async def _edit_closed_result_player_detail(
     player_id: int,
 ) -> None:
     draft = await _closed_correction_draft(
-        callback.from_user.id,
+        await resolve_admin_actor_user_id(callback.from_user.id),
         tournament_id,
         state,
     )
     results = await correction_service.get_closed_tournament_draft_results(
-        callback.from_user.id,
+        await resolve_admin_actor_user_id(callback.from_user.id),
         draft,
     )
     player = ResultService.find_result_player(results, player_id)
@@ -1606,12 +1608,12 @@ async def _return_to_superadmin_menu(callback: CallbackQuery, message_text: str)
 async def _prepare_fund_input_state(
     *,
     state: FSMContext,
-    superadmin_telegram_id: int,
+    actor_user_id: int,
     tournament_id: int,
     page: int,
 ) -> None:
     errors = await result_service.validate_closeable_results(
-        superadmin_telegram_id=superadmin_telegram_id,
+        actor_user_id=actor_user_id,
         tournament_id=tournament_id,
     )
     if errors:
@@ -1659,7 +1661,7 @@ async def _edit_open_tournaments_return_context(
     page: int,
 ) -> None:
     page_view = await tournament_planning_service.list_open_tournaments_for_superadmin(
-        callback.from_user.id,
+        await resolve_admin_actor_user_id(callback.from_user.id),
         page=page,
     )
     await state.clear()
@@ -1680,7 +1682,7 @@ async def _edit_close_tournament_root(
     page: int,
 ) -> None:
     tournaments = await result_service.list_unclosed_tournaments_for_superadmin(
-        callback.from_user.id
+        await resolve_admin_actor_user_id(callback.from_user.id)
     )
     ready = [item for item in tournaments if item.is_ready]
     await state.clear()
@@ -1720,12 +1722,12 @@ async def enter_tournament_fund(message: Message, state: FSMContext) -> None:
     try:
         tournament_fund = ResultService.validate_tournament_fund(int(message.text or ""))
         preview = await tournament_publication_service.get_pre_close_result_publication_preview(
-            superadmin_telegram_id=message.from_user.id,
+            actor_user_id=await resolve_admin_actor_user_id(message.from_user.id),
             tournament_id=tournament_id,
             tournament_fund=tournament_fund,
         )
         results = await result_service.get_closeable_tournament_results(
-            superadmin_telegram_id=message.from_user.id,
+            actor_user_id=await resolve_admin_actor_user_id(message.from_user.id),
             tournament_id=tournament_id,
         )
     except AdminAccessDeniedError:

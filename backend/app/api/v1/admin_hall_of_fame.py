@@ -47,7 +47,7 @@ async def list_hall_seasons(
     actor: Annotated[AuthenticatedActor, Depends(current_actor)],
 ) -> HallOfFameManagementSeasonListResponse:
     try:
-        seasons = await hall_of_fame_management_service.list_seasons(actor.telegram_id)
+        seasons = await hall_of_fame_management_service.list_seasons(actor.user_id)
     except (ActiveUserRequiredError, AdminAccessDeniedError) as exc:
         raise errors.forbidden("Superadmin access required") from exc
     return HallOfFameManagementSeasonListResponse(
@@ -65,7 +65,7 @@ async def get_hall_season(
 ) -> HallOfFameManagementEntryResponse:
     try:
         entry = await hall_of_fame_management_service.get_season_hall_of_fame(
-            actor.telegram_id,
+            actor.user_id,
             season_id,
         )
     except (ActiveUserRequiredError, AdminAccessDeniedError) as exc:
@@ -84,7 +84,7 @@ async def list_hall_achievement_types(
 ) -> HallOfFameAchievementTypeListResponse:
     try:
         achievement_types = await hall_of_fame_management_service.list_achievement_types(
-            actor.telegram_id
+            actor.user_id
         )
     except (ActiveUserRequiredError, AdminAccessDeniedError) as exc:
         raise errors.forbidden("Superadmin access required") from exc
@@ -99,7 +99,7 @@ async def search_hall_players(
     query: Annotated[str, Query(min_length=1)],
 ) -> HallOfFameManagementPlayerListResponse:
     try:
-        players = await hall_of_fame_management_service.search_players(actor.telegram_id, query)
+        players = await hall_of_fame_management_service.search_players(actor.user_id, query)
     except (ActiveUserRequiredError, AdminAccessDeniedError) as exc:
         raise errors.forbidden("Superadmin access required") from exc
     return HallOfFameManagementPlayerListResponse.from_views(players)
@@ -112,7 +112,7 @@ async def set_hall_achievement(
 ) -> HallOfFameManagementEntryResponse:
     try:
         entry = await hall_of_fame_management_service.set_achievement(
-            actor.telegram_id,
+            actor.user_id,
             request.season_id,
             request.player_id,
             request.kind,
@@ -140,7 +140,7 @@ async def delete_hall_achievement(
 ) -> HallOfFameManagementEntryResponse:
     try:
         entry = await hall_of_fame_management_service.delete_achievement(
-            actor.telegram_id,
+            actor.user_id,
             achievement_id,
         )
     except (ActiveUserRequiredError, AdminAccessDeniedError) as exc:

@@ -102,17 +102,17 @@ class SeasonService:
 
     async def get_season_timeline(
         self,
-        admin_telegram_id: int,
+        actor_user_id: int,
         today: date | None = None,
     ) -> SeasonTimelineView:
         business_date = today or self.clock.today()
         async with self.session_factory() as session:
-            await access_policy.require_superadmin_by_telegram_id(session, admin_telegram_id)
+            await access_policy.require_superadmin(session, actor_user_id)
             return await self._season_timeline_view(session, today=business_date)
 
     async def list_seasons_page_for_admin(
         self,
-        admin_telegram_id: int,
+        actor_user_id: int,
         *,
         page: int,
         page_size: int,
@@ -120,7 +120,7 @@ class SeasonService:
     ) -> Page[SeasonView]:
         business_date = today or self.clock.today()
         async with self.session_factory() as session:
-            await access_policy.require_superadmin_by_telegram_id(session, admin_telegram_id)
+            await access_policy.require_superadmin(session, actor_user_id)
             seasons = await SeasonRepository(session).list_all_ordered()
             total_items = len(seasons)
             total_pages = max(1, (total_items + page_size - 1) // page_size)
@@ -134,15 +134,15 @@ class SeasonService:
                 total_items=total_items,
             )
 
-    async def list_scoring_configs(self, admin_telegram_id: int) -> list[ScoringConfigView]:
+    async def list_scoring_configs(self, actor_user_id: int) -> list[ScoringConfigView]:
         async with self.session_factory() as session:
-            await access_policy.require_superadmin_by_telegram_id(session, admin_telegram_id)
+            await access_policy.require_superadmin(session, actor_user_id)
             configs = await ScoringConfigRepository(session).list_all()
             return [scoring_config_view(config) for config in configs]
 
     async def get_creation_preview(
         self,
-        admin_telegram_id: int,
+        actor_user_id: int,
         *,
         name: str,
         starts_at: date,
@@ -151,7 +151,7 @@ class SeasonService:
         business_date = today or self.clock.today()
         validated_name = validate_season_name(name)
         async with self.session_factory() as session:
-            await access_policy.require_superadmin_by_telegram_id(session, admin_telegram_id)
+            await access_policy.require_superadmin(session, actor_user_id)
             await self._validate_new_season_timeline(
                 session,
                 starts_at=starts_at,
@@ -172,20 +172,20 @@ class SeasonService:
 
     async def get_default_creation_name(
         self,
-        admin_telegram_id: int,
+        actor_user_id: int,
         starts_at: date,
     ) -> str:
         async with self.session_factory() as session:
-            await access_policy.require_superadmin_by_telegram_id(session, admin_telegram_id)
+            await access_policy.require_superadmin(session, actor_user_id)
         return season_name_for_date(starts_at)
 
     async def get_future_season_delete_preview(
         self,
-        admin_telegram_id: int,
+        actor_user_id: int,
     ) -> SeasonFutureDeletePreviewView:
         business_date = self.clock.today()
         async with self.session_factory() as session:
-            await access_policy.require_superadmin_by_telegram_id(session, admin_telegram_id)
+            await access_policy.require_superadmin(session, actor_user_id)
             timeline = await self._season_timeline_view(session, today=business_date)
             future_season = timeline.future_season
             if future_season is None:
@@ -204,13 +204,13 @@ class SeasonService:
 
     async def delete_future_season(
         self,
-        admin_telegram_id: int,
+        actor_user_id: int,
         expected_season_id: int,
     ) -> SeasonTimelineView:
         business_date = self.clock.today()
         async with self.session_factory() as session:
             try:
-                await access_policy.require_superadmin_by_telegram_id(session, admin_telegram_id)
+                await access_policy.require_superadmin(session, actor_user_id)
                 repository = SeasonRepository(session)
                 future_season = await self._require_future_season(
                     repository,
@@ -236,7 +236,7 @@ class SeasonService:
 
     async def create_next_season(
         self,
-        admin_telegram_id: int,
+        actor_user_id: int,
         *,
         name: str,
         starts_at: date,
@@ -245,7 +245,7 @@ class SeasonService:
         business_date = today or self.clock.today()
         async with self.session_factory() as session:
             try:
-                await access_policy.require_superadmin_by_telegram_id(session, admin_telegram_id)
+                await access_policy.require_superadmin(session, actor_user_id)
                 scoring_config = await self._default_scoring_config(session, starts_at)
                 if scoring_config is None:
                     raise SeasonScoringConfigNotFoundError
@@ -268,14 +268,14 @@ class SeasonService:
 
     async def open_season(
         self,
-        admin_telegram_id: int,
+        actor_user_id: int,
         name: str,
         starts_at: date,
         scoring_config_id: int,
     ) -> SeasonView:
         async with self.session_factory() as session:
             try:
-                await access_policy.require_superadmin_by_telegram_id(session, admin_telegram_id)
+                await access_policy.require_superadmin(session, actor_user_id)
                 season = await self._open_season_in_session(
                     session=session,
                     name=name,

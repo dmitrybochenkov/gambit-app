@@ -148,10 +148,10 @@ class ResultService:
 
     async def list_unclosed_tournaments_for_superadmin(
         self,
-        superadmin_telegram_id: int,
+        actor_user_id: int,
     ) -> list[TournamentCloseReadinessView]:
         async with self.session_factory() as session:
-            await access_policy.require_superadmin_by_telegram_id(session, superadmin_telegram_id)
+            await access_policy.require_superadmin(session, actor_user_id)
             business_date = self._tournament_day()
             tournaments = await TournamentRepository(session).list_active_on_or_before(
                 business_date
@@ -199,14 +199,14 @@ class ResultService:
 
     async def preview_tournament_close(
         self,
-        superadmin_telegram_id: int,
+        actor_user_id: int,
         tournament_id: int,
         tournament_fund: int | Decimal,
     ) -> TournamentResultsView:
         fund = self.validate_tournament_fund(tournament_fund)
 
         async with self.session_factory() as session:
-            await access_policy.require_superadmin_by_telegram_id(session, superadmin_telegram_id)
+            await access_policy.require_superadmin(session, actor_user_id)
             tournament = await self._require_closeable_tournament(session, tournament_id)
 
             view = await self._results_view(session, tournament.id)
@@ -243,13 +243,13 @@ class ResultService:
 
     async def close_tournament(
         self,
-        superadmin_telegram_id: int,
+        actor_user_id: int,
         tournament_id: int,
         tournament_fund: int | Decimal,
     ) -> TournamentResultsView:
         fund = self.validate_tournament_fund(tournament_fund)
         async with self.session_factory() as session:
-            await access_policy.require_superadmin_by_telegram_id(session, superadmin_telegram_id)
+            await access_policy.require_superadmin(session, actor_user_id)
             tournament = await self._require_closeable_tournament(session, tournament_id)
             view = await self._results_view(session, tournament.id)
             readiness = await self._readiness_view(session, tournament, view=view)
@@ -290,32 +290,32 @@ class ResultService:
 
     async def get_closeable_tournament_results(
         self,
-        superadmin_telegram_id: int,
+        actor_user_id: int,
         tournament_id: int,
     ) -> TournamentResultsView:
         async with self.session_factory() as session:
-            await access_policy.require_superadmin_by_telegram_id(session, superadmin_telegram_id)
+            await access_policy.require_superadmin(session, actor_user_id)
             tournament = await self._require_closeable_tournament(session, tournament_id)
             return await self._results_view(session, tournament.id)
 
     async def validate_closeable_results(
         self,
-        superadmin_telegram_id: int,
+        actor_user_id: int,
         tournament_id: int,
     ) -> list[str]:
         async with self.session_factory() as session:
-            await access_policy.require_superadmin_by_telegram_id(session, superadmin_telegram_id)
+            await access_policy.require_superadmin(session, actor_user_id)
             tournament = await self._require_closeable_tournament(session, tournament_id)
             view = await self._results_view(session, tournament.id)
             return (await self._readiness_view(session, tournament, view=view)).reasons
 
     async def get_close_readiness(
         self,
-        superadmin_telegram_id: int,
+        actor_user_id: int,
         tournament_id: int,
     ) -> TournamentCloseReadinessView:
         async with self.session_factory() as session:
-            await access_policy.require_superadmin_by_telegram_id(session, superadmin_telegram_id)
+            await access_policy.require_superadmin(session, actor_user_id)
             tournament = await self._require_closeable_tournament(session, tournament_id)
             return await self._readiness_view(session, tournament)
 

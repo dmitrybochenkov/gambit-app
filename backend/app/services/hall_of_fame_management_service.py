@@ -55,10 +55,10 @@ class HallOfFameManagementService:
 
     async def list_seasons(
         self,
-        superadmin_telegram_id: int,
+        actor_user_id: int,
     ) -> list[HallOfFameSeasonListItemView]:
         async with self.session_factory() as session:
-            await access_policy.require_superadmin_by_telegram_id(session, superadmin_telegram_id)
+            await access_policy.require_superadmin(session, actor_user_id)
             seasons = await SeasonRepository(session).list_started(self.clock.today())
             return [
                 HallOfFameSeasonListItemView(
@@ -72,20 +72,20 @@ class HallOfFameManagementService:
 
     async def get_season_hall_of_fame(
         self,
-        superadmin_telegram_id: int,
+        actor_user_id: int,
         season_id: int,
     ) -> HallOfFameEntryView:
         async with self.session_factory() as session:
-            await access_policy.require_superadmin_by_telegram_id(session, superadmin_telegram_id)
+            await access_policy.require_superadmin(session, actor_user_id)
             season = await self._require_season(session, season_id)
             return await self._entry_view(session, season)
 
     async def list_achievement_types(
         self,
-        superadmin_telegram_id: int,
+        actor_user_id: int,
     ) -> tuple[AchievementTypeView, ...]:
         async with self.session_factory() as session:
-            await access_policy.require_superadmin_by_telegram_id(session, superadmin_telegram_id)
+            await access_policy.require_superadmin(session, actor_user_id)
             rows = await HallOfFameRepository(session).list_achievement_types()
             return tuple(
                 AchievementTypeView(
@@ -99,11 +99,11 @@ class HallOfFameManagementService:
 
     async def search_players(
         self,
-        superadmin_telegram_id: int,
+        actor_user_id: int,
         query: str,
     ) -> list[HallOfFameCandidateView]:
         async with self.session_factory() as session:
-            await access_policy.require_superadmin_by_telegram_id(session, superadmin_telegram_id)
+            await access_policy.require_superadmin(session, actor_user_id)
             candidates = rank_player_candidates(
                 await UserRepository(session).list_hall_of_fame_candidates(),
                 query,
@@ -121,11 +121,11 @@ class HallOfFameManagementService:
 
     async def get_player(
         self,
-        superadmin_telegram_id: int,
+        actor_user_id: int,
         player_id: int,
     ) -> HallOfFameCandidateView:
         async with self.session_factory() as session:
-            await access_policy.require_superadmin_by_telegram_id(session, superadmin_telegram_id)
+            await access_policy.require_superadmin(session, actor_user_id)
             user = await self._require_user(session, player_id)
             return HallOfFameCandidateView(
                 user=required_user_view(user),
@@ -135,14 +135,14 @@ class HallOfFameManagementService:
 
     async def add_achievement(
         self,
-        superadmin_telegram_id: int,
+        actor_user_id: int,
         season_id: int,
         player_id: int,
         kind: HallOfFameAchievementKind,
         awarded_at: date,
     ) -> HallOfFameEntryView:
         return await self.set_achievement(
-            superadmin_telegram_id,
+            actor_user_id,
             season_id,
             player_id,
             kind,
@@ -151,14 +151,14 @@ class HallOfFameManagementService:
 
     async def set_achievement(
         self,
-        superadmin_telegram_id: int,
+        actor_user_id: int,
         season_id: int,
         player_id: int,
         kind: HallOfFameAchievementKind,
         awarded_at: date,
     ) -> HallOfFameEntryView:
         async with self.session_factory() as session:
-            await access_policy.require_superadmin_by_telegram_id(session, superadmin_telegram_id)
+            await access_policy.require_superadmin(session, actor_user_id)
             season = await self._require_season(session, season_id)
             await self._require_user(session, player_id)
             repository = HallOfFameRepository(session)
@@ -196,16 +196,14 @@ class HallOfFameManagementService:
 
     async def add_photo(
         self,
-        superadmin_telegram_id: int,
+        actor_user_id: int,
         season_id: int,
         *,
         telegram_file_id: str,
         telegram_file_unique_id: str,
     ) -> HallOfFameEntryView:
         async with self.session_factory() as session:
-            actor = await access_policy.require_superadmin_by_telegram_id(
-                session, superadmin_telegram_id
-            )
+            actor = await access_policy.require_superadmin(session, actor_user_id)
             season = await self._require_season(session, season_id)
             repository = HallOfFameRepository(session)
             await repository.add_photo(
@@ -217,11 +215,9 @@ class HallOfFameManagementService:
             await session.commit()
             return await self._entry_view(session, season)
 
-    async def delete_all_photos(
-        self, superadmin_telegram_id: int, season_id: int
-    ) -> HallOfFameEntryView:
+    async def delete_all_photos(self, actor_user_id: int, season_id: int) -> HallOfFameEntryView:
         async with self.session_factory() as session:
-            await access_policy.require_superadmin_by_telegram_id(session, superadmin_telegram_id)
+            await access_policy.require_superadmin(session, actor_user_id)
             season = await self._require_season(session, season_id)
             await HallOfFameRepository(session).delete_all_photos(season.id)
             await session.commit()
@@ -229,11 +225,11 @@ class HallOfFameManagementService:
 
     async def delete_achievement(
         self,
-        superadmin_telegram_id: int,
+        actor_user_id: int,
         achievement_id: int,
     ) -> HallOfFameEntryView:
         async with self.session_factory() as session:
-            await access_policy.require_superadmin_by_telegram_id(session, superadmin_telegram_id)
+            await access_policy.require_superadmin(session, actor_user_id)
             repository = HallOfFameRepository(session)
             achievement = await repository.get_achievement(achievement_id)
             if achievement is None:

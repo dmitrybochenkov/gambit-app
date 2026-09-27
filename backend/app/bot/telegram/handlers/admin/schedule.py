@@ -11,6 +11,9 @@ from app.bot.telegram.formatters import schedules as schedule_fmt
 from app.bot.telegram.handlers.admin.shared import (
     delete_callback_message as _delete_callback_message,
 )
+from app.bot.telegram.handlers.admin.shared import (
+    resolve_admin_actor_user_id,
+)
 from app.bot.telegram.keyboards.admin import calendar as admin_calendar_kb
 from app.bot.telegram.keyboards.admin import schedule as admin_schedule_kb
 from app.bot.telegram.message_edit import edit_message_if_changed
@@ -55,7 +58,7 @@ async def review_calendar_plan(
     try:
         if callback_data.action == admin_calendar_kb.CalendarPlanAction.PUBLISH_PREVIEW:
             preview = await tournament_publication_service.get_schedule_publication_preview(
-                callback.from_user.id
+                await resolve_admin_actor_user_id(callback.from_user.id)
             )
             await callback.answer()
             if callback.message is not None:
@@ -68,7 +71,7 @@ async def review_calendar_plan(
 
         if callback_data.action == admin_calendar_kb.CalendarPlanAction.PUBLISH_CONFIRM:
             preview = await tournament_publication_service.get_schedule_publication_preview(
-                callback.from_user.id
+                await resolve_admin_actor_user_id(callback.from_user.id)
             )
             summary = await _publish_schedule(callback, preview)
             await callback.answer()
@@ -86,7 +89,7 @@ async def review_calendar_plan(
 
         if callback_data.action == admin_calendar_kb.CalendarPlanAction.EDIT:
             plan_view = await _plan_view_from_state_or_service(
-                callback.from_user.id,
+                await resolve_admin_actor_user_id(callback.from_user.id),
                 state,
                 store_if_missing=True,
             )
@@ -100,7 +103,9 @@ async def review_calendar_plan(
             return
 
         if callback_data.action == admin_calendar_kb.CalendarPlanAction.BACK:
-            plan_view = await _plan_view_from_state(callback.from_user.id, state)
+            plan_view = await _plan_view_from_state(
+                await resolve_admin_actor_user_id(callback.from_user.id), state
+            )
             if callback.message is not None:
                 await _delete_callback_message(callback)
                 await callback.message.answer(
@@ -118,13 +123,15 @@ async def review_calendar_plan(
                 await callback.message.answer(calendar_text.CALENDAR_PLAN_CANCELLED)
             return
 
-        plan = await _plan_from_state_or_service(callback.from_user.id, state)
+        plan = await _plan_from_state_or_service(
+            await resolve_admin_actor_user_id(callback.from_user.id), state
+        )
         created_plan = await tournament_planning_service.create_weekly_schedule(
-            actor_telegram_id=callback.from_user.id,
+            actor_user_id=await resolve_admin_actor_user_id(callback.from_user.id),
             plan=plan,
         )
         schedule = await tournament_schedule_service.get_created_weekly_schedule(
-            callback.from_user.id,
+            await resolve_admin_actor_user_id(callback.from_user.id),
             plan,
         )
     except AdminAccessDeniedError:
@@ -180,7 +187,7 @@ async def select_tournament_plan_day(
     try:
         plan = _plan_from_state(await state.get_data())
         edit_view = await tournament_planning_service.get_day_edit_options(
-            actor_telegram_id=callback.from_user.id,
+            actor_user_id=await resolve_admin_actor_user_id(callback.from_user.id),
             plan=plan,
             tournament_date=date.fromisoformat(callback_data.tournament_date),
         )
@@ -215,7 +222,7 @@ async def select_tournament_type(
     try:
         plan = _plan_from_state(await state.get_data())
         plan_view = await tournament_planning_service.update_plan_day_type(
-            actor_telegram_id=callback.from_user.id,
+            actor_user_id=await resolve_admin_actor_user_id(callback.from_user.id),
             plan=plan,
             tournament_date=date.fromisoformat(callback_data.tournament_date),
             tournament_type_id=callback_data.tournament_type_id,
@@ -256,7 +263,7 @@ async def delete_tournament_plan_day(
     try:
         plan = _plan_from_state(await state.get_data())
         plan_view = await tournament_planning_service.remove_plan_day(
-            actor_telegram_id=callback.from_user.id,
+            actor_user_id=await resolve_admin_actor_user_id(callback.from_user.id),
             plan=plan,
             tournament_date=date.fromisoformat(callback_data.tournament_date),
         )
@@ -309,7 +316,7 @@ async def _publish_schedule(callback: CallbackQuery, preview: object) -> object:
             failed.append(destination.destination_type)
             continue
         await tournament_publication_service.record_publication_success(
-            superadmin_telegram_id=callback.from_user.id,
+            actor_user_id=await resolve_admin_actor_user_id(callback.from_user.id),
             tournament_id=None,
             publication_type=TournamentPublicationType.SCHEDULE,
             destination_type=TournamentPublicationDestination(destination.destination_type),
@@ -344,37 +351,37 @@ def _plan_from_state(data: dict[str, object]) -> WeeklyTournamentPlan:
 
 
 async def _plan_from_state_or_service(
-    actor_telegram_id: int,
+    actor_user_id: int,
     state: FSMContext,
 ) -> WeeklyTournamentPlan:
     data = await state.get_data()
     if FSM_PLAN_KEY in data:
         return _plan_from_state(data)
-    plan_view = await tournament_planning_service.build_next_week_plan(actor_telegram_id)
+    plan_view = await tournament_planning_service.build_next_week_plan(actor_user_id)
     return _plan_from_view(plan_view)
 
 
 async def _plan_view_from_state_or_service(
-    actor_telegram_id: int,
+    actor_user_id: int,
     state: FSMContext,
     *,
     store_if_missing: bool,
 ) -> WeeklyTournamentPlanView:
     data = await state.get_data()
     if FSM_PLAN_KEY in data:
-        return await _plan_view_from_state(actor_telegram_id, state)
-    plan_view = await tournament_planning_service.build_next_week_plan(actor_telegram_id)
+        return await _plan_view_from_state(actor_user_id, state)
+    plan_view = await tournament_planning_service.build_next_week_plan(actor_user_id)
     if store_if_missing:
         await store_plan_in_state(state, plan_view)
     return plan_view
 
 
 async def _plan_view_from_state(
-    actor_telegram_id: int,
+    actor_user_id: int,
     state: FSMContext,
 ) -> WeeklyTournamentPlanView:
     return await tournament_planning_service.get_plan_view(
-        actor_telegram_id,
+        actor_user_id,
         _plan_from_state(await state.get_data()),
     )
 

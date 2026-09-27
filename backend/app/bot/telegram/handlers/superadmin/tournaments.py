@@ -7,6 +7,7 @@ from aiogram.fsm.context import FSMContext
 from aiogram.types import CallbackQuery, Message
 
 from app.bot.telegram.formatters import tournaments as tournament_fmt
+from app.bot.telegram.handlers.admin.shared import resolve_admin_actor_user_id
 from app.bot.telegram.handlers.superadmin.navigation import send_superadmin_panel
 from app.bot.telegram.keyboards import labels
 from app.bot.telegram.keyboards.superadmin import tournaments as superadmin_tournaments_kb
@@ -45,7 +46,9 @@ async def open_tournament_hub(message: Message) -> None:
         return
 
     try:
-        hub = await tournament_planning_service.get_superadmin_tournament_hub(message.from_user.id)
+        hub = await tournament_planning_service.get_superadmin_tournament_hub(
+            await resolve_admin_actor_user_id(message.from_user.id)
+        )
     except AdminAccessDeniedError:
         await message.answer(panel_text.INSUFFICIENT_RIGHTS)
         return
@@ -74,7 +77,9 @@ async def select_tournament_hub_action(
                 )
             return
 
-        await tournament_planning_service.get_superadmin_tournament_hub(callback.from_user.id)
+        await tournament_planning_service.get_superadmin_tournament_hub(
+            await resolve_admin_actor_user_id(callback.from_user.id)
+        )
     except AdminAccessDeniedError:
         await state.clear()
         await callback.answer(panel_text.INSUFFICIENT_RIGHTS, show_alert=True)
@@ -154,7 +159,7 @@ async def select_tournament_calendar_action(
             == superadmin_tournaments_kb.SuperadminTournamentCalendarAction.CREATE_TYPE
         ):
             preview = await tournament_planning_service.get_calendar_create_preview(
-                callback.from_user.id,
+                await resolve_admin_actor_user_id(callback.from_user.id),
                 tournament_date=date.fromisoformat(callback_data.day),
                 tournament_type_id=callback_data.tournament_type_id,
             )
@@ -179,7 +184,7 @@ async def select_tournament_calendar_action(
             == superadmin_tournaments_kb.SuperadminTournamentCalendarAction.CREATE_CONFIRM
         ):
             await tournament_planning_service.create_calendar_tournament(
-                callback.from_user.id,
+                await resolve_admin_actor_user_id(callback.from_user.id),
                 tournament_date=date.fromisoformat(callback_data.day),
                 tournament_type_id=callback_data.tournament_type_id,
             )
@@ -196,7 +201,7 @@ async def select_tournament_calendar_action(
             == superadmin_tournaments_kb.SuperadminTournamentCalendarAction.AUTOFILL_PREVIEW
         ):
             preview = await tournament_planning_service.get_calendar_autofill_preview(
-                callback.from_user.id,
+                await resolve_admin_actor_user_id(callback.from_user.id),
                 year=callback_data.year,
                 month=callback_data.month,
                 row_number=callback_data.row,
@@ -223,7 +228,7 @@ async def select_tournament_calendar_action(
             == superadmin_tournaments_kb.SuperadminTournamentCalendarAction.AUTOFILL_CONFIRM
         ):
             await tournament_planning_service.create_calendar_autofill_week(
-                callback.from_user.id,
+                await resolve_admin_actor_user_id(callback.from_user.id),
                 year=callback_data.year,
                 month=callback_data.month,
                 row_number=callback_data.row,
@@ -241,7 +246,7 @@ async def select_tournament_calendar_action(
             == superadmin_tournaments_kb.SuperadminTournamentCalendarAction.APPROVE_PREVIEW
         ):
             preview = await tournament_planning_service.get_week_approval_preview(
-                callback.from_user.id,
+                await resolve_admin_actor_user_id(callback.from_user.id),
                 year=callback_data.year,
                 month=callback_data.month,
                 row_number=callback_data.row,
@@ -268,7 +273,7 @@ async def select_tournament_calendar_action(
             == superadmin_tournaments_kb.SuperadminTournamentCalendarAction.APPROVE_CONFIRM
         ):
             await tournament_planning_service.approve_calendar_week(
-                callback.from_user.id,
+                await resolve_admin_actor_user_id(callback.from_user.id),
                 year=callback_data.year,
                 month=callback_data.month,
                 row_number=callback_data.row,
@@ -292,7 +297,7 @@ async def select_tournament_calendar_action(
             == superadmin_tournaments_kb.SuperadminTournamentCalendarAction.CHANGE_CONFIRM
         ):
             preview = await tournament_planning_service.get_type_change_preview(
-                callback.from_user.id,
+                await resolve_admin_actor_user_id(callback.from_user.id),
                 tournament_id=callback_data.tournament_id,
                 new_tournament_type_id=callback_data.tournament_type_id,
             )
@@ -320,7 +325,7 @@ async def select_tournament_calendar_action(
             == superadmin_tournaments_kb.SuperadminTournamentCalendarAction.CHANGE_APPLY
         ):
             await tournament_planning_service.change_calendar_tournament_type(
-                callback.from_user.id,
+                await resolve_admin_actor_user_id(callback.from_user.id),
                 tournament_id=callback_data.tournament_id,
                 new_tournament_type_id=callback_data.tournament_type_id,
             )
@@ -337,7 +342,7 @@ async def select_tournament_calendar_action(
             == superadmin_tournaments_kb.SuperadminTournamentCalendarAction.DELETE_PREVIEW
         ):
             preview = await tournament_planning_service.get_calendar_delete_preview(
-                callback.from_user.id,
+                await resolve_admin_actor_user_id(callback.from_user.id),
                 tournament_id=callback_data.tournament_id,
             )
             await callback.answer()
@@ -363,7 +368,7 @@ async def select_tournament_calendar_action(
             == superadmin_tournaments_kb.SuperadminTournamentCalendarAction.DELETE_CONFIRM
         ):
             _deleted, notifications = await tournament_planning_service.delete_calendar_tournament(
-                callback.from_user.id,
+                await resolve_admin_actor_user_id(callback.from_user.id),
                 tournament_id=callback_data.tournament_id,
             )
             await _send_tournament_cancellation_notifications(callback, notifications)
@@ -414,7 +419,7 @@ async def select_tournament_calendar_format_action(
             == superadmin_tournaments_kb.SuperadminTournamentCalendarFormatAction.BACK_LIST
         ):
             view = await tournament_planning_service.get_calendar_month(
-                callback.from_user.id,
+                await resolve_admin_actor_user_id(callback.from_user.id),
                 year=callback_data.year,
                 month=callback_data.month,
             )
@@ -441,7 +446,7 @@ async def select_tournament_calendar_format_action(
             superadmin_tournaments_kb.SuperadminTournamentCalendarFormatAction.PAGE,
         }:
             view = await tournament_planning_service.get_calendar_month(
-                callback.from_user.id,
+                await resolve_admin_actor_user_id(callback.from_user.id),
                 year=callback_data.year,
                 month=callback_data.month,
             )
@@ -460,7 +465,7 @@ async def select_tournament_calendar_format_action(
             == superadmin_tournaments_kb.SuperadminTournamentCalendarFormatAction.DETAIL
         ):
             detail = await tournament_planning_service.get_calendar_format_detail(
-                callback.from_user.id,
+                await resolve_admin_actor_user_id(callback.from_user.id),
                 year=callback_data.year,
                 month=callback_data.month,
                 tournament_type_id=callback_data.tournament_type_id,
@@ -497,7 +502,7 @@ async def select_open_tournament_action(
             == superadmin_tournaments_kb.SuperadminOpenTournamentAction.BACK_TO_HUB
         ):
             hub = await tournament_planning_service.get_superadmin_tournament_hub(
-                callback.from_user.id
+                await resolve_admin_actor_user_id(callback.from_user.id)
             )
             await callback.answer()
             if callback.message is not None:
@@ -557,7 +562,7 @@ async def select_open_tournament_action(
             == superadmin_tournaments_kb.SuperadminOpenTournamentAction.DELETE_PLAYER_CONFIRM
         ):
             await tournament_participant_service.delete_player_from_open_tournament(
-                superadmin_telegram_id=callback.from_user.id,
+                actor_user_id=await resolve_admin_actor_user_id(callback.from_user.id),
                 tournament_id=callback_data.tournament_id,
                 player_id=callback_data.player_id,
             )
@@ -605,7 +610,7 @@ async def select_open_tournament_action(
 
 async def _edit_open_tournament_list(callback: CallbackQuery, *, page: int) -> None:
     page_view = await tournament_planning_service.list_open_tournaments_for_superadmin(
-        callback.from_user.id,
+        await resolve_admin_actor_user_id(callback.from_user.id),
         page=page,
     )
     await callback.answer()
@@ -625,7 +630,7 @@ async def _edit_open_tournament_card(
     answer_text: str | None = None,
 ) -> None:
     readiness = await result_service.get_close_readiness(
-        superadmin_telegram_id=callback.from_user.id,
+        actor_user_id=await resolve_admin_actor_user_id(callback.from_user.id),
         tournament_id=tournament_id,
     )
     if answer_text is None:
@@ -644,7 +649,9 @@ async def _edit_open_tournament_card(
 
 
 async def _edit_tournament_hub(callback: CallbackQuery, state: FSMContext) -> None:
-    hub = await tournament_planning_service.get_superadmin_tournament_hub(callback.from_user.id)
+    hub = await tournament_planning_service.get_superadmin_tournament_hub(
+        await resolve_admin_actor_user_id(callback.from_user.id)
+    )
     await state.clear()
     await callback.answer()
     if callback.message is not None:
@@ -665,7 +672,7 @@ async def _edit_calendar_month(
     month: int | None = None,
 ) -> None:
     view = await tournament_planning_service.get_calendar_month(
-        callback.from_user.id,
+        await resolve_admin_actor_user_id(callback.from_user.id),
         year=year or None,
         month=month or None,
     )
@@ -689,7 +696,7 @@ async def _edit_calendar_week(
     answer_text: str | None = None,
 ) -> None:
     view = await tournament_planning_service.get_calendar_week(
-        callback.from_user.id,
+        await resolve_admin_actor_user_id(callback.from_user.id),
         year=year,
         month=month,
         row_number=row,
@@ -711,7 +718,7 @@ async def _edit_calendar_day(
     callback_data: superadmin_tournaments_kb.SuperadminTournamentCalendarCallback,
 ) -> None:
     week = await tournament_planning_service.get_calendar_week(
-        callback.from_user.id,
+        await resolve_admin_actor_user_id(callback.from_user.id),
         year=callback_data.year,
         month=callback_data.month,
         row_number=callback_data.row,
@@ -725,7 +732,7 @@ async def _edit_calendar_day(
         return
     if day.tournament is None:
         options = await tournament_planning_service.list_calendar_tournament_type_options(
-            callback.from_user.id
+            await resolve_admin_actor_user_id(callback.from_user.id)
         )
         await edit_message_if_changed(
             callback.message,
@@ -757,7 +764,7 @@ async def _edit_calendar_type_selection(
     callback_data: superadmin_tournaments_kb.SuperadminTournamentCalendarCallback,
 ) -> None:
     options = await tournament_planning_service.list_calendar_tournament_type_options(
-        callback.from_user.id
+        await resolve_admin_actor_user_id(callback.from_user.id)
     )
     await callback.answer()
     if callback.message is not None:
@@ -798,11 +805,11 @@ async def _edit_open_tournament_delete_player_list(
     page: int,
 ) -> None:
     readiness = await result_service.get_close_readiness(
-        superadmin_telegram_id=callback.from_user.id,
+        actor_user_id=await resolve_admin_actor_user_id(callback.from_user.id),
         tournament_id=tournament_id,
     )
     players = await tournament_participant_service.list_open_tournament_players_for_delete(
-        superadmin_telegram_id=callback.from_user.id,
+        actor_user_id=await resolve_admin_actor_user_id(callback.from_user.id),
         tournament_id=tournament_id,
         page=0,
         page_size=1000,
@@ -828,7 +835,7 @@ async def _edit_open_tournament_delete_player_confirmation(
     page: int,
 ) -> None:
     preview = await tournament_participant_service.get_open_tournament_player_delete_preview(
-        superadmin_telegram_id=callback.from_user.id,
+        actor_user_id=await resolve_admin_actor_user_id(callback.from_user.id),
         tournament_id=tournament_id,
         player_id=player_id,
     )

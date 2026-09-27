@@ -177,7 +177,7 @@ async def test_calendar_month_uses_db_calendar_codes_and_month_type_order(
             )
             await session.commit()
 
-        view = await service.get_calendar_month(100, year=2026, month=9)
+        view = await service.get_calendar_month(1, year=2026, month=9)
 
         assert [(item.name, item.calendar_code) for item in view.tournament_types] == [
             ("Deep Stack", "D"),
@@ -230,20 +230,20 @@ async def test_calendar_format_detail_is_restricted_to_selected_month(
             await session.commit()
 
         detail = await service.get_calendar_format_detail(
-            100,
+            1,
             year=2026,
             month=9,
             tournament_type_id=september_type_id,
         )
 
         assert detail.name == "Deep Stack"
-        month = await service.get_calendar_month(100, year=2026, month=9)
+        month = await service.get_calendar_month(1, year=2026, month=9)
         assert [(item.calendar_code, item.short_name) for item in month.tournament_types] == [
             ("D", "Дипстек")
         ]
         with pytest.raises(CalendarTournamentTypeNotFoundError):
             await service.get_calendar_format_detail(
-                100,
+                1,
                 year=2026,
                 month=9,
                 tournament_type_id=october_type_id,
@@ -278,7 +278,7 @@ async def test_weekly_plan_uses_last_existing_tournament_regression(
                 )
             await session.commit()
 
-        plan = await service.build_next_week_plan(100)
+        plan = await service.build_next_week_plan(1)
 
         assert [item.date for item in plan.tournaments] == [
             date(2026, 8, 12),
@@ -303,7 +303,7 @@ async def test_calendar_type_options_include_only_creatable_formats(tmp_path: Pa
     try:
         await seed_calendar_data(session_factory)
 
-        options = await service.list_calendar_tournament_type_options(100)
+        options = await service.list_calendar_tournament_type_options(1)
 
         assert [option.code for option in options] == [
             "mystery_bounty",
@@ -330,13 +330,13 @@ async def test_calendar_create_rejects_historical_non_creatable_type(tmp_path: P
 
         with pytest.raises(CalendarTournamentTypeNotFoundError):
             await service.create_calendar_tournament(
-                100,
+                1,
                 tournament_date=date(2026, 8, 12),
                 tournament_type_id=tournament_type_id("bounty"),
             )
         with pytest.raises(CalendarTournamentTypeNotFoundError):
             await service.create_calendar_tournament(
-                100,
+                1,
                 tournament_date=date(2026, 8, 12),
                 tournament_type_id=tournament_type_id("bounty_v2"),
             )
@@ -646,7 +646,7 @@ async def test_deep_stack_guarantee_is_description_not_actual_tournament_fund(
         await seed_calendar_data(session_factory)
 
         tournament = await service.create_calendar_tournament(
-            100,
+            1,
             tournament_date=date(2026, 8, 12),
             tournament_type_id=tournament_type_id("deep_stack_v2"),
         )
@@ -683,7 +683,7 @@ async def test_weekly_plan_uses_real_sunday_rotation_history(tmp_path: Path) -> 
             )
             await session.commit()
 
-        plan = await service.build_next_week_plan(100)
+        plan = await service.build_next_week_plan(1)
 
         assert plan.tournaments[-1].date == date(2026, 8, 16)
         assert plan.tournaments[-1].tournament_type.name == "Boss Bounty"
@@ -707,7 +707,7 @@ async def test_weekly_plan_uses_rotation_fallback_when_sunday_was_skipped(
             status=TournamentStatus.CLOSED,
         )
 
-        plan = await service.build_next_week_plan(100)
+        plan = await service.build_next_week_plan(1)
 
         assert plan.tournaments[-1].tournament_type.name == "Boss Bounty"
     finally:
@@ -718,7 +718,7 @@ async def test_weekly_plan_can_be_edited_in_memory(tmp_path: Path) -> None:
     service, session_factory, engine = await create_planning_service(tmp_path / "edit.db")
     try:
         await seed_calendar_data(session_factory)
-        plan_view = await service.build_next_week_plan(100)
+        plan_view = await service.build_next_week_plan(1)
         plan = WeeklyTournamentPlan.from_fsm(
             [
                 {
@@ -730,7 +730,7 @@ async def test_weekly_plan_can_be_edited_in_memory(tmp_path: Path) -> None:
         )
 
         updated = await service.update_plan_day_type(
-            100,
+            1,
             plan,
             date(2026, 8, 13),
             tournament_type_id("freezeout_v2"),
@@ -754,7 +754,7 @@ async def test_manual_planning_check_reports_empty_partial_and_complete(
     try:
         await seed_calendar_data(session_factory)
 
-        empty = await service.inspect_next_week(100)
+        empty = await service.inspect_next_week(1)
         assert empty.status == WeeklyPlanningStatus.READY
         assert empty.plan is not None
         assert len(empty.plan.tournaments) == 5
@@ -765,7 +765,7 @@ async def test_manual_planning_check_reports_empty_partial_and_complete(
             status=TournamentStatus.ACTIVE,
         )
 
-        in_progress = await service.inspect_next_week(100)
+        in_progress = await service.inspect_next_week(1)
         assert in_progress.status == WeeklyPlanningStatus.BLOCKED_BY_ACTIVE_WEEK
         assert in_progress.schedule is not None
         assert [item.date for item in in_progress.schedule.tournaments] == [date(2026, 8, 12)]
@@ -796,7 +796,7 @@ async def test_manual_planning_uses_db_progression_not_today(
                 status=TournamentStatus.ACTIVE,
             )
 
-            planning = await service.inspect_next_week(100)
+            planning = await service.inspect_next_week(1)
 
             assert planning.status == WeeklyPlanningStatus.BLOCKED_BY_ACTIVE_WEEK
             assert planning.plan is None
@@ -839,8 +839,8 @@ async def test_superadmin_tournament_hub_counts_active_on_or_before_tournament_d
             tournament_day_start_hour=11,
         )
 
-        before = await before_day_start.get_superadmin_tournament_hub(100)
-        after = await after_day_start.get_superadmin_tournament_hub(100)
+        before = await before_day_start.get_superadmin_tournament_hub(1)
+        after = await after_day_start.get_superadmin_tournament_hub(1)
 
         assert before.open_tournaments_count == 1
         assert after.open_tournaments_count == 2
@@ -870,7 +870,7 @@ async def test_superadmin_open_tournament_list_filters_and_sorts_by_business_day
             tournament_day_start_hour=11,
         )
 
-        page = await service.list_open_tournaments_for_superadmin(100, page=0)
+        page = await service.list_open_tournaments_for_superadmin(1, page=0)
 
         assert [item.tournament.date for item in page.items] == [
             date(2026, 8, 13),
@@ -896,7 +896,7 @@ async def test_superadmin_open_tournament_list_requires_superadmin(tmp_path: Pat
             await session.commit()
 
         with pytest.raises(AdminAccessDeniedError):
-            await service.list_open_tournaments_for_superadmin(200, page=0)
+            await service.list_open_tournaments_for_superadmin(2, page=0)
     finally:
         await engine.dispose()
 
@@ -918,7 +918,7 @@ async def test_finished_latest_week_with_missing_sunday_allows_next_week(
             status=TournamentStatus.CLOSED,
         )
 
-        planning = await service.inspect_next_week(100)
+        planning = await service.inspect_next_week(1)
 
         assert planning.status == WeeklyPlanningStatus.READY
         assert planning.plan is not None
@@ -945,7 +945,7 @@ async def test_finished_latest_week_with_only_thursday_and_saturday_allows_next_
             status=TournamentStatus.CLOSED,
         )
 
-        planning = await service.inspect_next_week(100)
+        planning = await service.inspect_next_week(1)
 
         assert planning.status == WeeklyPlanningStatus.READY
         assert planning.plan is not None
@@ -1013,7 +1013,7 @@ async def test_close_trigger_inspects_next_week_after_week_is_finished(
             )
             await session.commit()
 
-        planning = await service.inspect_after_tournament_close(100, date(2026, 8, 16))
+        planning = await service.inspect_after_tournament_close(1, date(2026, 8, 16))
 
         assert planning.status == WeeklyPlanningStatus.READY
         assert planning.plan is not None
@@ -1045,7 +1045,7 @@ async def test_closing_old_week_does_not_trigger_when_newer_week_is_active(
             status=TournamentStatus.ACTIVE,
         )
 
-        planning = await service.inspect_after_tournament_close(100, date(2026, 8, 5))
+        planning = await service.inspect_after_tournament_close(1, date(2026, 8, 5))
 
         assert planning.status == WeeklyPlanningStatus.BLOCKED_BY_ACTIVE_WEEK
         assert planning.plan is None
@@ -1059,7 +1059,7 @@ async def test_create_weekly_schedule_persists_five_tournaments_atomically(
     service, session_factory, engine = await create_planning_service(tmp_path / "create.db")
     try:
         await seed_calendar_data(session_factory)
-        plan_view = await service.build_next_week_plan(100)
+        plan_view = await service.build_next_week_plan(1)
         plan = WeeklyTournamentPlan.from_fsm(
             [
                 {
@@ -1070,7 +1070,7 @@ async def test_create_weekly_schedule_persists_five_tournaments_atomically(
             ]
         )
 
-        created = await service.create_weekly_schedule(100, plan)
+        created = await service.create_weekly_schedule(1, plan)
 
         assert len(created.tournaments) == 5
         async with session_factory() as session:
@@ -1109,7 +1109,7 @@ async def test_calendar_autofill_creates_unapproved_week_and_approval_opens_regi
             await session.commit()
 
         preview = await service.create_calendar_autofill_week(
-            100,
+            1,
             year=2026,
             month=8,
             row_number=3,
@@ -1131,7 +1131,7 @@ async def test_calendar_autofill_creates_unapproved_week_and_approval_opens_regi
         )
 
         approved = await service.approve_calendar_week(
-            100,
+            1,
             year=2026,
             month=8,
             row_number=3,
@@ -1167,13 +1167,13 @@ async def test_repeated_calendar_create_callback_does_not_duplicate_tournament(
         await seed_calendar_data(session_factory)
 
         await service.create_calendar_tournament(
-            100,
+            1,
             tournament_date=date(2026, 8, 12),
             tournament_type_id=tournament_type_id("classic_v3"),
         )
         with pytest.raises(CalendarTournamentDateAlreadyExistsError):
             await service.create_calendar_tournament(
-                100,
+                1,
                 tournament_date=date(2026, 8, 12),
                 tournament_type_id=tournament_type_id("freezeout_v2"),
             )
@@ -1196,7 +1196,7 @@ async def test_calendar_autofill_rejects_partial_month_boundary_week(
 
         with pytest.raises(CalendarWeeklyPlanIntegrityError):
             await service.get_calendar_autofill_preview(
-                100,
+                1,
                 year=2026,
                 month=8,
                 row_number=1,
@@ -1212,14 +1212,14 @@ async def test_week_approval_only_opens_unapproved_tournaments_and_can_be_repeat
     try:
         await seed_calendar_data(session_factory)
         await service.create_calendar_tournament(
-            100,
+            1,
             tournament_date=date(2026, 8, 12),
             tournament_type_id=tournament_type_id("bounty_v3"),
         )
-        await service.approve_calendar_week(100, year=2026, month=8, row_number=3)
+        await service.approve_calendar_week(1, year=2026, month=8, row_number=3)
 
         await service.create_calendar_tournament(
-            100,
+            1,
             tournament_date=date(2026, 8, 13),
             tournament_type_id=tournament_type_id("classic_v3"),
         )
@@ -1232,7 +1232,7 @@ async def test_week_approval_only_opens_unapproved_tournaments_and_can_be_repeat
             (date(2026, 8, 13), False),
         ]
 
-        approved = await service.approve_calendar_week(100, year=2026, month=8, row_number=3)
+        approved = await service.approve_calendar_week(1, year=2026, month=8, row_number=3)
 
         assert [item.date for item in approved.tournaments] == [date(2026, 8, 13)]
         async with session_factory() as session:
@@ -1254,13 +1254,13 @@ async def test_calendar_type_change_preserves_date_and_registration_open(
     try:
         await seed_calendar_data(session_factory)
         tournament = await service.create_calendar_tournament(
-            100,
+            1,
             tournament_date=date(2026, 8, 12),
             tournament_type_id=tournament_type_id("bounty_v3"),
         )
 
         changed = await service.change_calendar_tournament_type(
-            100,
+            1,
             tournament_id=tournament.id,
             new_tournament_type_id=tournament_type_id("freezeout_v2"),
         )
@@ -1300,9 +1300,9 @@ async def test_calendar_delete_rejects_current_and_closed_tournaments_service_si
             closed_id = closed.id
 
         with pytest.raises(CalendarTournamentNotEditableError):
-            await service.delete_calendar_tournament(100, tournament_id=current_id)
+            await service.delete_calendar_tournament(1, tournament_id=current_id)
         with pytest.raises(CalendarTournamentNotEditableError):
-            await service.delete_calendar_tournament(100, tournament_id=closed_id)
+            await service.delete_calendar_tournament(1, tournament_id=closed_id)
     finally:
         await engine.dispose()
 
@@ -1314,7 +1314,7 @@ async def test_calendar_delete_removes_registrations_but_keeps_users(
     try:
         await seed_calendar_data(session_factory)
         tournament = await service.create_calendar_tournament(
-            100,
+            1,
             tournament_date=date(2026, 8, 12),
             tournament_type_id=tournament_type_id("classic_v3"),
         )
@@ -1337,7 +1337,7 @@ async def test_calendar_delete_removes_registrations_but_keeps_users(
             player_id = player.id
 
         deleted, notifications = await service.delete_calendar_tournament(
-            100,
+            1,
             tournament_id=tournament.id,
         )
 
@@ -1362,18 +1362,18 @@ async def test_calendar_tournament_uses_season_for_its_own_date_after_boundary_c
             session_factory,
             clock=FixedClock(datetime(2026, 8, 9)),
         ).create_next_season(
-            100,
+            1,
             name="Осень 2026",
             starts_at=date(2026, 9, 1),
         )
 
         august = await service.create_calendar_tournament(
-            100,
+            1,
             tournament_date=date(2026, 8, 26),
             tournament_type_id=tournament_type_id("classic_v3"),
         )
         september = await service.create_calendar_tournament(
-            100,
+            1,
             tournament_date=date(2026, 9, 2),
             tournament_type_id=tournament_type_id("classic_v3"),
         )
@@ -1395,7 +1395,7 @@ async def test_create_weekly_schedule_allows_removed_day(
     service, session_factory, engine = await create_planning_service(tmp_path / "removed-day.db")
     try:
         await seed_calendar_data(session_factory)
-        plan_view = await service.build_next_week_plan(100)
+        plan_view = await service.build_next_week_plan(1)
         plan = WeeklyTournamentPlan.from_fsm(
             [
                 {
@@ -1406,7 +1406,7 @@ async def test_create_weekly_schedule_allows_removed_day(
             ]
         ).without_date(date(2026, 8, 15))
 
-        created = await service.create_weekly_schedule(100, plan)
+        created = await service.create_weekly_schedule(1, plan)
 
         assert [item.date for item in created.tournaments] == [
             date(2026, 8, 12),
@@ -1436,7 +1436,7 @@ async def test_created_week_is_unaffected_by_template_changes(
     )
     try:
         await seed_calendar_data(session_factory)
-        plan_view = await service.build_next_week_plan(100)
+        plan_view = await service.build_next_week_plan(1)
         plan = WeeklyTournamentPlan.from_fsm(
             [
                 {
@@ -1446,7 +1446,7 @@ async def test_created_week_is_unaffected_by_template_changes(
                 for item in plan_view.tournaments
             ]
         ).without_date(date(2026, 8, 15))
-        await service.create_weekly_schedule(100, plan)
+        await service.create_weekly_schedule(1, plan)
 
         async with session_factory() as session:
             templates = list((await session.execute(select(WeeklyTournamentTemplate))).scalars())
@@ -1454,7 +1454,7 @@ async def test_created_week_is_unaffected_by_template_changes(
                 template.is_active = False
             await session.commit()
 
-        planning = await service.inspect_next_week(100)
+        planning = await service.inspect_next_week(1)
 
         assert planning.status == WeeklyPlanningStatus.BLOCKED_BY_ACTIVE_WEEK
         assert planning.schedule is not None
@@ -1474,7 +1474,7 @@ async def test_create_weekly_schedule_blocks_duplicate_date_and_rolls_back(
     service, session_factory, engine = await create_planning_service(tmp_path / "conflict.db")
     try:
         await seed_calendar_data(session_factory)
-        plan_view = await service.build_next_week_plan(100)
+        plan_view = await service.build_next_week_plan(1)
         plan = WeeklyTournamentPlan.from_fsm(
             [
                 {
@@ -1497,7 +1497,7 @@ async def test_create_weekly_schedule_blocks_duplicate_date_and_rolls_back(
             await session.commit()
 
         with pytest.raises(CalendarTournamentDateAlreadyExistsError):
-            await service.create_weekly_schedule(100, plan)
+            await service.create_weekly_schedule(1, plan)
 
         async with session_factory() as session:
             tournaments = list((await session.execute(select(Tournament))).scalars())
@@ -1511,7 +1511,7 @@ async def test_created_weekly_schedule_reads_created_tournaments(tmp_path: Path)
     service, session_factory, engine = await create_planning_service(tmp_path / "schedule.db")
     try:
         await seed_calendar_data(session_factory)
-        plan_view = await service.build_next_week_plan(100)
+        plan_view = await service.build_next_week_plan(1)
         plan = WeeklyTournamentPlan.from_fsm(
             [
                 {
@@ -1521,10 +1521,10 @@ async def test_created_weekly_schedule_reads_created_tournaments(tmp_path: Path)
                 for item in plan_view.tournaments
             ]
         )
-        await service.create_weekly_schedule(100, plan)
+        await service.create_weekly_schedule(1, plan)
 
         schedule = await TournamentScheduleService(session_factory).get_created_weekly_schedule(
-            100,
+            1,
             plan,
         )
 
@@ -1551,7 +1551,7 @@ async def test_player_cannot_build_weekly_plan(tmp_path: Path) -> None:
             await session.commit()
 
         with pytest.raises(AdminAccessDeniedError):
-            await service.build_next_week_plan(200)
+            await service.build_next_week_plan(2)
     finally:
         await engine.dispose()
 

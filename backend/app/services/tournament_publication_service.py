@@ -68,11 +68,11 @@ class TournamentPublicationService:
 
     async def get_result_publication_preview(
         self,
-        superadmin_telegram_id: int,
+        actor_user_id: int,
         tournament_id: int,
     ) -> TournamentResultPublicationView:
         async with self.session_factory() as session:
-            await access_policy.require_superadmin_by_telegram_id(session, superadmin_telegram_id)
+            await access_policy.require_superadmin(session, actor_user_id)
             tournament = await TournamentRepository(session).get_by_id(tournament_id)
             if tournament is None:
                 raise ResultTournamentNotFoundError
@@ -88,11 +88,11 @@ class TournamentPublicationService:
 
     async def get_result_publication_content_preview(
         self,
-        superadmin_telegram_id: int,
+        actor_user_id: int,
         tournament_id: int,
     ) -> TournamentResultPublicationView:
         async with self.session_factory() as session:
-            await access_policy.require_superadmin_by_telegram_id(session, superadmin_telegram_id)
+            await access_policy.require_superadmin(session, actor_user_id)
             tournament = await TournamentRepository(session).get_by_id(tournament_id)
             if tournament is None:
                 raise ResultTournamentNotFoundError
@@ -102,7 +102,7 @@ class TournamentPublicationService:
 
     async def get_pre_close_result_publication_preview(
         self,
-        superadmin_telegram_id: int,
+        actor_user_id: int,
         tournament_id: int,
         tournament_fund: int,
     ) -> TournamentResultPublicationView:
@@ -111,13 +111,13 @@ class TournamentPublicationService:
             clock=self.clock,
             tournament_day_start_hour=self.tournament_day_start_hour,
         ).preview_tournament_close(
-            superadmin_telegram_id=superadmin_telegram_id,
+            actor_user_id=actor_user_id,
             tournament_id=tournament_id,
             tournament_fund=tournament_fund,
         )
 
         async with self.session_factory() as session:
-            await access_policy.require_superadmin_by_telegram_id(session, superadmin_telegram_id)
+            await access_policy.require_superadmin(session, actor_user_id)
             tournament = await TournamentRepository(session).get_by_id(tournament_id)
             if tournament is None:
                 raise ResultTournamentNotFoundError
@@ -132,10 +132,10 @@ class TournamentPublicationService:
 
     async def get_schedule_publication_preview(
         self,
-        superadmin_telegram_id: int,
+        actor_user_id: int,
     ) -> SchedulePublicationView:
         async with self.session_factory() as session:
-            await access_policy.require_superadmin_by_telegram_id(session, superadmin_telegram_id)
+            await access_policy.require_superadmin(session, actor_user_id)
             destinations = self._destinations()
             if not destinations:
                 raise TournamentPublicationNoDestinationsError
@@ -168,7 +168,7 @@ class TournamentPublicationService:
 
     async def record_publication_success(
         self,
-        superadmin_telegram_id: int,
+        actor_user_id: int,
         *,
         tournament_id: int | None,
         publication_type: TournamentPublicationType,
@@ -178,9 +178,7 @@ class TournamentPublicationService:
         telegram_message_id: int | None,
     ) -> None:
         async with self.session_factory() as session:
-            actor = await access_policy.require_superadmin_by_telegram_id(
-                session, superadmin_telegram_id
-            )
+            actor = await access_policy.require_superadmin(session, actor_user_id)
             try:
                 await TournamentPublicationRepository(session).add(
                     tournament_id=tournament_id,

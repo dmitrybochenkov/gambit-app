@@ -21,12 +21,12 @@ class AdminManagementUseCases:
     async def promote_admin(
         self,
         *,
-        superadmin_telegram_id: int,
+        actor_user_id: int,
         user_id: int,
         delivery: AdminPromotionNotificationDelivery,
     ) -> UserView:
         promoted_user = await self._service.add_admin(
-            superadmin_telegram_id=superadmin_telegram_id,
+            actor_user_id=actor_user_id,
             user_id=user_id,
         )
         try:

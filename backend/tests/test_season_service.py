@@ -88,7 +88,7 @@ async def test_open_first_season(tmp_path: Path) -> None:
         config_id = await seed_admin_and_config(session_factory)
 
         season = await service.open_season(
-            admin_telegram_id=100,
+            actor_user_id=1,
             name="Осень 2026",
             starts_at=date(2026, 9, 1),
             scoring_config_id=config_id,
@@ -149,7 +149,7 @@ async def test_get_season_timeline_has_no_pending_proposal(
     try:
         await seed_current_season(session_factory)
 
-        timeline = await service.get_season_timeline(100)
+        timeline = await service.get_season_timeline(1)
 
         assert timeline.current_season is not None
         assert timeline.current_season.name == "Лето 2026"
@@ -184,10 +184,10 @@ async def test_normal_season_management_requires_superadmin(tmp_path: Path) -> N
             await session.commit()
 
         with pytest.raises(AdminAccessDeniedError):
-            await service.get_season_timeline(200)
+            await service.get_season_timeline(2)
         with pytest.raises(AdminAccessDeniedError):
             await service.get_creation_preview(
-                300,
+                3,
                 name="Осень 2026",
                 starts_at=date(2026, 9, 1),
             )
@@ -201,7 +201,7 @@ async def test_creation_preview_does_not_write_database(tmp_path: Path) -> None:
         await seed_current_season(session_factory)
 
         preview = await service.get_creation_preview(
-            100,
+            1,
             name="Осень 2026",
             starts_at=date(2026, 9, 1),
         )
@@ -222,7 +222,7 @@ async def test_create_next_season_closes_current_atomically(tmp_path: Path) -> N
         await seed_current_season(session_factory)
 
         season = await service.create_next_season(
-            100,
+            1,
             name="Осень 2026",
             starts_at=date(2026, 9, 1),
         )
@@ -257,7 +257,7 @@ async def test_create_next_season_rejects_second_future_season(tmp_path: Path) -
 
         with pytest.raises(SeasonScheduledConflictError):
             await service.create_next_season(
-                100,
+                1,
                 name="Зима 2026",
                 starts_at=date(2026, 12, 1),
             )
@@ -272,7 +272,7 @@ async def test_create_next_season_rejects_duplicate_name(tmp_path: Path) -> None
 
         with pytest.raises(SeasonNameAlreadyExistsError):
             await service.create_next_season(
-                100,
+                1,
                 name="Лето 2026",
                 starts_at=date(2026, 9, 1),
             )
@@ -287,7 +287,7 @@ async def test_create_next_season_rejects_past_or_today(tmp_path: Path) -> None:
 
         with pytest.raises(SeasonStartDateError):
             await service.create_next_season(
-                100,
+                1,
                 name="Сегодня",
                 starts_at=date(2026, 8, 9),
             )
@@ -314,8 +314,8 @@ async def test_delete_future_season_reopens_previous(tmp_path: Path) -> None:
             )
             await session.commit()
 
-        preview = await service.get_future_season_delete_preview(100)
-        timeline = await service.delete_future_season(100, expected_season_id=2)
+        preview = await service.get_future_season_delete_preview(1)
+        timeline = await service.delete_future_season(1, expected_season_id=2)
 
         assert preview.future_season.id == 2
         assert preview.previous_season.name == "Лето 2026"
@@ -362,9 +362,9 @@ async def test_delete_referenced_future_season_fails_with_semantic_conflict(
             future_id = future.id
 
         with pytest.raises(SeasonFutureHasTournamentsError):
-            await service.get_future_season_delete_preview(100)
+            await service.get_future_season_delete_preview(1)
         with pytest.raises(SeasonFutureHasTournamentsError):
-            await service.delete_future_season(100, expected_season_id=future_id)
+            await service.delete_future_season(1, expected_season_id=future_id)
 
         async with session_factory() as session:
             current = await SeasonRepository(session).get_by_name("Лето 2026")
@@ -396,7 +396,7 @@ async def test_delete_future_season_rejects_stale_expected_id_without_mutation(
             future_id = future.id
 
         with pytest.raises(SeasonFutureStaleError):
-            await service.delete_future_season(100, expected_season_id=future_id + 999)
+            await service.delete_future_season(1, expected_season_id=future_id + 999)
 
         async with session_factory() as session:
             current = await SeasonRepository(session).get_by_name("Лето 2026")
@@ -414,7 +414,7 @@ async def test_invalid_name_is_rejected(tmp_path: Path) -> None:
 
         with pytest.raises(SeasonNameInvalidError):
             await service.get_creation_preview(
-                100,
+                1,
                 name="   ",
                 starts_at=date(2026, 9, 1),
             )
@@ -446,7 +446,7 @@ async def test_missing_scoring_config_is_rejected(tmp_path: Path) -> None:
 
         with pytest.raises(SeasonScoringConfigNotFoundError):
             await service.get_creation_preview(
-                100,
+                1,
                 name="Осень 2026",
                 starts_at=date(2026, 9, 1),
             )
@@ -461,7 +461,7 @@ async def test_create_next_season_rolls_back_on_error(tmp_path: Path) -> None:
 
         with pytest.raises(SeasonNameInvalidError):
             await service.create_next_season(
-                100,
+                1,
                 name="",
                 starts_at=date(2026, 9, 1),
             )
@@ -483,7 +483,7 @@ async def test_open_season_rejects_same_start(tmp_path: Path) -> None:
 
         with pytest.raises(SeasonStartDateError):
             await service.open_season(
-                admin_telegram_id=100,
+                actor_user_id=1,
                 name="Накладка",
                 starts_at=date(2026, 6, 1),
                 scoring_config_id=config_id,

@@ -9,7 +9,10 @@ from app.bot.telegram.formatters import seasons as season_fmt
 from app.bot.telegram.handlers.admin.shared import (
     delete_callback_message as _delete_callback_message,
 )
-from app.bot.telegram.handlers.admin.shared import parse_admin_date
+from app.bot.telegram.handlers.admin.shared import (
+    parse_admin_date,
+    resolve_admin_actor_user_id,
+)
 from app.bot.telegram.keyboards import labels
 from app.bot.telegram.keyboards.superadmin import seasons as superadmin_seasons_kb
 from app.bot.telegram.message_edit import edit_message_if_changed
@@ -57,7 +60,9 @@ async def open_season_management(message: Message) -> None:
         return
 
     try:
-        timeline = await season_service.get_season_timeline(message.from_user.id)
+        timeline = await season_service.get_season_timeline(
+            await resolve_admin_actor_user_id(message.from_user.id)
+        )
     except AdminAccessDeniedError:
         await message.answer(panel_text.INSUFFICIENT_RIGHTS)
         return
@@ -88,7 +93,7 @@ async def manage_seasons(
 
         if callback_data.action == superadmin_seasons_kb.SeasonManageAction.LIST:
             page = await season_service.list_seasons_page_for_admin(
-                callback.from_user.id,
+                await resolve_admin_actor_user_id(callback.from_user.id),
                 page=0,
                 page_size=SEASONS_PAGE_SIZE,
             )
@@ -103,7 +108,9 @@ async def manage_seasons(
 
         if callback_data.action == superadmin_seasons_kb.SeasonManageAction.LIST_PAGE:
             if callback_data.page < 0:
-                timeline = await season_service.get_season_timeline(callback.from_user.id)
+                timeline = await season_service.get_season_timeline(
+                    await resolve_admin_actor_user_id(callback.from_user.id)
+                )
                 await callback.answer()
                 if callback.message is not None:
                     await edit_message_if_changed(
@@ -113,7 +120,7 @@ async def manage_seasons(
                     )
                 return
             page = await season_service.list_seasons_page_for_admin(
-                callback.from_user.id,
+                await resolve_admin_actor_user_id(callback.from_user.id),
                 page=callback_data.page,
                 page_size=SEASONS_PAGE_SIZE,
             )
@@ -127,7 +134,9 @@ async def manage_seasons(
             return
 
         if callback_data.action == superadmin_seasons_kb.SeasonManageAction.DELETE_FUTURE:
-            preview = await season_service.get_future_season_delete_preview(callback.from_user.id)
+            preview = await season_service.get_future_season_delete_preview(
+                await resolve_admin_actor_user_id(callback.from_user.id)
+            )
             season = preview.future_season
             if season.id != callback_data.season_id:
                 raise SeasonNotFoundError
@@ -142,7 +151,9 @@ async def manage_seasons(
                 )
             return
 
-        timeline = await season_service.get_season_timeline(callback.from_user.id)
+        timeline = await season_service.get_season_timeline(
+            await resolve_admin_actor_user_id(callback.from_user.id)
+        )
         if timeline.has_future_season:
             raise SeasonScheduledConflictError
         await state.clear()
@@ -186,7 +197,9 @@ async def select_future_season_delete_action(
             await callback.message.answer(text.ADMIN_CALENDAR_CANCELLED)
         return
     if callback_data.action == superadmin_seasons_kb.SeasonDeleteFutureAction.BACK:
-        timeline = await season_service.get_season_timeline(callback.from_user.id)
+        timeline = await season_service.get_season_timeline(
+            await resolve_admin_actor_user_id(callback.from_user.id)
+        )
         await state.clear()
         await callback.answer()
         if callback.message is not None:
@@ -199,7 +212,7 @@ async def select_future_season_delete_action(
 
     try:
         timeline = await season_service.delete_future_season(
-            admin_telegram_id=callback.from_user.id,
+            actor_user_id=await resolve_admin_actor_user_id(callback.from_user.id),
             expected_season_id=callback_data.season_id,
         )
     except AdminAccessDeniedError:
@@ -237,7 +250,7 @@ async def enter_season_name(message: Message, state: FSMContext) -> None:
         await user_access_service.require_superadmin(message.from_user.id)
         preview_name = message.text or ""
         await season_service.get_creation_preview(
-            message.from_user.id,
+            await resolve_admin_actor_user_id(message.from_user.id),
             name=preview_name,
             starts_at=_temporary_future_date(),
         )
@@ -274,7 +287,7 @@ async def enter_season_starts_at(message: Message, state: FSMContext) -> None:
     name = str(data.get("season_name") or "")
     try:
         preview = await season_service.get_creation_preview(
-            message.from_user.id,
+            await resolve_admin_actor_user_id(message.from_user.id),
             name=name,
             starts_at=starts_at,
         )
@@ -337,7 +350,7 @@ async def select_season_open_action(
 
     try:
         season = await season_service.create_next_season(
-            admin_telegram_id=callback.from_user.id,
+            actor_user_id=await resolve_admin_actor_user_id(callback.from_user.id),
             name=name,
             starts_at=date.fromisoformat(starts_at_raw),
         )

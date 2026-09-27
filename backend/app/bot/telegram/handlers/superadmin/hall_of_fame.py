@@ -10,6 +10,9 @@ from app.bot.telegram.formatters import hall_of_fame as hall_fmt
 from app.bot.telegram.handlers.admin.shared import (
     delete_callback_message as _delete_callback_message,
 )
+from app.bot.telegram.handlers.admin.shared import (
+    resolve_admin_actor_user_id,
+)
 from app.bot.telegram.handlers.superadmin.navigation import send_superadmin_panel
 from app.bot.telegram.handlers.user.shared import clean_text as _clean_text
 from app.bot.telegram.keyboards import labels
@@ -43,7 +46,9 @@ async def show_hall_of_fame_management(message: Message, state: FSMContext) -> N
         return
     await state.clear()
     try:
-        seasons = await hall_of_fame_management_service.list_seasons(message.from_user.id)
+        seasons = await hall_of_fame_management_service.list_seasons(
+            await resolve_admin_actor_user_id(message.from_user.id)
+        )
     except AdminAccessDeniedError:
         await message.answer(panel_text.INSUFFICIENT_RIGHTS)
         return
@@ -92,7 +97,7 @@ async def select_hall_of_fame_card_action(
         return
     try:
         entry = await hall_of_fame_management_service.get_season_hall_of_fame(
-            callback.from_user.id, callback_data.season_id
+            await resolve_admin_actor_user_id(callback.from_user.id), callback_data.season_id
         )
     except HallOfFameSeasonNotFoundError:
         await callback.answer(text.HALL_OF_FAME_SEASON_NOT_FOUND, show_alert=True)
@@ -137,7 +142,12 @@ async def enter_hall_of_fame_awarded_at(message: Message, state: FSMContext) -> 
         chat_key="hall_date_prompt_chat_id",
         message_key="hall_date_prompt_message_id",
     )
-    await _start_player_search(message, state, awarded_at, actor_telegram_id=message.from_user.id)
+    await _start_player_search(
+        message,
+        state,
+        awarded_at,
+        actor_user_id=await resolve_admin_actor_user_id(message.from_user.id),
+    )
 
 
 @router.callback_query(hall_kb.HallOfFameDateCallback.filter())
@@ -165,7 +175,7 @@ async def select_hall_of_fame_date_action(
             callback.message,
             state,
             club_clock.today(),
-            actor_telegram_id=callback.from_user.id,
+            actor_user_id=await resolve_admin_actor_user_id(callback.from_user.id),
         )
 
 
@@ -174,12 +184,12 @@ async def _start_player_search(
     state: FSMContext,
     awarded_at: date,
     *,
-    actor_telegram_id: int,
+    actor_user_id: int,
 ) -> None:
     data = await state.get_data()
     field = hall_kb.HallOfFameField(str(data["hall_field"]))
     entry = await hall_of_fame_management_service.get_season_hall_of_fame(
-        actor_telegram_id, int(data["hall_season_id"])
+        actor_user_id, int(data["hall_season_id"])
     )
     await state.update_data(hall_awarded_at=awarded_at.isoformat())
     await state.set_state(HallOfFameStates.entering_player_name)
@@ -201,14 +211,12 @@ async def _edit_player_name_step(
     state: FSMContext,
     awarded_at: date,
     *,
-    actor_telegram_id: int,
+    actor_user_id: int,
 ) -> None:
     data = await state.get_data()
     season_id = int(data["hall_season_id"])
     field = hall_kb.HallOfFameField(str(data["hall_field"]))
-    entry = await hall_of_fame_management_service.get_season_hall_of_fame(
-        actor_telegram_id, season_id
-    )
+    entry = await hall_of_fame_management_service.get_season_hall_of_fame(actor_user_id, season_id)
     await state.update_data(
         hall_awarded_at=awarded_at.isoformat(),
         hall_prompt_chat_id=message.chat.id,
@@ -234,7 +242,7 @@ async def search_hall_of_fame_player(message: Message, state: FSMContext) -> Non
     await _clear_search_prompt_markup(message, data)
     try:
         candidates = await hall_of_fame_management_service.search_players(
-            message.from_user.id, query
+            await resolve_admin_actor_user_id(message.from_user.id), query
         )
     except AdminAccessDeniedError:
         await state.clear()
@@ -271,10 +279,10 @@ async def select_hall_of_fame_candidate(
         return
     try:
         player = await hall_of_fame_management_service.get_player(
-            callback.from_user.id, callback_data.player_id
+            await resolve_admin_actor_user_id(callback.from_user.id), callback_data.player_id
         )
         entry = await hall_of_fame_management_service.get_season_hall_of_fame(
-            callback.from_user.id, callback_data.season_id
+            await resolve_admin_actor_user_id(callback.from_user.id), callback_data.season_id
         )
     except AdminAccessDeniedError:
         await callback.answer(panel_text.INSUFFICIENT_RIGHTS, show_alert=True)
@@ -329,7 +337,7 @@ async def confirm_hall_of_fame_player(
         return
     try:
         entry = await hall_of_fame_management_service.set_achievement(
-            callback.from_user.id,
+            await resolve_admin_actor_user_id(callback.from_user.id),
             callback_data.season_id,
             callback_data.player_id,
             HallOfFameAchievementKind(callback_data.field.value),
@@ -375,7 +383,7 @@ async def select_hall_of_fame_delete_action(
     current_state = await state.get_state()
     try:
         entry = await hall_of_fame_management_service.get_season_hall_of_fame(
-            callback.from_user.id, callback_data.season_id
+            await resolve_admin_actor_user_id(callback.from_user.id), callback_data.season_id
         )
     except HallOfFameSeasonNotFoundError:
         await callback.answer(text.HALL_OF_FAME_SEASON_NOT_FOUND, show_alert=True)
@@ -408,7 +416,7 @@ async def select_hall_of_fame_delete_action(
         return
     try:
         refreshed = await hall_of_fame_management_service.delete_achievement(
-            callback.from_user.id,
+            await resolve_admin_actor_user_id(callback.from_user.id),
             callback_data.achievement_id,
         )
     except HallOfFameAchievementNotFoundError:
@@ -465,7 +473,7 @@ async def select_hall_of_fame_photo_action(
         return
     if callback_data.action == hall_kb.HallOfFamePhotoAction.CONFIRM_DELETE_ALL:
         await hall_of_fame_management_service.delete_all_photos(
-            callback.from_user.id, callback_data.season_id
+            await resolve_admin_actor_user_id(callback.from_user.id), callback_data.season_id
         )
         await callback.answer("Фотографии удалены.")
         await _show_photo_menu(callback, callback_data.season_id, answer_callback=False)
@@ -473,7 +481,7 @@ async def select_hall_of_fame_photo_action(
     data = await state.get_data()
     try:
         await hall_of_fame_management_service.add_photo(
-            callback.from_user.id,
+            await resolve_admin_actor_user_id(callback.from_user.id),
             callback_data.season_id,
             telegram_file_id=str(data["hall_photo_file_id"]),
             telegram_file_unique_id=str(data["hall_photo_file_unique_id"]),
@@ -490,7 +498,7 @@ async def _show_achievements_menu(
 ) -> None:
     try:
         entry = await hall_of_fame_management_service.get_season_hall_of_fame(
-            callback.from_user.id, season_id
+            await resolve_admin_actor_user_id(callback.from_user.id), season_id
         )
     except HallOfFameSeasonNotFoundError:
         await callback.answer(text.HALL_OF_FAME_SEASON_NOT_FOUND, show_alert=True)
@@ -510,7 +518,7 @@ async def _show_achievements_menu(
 async def _show_delete_menu(callback: CallbackQuery, season_id: int, state: FSMContext) -> None:
     try:
         entry = await hall_of_fame_management_service.get_season_hall_of_fame(
-            callback.from_user.id, season_id
+            await resolve_admin_actor_user_id(callback.from_user.id), season_id
         )
     except HallOfFameSeasonNotFoundError:
         await callback.answer(text.HALL_OF_FAME_SEASON_NOT_FOUND, show_alert=True)
@@ -536,7 +544,7 @@ async def _show_date_step(
     state: FSMContext,
 ) -> None:
     entry = await hall_of_fame_management_service.get_season_hall_of_fame(
-        callback.from_user.id, season_id
+        await resolve_admin_actor_user_id(callback.from_user.id), season_id
     )
     await state.set_state(HallOfFameStates.entering_awarded_at)
     await state.update_data(hall_season_id=season_id, hall_field=field.value)
@@ -575,7 +583,7 @@ async def _show_player_name_step(
             callback.message,
             state,
             awarded_at,
-            actor_telegram_id=callback.from_user.id,
+            actor_user_id=await resolve_admin_actor_user_id(callback.from_user.id),
         )
 
 
@@ -584,7 +592,7 @@ async def _show_photo_menu(
 ) -> None:
     try:
         entry = await hall_of_fame_management_service.get_season_hall_of_fame(
-            callback.from_user.id, season_id
+            await resolve_admin_actor_user_id(callback.from_user.id), season_id
         )
     except HallOfFameSeasonNotFoundError:
         await callback.answer(text.HALL_OF_FAME_SEASON_NOT_FOUND, show_alert=True)
@@ -602,7 +610,7 @@ async def _show_photo_menu(
 
 async def _start_photo_flow(callback: CallbackQuery, season_id: int, state: FSMContext) -> None:
     entry = await hall_of_fame_management_service.get_season_hall_of_fame(
-        callback.from_user.id, season_id
+        await resolve_admin_actor_user_id(callback.from_user.id), season_id
     )
     await state.set_state(HallOfFameStates.collecting_photo)
     await state.update_data(hall_season_id=season_id, hall_season_name=entry.season_name)
@@ -640,7 +648,9 @@ async def _show_season_list_callback(
     callback: CallbackQuery, page_number: int, state: FSMContext
 ) -> None:
     try:
-        seasons = await hall_of_fame_management_service.list_seasons(callback.from_user.id)
+        seasons = await hall_of_fame_management_service.list_seasons(
+            await resolve_admin_actor_user_id(callback.from_user.id)
+        )
     except AdminAccessDeniedError:
         await callback.answer(panel_text.INSUFFICIENT_RIGHTS, show_alert=True)
         return
@@ -660,7 +670,7 @@ async def _show_hall_card_callback(
 ) -> None:
     try:
         entry = await hall_of_fame_management_service.get_season_hall_of_fame(
-            callback.from_user.id, season_id
+            await resolve_admin_actor_user_id(callback.from_user.id), season_id
         )
     except HallOfFameSeasonNotFoundError:
         await callback.answer(text.HALL_OF_FAME_SEASON_NOT_FOUND, show_alert=True)
@@ -681,7 +691,7 @@ async def _show_candidate_list_from_state(
 ) -> None:
     data = await state.get_data()
     candidates = await hall_of_fame_management_service.search_players(
-        callback.from_user.id, str(data.get("hall_query") or "")
+        await resolve_admin_actor_user_id(callback.from_user.id), str(data.get("hall_query") or "")
     )
     await state.set_state(HallOfFameStates.selecting_player)
     await callback.answer()

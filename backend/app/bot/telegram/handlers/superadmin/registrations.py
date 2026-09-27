@@ -6,6 +6,9 @@ from aiogram.types import CallbackQuery, Message
 from app.bot.telegram.handlers.admin.shared import (
     delete_callback_message as _delete_callback_message,
 )
+from app.bot.telegram.handlers.admin.shared import (
+    resolve_admin_actor_user_id,
+)
 from app.bot.telegram.handlers.superadmin.navigation import send_superadmin_panel
 from app.bot.telegram.keyboards import labels
 from app.bot.telegram.keyboards.superadmin import registrations as superadmin_registrations_kb
@@ -44,7 +47,7 @@ async def show_pending_registrations(message: Message) -> None:
 
     try:
         overview = await registration_review_service.get_registrations_overview_for_superadmin(
-            message.from_user.id,
+            await resolve_admin_actor_user_id(message.from_user.id),
         )
     except AdminAccessDeniedError:
         await message.answer(panel_text.INSUFFICIENT_RIGHTS)
@@ -71,7 +74,9 @@ async def registrations_hub(
             return
 
         if callback_data.action == superadmin_registrations_kb.RegistrationsHubAction.USER_REQUESTS:
-            page = await _get_pending_reviews_page(callback.from_user.id, page=0)
+            page = await _get_pending_reviews_page(
+                await resolve_admin_actor_user_id(callback.from_user.id), page=0
+            )
             await callback.answer()
             if page.total_items:
                 await _edit_pending_reviews(callback, page)
@@ -80,7 +85,7 @@ async def registrations_hub(
             return
 
         overview = await registration_review_service.get_registrations_overview_for_superadmin(
-            callback.from_user.id,
+            await resolve_admin_actor_user_id(callback.from_user.id),
         )
         await callback.answer()
         if callback_data.action == superadmin_registrations_kb.RegistrationsHubAction.BACK:
@@ -103,7 +108,7 @@ async def tournament_registrations(
     try:
         if callback_data.action == superadmin_registrations_kb.TournamentRegistrationsAction.BACK:
             overview = await registration_review_service.get_registrations_overview_for_superadmin(
-                callback.from_user.id,
+                await resolve_admin_actor_user_id(callback.from_user.id),
             )
             await callback.answer()
             await _edit_tournament_registrations_overview(
@@ -114,7 +119,7 @@ async def tournament_registrations(
 
         detail = (
             await registration_review_service.get_tournament_registrations_detail_for_superadmin(
-                callback.from_user.id,
+                await resolve_admin_actor_user_id(callback.from_user.id),
                 callback_data.tournament_id,
             )
         )
@@ -124,7 +129,7 @@ async def tournament_registrations(
     except TournamentRegistrationsUnavailableError:
         await callback.answer(text.TOURNAMENT_REGISTRATIONS_UNAVAILABLE, show_alert=True)
         overview = await registration_review_service.get_registrations_overview_for_superadmin(
-            callback.from_user.id,
+            await resolve_admin_actor_user_id(callback.from_user.id),
         )
         await _edit_tournament_registrations_overview(
             callback,
@@ -153,13 +158,17 @@ async def review_registration_list(
             return
 
         if callback_data.action == superadmin_registrations_kb.RegistrationListAction.OPEN:
-            review = await _get_review(callback.from_user.id, callback_data.request_id)
+            review = await _get_review(
+                await resolve_admin_actor_user_id(callback.from_user.id), callback_data.request_id
+            )
             await callback.answer()
             if callback.message is not None:
                 await _edit_registration_review(callback, review, callback_data.page)
             return
 
-        page = await _get_pending_reviews_page(callback.from_user.id, page=callback_data.page)
+        page = await _get_pending_reviews_page(
+            await resolve_admin_actor_user_id(callback.from_user.id), page=callback_data.page
+        )
         await callback.answer()
         await _edit_pending_reviews(callback, page)
     except AdminAccessDeniedError:
@@ -182,7 +191,9 @@ async def review_registration(
             callback_data.action
             == superadmin_registrations_kb.RegistrationReviewAction.SELECT_CANDIDATE
         ):
-            review = await _get_review(callback.from_user.id, callback_data.request_id)
+            review = await _get_review(
+                await resolve_admin_actor_user_id(callback.from_user.id), callback_data.request_id
+            )
             await callback.answer()
             if callback.message is not None:
                 await edit_message_if_changed(
@@ -198,7 +209,7 @@ async def review_registration(
 
         if callback_data.action == superadmin_registrations_kb.RegistrationReviewAction.BACK:
             page = await _get_pending_reviews_page(
-                callback.from_user.id,
+                await resolve_admin_actor_user_id(callback.from_user.id),
                 page=callback_data.page,
             )
             await callback.answer()
@@ -207,7 +218,7 @@ async def review_registration(
 
         if callback_data.action == superadmin_registrations_kb.RegistrationReviewAction.APPROVE:
             await _registration_review_use_cases().approve(
-                reviewer_telegram_id=callback.from_user.id,
+                actor_user_id=await resolve_admin_actor_user_id(callback.from_user.id),
                 request_id=callback_data.request_id,
                 delivery=TelegramRegistrationReviewNotificationDelivery(callback.bot),
             )
@@ -218,7 +229,7 @@ async def review_registration(
             return
         else:
             await _registration_review_use_cases().reject(
-                reviewer_telegram_id=callback.from_user.id,
+                actor_user_id=await resolve_admin_actor_user_id(callback.from_user.id),
                 request_id=callback_data.request_id,
                 delivery=TelegramRegistrationReviewNotificationDelivery(callback.bot),
             )
@@ -257,7 +268,7 @@ async def select_registration_candidate(
 ) -> None:
     try:
         review = await registration_review_service.select_registration_candidate(
-            superadmin_telegram_id=callback.from_user.id,
+            actor_user_id=await resolve_admin_actor_user_id(callback.from_user.id),
             request_id=callback_data.request_id,
             user_id=callback_data.user_id,
         )
@@ -312,7 +323,9 @@ async def confirm_registration_candidate(
             callback_data.action
             == superadmin_registrations_kb.RegistrationCandidateConfirmAction.BACK
         ):
-            review = await _get_review(callback.from_user.id, callback_data.request_id)
+            review = await _get_review(
+                await resolve_admin_actor_user_id(callback.from_user.id), callback_data.request_id
+            )
             await callback.answer()
             if callback.message is not None:
                 await edit_message_if_changed(
@@ -327,7 +340,7 @@ async def confirm_registration_candidate(
             return
 
         await _registration_review_use_cases().approve(
-            reviewer_telegram_id=callback.from_user.id,
+            actor_user_id=await resolve_admin_actor_user_id(callback.from_user.id),
             request_id=callback_data.request_id,
             delivery=TelegramRegistrationReviewNotificationDelivery(callback.bot),
             candidate_user_id=callback_data.user_id,
@@ -362,7 +375,9 @@ async def _finish_registration_review(
 ) -> None:
     await callback.answer(result_text)
     if callback.message is not None:
-        updated_page = await _get_pending_reviews_page(callback.from_user.id, page=page)
+        updated_page = await _get_pending_reviews_page(
+            await resolve_admin_actor_user_id(callback.from_user.id), page=page
+        )
         await _edit_pending_reviews(callback, updated_page)
 
 
@@ -371,27 +386,27 @@ def _registration_review_use_cases() -> RegistrationReviewUseCases:
 
 
 async def _get_pending_reviews_page(
-    superadmin_telegram_id: int,
+    actor_user_id: int,
     *,
     page: int,
 ) -> Page:
     return await registration_review_service.list_pending_reviews_page_for_superadmin(
-        superadmin_telegram_id,
+        actor_user_id,
         page=page,
         page_size=superadmin_registrations_kb.REGISTRATION_LIST_PAGE_SIZE,
     )
 
 
-async def _get_registered_user_count(superadmin_telegram_id: int) -> int:
+async def _get_registered_user_count(actor_user_id: int) -> int:
     overview = await registration_review_service.get_registrations_overview_for_superadmin(
-        superadmin_telegram_id
+        actor_user_id
     )
     return overview.registered_user_count
 
 
-async def _get_review(superadmin_telegram_id: int, request_id: int):
+async def _get_review(actor_user_id: int, request_id: int):
     return await registration_review_service.get_registration_review_for_admin(
-        admin_telegram_id=superadmin_telegram_id,
+        actor_user_id=actor_user_id,
         request_id=request_id,
     )
 
@@ -403,7 +418,9 @@ async def _edit_pending_reviews(callback: CallbackQuery, page: Page) -> None:
         await _edit_empty_user_registrations(callback)
         return
 
-    registered_user_count = await _get_registered_user_count(callback.from_user.id)
+    registered_user_count = await _get_registered_user_count(
+        await resolve_admin_actor_user_id(callback.from_user.id)
+    )
 
     await edit_message_if_changed(
         callback.message,
@@ -449,7 +466,9 @@ async def _edit_empty_user_registrations(callback: CallbackQuery) -> None:
     if callback.message is None:
         return
 
-    registered_user_count = await _get_registered_user_count(callback.from_user.id)
+    registered_user_count = await _get_registered_user_count(
+        await resolve_admin_actor_user_id(callback.from_user.id)
+    )
 
     await edit_message_if_changed(
         callback.message,

@@ -282,10 +282,10 @@ class TournamentPlanningService:
 
     async def get_superadmin_tournament_hub(
         self,
-        actor_telegram_id: int,
+        actor_user_id: int,
     ) -> SuperadminTournamentHubView:
         async with self.session_factory() as session:
-            await access_policy.require_superadmin_by_telegram_id(session, actor_telegram_id)
+            await access_policy.require_superadmin(session, actor_user_id)
             open_count = await TournamentRepository(session).count_active_on_or_before(
                 resolve_tournament_day(self.clock, self.tournament_day_start_hour)
             )
@@ -293,13 +293,13 @@ class TournamentPlanningService:
 
     async def list_open_tournaments_for_superadmin(
         self,
-        actor_telegram_id: int,
+        actor_user_id: int,
         *,
         page: int,
         page_size: int = SUPERADMIN_OPEN_TOURNAMENT_PAGE_SIZE,
     ) -> SuperadminOpenTournamentPageView:
         async with self.session_factory() as session:
-            await access_policy.require_superadmin_by_telegram_id(session, actor_telegram_id)
+            await access_policy.require_superadmin(session, actor_user_id)
             tournaments = await TournamentRepository(session).list_active_on_or_before(
                 resolve_tournament_day(self.clock, self.tournament_day_start_hour)
             )
@@ -311,32 +311,32 @@ class TournamentPlanningService:
 
     async def build_next_week_plan(
         self,
-        actor_telegram_id: int,
+        actor_user_id: int,
         today: date | None = None,
     ) -> WeeklyTournamentPlanView:
         business_date = today or self.clock.today()
         async with self.session_factory() as session:
-            await access_policy.require_superadmin_by_telegram_id(session, actor_telegram_id)
+            await access_policy.require_superadmin(session, actor_user_id)
             plan = await self._build_next_week_plan(session, business_date)
             return await self.plan_view(session, plan)
 
     async def inspect_next_week(
         self,
-        actor_telegram_id: int,
+        actor_user_id: int,
         today: date | None = None,
     ) -> WeeklyPlanningCheckView:
         business_date = today or self.clock.today()
         async with self.session_factory() as session:
-            await access_policy.require_superadmin_by_telegram_id(session, actor_telegram_id)
+            await access_policy.require_superadmin(session, actor_user_id)
             return await self._inspect_next_week_from_db(session, business_date)
 
     async def inspect_after_tournament_close(
         self,
-        actor_telegram_id: int,
+        actor_user_id: int,
         closed_tournament_date: date,
     ) -> WeeklyPlanningCheckView:
         async with self.session_factory() as session:
-            await access_policy.require_superadmin_by_telegram_id(session, actor_telegram_id)
+            await access_policy.require_superadmin(session, actor_user_id)
             return await self._inspect_next_week_from_db(
                 session,
                 self.clock.today(),
@@ -344,15 +344,15 @@ class TournamentPlanningService:
 
     async def list_tournament_type_options(
         self,
-        actor_telegram_id: int,
+        actor_user_id: int,
     ) -> list[TournamentTypeOptionView]:
         async with self.session_factory() as session:
-            await access_policy.require_superadmin_by_telegram_id(session, actor_telegram_id)
+            await access_policy.require_superadmin(session, actor_user_id)
             return await self._list_tournament_type_options(session)
 
     async def get_calendar_month(
         self,
-        actor_telegram_id: int,
+        actor_user_id: int,
         *,
         year: int | None = None,
         month: int | None = None,
@@ -361,39 +361,39 @@ class TournamentPlanningService:
         target_year = year or today.year
         target_month = month or today.month
         async with self.session_factory() as session:
-            await access_policy.require_superadmin_by_telegram_id(session, actor_telegram_id)
+            await access_policy.require_superadmin(session, actor_user_id)
             return await self._calendar_month_view(session, target_year, target_month)
 
     async def get_calendar_week(
         self,
-        actor_telegram_id: int,
+        actor_user_id: int,
         *,
         year: int,
         month: int,
         row_number: int,
     ) -> TournamentCalendarWeekDetailView:
         async with self.session_factory() as session:
-            await access_policy.require_superadmin_by_telegram_id(session, actor_telegram_id)
+            await access_policy.require_superadmin(session, actor_user_id)
             return await self._calendar_week_view(session, year, month, row_number)
 
     async def list_calendar_tournament_type_options(
         self,
-        actor_telegram_id: int,
+        actor_user_id: int,
     ) -> list[TournamentCalendarTypeOptionView]:
         async with self.session_factory() as session:
-            await access_policy.require_superadmin_by_telegram_id(session, actor_telegram_id)
+            await access_policy.require_superadmin(session, actor_user_id)
             return await self._calendar_type_options(session)
 
     async def get_calendar_format_detail(
         self,
-        actor_telegram_id: int,
+        actor_user_id: int,
         *,
         year: int,
         month: int,
         tournament_type_id: int,
     ) -> TournamentCalendarFormatDetailView:
         async with self.session_factory() as session:
-            await access_policy.require_superadmin_by_telegram_id(session, actor_telegram_id)
+            await access_policy.require_superadmin(session, actor_user_id)
             month_view = await self._calendar_month_view(session, year, month)
             if tournament_type_id not in {
                 tournament_type.id for tournament_type in month_view.tournament_types
@@ -406,13 +406,13 @@ class TournamentPlanningService:
 
     async def get_calendar_create_preview(
         self,
-        actor_telegram_id: int,
+        actor_user_id: int,
         *,
         tournament_date: date,
         tournament_type_id: int,
     ) -> TournamentCalendarCreatePreviewView:
         async with self.session_factory() as session:
-            await access_policy.require_superadmin_by_telegram_id(session, actor_telegram_id)
+            await access_policy.require_superadmin(session, actor_user_id)
             if await TournamentRepository(session).exists_for_date(tournament_date):
                 raise CalendarTournamentDateAlreadyExistsError
             tournament_type = await self._calendar_type_option(session, tournament_type_id)
@@ -423,14 +423,14 @@ class TournamentPlanningService:
 
     async def create_calendar_tournament(
         self,
-        actor_telegram_id: int,
+        actor_user_id: int,
         *,
         tournament_date: date,
         tournament_type_id: int,
     ) -> TournamentView:
         async with self.session_factory() as session:
             try:
-                await access_policy.require_superadmin_by_telegram_id(session, actor_telegram_id)
+                await access_policy.require_superadmin(session, actor_user_id)
                 if await TournamentRepository(session).exists_for_date(tournament_date):
                     raise CalendarTournamentDateAlreadyExistsError
                 tournament_type = await self._calendar_type_option(session, tournament_type_id)
@@ -467,14 +467,14 @@ class TournamentPlanningService:
 
     async def get_calendar_autofill_preview(
         self,
-        actor_telegram_id: int,
+        actor_user_id: int,
         *,
         year: int,
         month: int,
         row_number: int,
     ) -> TournamentCalendarAutofillPreviewView:
         async with self.session_factory() as session:
-            await access_policy.require_superadmin_by_telegram_id(session, actor_telegram_id)
+            await access_policy.require_superadmin(session, actor_user_id)
             week = await self._calendar_week_view(session, year, month, row_number)
             if not week.is_empty:
                 raise CalendarWeekNotEmptyError
@@ -488,7 +488,7 @@ class TournamentPlanningService:
 
     async def create_calendar_autofill_week(
         self,
-        actor_telegram_id: int,
+        actor_user_id: int,
         *,
         year: int,
         month: int,
@@ -496,7 +496,7 @@ class TournamentPlanningService:
     ) -> TournamentCalendarAutofillPreviewView:
         async with self.session_factory() as session:
             try:
-                await access_policy.require_superadmin_by_telegram_id(session, actor_telegram_id)
+                await access_policy.require_superadmin(session, actor_user_id)
                 week = await self._calendar_week_view(session, year, month, row_number)
                 if not week.is_empty:
                     raise CalendarWeekNotEmptyError
@@ -534,14 +534,14 @@ class TournamentPlanningService:
 
     async def get_week_approval_preview(
         self,
-        actor_telegram_id: int,
+        actor_user_id: int,
         *,
         year: int,
         month: int,
         row_number: int,
     ) -> TournamentCalendarApprovalPreviewView:
         async with self.session_factory() as session:
-            await access_policy.require_superadmin_by_telegram_id(session, actor_telegram_id)
+            await access_policy.require_superadmin(session, actor_user_id)
             week = await self._calendar_week_view(session, year, month, row_number)
             tournaments = tuple(
                 day.tournament
@@ -558,7 +558,7 @@ class TournamentPlanningService:
 
     async def approve_calendar_week(
         self,
-        actor_telegram_id: int,
+        actor_user_id: int,
         *,
         year: int,
         month: int,
@@ -566,7 +566,7 @@ class TournamentPlanningService:
     ) -> TournamentCalendarApprovalPreviewView:
         async with self.session_factory() as session:
             try:
-                await access_policy.require_superadmin_by_telegram_id(session, actor_telegram_id)
+                await access_policy.require_superadmin(session, actor_user_id)
                 week = await self._calendar_week_view(session, year, month, row_number)
                 tournament_ids = [
                     day.tournament.id
@@ -595,13 +595,13 @@ class TournamentPlanningService:
 
     async def get_type_change_preview(
         self,
-        actor_telegram_id: int,
+        actor_user_id: int,
         *,
         tournament_id: int,
         new_tournament_type_id: int,
     ) -> TournamentCalendarTypeChangePreviewView:
         async with self.session_factory() as session:
-            await access_policy.require_superadmin_by_telegram_id(session, actor_telegram_id)
+            await access_policy.require_superadmin(session, actor_user_id)
             tournament = await self._require_future_calendar_tournament(session, tournament_id)
             tournament_type = await self._calendar_type_option(session, new_tournament_type_id)
             return TournamentCalendarTypeChangePreviewView(
@@ -611,14 +611,14 @@ class TournamentPlanningService:
 
     async def change_calendar_tournament_type(
         self,
-        actor_telegram_id: int,
+        actor_user_id: int,
         *,
         tournament_id: int,
         new_tournament_type_id: int,
     ) -> TournamentView:
         async with self.session_factory() as session:
             try:
-                await access_policy.require_superadmin_by_telegram_id(session, actor_telegram_id)
+                await access_policy.require_superadmin(session, actor_user_id)
                 tournament = await self._require_future_calendar_tournament(session, tournament_id)
                 tournament_type = await self._calendar_type_option(
                     session,
@@ -641,12 +641,12 @@ class TournamentPlanningService:
 
     async def get_calendar_delete_preview(
         self,
-        actor_telegram_id: int,
+        actor_user_id: int,
         *,
         tournament_id: int,
     ) -> TournamentCalendarDeletePreviewView:
         async with self.session_factory() as session:
-            await access_policy.require_superadmin_by_telegram_id(session, actor_telegram_id)
+            await access_policy.require_superadmin(session, actor_user_id)
             tournament = await self._require_future_calendar_tournament(session, tournament_id)
             counts = await TournamentRegistrationRepository(session).count_by_tournament_ids(
                 (tournament.id,)
@@ -658,13 +658,13 @@ class TournamentPlanningService:
 
     async def delete_calendar_tournament(
         self,
-        actor_telegram_id: int,
+        actor_user_id: int,
         *,
         tournament_id: int,
     ) -> tuple[TournamentView, tuple[TournamentCancellationNotificationView, ...]]:
         async with self.session_factory() as session:
             try:
-                await access_policy.require_superadmin_by_telegram_id(session, actor_telegram_id)
+                await access_policy.require_superadmin(session, actor_user_id)
                 tournament = await self._require_future_calendar_tournament(session, tournament_id)
                 if await self._has_tournament_fact_data(session, tournament.id):
                     raise CalendarTournamentNotEditableError
@@ -691,12 +691,12 @@ class TournamentPlanningService:
 
     async def get_day_edit_options(
         self,
-        actor_telegram_id: int,
+        actor_user_id: int,
         plan: WeeklyTournamentPlan,
         tournament_date: date,
     ) -> TournamentPlanDayEditView:
         async with self.session_factory() as session:
-            await access_policy.require_superadmin_by_telegram_id(session, actor_telegram_id)
+            await access_policy.require_superadmin(session, actor_user_id)
             plan.item_by_date(tournament_date)
             return TournamentPlanDayEditView(
                 tournament_date=tournament_date,
@@ -705,22 +705,22 @@ class TournamentPlanningService:
 
     async def get_plan_view(
         self,
-        actor_telegram_id: int,
+        actor_user_id: int,
         plan: WeeklyTournamentPlan,
     ) -> WeeklyTournamentPlanView:
         async with self.session_factory() as session:
-            await access_policy.require_superadmin_by_telegram_id(session, actor_telegram_id)
+            await access_policy.require_superadmin(session, actor_user_id)
             return await self.plan_view(session, plan)
 
     async def update_plan_day_type(
         self,
-        actor_telegram_id: int,
+        actor_user_id: int,
         plan: WeeklyTournamentPlan,
         tournament_date: date,
         tournament_type_id: int,
     ) -> WeeklyTournamentPlanView:
         async with self.session_factory() as session:
-            await access_policy.require_superadmin_by_telegram_id(session, actor_telegram_id)
+            await access_policy.require_superadmin(session, actor_user_id)
             if await self._creatable_tournament_type_detail(session, tournament_type_id) is None:
                 raise CalendarTournamentTypeNotFoundError
             updated_plan = plan.with_tournament_type(tournament_date, tournament_type_id)
@@ -728,23 +728,23 @@ class TournamentPlanningService:
 
     async def remove_plan_day(
         self,
-        actor_telegram_id: int,
+        actor_user_id: int,
         plan: WeeklyTournamentPlan,
         tournament_date: date,
     ) -> WeeklyTournamentPlanView:
         async with self.session_factory() as session:
-            await access_policy.require_superadmin_by_telegram_id(session, actor_telegram_id)
+            await access_policy.require_superadmin(session, actor_user_id)
             updated_plan = plan.without_date(tournament_date)
             return await self.plan_view(session, updated_plan)
 
     async def create_weekly_schedule(
         self,
-        actor_telegram_id: int,
+        actor_user_id: int,
         plan: WeeklyTournamentPlan,
     ) -> WeeklyTournamentPlanView:
         async with self.session_factory() as session:
             try:
-                await access_policy.require_superadmin_by_telegram_id(session, actor_telegram_id)
+                await access_policy.require_superadmin(session, actor_user_id)
                 planning = await self._inspect_next_week_from_db(session, self.clock.today())
                 if (
                     planning.status != WeeklyPlanningStatus.READY

@@ -21,19 +21,19 @@ class RegistrationReviewUseCases:
     async def approve(
         self,
         *,
-        reviewer_telegram_id: int,
+        actor_user_id: int,
         request_id: int,
         delivery: RegistrationReviewNotificationDelivery,
         candidate_user_id: int | None = None,
     ) -> RegistrationReviewOutcomeView:
         if candidate_user_id is None:
             outcome = await self._service.approve_registration(
-                superadmin_telegram_id=reviewer_telegram_id,
+                actor_user_id=actor_user_id,
                 request_id=request_id,
             )
         else:
             outcome = await self._service.approve_registration(
-                superadmin_telegram_id=reviewer_telegram_id,
+                actor_user_id=actor_user_id,
                 request_id=request_id,
                 candidate_user_id=candidate_user_id,
             )
@@ -43,12 +43,12 @@ class RegistrationReviewUseCases:
     async def reject(
         self,
         *,
-        reviewer_telegram_id: int,
+        actor_user_id: int,
         request_id: int,
         delivery: RegistrationReviewNotificationDelivery,
     ) -> RegistrationReviewOutcomeView:
         outcome = await self._service.reject_registration(
-            superadmin_telegram_id=reviewer_telegram_id,
+            actor_user_id=actor_user_id,
             request_id=request_id,
         )
         await self._deliver_best_effort(delivery, outcome)

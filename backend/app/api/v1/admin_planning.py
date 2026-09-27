@@ -72,7 +72,7 @@ async def get_calendar_month(
 ) -> PlanningCalendarMonthResponse:
     try:
         view = await tournament_planning_service.get_calendar_month(
-            actor.telegram_id,
+            actor.user_id,
             year=year,
             month=month,
         )
@@ -90,7 +90,7 @@ async def get_calendar_week(
 ) -> PlanningCalendarWeekDetailResponse:
     try:
         view = await tournament_planning_service.get_calendar_week(
-            actor.telegram_id,
+            actor.user_id,
             year=year,
             month=month,
             row_number=row_number,
@@ -108,7 +108,7 @@ async def list_tournament_types(
 ) -> list[PlanningTournamentTypeResponse]:
     try:
         items = await tournament_planning_service.list_calendar_tournament_type_options(
-            actor.telegram_id
+            actor.user_id
         )
     except AdminAccessDeniedError as exc:
         raise errors.forbidden("Superadmin access required") from exc
@@ -127,7 +127,7 @@ async def get_tournament_type_detail(
 ) -> PlanningFormatDetailResponse:
     try:
         view = await tournament_planning_service.get_calendar_format_detail(
-            actor.telegram_id,
+            actor.user_id,
             year=year,
             month=month,
             tournament_type_id=tournament_type_id,
@@ -146,7 +146,7 @@ async def preview_tournament_creation(
 ) -> PlanningCreatePreviewResponse:
     try:
         view = await tournament_planning_service.get_calendar_create_preview(
-            actor.telegram_id,
+            actor.user_id,
             tournament_date=request.tournament_date,
             tournament_type_id=request.tournament_type_id,
         )
@@ -167,7 +167,7 @@ async def create_tournament(
 ) -> PlanningTournamentResponse:
     try:
         view = await tournament_planning_service.create_calendar_tournament(
-            actor.telegram_id,
+            actor.user_id,
             tournament_date=request.tournament_date,
             tournament_type_id=request.tournament_type_id,
         )
@@ -189,7 +189,7 @@ async def preview_week_autofill(
 ) -> PlanningAutofillResponse:
     try:
         view = await tournament_planning_service.get_calendar_autofill_preview(
-            actor.telegram_id,
+            actor.user_id,
             year=request.year,
             month=request.month,
             row_number=request.row_number,
@@ -212,7 +212,7 @@ async def autofill_week(
 ) -> PlanningAutofillResponse:
     try:
         view = await tournament_planning_service.create_calendar_autofill_week(
-            actor.telegram_id,
+            actor.user_id,
             year=request.year,
             month=request.month,
             row_number=request.row_number,
@@ -236,7 +236,7 @@ async def preview_week_approval(
 ) -> PlanningApprovalResponse:
     try:
         view = await tournament_planning_service.get_week_approval_preview(
-            actor.telegram_id,
+            actor.user_id,
             year=request.year,
             month=request.month,
             row_number=request.row_number,
@@ -255,7 +255,7 @@ async def approve_week(
 ) -> PlanningApprovalResponse:
     try:
         view = await tournament_planning_service.approve_calendar_week(
-            actor.telegram_id,
+            actor.user_id,
             year=request.year,
             month=request.month,
             row_number=request.row_number,
@@ -282,7 +282,7 @@ async def preview_tournament_type_change(
 ) -> PlanningTypeChangeResponse:
     try:
         view = await tournament_planning_service.get_type_change_preview(
-            actor.telegram_id,
+            actor.user_id,
             tournament_id=tournament_id,
             new_tournament_type_id=request.tournament_type_id,
         )
@@ -305,7 +305,7 @@ async def change_tournament_type(
 ) -> PlanningTournamentResponse:
     try:
         view = await tournament_planning_service.change_calendar_tournament_type(
-            actor.telegram_id,
+            actor.user_id,
             tournament_id=tournament_id,
             new_tournament_type_id=request.tournament_type_id,
         )
@@ -330,7 +330,7 @@ async def preview_tournament_delete(
 ) -> PlanningDeletePreviewResponse:
     try:
         view = await tournament_planning_service.get_calendar_delete_preview(
-            actor.telegram_id,
+            actor.user_id,
             tournament_id=tournament_id,
         )
     except AdminAccessDeniedError as exc:
@@ -347,7 +347,7 @@ async def delete_tournament(
 ) -> PlanningDeleteResponse:
     try:
         tournament, notifications = await tournament_planning_service.delete_calendar_tournament(
-            actor.telegram_id,
+            actor.user_id,
             tournament_id=tournament_id,
         )
     except AdminAccessDeniedError as exc:
