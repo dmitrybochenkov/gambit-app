@@ -99,6 +99,12 @@ class HallOfFameRepository:
     async def get_achievement(self, achievement_id: int) -> HallOfFameAchievement | None:
         return await self.session.get(HallOfFameAchievement, achievement_id)
 
+    async def get_achievement_type(
+        self,
+        kind: HallOfFameAchievementKind,
+    ) -> AchievementType | None:
+        return await self.session.get(AchievementType, kind.value)
+
     async def add_achievement(
         self, *, season_id: int, player_id: int, kind: HallOfFameAchievementKind, awarded_at: date
     ) -> HallOfFameAchievement:

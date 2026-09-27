@@ -193,3 +193,51 @@ def test_admin_promotion_http_delivery_uses_current_runtime_bot() -> None:
     assert "bot = runtime.telegram_bot" in source
     assert "TelegramAdminPromotionNotificationDelivery(bot)" in source
     assert "Bot(" not in source
+
+
+def test_admin_hall_api_uses_shared_occurrence_management_boundary() -> None:
+    path = API_ROOT / "v1" / "admin_hall_of_fame.py"
+    source = path.read_text()
+    tree = ast.parse(source)
+    calls = [
+        node
+        for node in ast.walk(tree)
+        if isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute)
+    ]
+
+    assert "app.db.repositories" not in source
+    assert "app.db.models" not in source
+    assert "AsyncSession" not in source
+    assert ".commit(" not in source
+    assert ".rollback(" not in source
+    assert "SINGLETON_ACHIEVEMENT_KINDS" not in source
+    assert "REPEATABLE_ACHIEVEMENT_KINDS" not in source
+    assert any(
+        isinstance(call.func.value, ast.Name)
+        and call.func.value.id == "hall_of_fame_management_service"
+        and call.func.attr == "set_achievement"
+        for call in calls
+    )
+    assert any(
+        isinstance(call.func.value, ast.Name)
+        and call.func.value.id == "hall_of_fame_management_service"
+        and call.func.attr == "delete_achievement"
+        for call in calls
+    )
+
+
+def test_admin_hall_commands_cannot_accept_canonical_metadata() -> None:
+    path = API_ROOT / "v1" / "schemas" / "admin_hall_of_fame.py"
+    tree = ast.parse(path.read_text())
+    command = next(
+        node
+        for node in tree.body
+        if isinstance(node, ast.ClassDef) and node.name == "HallOfFameAchievementCommand"
+    )
+    fields = {
+        statement.target.id
+        for statement in command.body
+        if isinstance(statement, ast.AnnAssign) and isinstance(statement.target, ast.Name)
+    }
+
+    assert fields == {"season_id", "player_id", "kind", "awarded_at"}

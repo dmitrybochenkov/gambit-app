@@ -409,7 +409,6 @@ async def select_hall_of_fame_delete_action(
     try:
         refreshed = await hall_of_fame_management_service.delete_achievement(
             callback.from_user.id,
-            callback_data.season_id,
             callback_data.achievement_id,
         )
     except HallOfFameAchievementNotFoundError:

@@ -1,5 +1,6 @@
 from datetime import date
 
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from app.common.clock import Clock, club_clock
@@ -32,6 +33,14 @@ class HallOfFameSeasonNotFoundError(ValueError):
 
 
 class HallOfFameAchievementNotFoundError(ValueError):
+    pass
+
+
+class HallOfFameAchievementTypeNotFoundError(ValueError):
+    pass
+
+
+class HallOfFameSingletonConflictError(ValueError):
     pass
 
 
@@ -70,6 +79,23 @@ class HallOfFameManagementService:
             await access_policy.require_superadmin(session, superadmin_telegram_id)
             season = await self._require_season(session, season_id)
             return await self._entry_view(session, season)
+
+    async def list_achievement_types(
+        self,
+        superadmin_telegram_id: int,
+    ) -> tuple[AchievementTypeView, ...]:
+        async with self.session_factory() as session:
+            await access_policy.require_superadmin(session, superadmin_telegram_id)
+            rows = await HallOfFameRepository(session).list_achievement_types()
+            return tuple(
+                AchievementTypeView(
+                    kind=row.kind.value,
+                    title=row.title,
+                    emoji=row.emoji,
+                    custom_emoji_id=row.custom_emoji_id,
+                )
+                for row in rows
+            )
 
     async def search_players(
         self,
@@ -136,6 +162,8 @@ class HallOfFameManagementService:
             season = await self._require_season(session, season_id)
             await self._require_user(session, player_id)
             repository = HallOfFameRepository(session)
+            if await repository.get_achievement_type(kind) is None:
+                raise HallOfFameAchievementTypeNotFoundError
             if kind in SINGLETON_ACHIEVEMENT_KINDS:
                 achievement = await repository.get_singleton_achievement(
                     season_id=season.id, kind=kind
@@ -157,7 +185,13 @@ class HallOfFameManagementService:
                     kind=kind,
                     awarded_at=awarded_at,
                 )
-            await session.commit()
+            try:
+                await session.commit()
+            except IntegrityError as exc:
+                await session.rollback()
+                if kind in SINGLETON_ACHIEVEMENT_KINDS:
+                    raise HallOfFameSingletonConflictError from exc
+                raise
             return await self._entry_view(session, season)
 
     async def add_photo(
@@ -194,16 +228,15 @@ class HallOfFameManagementService:
     async def delete_achievement(
         self,
         superadmin_telegram_id: int,
-        season_id: int,
         achievement_id: int,
     ) -> HallOfFameEntryView:
         async with self.session_factory() as session:
             await access_policy.require_superadmin(session, superadmin_telegram_id)
-            season = await self._require_season(session, season_id)
             repository = HallOfFameRepository(session)
             achievement = await repository.get_achievement(achievement_id)
-            if achievement is None or achievement.season_id != season.id:
+            if achievement is None:
                 raise HallOfFameAchievementNotFoundError
+            season = await self._require_season(session, achievement.season_id)
             await repository.delete_achievement(achievement)
             await session.commit()
             return await self._entry_view(session, season)

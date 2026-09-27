@@ -6162,7 +6162,7 @@ async def test_hall_of_fame_delete_flow_targets_exact_occurrence(
         state,
     )
 
-    service.delete_achievement.assert_awaited_once_with(123, 1, 42)
+    service.delete_achievement.assert_awaited_once_with(123, 42)
     assert message.edit_text.await_args.args[0].startswith("🗑 Удалена награда")
     assert message.edit_text.await_args.kwargs["reply_markup"] is None
     assert "🏅 Иван (15.08.2026)" in message.answer.await_args.kwargs["text"]

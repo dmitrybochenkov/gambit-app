@@ -360,8 +360,8 @@ async def test_hall_of_fame_management_crud_preserves_repeated_occurrences(
             date(2026, 7, 1),
         ]
         with pytest.raises(HallOfFameAchievementNotFoundError):
-            await service.delete_achievement(100, current_id, grand_months[0].id)
-        entry = await service.delete_achievement(100, completed_id, grand_months[0].id)
+            await service.delete_achievement(100, 999)
+        entry = await service.delete_achievement(100, grand_months[0].id)
         remaining_grand_months = [
             item
             for item in entry.achievements

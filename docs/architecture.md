@@ -360,6 +360,33 @@ or status through these commands. Registration review remains a separate
 application boundary owned by `RegistrationReviewService` and
 `RegistrationReviewUseCases`.
 
+Hall of Fame achievement management is shared by Telegram and privileged HTTP
+through `HallOfFameManagementService`. The SUPERADMIN-only HTTP surface is:
+
+- `GET /api/v1/admin/hall-of-fame/seasons`;
+- `GET /api/v1/admin/hall-of-fame/seasons/{season_id}`;
+- `GET /api/v1/admin/hall-of-fame/achievement-types`;
+- `GET /api/v1/admin/hall-of-fame/players`;
+- `POST /api/v1/admin/hall-of-fame/achievements`;
+- `DELETE /api/v1/admin/hall-of-fame/achievements/{achievement_id}`.
+
+Achievement metadata remains read-only and DB-driven through
+`achievement_types`; clients submit only season, player, kind, and the
+SUPERADMIN-selected award date. `rating_winner`, `ko_rating_winner`, and
+`grand_season` retain the existing replace-in-place singleton behavior per
+season and kind. `grand_month` and `grand_knockout` remain repeatable occurrence
+rows. Revocation addresses exactly one occurrence by its stable ID, and
+`awarded_at` remains the authoritative chronology.
+
+The current runtime has no automatic Hall achievement writer in tournament
+close, correction, reward, or season finalization services. Manual management
+therefore remains the only live write path and does not alter tournament or
+result facts. If automatic awards are introduced later, they must reconcile
+through the same occurrence invariants rather than bypassing this boundary.
+Telegram Hall photos remain outside the WebApp management API because Telegram
+`file_id` values are not browser media references. Achievement-type editing is
+also intentionally unsupported.
+
 ### Known API Contract Gaps / Follow-up
 
 - Hall of Fame and tournament photos require a browser-media delivery contract

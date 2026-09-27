@@ -352,6 +352,10 @@ targeted tests, then run the agreed final tier once.
   commands must continue through `UserRenameService`, `AdminManagementService`,
   or an explicit use-case boundary rather than acquiring repository workflow
   methods. Registration review remains a separate service/use-case boundary.
+- Hall of Fame management mutations go through `HallOfFameManagementService`.
+  Singleton awards are replaced in place, repeatable awards remain independent
+  rows, and deletion must use `HallOfFameAchievement.id`; transports must not
+  reproduce those rules or accept canonical achievement metadata from clients.
 - Deployment and migration ordering is operational documentation rather than
   repository automation. Operators must keep new-schema-dependent application
   code stopped until `alembic upgrade head` succeeds.
