@@ -415,6 +415,99 @@ def test_closed_correction_does_not_access_private_result_service_members() -> N
     assert violations == []
 
 
+def test_result_rules_are_pure_and_have_one_canonical_owner() -> None:
+    rules_path = SERVICES_DIR / "result_rules.py"
+    rules_tree = ast.parse(rules_path.read_text(), filename=str(rules_path))
+    forbidden_import_prefixes = (
+        "sqlalchemy",
+        "fastapi",
+        "aiogram",
+        "app.bot",
+        "app.db.repositories",
+        "app.services.access_policy",
+        "app.services.result_service",
+    )
+    imports = [
+        node.module or "" for node in ast.walk(rules_tree) if isinstance(node, ast.ImportFrom)
+    ] + [
+        alias.name
+        for node in ast.walk(rules_tree)
+        if isinstance(node, ast.Import)
+        for alias in node.names
+    ]
+    assert not any(
+        module == prefix or module.startswith(f"{prefix}.")
+        for module in imports
+        for prefix in forbidden_import_prefixes
+    )
+
+    extracted_rules = {
+        "validate_game_results",
+        "validate_tournament_fund",
+        "calculate_tournament_points",
+        "calculate_knockout_points",
+        "find_result_player",
+        "result_field_is_allowed",
+        "editable_result_fields",
+        "occupied_result_places",
+    }
+    assert {
+        node.name
+        for node in rules_tree.body
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
+    } >= extracted_rules
+
+    result_service_tree = ast.parse((SERVICES_DIR / "result_service.py").read_text())
+    result_service_class = next(
+        node
+        for node in result_service_tree.body
+        if isinstance(node, ast.ClassDef) and node.name == "ResultService"
+    )
+    assert (
+        not {
+            node.name
+            for node in result_service_class.body
+            if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
+        }
+        & extracted_rules
+    )
+
+
+def test_result_service_private_names_are_not_imported_by_other_modules() -> None:
+    violations: list[str] = []
+    repository_root = APP_DIR.parents[1]
+    production_paths = [*APP_DIR.rglob("*.py")]
+    scripts_dir = repository_root / "scripts"
+    production_paths.extend(scripts_dir.rglob("*.py"))
+    for path in sorted(production_paths):
+        if path == SERVICES_DIR / "result_service.py":
+            continue
+        tree = ast.parse(path.read_text(), filename=str(path))
+        for node in ast.walk(tree):
+            if isinstance(node, ast.ImportFrom) and node.module == "app.services.result_service":
+                for alias in node.names:
+                    if alias.name.startswith("_"):
+                        violations.append(
+                            f"{path.relative_to(repository_root)}:{node.lineno} {alias.name}"
+                        )
+
+    assert violations == []
+
+
+def test_closed_correction_uses_result_rules_without_result_service_dependency() -> None:
+    path = SERVICES_DIR / "closed_tournament_correction_service.py"
+    tree = ast.parse(path.read_text(), filename=str(path))
+
+    assert not any(
+        isinstance(node, ast.ImportFrom) and node.module == "app.services.result_service"
+        for node in ast.walk(tree)
+    )
+    assert any(
+        isinstance(node, ast.ImportFrom) and node.module == "app.services.result_rules"
+        for node in ast.walk(tree)
+    )
+
+
 def test_telegram_check_in_uses_shared_application_mutation_boundary() -> None:
     path = SERVICES_DIR.parent / "bot" / "telegram" / "handlers" / "admin" / "check_in.py"
     tree = ast.parse(path.read_text(), filename=str(path))

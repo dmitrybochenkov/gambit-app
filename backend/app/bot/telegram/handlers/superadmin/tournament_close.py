@@ -51,13 +51,17 @@ from app.services.closed_tournament_correction_service import (
 from app.services.dto.results import ClosedTournamentCorrectionDraftView
 from app.services.pagination import pagination_service
 from app.services.result_fields import ResultField
+from app.services.result_rules import (
+    find_result_player,
+    occupied_result_places,
+    validate_tournament_fund,
+)
 from app.services.result_service import (
     ClosedTournamentCorrectionStaleError,
     FutureTournamentCannotBeClosedError,
     ResultInvalidFundError,
     ResultInvalidPlayerDataError,
     ResultPlayerAlreadyAddedError,
-    ResultService,
     ResultTournamentNotFoundError,
     ResultUserNotFoundError,
     ResultValidationError,
@@ -665,7 +669,7 @@ async def select_closed_result_player(
             callback_data.action
             == superadmin_tournament_close_kb.AdminClosedResultPlayerAction.DELETE_PREVIEW
         ):
-            player = ResultService.find_result_player(results, callback_data.player_id)
+            player = find_result_player(results, callback_data.player_id)
             if player is None:
                 await callback.answer(result_text.PLAYER_NOT_FOUND, show_alert=True)
                 return
@@ -722,7 +726,7 @@ async def select_closed_result_player(
                     parse_mode=RESULT_SUMMARY_PARSE_MODE,
                 )
             return
-        player = ResultService.find_result_player(results, callback_data.player_id)
+        player = find_result_player(results, callback_data.player_id)
         if player is None:
             await callback.answer(result_text.PLAYER_NOT_FOUND, show_alert=True)
             return
@@ -792,7 +796,7 @@ async def select_closed_result_field(
             await resolve_admin_actor_user_id(callback.from_user.id),
             draft,
         )
-        player = ResultService.find_result_player(results, callback_data.player_id)
+        player = find_result_player(results, callback_data.player_id)
         if player is None:
             await callback.answer(result_text.PLAYER_NOT_FOUND, show_alert=True)
             return
@@ -809,7 +813,7 @@ async def select_closed_result_field(
                     page=callback_data.page,
                     player_id=callback_data.player_id,
                     field=callback_data.field,
-                    occupied_places=ResultService.occupied_result_places(results),
+                    occupied_places=occupied_result_places(results),
                     current_place=player.place,
                 ),
             )
@@ -856,7 +860,7 @@ async def select_closed_result_value(
                 await resolve_admin_actor_user_id(callback.from_user.id),
                 draft,
             )
-            player = ResultService.find_result_player(results, callback_data.player_id)
+            player = find_result_player(results, callback_data.player_id)
             if player is None:
                 await callback.answer(result_text.PLAYER_NOT_FOUND, show_alert=True)
                 return
@@ -881,7 +885,7 @@ async def select_closed_result_value(
             await resolve_admin_actor_user_id(callback.from_user.id),
             draft,
         )
-        player = ResultService.find_result_player(results, callback_data.player_id)
+        player = find_result_player(results, callback_data.player_id)
         if player is None:
             await callback.answer(result_text.PLAYER_NOT_FOUND, show_alert=True)
             return
@@ -993,7 +997,7 @@ async def select_closed_result_replacement(
                 draft,
             )
             await state.set_state(None)
-            player = ResultService.find_result_player(results, callback_data.new_player_id)
+            player = find_result_player(results, callback_data.new_player_id)
             await callback.answer(result_text.ADMIN_RESULTS_SAVED)
             if callback.message is not None and player is not None:
                 await edit_message_if_changed(
@@ -1563,7 +1567,7 @@ async def _edit_closed_result_player_detail(
         await resolve_admin_actor_user_id(callback.from_user.id),
         draft,
     )
-    player = ResultService.find_result_player(results, player_id)
+    player = find_result_player(results, player_id)
     if player is None:
         await callback.answer(result_text.PLAYER_NOT_FOUND, show_alert=True)
         return
@@ -1720,7 +1724,7 @@ async def enter_tournament_fund(message: Message, state: FSMContext) -> None:
     tournament_id = int(data["close_tournament_id"])
     page_number = int(data.get("close_tournament_page", 0))
     try:
-        tournament_fund = ResultService.validate_tournament_fund(int(message.text or ""))
+        tournament_fund = validate_tournament_fund(int(message.text or ""))
         preview = await tournament_publication_service.get_pre_close_result_publication_preview(
             actor_user_id=await resolve_admin_actor_user_id(message.from_user.id),
             tournament_id=tournament_id,

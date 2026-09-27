@@ -28,7 +28,7 @@ from app.db.models import (  # noqa: E402
     TournamentResult,
     TournamentTypeRule,
 )
-from app.services.result_service import ResultService  # noqa: E402
+from app.services.result_rules import calculate_tournament_points  # noqa: E402
 
 
 TARGET_DATES = (
@@ -206,7 +206,7 @@ async def build_plan(session) -> RecalculationPlan:
     for tournament, result, scoring_config, rule in rows:
         if tournament.tournament_fund is None:
             raise MaintenanceError(f"Tournament fund is missing: {tournament.date}")
-        new_points = ResultService.calculate_tournament_points(
+        new_points = calculate_tournament_points(
             tournament_fund=Decimal(tournament.tournament_fund),
             place=result.place,
             scoring_config=scoring_config,

@@ -41,11 +41,11 @@ from app.db.repositories.tournament_result_repository import TournamentResultRep
 from app.services.access_policy import ActiveUserRequiredError, AdminAccessDeniedError
 from app.services.closed_tournament_correction_service import ClosedTournamentCorrectionService
 from app.services.result_fields import ResultField
+from app.services.result_rules import editable_result_fields, find_result_player
 from app.services.result_service import (
     ClosedTournamentCorrectionStaleError,
     FutureTournamentCannotBeClosedError,
     ResultDuplicateNameError,
-    ResultInvalidFundError,
     ResultInvalidPlayerDataError,
     ResultInvalidTournamentTypeRuleError,
     ResultPlayerAlreadyAddedError,
@@ -60,34 +60,6 @@ from app.services.result_service import (
 from app.services.tournament_combination_service import TournamentCombinationService
 from app.services.tournament_participant_service import TournamentParticipantService
 from app.services.tournament_photo_service import TournamentPhotoService
-
-
-@pytest.mark.parametrize("fund", [None, 0, -10, 105, Decimal("10.5")])
-def test_live_close_fund_validation_rejects_invalid_values(fund: object) -> None:
-    with pytest.raises(ResultInvalidFundError):
-        ResultService.validate_tournament_fund(fund)  # type: ignore[arg-type]
-
-
-def test_live_close_fund_validation_accepts_valid_value() -> None:
-    assert ResultService.validate_tournament_fund(1000) == 1000
-
-
-def test_public_knockout_points_contract_uses_bound_scoring_and_type_rule() -> None:
-    scoring_config = ScoringConfig(
-        knockout_small_points=20,
-        knockout_big_points=75,
-    )
-    rule = TournamentTypeRule(
-        tournament_type_id=1,
-        knockout_mode=KnockoutMode.SMALL_BIG,
-    )
-
-    assert ResultService.calculate_knockout_points(
-        knockouts_count=2,
-        big_knockouts_count=1,
-        scoring_config=scoring_config,
-        rule=rule,
-    ) == Decimal("115.00")
 
 
 async def _build_open_delete_service(
@@ -1532,12 +1504,12 @@ async def test_mystery_bounty_uses_places_knockouts_and_bonus_without_big_knocko
 
     assert results.knockout_mode == KnockoutMode.SMALL.value
     assert results.supports_bonus_points is True
-    assert ResultService.editable_result_fields(results) == [
+    assert editable_result_fields(results) == [
         ResultField.PLACE,
         ResultField.KNOCKOUTS,
         ResultField.BONUS,
     ]
-    assert ResultField.BIG_KNOCKOUTS not in ResultService.editable_result_fields(results)
+    assert ResultField.BIG_KNOCKOUTS not in editable_result_fields(results)
     assert await service.validate_results(superadmin.id, tournament_id) == [
         "Введи места: 1, 2, 3, 4, 5.",
         "Введи хотя бы один 🥊.",
@@ -1567,7 +1539,7 @@ async def test_mystery_bounty_uses_places_knockouts_and_bonus_without_big_knocko
     )
     closed = await service.close_tournament(1, tournament_id, 1000)
 
-    player = ResultService.find_result_player(closed, player_ids[0])
+    player = find_result_player(closed, player_ids[0])
     assert player is not None
     assert player.tournament_points == Decimal("400.00")
     assert player.knockout_points == Decimal("45.00")
@@ -1670,12 +1642,12 @@ async def test_closed_mystery_bounty_correction_updates_knockouts_without_big_kn
     results = await correction_service.get_closed_tournament_results(1, tournament_id)
 
     assert results.knockout_mode == KnockoutMode.SMALL.value
-    assert ResultService.editable_result_fields(results) == [
+    assert editable_result_fields(results) == [
         ResultField.PLACE,
         ResultField.KNOCKOUTS,
         ResultField.BONUS,
     ]
-    assert ResultField.BIG_KNOCKOUTS not in ResultService.editable_result_fields(results)
+    assert ResultField.BIG_KNOCKOUTS not in editable_result_fields(results)
 
     draft = await correction_service.begin_closed_tournament_correction(1, tournament_id)
     draft = await correction_service.update_closed_tournament_draft_result_field(
@@ -1686,10 +1658,10 @@ async def test_closed_mystery_bounty_correction_updates_knockouts_without_big_kn
         5,
     )
     updated = await correction_service.get_closed_tournament_draft_results(1, draft)
-    player = ResultService.find_result_player(updated, first_player_id)
+    player = find_result_player(updated, first_player_id)
     assert player is not None
     assert player.knockout_points == Decimal("75.00")
-    persisted = ResultService.find_result_player(
+    persisted = find_result_player(
         await correction_service.get_closed_tournament_results(1, tournament_id),
         first_player_id,
     )
@@ -2721,7 +2693,7 @@ async def test_superadmin_can_edit_previous_open_tournament_results_photos_and_c
         TournamentCombinationType.STRAIGHT_FLUSH,
     )
 
-    assert ResultService.find_result_player(results, player_id).place == 1
+    assert find_result_player(results, player_id).place == 1
     assert photo.created is True
     assert [combination.player_id for combination in combinations.combinations] == [player_id]
     await engine.dispose()

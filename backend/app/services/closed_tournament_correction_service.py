@@ -42,11 +42,19 @@ from app.services.result_errors import (
 )
 from app.services.result_field_policy import is_result_field_allowed
 from app.services.result_fields import ResultField
-from app.services.result_service import _USE_PERSISTED_TOURNAMENT_FUND, ResultService
+from app.services.result_rules import (
+    calculate_knockout_points,
+    calculate_tournament_points,
+    find_result_player,
+    validate_game_results,
+    validate_tournament_fund,
+)
 from app.services.tournament_combination_service import TournamentCombinationService
 from app.services.tournament_photo_service import TournamentPhotoService
 from app.services.tournament_service import tournament_view
 from app.services.user_common import required_user_view
+
+_USE_PERSISTED_TOURNAMENT_FUND = object()
 
 
 class ClosedTournamentCorrectionService:
@@ -209,7 +217,7 @@ class ClosedTournamentCorrectionService:
         draft: ClosedTournamentCorrectionDraftView,
         tournament_fund: int | Decimal,
     ) -> ClosedTournamentCorrectionDraftView:
-        fund = ResultService.validate_tournament_fund(tournament_fund)
+        fund = validate_tournament_fund(tournament_fund)
         async with self.session_factory() as session:
             await access_policy.require_superadmin(session, actor_user_id)
             tournament = await self._require_closed_tournament(session, draft.tournament_id)
@@ -352,7 +360,7 @@ class ClosedTournamentCorrectionService:
                 tournament,
                 draft.proposed_results,
             )
-            current_player = ResultService.find_result_player(results, current_player_id)
+            current_player = find_result_player(results, current_player_id)
             if current_player is None:
                 raise ResultUserNotFoundError
             if any(item.player_id == new_player_id for item in draft.proposed_results):
@@ -404,7 +412,7 @@ class ClosedTournamentCorrectionService:
                     fund_before=draft.original_tournament_fund,
                     fund_after=draft.proposed_tournament_fund,
                 )
-            validation_errors = ResultService.validate_game_results(proposed_view)
+            validation_errors = validate_game_results(proposed_view)
             if validation_errors:
                 raise ResultValidationError(validation_errors)
             reward_result = await self._preview_reward_reconciliation(
@@ -469,7 +477,7 @@ class ClosedTournamentCorrectionService:
                         fund_before=draft.original_tournament_fund,
                         fund_after=draft.proposed_tournament_fund,
                     )
-                validation_errors = ResultService.validate_game_results(proposed_view)
+                validation_errors = validate_game_results(proposed_view)
                 if validation_errors:
                     raise ResultValidationError(validation_errors)
                 tournament.tournament_fund = draft.proposed_tournament_fund
@@ -639,13 +647,13 @@ class ClosedTournamentCorrectionService:
         players = [
             replace(
                 player,
-                tournament_points=ResultService.calculate_tournament_points(
+                tournament_points=calculate_tournament_points(
                     tournament_fund=Decimal(effective_fund),
                     place=player.place,
                     scoring_config=scoring_config,
                     rule=rule,
                 ),
-                knockout_points=ResultService.calculate_knockout_points(
+                knockout_points=calculate_knockout_points(
                     knockouts_count=player.knockouts_count,
                     big_knockouts_count=player.big_knockouts_count,
                     scoring_config=scoring_config,
@@ -687,7 +695,7 @@ class ClosedTournamentCorrectionService:
             if has_changes:
                 raise ResultInvalidFundError
         else:
-            ResultService.validate_tournament_fund(draft.proposed_tournament_fund)
+            validate_tournament_fund(draft.proposed_tournament_fund)
 
         original_ids = [item.result_id for item in draft.original_results]
         if any(result_id is None for result_id in original_ids) or len(original_ids) != len(
@@ -879,13 +887,13 @@ class ClosedTournamentCorrectionService:
         scoring_config, rule = await self._scoring(session, tournament)
         results = await TournamentResultRepository(session).list_by_tournament(tournament.id)
         for item in results:
-            item.tournament_points = ResultService.calculate_tournament_points(
+            item.tournament_points = calculate_tournament_points(
                 tournament_fund=Decimal(tournament.tournament_fund),
                 place=item.place,
                 scoring_config=scoring_config,
                 rule=rule,
             )
-            item.knockout_points = ResultService.calculate_knockout_points(
+            item.knockout_points = calculate_knockout_points(
                 knockouts_count=item.knockouts_count,
                 big_knockouts_count=item.big_knockouts_count,
                 scoring_config=scoring_config,

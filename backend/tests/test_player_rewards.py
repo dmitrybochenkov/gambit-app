@@ -32,6 +32,7 @@ from app.services.player_reward_service import (
     PlayerRewardService,
 )
 from app.services.result_fields import ResultField
+from app.services.result_rules import find_result_player
 from app.services.result_service import ResultPlayerAlreadyAddedError, ResultService
 from app.services.tournament_check_in_service import (
     TournamentCheckInGenderDecisionRequiredError,
@@ -587,15 +588,15 @@ async def test_closed_tournament_correction_replaces_player_and_preserves_result
         replacements=((wrong_id, correct_id),),
     )
     results = await service.get_closed_tournament_draft_results(1, draft)
-    replaced = ResultService.find_result_player(results, correct_id)
+    replaced = find_result_player(results, correct_id)
     assert replaced is not None
     assert replaced.place == 1
     assert replaced.knockouts_count == 7
     assert replaced.big_knockouts_count == 2
     assert replaced.bonus_points == 5
-    assert ResultService.find_result_player(results, wrong_id) is None
+    assert find_result_player(results, wrong_id) is None
     assert (
-        ResultService.find_result_player(
+        find_result_player(
             await service.get_closed_tournament_results(1, tournament_id),
             wrong_id,
         )

@@ -324,8 +324,10 @@ is a best-effort Telegram transport side effect and is not part of the HTTP
 contract.
 
 Tournament close and CLOSED correction are exposed through the same application
-services used by Telegram. `ResultService` owns readiness, close preview, the
-atomic ACTIVE-to-CLOSED transition, scoring, and initial reward persistence.
+services used by Telegram. Stateless result validation, scoring, capability,
+and result-view helpers live in `result_rules`. `ResultService` owns ACTIVE
+result reads and edits, readiness, close preview, the atomic ACTIVE-to-CLOSED
+transition, and initial reward persistence.
 `ClosedTournamentCorrectionService` owns the persisted snapshot, draft
 validation, stale detection, correction preview, and atomic result/scoring/reward
 reconciliation. Both operations remain SUPERADMIN-only. HTTP only maps typed

@@ -36,10 +36,14 @@ from app.bot.telegram.texts.admin import results as result_text
 from app.db.models.enums import TournamentCombinationType
 from app.services.access_policy import AdminAccessDeniedError
 from app.services.pagination import pagination_service
+from app.services.result_rules import (
+    find_result_player,
+    occupied_result_places,
+    result_field_is_allowed,
+)
 from app.services.result_service import (
     ResultCombinationNotFoundError,
     ResultInvalidPlayerDataError,
-    ResultService,
     ResultTournamentNotFoundError,
     ResultUserNotFoundError,
     ResultValidationError,
@@ -423,7 +427,7 @@ async def select_result_player(
                     ),
                 )
             return
-        player = ResultService.find_result_player(results, callback_data.player_id)
+        player = find_result_player(results, callback_data.player_id)
         if player is None:
             await callback.answer(result_text.PLAYER_NOT_FOUND, show_alert=True)
             return
@@ -472,7 +476,7 @@ async def select_result_field(
             actor_user_id=await resolve_admin_actor_user_id(callback.from_user.id),
             tournament_id=callback_data.tournament_id,
         )
-        player = ResultService.find_result_player(results, callback_data.player_id)
+        player = find_result_player(results, callback_data.player_id)
         if player is None:
             await callback.answer(result_text.PLAYER_NOT_FOUND, show_alert=True)
             return
@@ -528,7 +532,7 @@ async def select_result_field(
                     page=callback_data.page,
                     player_id=callback_data.player_id,
                     field=callback_data.field,
-                    occupied_places=ResultService.occupied_result_places(results),
+                    occupied_places=occupied_result_places(results),
                     current_place=player.place,
                 ),
             )
@@ -565,7 +569,7 @@ async def select_result_value(
                 field=service_field,
                 value=callback_data.value,
             )
-            player = ResultService.find_result_player(results, callback_data.player_id)
+            player = find_result_player(results, callback_data.player_id)
             if player is None:
                 await callback.answer(result_text.PLAYER_NOT_FOUND, show_alert=True)
                 return
@@ -588,7 +592,7 @@ async def select_result_value(
             actor_user_id=await resolve_admin_actor_user_id(callback.from_user.id),
             tournament_id=callback_data.tournament_id,
         )
-        player = ResultService.find_result_player(results, callback_data.player_id)
+        player = find_result_player(results, callback_data.player_id)
         if player is None:
             await callback.answer(result_text.PLAYER_NOT_FOUND, show_alert=True)
             return
@@ -609,7 +613,7 @@ async def select_result_value(
                 )
             return
 
-        if not ResultService.result_field_is_allowed(
+        if not result_field_is_allowed(
             results.knockout_mode,
             service_field,
             results.supports_bonus_points,
@@ -1015,7 +1019,7 @@ async def enter_result_manual_value(message: Message, state: FSMContext) -> None
         )
         return
 
-    player = ResultService.find_result_player(results, player_id)
+    player = find_result_player(results, player_id)
     if player is None:
         await state.clear()
         await message.answer(result_text.PLAYER_NOT_FOUND)

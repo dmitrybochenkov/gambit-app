@@ -204,7 +204,9 @@ notifications run after commit with the same best-effort semantics as Telegram
 initiated reviews. Stale/already-reviewed decisions map to HTTP conflict. This
 surface does not provide general user, administrator, or role management.
 
-`ResultService` owns close validation, scoring, status transition, reward
+`result_rules` owns stateless result validation, point calculations, capability
+decisions, and result-view helpers. `ResultService` owns ACTIVE result editing,
+close readiness, scoring-configuration resolution, status transition, reward
 issuance, and commit. `ClosedTournamentCorrectionService` owns canonical
 snapshots, fail-closed draft validation, stale detection, rescoring, reward
 reconciliation, and commit. Correction clients may submit proposed persisted
@@ -350,8 +352,9 @@ targeted tests, then run the agreed final tier once.
   reads and scoring/capability dependencies rather than private `ResultService`
   methods.
 - `ResultService` remains responsible for normal result editing and tournament
-  close orchestration. Shared validation and point calculations are explicit
-  public result contracts, while service-specific view assembly remains private.
+  close orchestration. Shared stateless validation, point calculations,
+  capability decisions, and result-view helpers live in `result_rules`, while
+  service-specific DB-backed view assembly remains private.
 - Application-service actor interfaces use internal `actor_user_id` across
   player, ADMIN, and SUPERADMIN operations. Telegram identity mapping remains a
   transport concern in `UserAccessService`.

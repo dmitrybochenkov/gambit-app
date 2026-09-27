@@ -1,7 +1,7 @@
 import logging
 from dataclasses import replace
 from datetime import date
-from decimal import ROUND_HALF_UP, Decimal
+from decimal import Decimal
 
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
@@ -14,7 +14,6 @@ from app.db.models import (
 )
 from app.db.models.enums import (
     KnockoutMode,
-    TournamentResultSource,
     TournamentStatus,
     UserRole,
 )
@@ -22,13 +21,8 @@ from app.db.repositories.scoring_config_repository import ScoringConfigRepositor
 from app.db.repositories.tournament_repository import TournamentRepository
 from app.db.repositories.tournament_result_repository import TournamentResultRepository
 from app.db.repositories.tournament_type_repository import TournamentTypeRepository
-from app.db.repositories.user_repository import UserRepository
 from app.db.session import SessionFactory
 from app.domain.open_tournament_edit_policy import can_edit_open_tournament_for_actor
-from app.domain.prize_multiplier_places import (
-    PrizeMultiplierPlacesError,
-    parse_prize_multiplier_places,
-)
 from app.domain.tournament_close_policy import is_tournament_closeable
 from app.domain.tournament_day import resolve_tournament_day
 from app.services.access_policy import access_policy
@@ -57,9 +51,14 @@ from app.services.result_errors import (
     ResultValidationError,
     TournamentResultsEditingUnavailableError,
 )
-from app.services.result_field_policy import is_result_field_allowed
 from app.services.result_fields import ResultField
-from app.services.tournament_combination_service import TournamentCombinationService
+from app.services.result_rules import (
+    calculate_knockout_points,
+    calculate_tournament_points,
+    result_field_is_allowed,
+    validate_game_results,
+    validate_tournament_fund,
+)
 from app.services.tournament_photo_service import TournamentPhotoService
 from app.services.tournament_service import tournament_view
 
@@ -86,8 +85,6 @@ __all__ = [
     "result_service",
 ]
 
-_USE_PERSISTED_TOURNAMENT_FUND = object()
-
 
 class ResultService:
     def __init__(
@@ -100,11 +97,6 @@ class ResultService:
         self.clock = clock
         self.tournament_day_start_hour = tournament_day_start_hour
         self._photo_service = TournamentPhotoService(
-            session_factory,
-            clock=clock,
-            tournament_day_start_hour=tournament_day_start_hour,
-        )
-        self._combination_service = TournamentCombinationService(
             session_factory,
             clock=clock,
             tournament_day_start_hour=tournament_day_start_hour,
@@ -203,7 +195,7 @@ class ResultService:
         tournament_id: int,
         tournament_fund: int | Decimal,
     ) -> TournamentResultsView:
-        fund = self.validate_tournament_fund(tournament_fund)
+        fund = validate_tournament_fund(tournament_fund)
 
         async with self.session_factory() as session:
             await access_policy.require_superadmin(session, actor_user_id)
@@ -219,13 +211,13 @@ class ResultService:
             players = [
                 replace(
                     player,
-                    tournament_points=self.calculate_tournament_points(
+                    tournament_points=calculate_tournament_points(
                         tournament_fund=Decimal(fund),
                         place=player.place,
                         scoring_config=scoring_config,
                         rule=rule,
                     ),
-                    knockout_points=self.calculate_knockout_points(
+                    knockout_points=calculate_knockout_points(
                         knockouts_count=player.knockouts_count,
                         big_knockouts_count=player.big_knockouts_count,
                         scoring_config=scoring_config,
@@ -247,7 +239,7 @@ class ResultService:
         tournament_id: int,
         tournament_fund: int | Decimal,
     ) -> TournamentResultsView:
-        fund = self.validate_tournament_fund(tournament_fund)
+        fund = validate_tournament_fund(tournament_fund)
         async with self.session_factory() as session:
             await access_policy.require_superadmin(session, actor_user_id)
             tournament = await self._require_closeable_tournament(session, tournament_id)
@@ -261,13 +253,13 @@ class ResultService:
             tournament.status = TournamentStatus.CLOSED
             results = await TournamentResultRepository(session).list_by_tournament(tournament.id)
             for item in results:
-                item.tournament_points = self.calculate_tournament_points(
+                item.tournament_points = calculate_tournament_points(
                     tournament_fund=Decimal(fund),
                     place=item.place,
                     scoring_config=scoring_config,
                     rule=rule,
                 )
-                item.knockout_points = self.calculate_knockout_points(
+                item.knockout_points = calculate_knockout_points(
                     knockouts_count=item.knockouts_count,
                     big_knockouts_count=item.big_knockouts_count,
                     scoring_config=scoring_config,
@@ -332,7 +324,7 @@ class ResultService:
                 actor_role=actor.role,
             )
             view = await self._results_view(session, tournament.id)
-            return self.validate_game_results(view)
+            return validate_game_results(view)
 
     async def _require_active_tournament(
         self,
@@ -391,7 +383,7 @@ class ResultService:
             raise ResultUserNotFoundError
 
         knockout_mode, supports_bonus_points = await self._result_capabilities(session, tournament)
-        if not is_result_field_allowed(
+        if not result_field_is_allowed(
             field=field,
             knockout_mode=knockout_mode.value,
             supports_bonus_points=supports_bonus_points,
@@ -476,34 +468,6 @@ class ResultService:
             supports_bonus_points=supports_bonus_points,
         )
 
-    async def _require_tournament_result_player(
-        self,
-        session: AsyncSession,
-        *,
-        tournament_id: int,
-        player_id: int,
-    ) -> TournamentResultPlayerView:
-        row = await TournamentResultRepository(session).get_by_tournament_and_player(
-            tournament_id,
-            player_id,
-        )
-        if row is None:
-            raise ResultUserNotFoundError
-        user = await UserRepository(session).get_by_id(player_id)
-        if user is None:
-            raise ResultUserNotFoundError
-        return TournamentResultPlayerView(
-            player_id=user.id,
-            display_name=user.display_name,
-            place=row.place,
-            knockouts_count=row.knockouts_count,
-            big_knockouts_count=row.big_knockouts_count,
-            bonus_points=row.bonus_points,
-            tournament_points=row.tournament_points,
-            knockout_points=row.knockout_points,
-            result_id=row.id,
-        )
-
     async def _readiness_view(
         self,
         session: AsyncSession,
@@ -512,7 +476,7 @@ class ResultService:
         view: TournamentResultsView | None = None,
     ) -> TournamentCloseReadinessView:
         results = view or await self._results_view(session, tournament.id)
-        validation_errors = self.validate_game_results(results)
+        validation_errors = validate_game_results(results)
         has_checkins = bool(results.players)
         has_photos = results.photo_count > 0
         reasons: list[str] = []
@@ -540,70 +504,6 @@ class ResultService:
             reasons=reasons,
         )
 
-    async def _create_result(
-        self,
-        repository: TournamentResultRepository,
-        *,
-        tournament_id: int,
-        player_id: int,
-        source: TournamentResultSource,
-        checked_in_by_user_id: int,
-    ) -> bool:
-        existing = await repository.exists_for_tournament_and_player(
-            tournament_id,
-            player_id,
-        )
-        if existing:
-            return False
-        await repository.add_check_in(
-            tournament_id=tournament_id,
-            player_id=player_id,
-            source=source,
-            checked_in_at=self.clock.now(),
-            checked_in_by_user_id=checked_in_by_user_id,
-        )
-        return True
-
-    @staticmethod
-    def validate_game_results(results: TournamentResultsView) -> list[str]:
-        errors: list[str] = []
-        if not results.players:
-            errors.append("Нет участников турнира.")
-        places = [player.place for player in results.players if player.place is not None]
-        required_places = set(results.required_places)
-        missing_places = sorted(required_places - set(places))
-        if missing_places:
-            errors.append("Введи места: " + ", ".join(str(place) for place in missing_places) + ".")
-        duplicates = sorted({place for place in places if places.count(place) > 1})
-        if duplicates:
-            errors.append(
-                "Дублируются места: " + ", ".join(str(place) for place in duplicates) + "."
-            )
-        small_knockouts = sum(player.knockouts_count for player in results.players)
-        big_knockouts = sum(player.big_knockouts_count for player in results.players)
-        if results.knockout_mode == KnockoutMode.SMALL.value and small_knockouts <= 0:
-            errors.append("Введи хотя бы один 🥊.")
-        if (
-            results.knockout_mode
-            in {
-                KnockoutMode.SMALL_BIG.value,
-                KnockoutMode.MAIN_KO.value,
-            }
-            and (small_knockouts + big_knockouts) <= 0
-        ):
-            errors.append("Введи хотя бы один 🥊 или 👑🥊.")
-        return errors
-
-    @staticmethod
-    def validate_tournament_fund(value: int | Decimal) -> int:
-        try:
-            fund = Decimal(value)
-        except Exception as exc:
-            raise ResultInvalidFundError from exc
-        if fund != fund.to_integral_value() or fund <= 0 or fund % Decimal("10") != 0:
-            raise ResultInvalidFundError
-        return int(fund)
-
     async def _scoring(
         self,
         session: AsyncSession,
@@ -617,99 +517,6 @@ class ResultService:
         return scoring_config, await TournamentTypeRepository(session).get_rule(
             tournament.tournament_type_id
         )
-
-    @staticmethod
-    def calculate_tournament_points(
-        tournament_fund: Decimal,
-        place: int | None,
-        scoring_config: ScoringConfig,
-        rule: TournamentTypeRule | None,
-    ) -> Decimal:
-        if place is None or place not in {1, 2, 3, 4, 5}:
-            return Decimal("0")
-        coefficient = getattr(scoring_config, f"place_{place}_coefficient")
-        multiplier = rule.points_multiplier if rule is not None else Decimal("1")
-        if rule is not None and rule.prize_place_multiplier_places:
-            try:
-                places = set(parse_prize_multiplier_places(rule.prize_place_multiplier_places))
-            except PrizeMultiplierPlacesError as exc:
-                raise ResultInvalidTournamentTypeRuleError from exc
-            if place in places:
-                multiplier *= rule.prize_place_multiplier
-        return (tournament_fund * coefficient * multiplier).quantize(
-            Decimal("0.01"),
-            rounding=ROUND_HALF_UP,
-        )
-
-    @staticmethod
-    def calculate_knockout_points(
-        knockouts_count: int,
-        big_knockouts_count: int,
-        scoring_config: ScoringConfig,
-        rule: TournamentTypeRule | None,
-    ) -> Decimal:
-        if rule is None or rule.knockout_mode == KnockoutMode.NONE:
-            return Decimal("0")
-        if rule.knockout_mode == KnockoutMode.SMALL:
-            points = knockouts_count * scoring_config.knockout_small_points
-        elif rule.knockout_mode == KnockoutMode.SMALL_BIG:
-            points = (
-                knockouts_count * scoring_config.knockout_small_points
-                + big_knockouts_count * scoring_config.knockout_big_points
-            )
-        elif rule.knockout_mode == KnockoutMode.MAIN_KO:
-            if (
-                scoring_config.knockout_main_points is None
-                or scoring_config.knockout_main_final_points is None
-            ):
-                raise ResultInvalidTournamentTypeRuleError
-            points = (
-                knockouts_count * scoring_config.knockout_main_points
-                + big_knockouts_count * scoring_config.knockout_main_final_points
-            )
-        else:
-            raise ResultInvalidTournamentTypeRuleError
-        return Decimal(points).quantize(Decimal("0.01"))
-
-    @staticmethod
-    def find_result_player(
-        results: TournamentResultsView,
-        player_id: int,
-    ) -> TournamentResultPlayerView | None:
-        return next((player for player in results.players if player.player_id == player_id), None)
-
-    @staticmethod
-    def result_field_is_allowed(
-        knockout_mode: str,
-        field: ResultField,
-        supports_bonus_points: bool = False,
-    ) -> bool:
-        return is_result_field_allowed(
-            field=field,
-            knockout_mode=knockout_mode,
-            supports_bonus_points=supports_bonus_points,
-        )
-
-    @staticmethod
-    def editable_result_fields(results: TournamentResultsView) -> list[ResultField]:
-        return [
-            field
-            for field in (
-                ResultField.PLACE,
-                ResultField.KNOCKOUTS,
-                ResultField.BIG_KNOCKOUTS,
-                ResultField.BONUS,
-            )
-            if ResultService.result_field_is_allowed(
-                results.knockout_mode,
-                field,
-                results.supports_bonus_points,
-            )
-        ]
-
-    @staticmethod
-    def occupied_result_places(results: TournamentResultsView) -> set[int]:
-        return {player.place for player in results.players if player.place is not None}
 
 
 result_service = ResultService(SessionFactory)
