@@ -26,6 +26,7 @@ from app.db.models import (
     TournamentType,
     TournamentTypeRule,
     User,
+    WeeklyTournamentTemplate,
 )
 from app.db.models.enums import (
     KnockoutMode,
@@ -34,6 +35,7 @@ from app.db.models.enums import (
     UserRole,
     UserStatus,
 )
+from app.db.repositories.tournament_repository import TournamentRepository
 from app.services.access_policy import AdminAccessDeniedError
 from app.services.season_service import SeasonService
 from app.services.tournament_planning_service import (
@@ -43,6 +45,8 @@ from app.services.tournament_planning_service import (
     CalendarWeeklyPlanIntegrityError,
     CalendarWeekNotEmptyError,
     TournamentPlanningService,
+    WeeklyTemplateInvalidError,
+    WeeklyTemplateTournamentTypeNotAllowedError,
 )
 from app.services.tournament_service import TournamentService
 
@@ -921,6 +925,198 @@ async def test_calendar_cross_year_week_uses_same_logical_dates(tmp_path: Path) 
         assert december.week_start == january.week_start == date(2026, 12, 28)
         assert december.week_end == january.week_end == date(2027, 1, 3)
         assert [day.date for day in december.days] == [day.date for day in january.days]
+    finally:
+        await engine.dispose()
+
+
+async def test_weekly_template_read_replace_and_order_normalization(tmp_path: Path) -> None:
+    service, session_factory, engine = await create_planning_service(tmp_path / "template.db")
+    try:
+        await seed_calendar_data(session_factory)
+        original = await service.get_weekly_template(1)
+        assert original.days[0].tournament_types == ()
+        assert len(original.days[6].tournament_types) == 2
+
+        replacement = {
+            2: (
+                tournament_type_id("classic_v3"),
+                tournament_type_id("bounty_v3"),
+            ),
+            3: (tournament_type_id("freezeout_v2"),),
+            6: (
+                tournament_type_id("boss_bounty"),
+                tournament_type_id("mystery_bounty"),
+            ),
+        }
+        view = await service.replace_weekly_template(
+            1,
+            tournament_type_ids_by_weekday=replacement,
+        )
+
+        assert [item.code for item in view.days[2].tournament_types] == [
+            "classic_v3",
+            "bounty_v3",
+        ]
+        async with session_factory() as session:
+            rows = await TournamentRepository(session).list_active_weekly_templates()
+        assert [(row.weekday, row.rotation_order) for row in rows] == [
+            (2, 1),
+            (2, 2),
+            (3, 1),
+            (6, 1),
+            (6, 2),
+        ]
+    finally:
+        await engine.dispose()
+
+
+async def test_weekly_template_validation_is_fail_closed(tmp_path: Path) -> None:
+    service, session_factory, engine = await create_planning_service(
+        tmp_path / "template-validation.db"
+    )
+    try:
+        await seed_calendar_data(session_factory)
+        async with session_factory() as session:
+            player = build_player(
+                telegram_id=201,
+                display_name="Player",
+                status=UserStatus.ACTIVE,
+                role=UserRole.PLAYER,
+            )
+            session.add(player)
+            await session.flush()
+            player_id = player.id
+            await session.commit()
+        before = await service.get_weekly_template(1)
+
+        with pytest.raises(AdminAccessDeniedError):
+            await service.get_weekly_template(player_id)
+
+        options = await service.list_weekly_template_add_options(
+            1,
+            selected_tournament_type_ids=(tournament_type_id("bounty_v3"),),
+        )
+        assert tournament_type_id("bounty_v3") not in {item.id for item in options}
+        assert all(item.code != "bounty_v2" for item in options)
+
+        with pytest.raises(WeeklyTemplateInvalidError):
+            await service.replace_weekly_template(
+                1,
+                tournament_type_ids_by_weekday={
+                    2: (
+                        tournament_type_id("bounty_v3"),
+                        tournament_type_id("bounty_v3"),
+                    )
+                },
+            )
+        with pytest.raises(WeeklyTemplateTournamentTypeNotAllowedError):
+            await service.replace_weekly_template(
+                1,
+                tournament_type_ids_by_weekday={
+                    0: (tournament_type_id("bounty_v2"),),
+                },
+            )
+        with pytest.raises(WeeklyTemplateInvalidError):
+            await service.replace_weekly_template(
+                1,
+                tournament_type_ids_by_weekday={0: (999_999,)},
+            )
+        with pytest.raises(WeeklyTemplateInvalidError):
+            await service.replace_weekly_template(
+                1,
+                tournament_type_ids_by_weekday={},
+            )
+
+        assert await service.get_weekly_template(1) == before
+    finally:
+        await engine.dispose()
+
+
+async def test_weekday_rotation_uses_only_matching_history_and_is_independent(
+    tmp_path: Path,
+) -> None:
+    service, session_factory, engine = await create_planning_service(tmp_path / "rotation.db")
+    try:
+        await seed_calendar_data(session_factory)
+        await service.replace_weekly_template(
+            1,
+            tournament_type_ids_by_weekday={
+                2: (
+                    tournament_type_id("bounty_v3"),
+                    tournament_type_id("classic_v3"),
+                ),
+                3: (tournament_type_id("freezeout_v2"),),
+                6: (
+                    tournament_type_id("mystery_bounty"),
+                    tournament_type_id("boss_bounty"),
+                ),
+            },
+        )
+        await seed_week_tournaments(
+            session_factory,
+            dates=[date(2026, 8, 5)],
+            status=TournamentStatus.CLOSED,
+            tournament_type_id=tournament_type_id("bounty_v3"),
+        )
+        await seed_week_tournaments(
+            session_factory,
+            dates=[date(2026, 8, 12)],
+            status=TournamentStatus.CLOSED,
+            tournament_type_id=tournament_type_id("deep_stack_v2"),
+        )
+        await seed_week_tournaments(
+            session_factory,
+            dates=[date(2026, 8, 9)],
+            status=TournamentStatus.CLOSED,
+            tournament_type_id=tournament_type_id("mystery_bounty"),
+        )
+
+        preview = await service.get_calendar_autofill_preview(1, year=2026, month=8, row_number=4)
+
+        assert [
+            (item.tournament_date.weekday(), item.tournament_type.code)
+            for item in preview.tournaments
+        ] == [
+            (2, "classic_v3"),
+            (3, "freezeout_v2"),
+            (6, "boss_bounty"),
+        ]
+    finally:
+        await engine.dispose()
+
+
+async def test_weekly_template_replacement_rolls_back_on_repository_failure(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    service, session_factory, engine = await create_planning_service(tmp_path / "rollback.db")
+    try:
+        await seed_calendar_data(session_factory)
+        before = await service.get_weekly_template(1)
+        original_replace = TournamentRepository.replace_active_weekly_templates
+
+        async def fail_after_replace(
+            repository: TournamentRepository,
+            rows: list[WeeklyTournamentTemplate],
+        ) -> None:
+            await original_replace(repository, rows)
+            raise RuntimeError("write failed")
+
+        monkeypatch.setattr(
+            TournamentRepository,
+            "replace_active_weekly_templates",
+            fail_after_replace,
+        )
+
+        with pytest.raises(RuntimeError, match="write failed"):
+            await service.replace_weekly_template(
+                1,
+                tournament_type_ids_by_weekday={
+                    2: (tournament_type_id("classic_v3"),),
+                },
+            )
+
+        assert await service.get_weekly_template(1) == before
     finally:
         await engine.dispose()
 

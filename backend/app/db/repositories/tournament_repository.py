@@ -2,7 +2,7 @@ from dataclasses import dataclass
 from datetime import date
 from decimal import Decimal
 
-from sqlalchemy import and_, exists, func, select
+from sqlalchemy import delete, exists, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
@@ -249,7 +249,7 @@ class TournamentRepository:
                 return True
         return False
 
-    async def get_latest_sunday_rotation_tournament_before(
+    async def get_latest_rotation_tournament_before(
         self,
         target_date: date,
         allowed_type_codes: tuple[str, ...],
@@ -261,7 +261,7 @@ class TournamentRepository:
             .where(
                 Tournament.date < target_date,
                 TournamentType.code.in_(allowed_type_codes),
-                func.strftime("%w", Tournament.date) == "0",
+                func.strftime("%w", Tournament.date) == str((target_date.weekday() + 1) % 7),
             )
             .order_by(Tournament.date.desc(), Tournament.id.desc())
             .limit(1)
@@ -282,13 +282,6 @@ class TournamentRepository:
             select(WeeklyTournamentTemplate)
             .where(WeeklyTournamentTemplate.is_active.is_(True))
             .join(WeeklyTournamentTemplate.tournament_type)
-            .where(
-                WeeklyTournamentTemplate.tournament_type.has(
-                    and_(
-                        TournamentType.code != "legacy_unknown",
-                    )
-                )
-            )
             .options(selectinload(WeeklyTournamentTemplate.tournament_type))
             .order_by(
                 WeeklyTournamentTemplate.weekday,
@@ -297,6 +290,15 @@ class TournamentRepository:
             )
         )
         return list(result.scalars())
+
+    async def replace_active_weekly_templates(
+        self,
+        rows: list[WeeklyTournamentTemplate],
+    ) -> None:
+        await self.session.execute(
+            delete(WeeklyTournamentTemplate).where(WeeklyTournamentTemplate.is_active.is_(True))
+        )
+        self.session.add_all(rows)
 
     async def list_result_years(self) -> list[int]:
         result = await self.session.execute(

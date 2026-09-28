@@ -77,6 +77,7 @@ from app.bot.telegram.registration_review_notifications import (
 )
 from app.bot.telegram.states import AdminResultStates, HallOfFameStates, UserRenameStates
 from app.bot.telegram.texts.admin import results as admin_result_text
+from app.bot.telegram.texts.superadmin import tournaments as superadmin_tournament_texts
 from app.bot.telegram.texts.user import registration as registration_text
 from app.bot.telegram.texts.user import tournaments as tournament_text
 from app.common.clock import FixedClock, club_clock
@@ -180,6 +181,9 @@ from app.services.dto.tournaments import (
     TournamentRulesView,
     TournamentScheduleDetailsView,
     TournamentView,
+    WeeklyTemplateDayView,
+    WeeklyTemplateTypeView,
+    WeeklyTemplateView,
 )
 from app.services.dto.users import UserStartStatusView, UserStartView, UserView
 from app.services.pagination import Page, pagination_service
@@ -1086,10 +1090,260 @@ def test_superadmin_calendar_week_buttons_show_full_name_and_registration_count(
 
     assert inline_keyboard_texts(superadmin_tournaments_kb.calendar_week_keyboard(view)) == [
         "12 Ср — Классика (4)",
+        "⚙️ Настроить шаблон",
         "📣 Опубликовать расписание",
         "⬅️ Назад",
         "❌ Отмена",
     ]
+
+
+def test_calendar_week_template_editor_is_available_with_or_without_autofill() -> None:
+    empty = SimpleNamespace(
+        year=2026,
+        month=9,
+        row_number=5,
+        days=[],
+        is_empty=True,
+        has_unapproved_tournaments=False,
+        has_tournaments=False,
+    )
+    populated = SimpleNamespace(
+        **{
+            **vars(empty),
+            "is_empty": False,
+            "has_tournaments": True,
+        }
+    )
+
+    empty_labels = inline_keyboard_texts(superadmin_tournaments_kb.calendar_week_keyboard(empty))
+    populated_labels = inline_keyboard_texts(
+        superadmin_tournaments_kb.calendar_week_keyboard(populated)
+    )
+
+    assert "✨ Заполнить по шаблону" in empty_labels
+    assert "✨ Заполнить по шаблону" not in populated_labels
+    assert "⚙️ Настроить шаблон" in empty_labels
+    assert "⚙️ Настроить шаблон" in populated_labels
+
+
+async def test_weekly_template_editor_draft_cancel_and_save_preserve_week_context(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    fixed = WeeklyTemplateTypeView(
+        id=10,
+        code="classic_v3",
+        name="Freeroll",
+        calendar_code="FR",
+        is_creatable=True,
+    )
+    second = WeeklyTemplateTypeView(
+        id=11,
+        code="bounty_v3",
+        name="Bounty",
+        calendar_code="B3",
+        is_creatable=True,
+    )
+    template = WeeklyTemplateView(
+        days=tuple(
+            WeeklyTemplateDayView(
+                weekday=weekday,
+                tournament_types=(fixed, second) if weekday == 3 else (),
+            )
+            for weekday in range(7)
+        )
+    )
+    week = SimpleNamespace(
+        year=2026,
+        month=9,
+        row_number=5,
+        week_start=date(2026, 9, 28),
+        week_end=date(2026, 10, 4),
+        days=(),
+        is_empty=True,
+        has_unapproved_tournaments=False,
+        has_tournaments=False,
+    )
+    planning_service = SimpleNamespace(
+        get_weekly_template=AsyncMock(return_value=template),
+        list_weekly_template_add_options=AsyncMock(return_value=[fixed, second]),
+        replace_weekly_template=AsyncMock(return_value=template),
+        get_calendar_week=AsyncMock(return_value=week),
+    )
+    monkeypatch.setattr(
+        superadmin_tournament_handlers,
+        "tournament_planning_service",
+        planning_service,
+    )
+    message = SimpleNamespace(edit_text=AsyncMock())
+    callback = SimpleNamespace(
+        from_user=SimpleNamespace(id=100),
+        message=message,
+        answer=AsyncMock(),
+    )
+    state = MutableState()
+
+    await superadmin_tournament_handlers.edit_weekly_template(
+        callback,
+        superadmin_tournaments_kb.WeeklyTemplateCallback(
+            action=superadmin_tournaments_kb.WeeklyTemplateAction.OPEN,
+            year=2026,
+            month=9,
+            row=5,
+        ),
+        state,
+    )
+    assert state.data["weekly_template_draft"][3] == [10, 11]
+    planning_service.replace_weekly_template.assert_not_awaited()
+
+    await superadmin_tournament_handlers.edit_weekly_template(
+        callback,
+        superadmin_tournaments_kb.WeeklyTemplateCallback(
+            action=superadmin_tournaments_kb.WeeklyTemplateAction.DOWN,
+            weekday=3,
+            index=0,
+        ),
+        state,
+    )
+    assert state.data["weekly_template_draft"][3] == [11, 10]
+    planning_service.replace_weekly_template.assert_not_awaited()
+
+    await superadmin_tournament_handlers.edit_weekly_template(
+        callback,
+        superadmin_tournaments_kb.WeeklyTemplateCallback(
+            action=superadmin_tournaments_kb.WeeklyTemplateAction.REMOVE,
+            weekday=3,
+            index=1,
+        ),
+        state,
+    )
+    assert state.data["weekly_template_draft"][3] == [11]
+    await superadmin_tournament_handlers.edit_weekly_template(
+        callback,
+        superadmin_tournaments_kb.WeeklyTemplateCallback(
+            action=superadmin_tournaments_kb.WeeklyTemplateAction.CLEAR,
+            weekday=3,
+        ),
+        state,
+    )
+    assert state.data["weekly_template_draft"][3] == []
+    planning_service.replace_weekly_template.assert_not_awaited()
+
+    await superadmin_tournament_handlers.edit_weekly_template(
+        callback,
+        superadmin_tournaments_kb.WeeklyTemplateCallback(
+            action=superadmin_tournaments_kb.WeeklyTemplateAction.CANCEL,
+        ),
+        state,
+    )
+    planning_service.replace_weekly_template.assert_not_awaited()
+    planning_service.get_calendar_week.assert_awaited_with(1, year=2026, month=9, row_number=5)
+
+    await superadmin_tournament_handlers.edit_weekly_template(
+        callback,
+        superadmin_tournaments_kb.WeeklyTemplateCallback(
+            action=superadmin_tournaments_kb.WeeklyTemplateAction.OPEN,
+            year=2026,
+            month=9,
+            row=5,
+        ),
+        state,
+    )
+    await superadmin_tournament_handlers.edit_weekly_template(
+        callback,
+        superadmin_tournaments_kb.WeeklyTemplateCallback(
+            action=superadmin_tournaments_kb.WeeklyTemplateAction.SAVE,
+        ),
+        state,
+    )
+    planning_service.replace_weekly_template.assert_awaited_once_with(
+        1,
+        tournament_type_ids_by_weekday={
+            weekday: ((10, 11) if weekday == 3 else ()) for weekday in range(7)
+        },
+    )
+    assert state.data == {}
+
+
+def test_weekly_template_add_options_are_paginated() -> None:
+    options = [
+        TournamentCalendarTypeOptionView(id=index, code=f"type_{index}", name=f"Type {index}")
+        for index in range(1, 8)
+    ]
+
+    keyboard = superadmin_tournaments_kb.weekly_template_add_keyboard(
+        weekday=2,
+        options=options,
+        page=1,
+    )
+    labels = inline_keyboard_texts(keyboard)
+
+    assert labels[:2] == ["Type 6", "Type 7"]
+    assert labels[2:5] == ["◀️", "2/2", "▶️"]
+    assert labels[-1] == "⬅️ Назад"
+
+
+@pytest.mark.parametrize(
+    ("action", "callback_fields"),
+    [
+        (
+            superadmin_tournaments_kb.WeeklyTemplateAction.ADD,
+            {"weekday": 9, "tournament_type_id": 10},
+        ),
+        (
+            superadmin_tournaments_kb.WeeklyTemplateAction.CLEAR,
+            {"weekday": -1},
+        ),
+        (
+            superadmin_tournaments_kb.WeeklyTemplateAction.ITEM,
+            {"weekday": 3, "index": 99},
+        ),
+        (
+            superadmin_tournaments_kb.WeeklyTemplateAction.ADD,
+            {"weekday": 3, "tournament_type_id": 999_999},
+        ),
+    ],
+)
+async def test_weekly_template_invalid_callback_does_not_mutate_fsm_draft(
+    monkeypatch: pytest.MonkeyPatch,
+    action: superadmin_tournaments_kb.WeeklyTemplateAction,
+    callback_fields: dict[str, int],
+) -> None:
+    option = TournamentCalendarTypeOptionView(id=10, code="classic_v3", name="Freeroll")
+    planning_service = SimpleNamespace(
+        list_weekly_template_add_options=AsyncMock(return_value=[option]),
+    )
+    monkeypatch.setattr(
+        superadmin_tournament_handlers,
+        "tournament_planning_service",
+        planning_service,
+    )
+    draft = {weekday: ([10] if weekday == 3 else []) for weekday in range(7)}
+    state = MutableState()
+    state.data.update(
+        weekly_template_draft=draft,
+        weekly_template_context={"year": 2026, "month": 9, "row": 5},
+    )
+    before = {weekday: list(type_ids) for weekday, type_ids in draft.items()}
+    callback = SimpleNamespace(
+        from_user=SimpleNamespace(id=100),
+        message=None,
+        answer=AsyncMock(),
+    )
+
+    await superadmin_tournament_handlers.edit_weekly_template(
+        callback,
+        superadmin_tournaments_kb.WeeklyTemplateCallback(
+            action=action,
+            **callback_fields,
+        ),
+        state,
+    )
+
+    assert state.data["weekly_template_draft"] == before
+    callback.answer.assert_awaited_once_with(
+        superadmin_tournament_texts.WEEKLY_TEMPLATE_INVALID,
+        show_alert=True,
+    )
 
 
 def test_parse_result_manual_value() -> None:

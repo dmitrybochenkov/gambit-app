@@ -44,13 +44,16 @@ from app.services.dto.tournaments import (
     TournamentEconomyView,
     TournamentRulesView,
     TournamentView,
+    WeeklyTemplateDayView,
+    WeeklyTemplateTypeView,
+    WeeklyTemplateView,
 )
 from app.services.pagination import pagination_service
-from app.services.sunday_tournament_rotation import (
-    SundayTournamentRotation,
-    sunday_tournament_rotation,
-)
 from app.services.tournament_service import tournament_view
+from app.services.weekday_tournament_rotation import (
+    WeekdayTournamentRotation,
+    weekday_tournament_rotation,
+)
 
 
 class CalendarTournamentDateAlreadyExistsError(ValueError):
@@ -85,9 +88,14 @@ class CalendarNoUnapprovedTournamentsError(ValueError):
     pass
 
 
-WEDNESDAY_WEEKDAY = 2
-SUNDAY_WEEKDAY = 6
-WEEKLY_PLAYING_WEEKDAYS = (2, 3, 4, 5, 6)
+class WeeklyTemplateInvalidError(ValueError):
+    pass
+
+
+class WeeklyTemplateTournamentTypeNotAllowedError(ValueError):
+    pass
+
+
 LEGACY_UNKNOWN_TOURNAMENT_TYPE_CODE = "legacy_unknown"
 SUPERADMIN_OPEN_TOURNAMENT_PAGE_SIZE = 6
 REAL_TOURNAMENT_TYPE_CODES = (
@@ -151,8 +159,8 @@ class WeeklyTournamentPlan:
         dates = [item.date for item in self.tournaments]
         if len(set(dates)) != len(dates):
             raise CalendarWeeklyPlanIntegrityError
-        wednesday = wednesday_for_week(dates[0])
-        valid_dates = set(week_dates_for(wednesday))
+        monday = dates[0].fromordinal(dates[0].toordinal() - dates[0].weekday())
+        valid_dates = {monday.fromordinal(monday.toordinal() + offset) for offset in range(7)}
         has_date_outside_week = any(tournament_date not in valid_dates for tournament_date in dates)
         if dates != sorted(dates) or has_date_outside_week:
             raise CalendarWeeklyPlanIntegrityError
@@ -162,12 +170,12 @@ class TournamentPlanningService:
     def __init__(
         self,
         session_factory: async_sessionmaker[AsyncSession],
-        sunday_rotation: SundayTournamentRotation = sunday_tournament_rotation,
+        weekday_rotation: WeekdayTournamentRotation = weekday_tournament_rotation,
         clock: Clock = club_clock,
         tournament_day_start_hour: int = settings.tournament_day_start_hour,
     ) -> None:
         self.session_factory = session_factory
-        self.sunday_rotation = sunday_rotation
+        self.weekday_rotation = weekday_rotation
         self.clock = clock
         self.tournament_day_start_hour = tournament_day_start_hour
 
@@ -233,6 +241,84 @@ class TournamentPlanningService:
         async with self.session_factory() as session:
             await access_policy.require_superadmin(session, actor_user_id)
             return await self._calendar_type_options(session)
+
+    async def get_weekly_template(self, actor_user_id: int) -> WeeklyTemplateView:
+        async with self.session_factory() as session:
+            await access_policy.require_superadmin(session, actor_user_id)
+            return await self._weekly_template_view(session)
+
+    async def list_weekly_template_add_options(
+        self,
+        actor_user_id: int,
+        *,
+        selected_tournament_type_ids: tuple[int, ...],
+    ) -> list[TournamentCalendarTypeOptionView]:
+        async with self.session_factory() as session:
+            await access_policy.require_superadmin(session, actor_user_id)
+            selected = set(selected_tournament_type_ids)
+            return [
+                option
+                for option in await self._calendar_type_options(session)
+                if option.id not in selected
+            ]
+
+    async def replace_weekly_template(
+        self,
+        actor_user_id: int,
+        *,
+        tournament_type_ids_by_weekday: dict[int, tuple[int, ...]],
+    ) -> WeeklyTemplateView:
+        async with self.session_factory() as session:
+            try:
+                await access_policy.require_superadmin(session, actor_user_id)
+                normalized = {
+                    weekday: tuple(type_ids)
+                    for weekday, type_ids in tournament_type_ids_by_weekday.items()
+                }
+                if any(weekday not in range(7) for weekday in normalized):
+                    raise WeeklyTemplateInvalidError
+                if not any(normalized.values()):
+                    raise WeeklyTemplateInvalidError
+                if any(len(type_ids) != len(set(type_ids)) for type_ids in normalized.values()):
+                    raise WeeklyTemplateInvalidError
+
+                repository = TournamentRepository(session)
+                current = await repository.list_active_weekly_templates()
+                current_ids_by_weekday = {
+                    weekday: {row.tournament_type_id for row in current if row.weekday == weekday}
+                    for weekday in range(7)
+                }
+                type_repository = TournamentTypeRepository(session)
+                creatable_ids = {item.id for item in await self._calendar_type_options(session)}
+                for weekday, type_ids in normalized.items():
+                    for tournament_type_id in type_ids:
+                        tournament_type = await type_repository.get_by_id(tournament_type_id)
+                        if tournament_type is None:
+                            raise WeeklyTemplateInvalidError
+                        if (
+                            tournament_type_id not in creatable_ids
+                            and tournament_type_id not in current_ids_by_weekday[weekday]
+                        ):
+                            raise WeeklyTemplateTournamentTypeNotAllowedError
+
+                rows = [
+                    WeeklyTournamentTemplate(
+                        weekday=weekday,
+                        tournament_type_id=tournament_type_id,
+                        rotation_order=index,
+                        is_active=True,
+                    )
+                    for weekday in range(7)
+                    for index, tournament_type_id in enumerate(normalized.get(weekday, ()), start=1)
+                ]
+                await repository.replace_active_weekly_templates(rows)
+                await session.flush()
+                view = await self._weekly_template_view(session)
+                await session.commit()
+                return view
+            except Exception:
+                await session.rollback()
+                raise
 
     async def get_calendar_format_detail(
         self,
@@ -328,11 +414,7 @@ class TournamentPlanningService:
             week = await self._calendar_week_view(session, year, month, row_number)
             if not week.is_empty:
                 raise CalendarWeekNotEmptyError
-            target_dates = tuple(
-                day.date for day in week.days if day.date.weekday() in WEEKLY_PLAYING_WEEKDAYS
-            )
-            if len(target_dates) != len(WEEKLY_PLAYING_WEEKDAYS):
-                raise CalendarWeeklyPlanIntegrityError
+            target_dates = tuple(day.date for day in week.days)
             plan = await self._build_plan_for_dates(session, target_dates)
             return await self._autofill_preview(session, plan)
 
@@ -350,11 +432,7 @@ class TournamentPlanningService:
                 week = await self._calendar_week_view(session, year, month, row_number)
                 if not week.is_empty:
                     raise CalendarWeekNotEmptyError
-                target_dates = tuple(
-                    day.date for day in week.days if day.date.weekday() in WEEKLY_PLAYING_WEEKDAYS
-                )
-                if len(target_dates) != len(WEEKLY_PLAYING_WEEKDAYS):
-                    raise CalendarWeeklyPlanIntegrityError
+                target_dates = tuple(day.date for day in week.days)
                 plan = await self._build_plan_for_dates(session, target_dates)
                 preview = await self._autofill_preview(session, plan)
                 season_repository = SeasonRepository(session)
@@ -754,9 +832,11 @@ class TournamentPlanningService:
         for tournament_date in target_dates:
             if await tournament_repository.exists_for_date(tournament_date):
                 raise CalendarTournamentDateAlreadyExistsError
-        tournament_type_ids = await self._default_weekly_tournament_type_ids(session, target_dates)
+        planned_dates, tournament_type_ids = await self._default_weekly_tournament_type_ids(
+            session, target_dates
+        )
         return WeeklyTournamentPlan.create(
-            target_dates=target_dates,
+            target_dates=planned_dates,
             tournament_type_ids=tournament_type_ids,
         )
 
@@ -764,66 +844,83 @@ class TournamentPlanningService:
         self,
         session: AsyncSession,
         target_dates: tuple[date, ...],
-    ) -> tuple[int, ...]:
+    ) -> tuple[tuple[date, ...], tuple[int, ...]]:
         repository = TournamentRepository(session)
         templates = await repository.list_active_weekly_templates()
         templates_by_weekday = {
             weekday: [template for template in templates if template.weekday == weekday]
-            for weekday in WEEKLY_PLAYING_WEEKDAYS
+            for weekday in range(7)
         }
-        if any(not weekday_templates for weekday_templates in templates_by_weekday.values()):
+        if not templates:
             raise CalendarDefaultTournamentTypeNotFoundError
 
+        planned_dates: list[date] = []
         tournament_type_ids: list[int] = []
         for target_date in target_dates:
-            if target_date.weekday() == SUNDAY_WEEKDAY:
-                sunday_rotation_codes = sunday_rotation_codes_for_templates(
-                    templates_by_weekday[SUNDAY_WEEKDAY]
-                )
-                sunday_type_code = await self._default_sunday_tournament_type_code(
+            weekday_templates = templates_by_weekday[target_date.weekday()]
+            if not weekday_templates:
+                continue
+            rotation_codes = rotation_codes_for_templates(weekday_templates)
+            selected_code = (
+                rotation_codes[0]
+                if len(rotation_codes) == 1
+                else await self._default_rotation_tournament_type_code(
                     repository,
                     target_date,
-                    sunday_rotation_codes,
+                    rotation_codes,
                 )
-                sunday_template = next(
-                    (
-                        template
-                        for template in templates_by_weekday[SUNDAY_WEEKDAY]
-                        if template.tournament_type.code == sunday_type_code
-                    ),
-                    None,
-                )
-                if sunday_template is None:
-                    raise CalendarDefaultTournamentTypeNotFoundError
-                tournament_type_ids.append(sunday_template.tournament_type_id)
-                continue
-
-            weekday_templates = templates_by_weekday[target_date.weekday()]
-            if len(weekday_templates) != 1:
+            )
+            template = next(
+                (item for item in weekday_templates if item.tournament_type.code == selected_code),
+                None,
+            )
+            if template is None:
                 raise CalendarDefaultTournamentTypeNotFoundError
-            template = weekday_templates[0]
-            if template.tournament_type.code == LEGACY_UNKNOWN_TOURNAMENT_TYPE_CODE:
-                raise CalendarDefaultTournamentTypeNotFoundError
+            planned_dates.append(target_date)
             tournament_type_ids.append(template.tournament_type_id)
 
-        return tuple(tournament_type_ids)
+        if not planned_dates:
+            raise CalendarDefaultTournamentTypeNotFoundError
+        return tuple(planned_dates), tuple(tournament_type_ids)
 
-    async def _default_sunday_tournament_type_code(
+    async def _default_rotation_tournament_type_code(
         self,
         repository: TournamentRepository,
         target_date: date,
         rotation_codes: tuple[str, ...],
     ) -> str:
-        latest_sunday = await repository.get_latest_sunday_rotation_tournament_before(
+        latest = await repository.get_latest_rotation_tournament_before(
             target_date,
             rotation_codes,
         )
-        if latest_sunday is not None and latest_sunday.tournament_type is not None:
-            return self.sunday_rotation.next_code_after(
-                latest_sunday.tournament_type.code,
+        if latest is not None and latest.tournament_type is not None:
+            return self.weekday_rotation.next_code_after(
+                latest.tournament_type.code,
                 rotation_codes,
             )
-        return self.sunday_rotation.fallback_code_for(target_date, rotation_codes)
+        return self.weekday_rotation.fallback_code_for(target_date, rotation_codes)
+
+    async def _weekly_template_view(self, session: AsyncSession) -> WeeklyTemplateView:
+        rows = await TournamentRepository(session).list_active_weekly_templates()
+        return WeeklyTemplateView(
+            days=tuple(
+                WeeklyTemplateDayView(
+                    weekday=weekday,
+                    tournament_types=tuple(
+                        WeeklyTemplateTypeView(
+                            id=row.tournament_type.id,
+                            code=row.tournament_type.code,
+                            name=row.tournament_type.name,
+                            calendar_code=row.tournament_type.calendar_code,
+                            is_creatable=row.tournament_type.is_creatable,
+                        )
+                        for row in rows
+                        if row.weekday == weekday
+                    ),
+                )
+                for weekday in range(7)
+            )
+        )
 
 
 def _calendar_format_detail_view(
@@ -881,25 +978,14 @@ def _calendar_month_tournament_types(
     return tuple(items)
 
 
-def wednesday_for_week(tournament_date: date) -> date:
-    if tournament_date.weekday() not in WEEKLY_PLAYING_WEEKDAYS:
-        raise CalendarWeeklyPlanIntegrityError
-    return tournament_date.fromordinal(
-        tournament_date.toordinal() - (tournament_date.weekday() - WEDNESDAY_WEEKDAY)
-    )
-
-
-def week_dates_for(tournament_date: date) -> tuple[date, ...]:
-    wednesday = wednesday_for_week(tournament_date)
-    return tuple(
-        wednesday.fromordinal(wednesday.toordinal() + weekday - WEDNESDAY_WEEKDAY)
-        for weekday in WEEKLY_PLAYING_WEEKDAYS
-    )
-
-
-def sunday_rotation_codes_for_templates(
+def rotation_codes_for_templates(
     templates: list[WeeklyTournamentTemplate],
 ) -> tuple[str, ...]:
+    if len(templates) == 1:
+        code = templates[0].tournament_type.code
+        if code == LEGACY_UNKNOWN_TOURNAMENT_TYPE_CODE:
+            raise CalendarDefaultTournamentTypeNotFoundError
+        return (code,)
     rotation_templates = sorted(
         templates,
         key=lambda template: template.rotation_order or 0,

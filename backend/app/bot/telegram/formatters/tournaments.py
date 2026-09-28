@@ -24,6 +24,16 @@ CALENDAR_MONTHS_NOMINATIVE = {
     11: "НОЯБРЬ",
     12: "ДЕКАБРЬ",
 }
+WEEKDAY_SHORT_NAMES = ("Пн", "Вт", "Ср", "Чт", "Пт", "Сб", "Вс")
+WEEKDAY_NAMES = (
+    "Понедельник",
+    "Вторник",
+    "Среда",
+    "Четверг",
+    "Пятница",
+    "Суббота",
+    "Воскресенье",
+)
 
 
 def label(tournament: object) -> str:
@@ -180,6 +190,39 @@ def superadmin_calendar_week(view: object) -> str:
     if view.is_empty:
         lines.extend(["", superadmin_tournament_texts.CALENDAR_EMPTY_WEEK_HINT])
     return "\n".join(lines)
+
+
+def weekly_template_summary(draft: dict[int, list[object]]) -> str:
+    lines = ["⚙️ Шаблон расписания", ""]
+    for weekday, label in enumerate(WEEKDAY_SHORT_NAMES):
+        items = draft.get(weekday, [])
+        if not items:
+            value = "не задан"
+        elif len(items) == 1:
+            value = items[0].calendar_code
+        else:
+            value = "🔄 " + " → ".join(item.calendar_code for item in items)
+        lines.append(f"{label} — {value}")
+    return "\n".join(lines)
+
+
+def weekly_template_day(weekday: int, items: list[object]) -> str:
+    lines = [f"⚙️ {WEEKDAY_NAMES[weekday]}", ""]
+    if not items:
+        lines.append("Формат не задан.")
+    elif len(items) == 1:
+        lines.append(f"Формат:\n{items[0].calendar_code} — {items[0].name}")
+    else:
+        lines.append("Ротация:")
+        lines.extend(
+            f"{index}. {item.calendar_code} — {item.name}"
+            for index, item in enumerate(items, start=1)
+        )
+    return "\n".join(lines)
+
+
+def weekly_template_item(item: object) -> str:
+    return f"⚙️ Формат\n\n{item.calendar_code} — {item.name}"
 
 
 def _calendar_week_range(week_start: date, week_end: date) -> str:

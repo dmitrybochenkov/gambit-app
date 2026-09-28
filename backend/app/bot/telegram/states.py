@@ -32,6 +32,10 @@ class CalendarSeasonCreationStates(StatesGroup):
     entering_starts_at = State()
 
 
+class WeeklyTemplateEditorStates(StatesGroup):
+    editing = State()
+
+
 class AdminResultStates(StatesGroup):
     entering_manual_value = State()
     entering_tournament_fund = State()

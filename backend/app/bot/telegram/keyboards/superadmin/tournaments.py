@@ -68,6 +68,23 @@ class SuperadminTournamentCalendarFormatAction(StrEnum):
     BACK_CALENDAR = "back_calendar"
 
 
+class WeeklyTemplateAction(StrEnum):
+    OPEN = "open"
+    DAY = "day"
+    ADD_LIST = "add_list"
+    ADD_PAGE = "add_page"
+    ADD = "add"
+    ITEM = "item"
+    UP = "up"
+    DOWN = "down"
+    REMOVE = "remove"
+    CLEAR = "clear"
+    BACK_DAY = "back_day"
+    BACK_MAIN = "back_main"
+    SAVE = "save"
+    CANCEL = "cancel"
+
+
 class SuperadminTournamentCalendarCallback(
     CallbackData,
     prefix="superadmin_tour_cal",
@@ -90,6 +107,17 @@ class SuperadminTournamentCalendarFormatCallback(
     month: int
     page: int = 0
     tournament_type_id: int = 0
+
+
+class WeeklyTemplateCallback(CallbackData, prefix="weekly_template"):
+    action: WeeklyTemplateAction
+    year: int = 0
+    month: int = 0
+    row: int = 0
+    weekday: int = -1
+    index: int = -1
+    tournament_type_id: int = 0
+    page: int = 0
 
 
 CALENDAR_FORMATS_PAGE_SIZE = 5
@@ -272,6 +300,15 @@ def calendar_week_keyboard(view: object) -> InlineKeyboardMarkup:
                 row=view.row_number,
             ),
         )
+    builder.button(
+        text="⚙️ Настроить шаблон",
+        callback_data=WeeklyTemplateCallback(
+            action=WeeklyTemplateAction.OPEN,
+            year=view.year,
+            month=view.month,
+            row=view.row_number,
+        ),
+    )
     if view.has_unapproved_tournaments:
         builder.button(
             text="✅ Утвердить неделю",
@@ -307,6 +344,142 @@ def calendar_week_keyboard(view: object) -> InlineKeyboardMarkup:
         ),
     )
     builder.adjust(*([1] * len(view.days)), 1, 1, 1, 1)
+    return builder.as_markup()
+
+
+def weekly_template_main_keyboard(*, year: int, month: int, row: int) -> InlineKeyboardMarkup:
+    builder = InlineKeyboardBuilder()
+    for weekday, label in enumerate(
+        ("Понедельник", "Вторник", "Среда", "Четверг", "Пятница", "Суббота", "Воскресенье")
+    ):
+        builder.button(
+            text=label,
+            callback_data=WeeklyTemplateCallback(
+                action=WeeklyTemplateAction.DAY,
+                weekday=weekday,
+            ),
+        )
+    builder.button(
+        text="✅ Сохранить шаблон",
+        callback_data=WeeklyTemplateCallback(action=WeeklyTemplateAction.SAVE),
+    )
+    builder.button(
+        text=labels.ADMIN_CALENDAR_CANCEL,
+        callback_data=WeeklyTemplateCallback(
+            action=WeeklyTemplateAction.CANCEL,
+            year=year,
+            month=month,
+            row=row,
+        ),
+    )
+    builder.adjust(2, 2, 2, 1, 1, 1)
+    return builder.as_markup()
+
+
+def weekly_template_day_keyboard(*, weekday: int, item_count: int) -> InlineKeyboardMarkup:
+    builder = InlineKeyboardBuilder()
+    for index in range(item_count):
+        builder.button(
+            text=str(index + 1),
+            callback_data=WeeklyTemplateCallback(
+                action=WeeklyTemplateAction.ITEM,
+                weekday=weekday,
+                index=index,
+            ),
+        )
+    builder.button(
+        text="➕ Добавить формат",
+        callback_data=WeeklyTemplateCallback(
+            action=WeeklyTemplateAction.ADD_LIST,
+            weekday=weekday,
+        ),
+    )
+    if item_count:
+        builder.button(
+            text="🗑 Очистить день",
+            callback_data=WeeklyTemplateCallback(
+                action=WeeklyTemplateAction.CLEAR,
+                weekday=weekday,
+            ),
+        )
+    builder.button(
+        text=labels.ADMIN_CALENDAR_BACK,
+        callback_data=WeeklyTemplateCallback(action=WeeklyTemplateAction.BACK_MAIN),
+    )
+    builder.adjust(*([1] * item_count), 1, *([1] if item_count else []), 1)
+    return builder.as_markup()
+
+
+def weekly_template_item_keyboard(
+    *, weekday: int, index: int, item_count: int
+) -> InlineKeyboardMarkup:
+    builder = InlineKeyboardBuilder()
+    if index > 0:
+        builder.button(
+            text="⬆️ Выше",
+            callback_data=WeeklyTemplateCallback(
+                action=WeeklyTemplateAction.UP, weekday=weekday, index=index
+            ),
+        )
+    if index < item_count - 1:
+        builder.button(
+            text="⬇️ Ниже",
+            callback_data=WeeklyTemplateCallback(
+                action=WeeklyTemplateAction.DOWN, weekday=weekday, index=index
+            ),
+        )
+    builder.button(
+        text="🗑 Удалить",
+        callback_data=WeeklyTemplateCallback(
+            action=WeeklyTemplateAction.REMOVE, weekday=weekday, index=index
+        ),
+    )
+    builder.button(
+        text=labels.ADMIN_CALENDAR_BACK,
+        callback_data=WeeklyTemplateCallback(action=WeeklyTemplateAction.BACK_DAY, weekday=weekday),
+    )
+    builder.adjust(2, 1, 1)
+    return builder.as_markup()
+
+
+def weekly_template_add_keyboard(
+    *, weekday: int, options: list[object], page: int, page_size: int = 5
+) -> InlineKeyboardMarkup:
+    builder = InlineKeyboardBuilder()
+    total_pages = max(1, (len(options) + page_size - 1) // page_size)
+    current_page = min(max(page, 0), total_pages - 1)
+    items = options[current_page * page_size : (current_page + 1) * page_size]
+    for option in items:
+        builder.button(
+            text=option.name,
+            callback_data=WeeklyTemplateCallback(
+                action=WeeklyTemplateAction.ADD,
+                weekday=weekday,
+                tournament_type_id=option.id,
+            ),
+        )
+    if total_pages > 1:
+        for label, target in (
+            ("◀️", max(0, current_page - 1)),
+            (f"{current_page + 1}/{total_pages}", current_page),
+            ("▶️", min(total_pages - 1, current_page + 1)),
+        ):
+            builder.button(
+                text=label,
+                callback_data=WeeklyTemplateCallback(
+                    action=WeeklyTemplateAction.ADD_PAGE,
+                    weekday=weekday,
+                    page=target,
+                ),
+            )
+    builder.button(
+        text=labels.ADMIN_CALENDAR_BACK,
+        callback_data=WeeklyTemplateCallback(
+            action=WeeklyTemplateAction.BACK_DAY,
+            weekday=weekday,
+        ),
+    )
+    builder.adjust(*([1] * len(items)), *([3] if total_pages > 1 else []), 1)
     return builder.as_markup()
 
 

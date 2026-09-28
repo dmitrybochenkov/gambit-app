@@ -12,6 +12,7 @@ from app.bot.telegram.handlers.superadmin.navigation import send_superadmin_pane
 from app.bot.telegram.keyboards import labels
 from app.bot.telegram.keyboards.superadmin import tournaments as superadmin_tournaments_kb
 from app.bot.telegram.message_edit import edit_message_if_changed, edit_reply_markup_if_changed
+from app.bot.telegram.states import WeeklyTemplateEditorStates
 from app.bot.telegram.texts.superadmin import panel as panel_text
 from app.bot.telegram.texts.superadmin import tournaments as text
 from app.services.access_policy import AdminAccessDeniedError
@@ -32,12 +33,17 @@ from app.services.tournament_planning_service import (
     CalendarTournamentTypeNotFoundError,
     CalendarWeeklyPlanIntegrityError,
     CalendarWeekNotEmptyError,
+    WeeklyTemplateInvalidError,
+    WeeklyTemplateTournamentTypeNotAllowedError,
     tournament_planning_service,
 )
 
 logger = logging.getLogger(__name__)
 
 router = Router(name="superadmin.tournaments")
+
+_TEMPLATE_DRAFT_KEY = "weekly_template_draft"
+_TEMPLATE_CONTEXT_KEY = "weekly_template_context"
 
 
 @router.message(F.text == labels.SUPERADMIN_PANEL_TOURNAMENTS)
@@ -404,6 +410,121 @@ async def select_tournament_calendar_action(
         return
 
 
+@router.callback_query(superadmin_tournaments_kb.WeeklyTemplateCallback.filter())
+async def edit_weekly_template(
+    callback: CallbackQuery,
+    callback_data: superadmin_tournaments_kb.WeeklyTemplateCallback,
+    state: FSMContext,
+) -> None:
+    action = callback_data.action
+    try:
+        if action == superadmin_tournaments_kb.WeeklyTemplateAction.OPEN:
+            view = await tournament_planning_service.get_weekly_template(
+                await resolve_admin_actor_user_id(callback.from_user.id)
+            )
+            draft = {day.weekday: [item.id for item in day.tournament_types] for day in view.days}
+            await state.set_state(WeeklyTemplateEditorStates.editing)
+            await state.update_data(
+                **{
+                    _TEMPLATE_DRAFT_KEY: draft,
+                    _TEMPLATE_CONTEXT_KEY: {
+                        "year": callback_data.year,
+                        "month": callback_data.month,
+                        "row": callback_data.row,
+                    },
+                }
+            )
+            await _render_weekly_template_main(callback, state)
+            return
+
+        draft, context = await _weekly_template_state(state)
+        _validate_weekly_template_callback(draft, callback_data)
+        weekday = callback_data.weekday
+        if action == superadmin_tournaments_kb.WeeklyTemplateAction.CANCEL:
+            await state.clear()
+            await _edit_calendar_week(callback, **context)
+            return
+        if action == superadmin_tournaments_kb.WeeklyTemplateAction.SAVE:
+            await tournament_planning_service.replace_weekly_template(
+                await resolve_admin_actor_user_id(callback.from_user.id),
+                tournament_type_ids_by_weekday={
+                    day: tuple(type_ids) for day, type_ids in draft.items()
+                },
+            )
+            await state.clear()
+            await _edit_calendar_week(
+                callback,
+                **context,
+                answer_text=text.WEEKLY_TEMPLATE_SAVED,
+            )
+            return
+        if action == superadmin_tournaments_kb.WeeklyTemplateAction.BACK_MAIN:
+            await _render_weekly_template_main(callback, state)
+            return
+        if action in {
+            superadmin_tournaments_kb.WeeklyTemplateAction.DAY,
+            superadmin_tournaments_kb.WeeklyTemplateAction.BACK_DAY,
+        }:
+            await _render_weekly_template_day(callback, state, weekday)
+            return
+        if action in {
+            superadmin_tournaments_kb.WeeklyTemplateAction.ADD_LIST,
+            superadmin_tournaments_kb.WeeklyTemplateAction.ADD_PAGE,
+        }:
+            await _render_weekly_template_add_options(
+                callback, state, weekday, page=callback_data.page
+            )
+            return
+        if action == superadmin_tournaments_kb.WeeklyTemplateAction.ADD:
+            options = await tournament_planning_service.list_weekly_template_add_options(
+                await resolve_admin_actor_user_id(callback.from_user.id),
+                selected_tournament_type_ids=tuple(draft[weekday]),
+            )
+            if callback_data.tournament_type_id not in {item.id for item in options}:
+                raise WeeklyTemplateTournamentTypeNotAllowedError
+            draft[weekday].append(callback_data.tournament_type_id)
+            await _store_weekly_template_draft(state, draft)
+            await _render_weekly_template_day(callback, state, weekday)
+            return
+        if action == superadmin_tournaments_kb.WeeklyTemplateAction.CLEAR:
+            draft[weekday] = []
+            await _store_weekly_template_draft(state, draft)
+            await _render_weekly_template_day(callback, state, weekday)
+            return
+        if action == superadmin_tournaments_kb.WeeklyTemplateAction.ITEM:
+            await _render_weekly_template_item(callback, state, weekday, callback_data.index)
+            return
+        if action in {
+            superadmin_tournaments_kb.WeeklyTemplateAction.UP,
+            superadmin_tournaments_kb.WeeklyTemplateAction.DOWN,
+            superadmin_tournaments_kb.WeeklyTemplateAction.REMOVE,
+        }:
+            items = draft[weekday]
+            index = callback_data.index
+            if index < 0 or index >= len(items):
+                raise WeeklyTemplateInvalidError
+            if action == superadmin_tournaments_kb.WeeklyTemplateAction.REMOVE:
+                items.pop(index)
+                await _store_weekly_template_draft(state, draft)
+                await _render_weekly_template_day(callback, state, weekday)
+                return
+            target = (
+                index - 1
+                if action == superadmin_tournaments_kb.WeeklyTemplateAction.UP
+                else index + 1
+            )
+            if target < 0 or target >= len(items):
+                raise WeeklyTemplateInvalidError
+            items[index], items[target] = items[target], items[index]
+            await _store_weekly_template_draft(state, draft)
+            await _render_weekly_template_item(callback, state, weekday, target)
+    except AdminAccessDeniedError:
+        await state.clear()
+        await callback.answer(panel_text.INSUFFICIENT_RIGHTS, show_alert=True)
+    except (WeeklyTemplateInvalidError, WeeklyTemplateTournamentTypeNotAllowedError):
+        await callback.answer(text.WEEKLY_TEMPLATE_INVALID, show_alert=True)
+
+
 @router.callback_query(
     superadmin_tournaments_kb.SuperadminTournamentCalendarFormatCallback.filter()
 )
@@ -756,6 +877,196 @@ async def _edit_calendar_day(
             row=callback_data.row,
         ),
     )
+
+
+async def _weekly_template_state(
+    state: FSMContext,
+) -> tuple[dict[int, list[int]], dict[str, int]]:
+    data = await state.get_data()
+    raw_draft = data.get(_TEMPLATE_DRAFT_KEY)
+    raw_context = data.get(_TEMPLATE_CONTEXT_KEY)
+    if not isinstance(raw_draft, dict) or not isinstance(raw_context, dict):
+        raise WeeklyTemplateInvalidError
+    draft = {
+        weekday: list(raw_draft.get(weekday, raw_draft.get(str(weekday), [])))
+        for weekday in range(7)
+    }
+    try:
+        context = {
+            "year": int(raw_context["year"]),
+            "month": int(raw_context["month"]),
+            "row": int(raw_context["row"]),
+        }
+    except (KeyError, TypeError, ValueError) as exc:
+        raise WeeklyTemplateInvalidError from exc
+    return draft, context
+
+
+def _validate_weekly_template_callback(
+    draft: dict[int, list[int]],
+    callback_data: superadmin_tournaments_kb.WeeklyTemplateCallback,
+) -> None:
+    action = callback_data.action
+    weekday_actions = {
+        superadmin_tournaments_kb.WeeklyTemplateAction.DAY,
+        superadmin_tournaments_kb.WeeklyTemplateAction.ADD_LIST,
+        superadmin_tournaments_kb.WeeklyTemplateAction.ADD_PAGE,
+        superadmin_tournaments_kb.WeeklyTemplateAction.ADD,
+        superadmin_tournaments_kb.WeeklyTemplateAction.ITEM,
+        superadmin_tournaments_kb.WeeklyTemplateAction.UP,
+        superadmin_tournaments_kb.WeeklyTemplateAction.DOWN,
+        superadmin_tournaments_kb.WeeklyTemplateAction.REMOVE,
+        superadmin_tournaments_kb.WeeklyTemplateAction.CLEAR,
+        superadmin_tournaments_kb.WeeklyTemplateAction.BACK_DAY,
+    }
+    if action in weekday_actions and callback_data.weekday not in draft:
+        raise WeeklyTemplateInvalidError
+
+    index_actions = {
+        superadmin_tournaments_kb.WeeklyTemplateAction.ITEM,
+        superadmin_tournaments_kb.WeeklyTemplateAction.UP,
+        superadmin_tournaments_kb.WeeklyTemplateAction.DOWN,
+        superadmin_tournaments_kb.WeeklyTemplateAction.REMOVE,
+    }
+    if action in index_actions and not (
+        0 <= callback_data.index < len(draft[callback_data.weekday])
+    ):
+        raise WeeklyTemplateInvalidError
+
+    if (
+        action
+        in {
+            superadmin_tournaments_kb.WeeklyTemplateAction.ADD_LIST,
+            superadmin_tournaments_kb.WeeklyTemplateAction.ADD_PAGE,
+        }
+        and callback_data.page < 0
+    ):
+        raise WeeklyTemplateInvalidError
+    if (
+        action == superadmin_tournaments_kb.WeeklyTemplateAction.ADD
+        and callback_data.tournament_type_id <= 0
+    ):
+        raise WeeklyTemplateInvalidError
+
+
+async def _store_weekly_template_draft(
+    state: FSMContext,
+    draft: dict[int, list[int]],
+) -> None:
+    await state.update_data(**{_TEMPLATE_DRAFT_KEY: draft})
+
+
+async def _weekly_template_catalog(actor_user_id: int) -> dict[int, object]:
+    template = await tournament_planning_service.get_weekly_template(actor_user_id)
+    options = await tournament_planning_service.list_weekly_template_add_options(
+        actor_user_id,
+        selected_tournament_type_ids=(),
+    )
+    return {
+        item.id: item
+        for item in [
+            *(item for day in template.days for item in day.tournament_types),
+            *options,
+        ]
+    }
+
+
+async def _weekly_template_render_data(
+    callback: CallbackQuery,
+    state: FSMContext,
+) -> tuple[dict[int, list[object]], dict[str, int]]:
+    draft, context = await _weekly_template_state(state)
+    catalog = await _weekly_template_catalog(
+        await resolve_admin_actor_user_id(callback.from_user.id)
+    )
+    try:
+        rendered = {
+            weekday: [catalog[tournament_type_id] for tournament_type_id in type_ids]
+            for weekday, type_ids in draft.items()
+        }
+    except KeyError as exc:
+        raise WeeklyTemplateInvalidError from exc
+    return rendered, context
+
+
+async def _render_weekly_template_main(callback: CallbackQuery, state: FSMContext) -> None:
+    draft, context = await _weekly_template_render_data(callback, state)
+    await callback.answer()
+    if callback.message is not None:
+        await edit_message_if_changed(
+            callback.message,
+            text=tournament_fmt.weekly_template_summary(draft),
+            reply_markup=superadmin_tournaments_kb.weekly_template_main_keyboard(**context),
+        )
+
+
+async def _render_weekly_template_day(
+    callback: CallbackQuery,
+    state: FSMContext,
+    weekday: int,
+) -> None:
+    draft, _context = await _weekly_template_render_data(callback, state)
+    if weekday not in draft:
+        raise WeeklyTemplateInvalidError
+    await callback.answer()
+    if callback.message is not None:
+        await edit_message_if_changed(
+            callback.message,
+            text=tournament_fmt.weekly_template_day(weekday, draft[weekday]),
+            reply_markup=superadmin_tournaments_kb.weekly_template_day_keyboard(
+                weekday=weekday,
+                item_count=len(draft[weekday]),
+            ),
+        )
+
+
+async def _render_weekly_template_item(
+    callback: CallbackQuery,
+    state: FSMContext,
+    weekday: int,
+    index: int,
+) -> None:
+    draft, _context = await _weekly_template_render_data(callback, state)
+    if weekday not in draft or index < 0 or index >= len(draft[weekday]):
+        raise WeeklyTemplateInvalidError
+    await callback.answer()
+    if callback.message is not None:
+        await edit_message_if_changed(
+            callback.message,
+            text=tournament_fmt.weekly_template_item(draft[weekday][index]),
+            reply_markup=superadmin_tournaments_kb.weekly_template_item_keyboard(
+                weekday=weekday,
+                index=index,
+                item_count=len(draft[weekday]),
+            ),
+        )
+
+
+async def _render_weekly_template_add_options(
+    callback: CallbackQuery,
+    state: FSMContext,
+    weekday: int,
+    *,
+    page: int,
+) -> None:
+    draft, _context = await _weekly_template_state(state)
+    if weekday not in draft:
+        raise WeeklyTemplateInvalidError
+    options = await tournament_planning_service.list_weekly_template_add_options(
+        await resolve_admin_actor_user_id(callback.from_user.id),
+        selected_tournament_type_ids=tuple(draft[weekday]),
+    )
+    await callback.answer()
+    if callback.message is not None:
+        await edit_message_if_changed(
+            callback.message,
+            text="Выбери формат:",
+            reply_markup=superadmin_tournaments_kb.weekly_template_add_keyboard(
+                weekday=weekday,
+                options=options,
+                page=page,
+            ),
+        )
 
 
 async def _edit_calendar_type_selection(
