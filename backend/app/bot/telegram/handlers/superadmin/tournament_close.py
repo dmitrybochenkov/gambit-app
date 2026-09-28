@@ -1,5 +1,4 @@
 import logging
-from datetime import date
 
 from aiogram import Bot, F, Router
 from aiogram.exceptions import TelegramAPIError
@@ -8,7 +7,6 @@ from aiogram.types import CallbackQuery, InputMediaPhoto, Message
 
 from app.bot.telegram.formatters import publications as publication_fmt
 from app.bot.telegram.formatters import results as result_fmt
-from app.bot.telegram.formatters import schedules as schedule_fmt
 from app.bot.telegram.formatters import tournaments as tournament_fmt
 from app.bot.telegram.handlers.admin.shared import (
     RESULT_SUMMARY_PARSE_MODE,
@@ -23,7 +21,6 @@ from app.bot.telegram.handlers.admin.shared import (
 from app.bot.telegram.handlers.superadmin.navigation import send_superadmin_panel
 from app.bot.telegram.keyboards import labels
 from app.bot.telegram.keyboards.admin import results as admin_results_kb
-from app.bot.telegram.keyboards.admin import schedule as admin_schedule_kb
 from app.bot.telegram.keyboards.superadmin import tournament_close as superadmin_tournament_close_kb
 from app.bot.telegram.keyboards.superadmin import tournaments as superadmin_tournaments_kb
 from app.bot.telegram.message_edit import (
@@ -35,7 +32,6 @@ from app.bot.telegram.notifications import (
     notify_players_about_prize_stack_bonuses,
 )
 from app.bot.telegram.states import AdminResultStates
-from app.bot.telegram.texts.admin import calendar as calendar_text
 from app.bot.telegram.texts.admin import results as result_text
 from app.bot.telegram.texts.superadmin import panel as panel_text
 from app.bot.telegram.texts.superadmin import tournament_close as text
@@ -69,12 +65,7 @@ from app.services.result_service import (
     result_service,
 )
 from app.services.tournament_photo_service import tournament_photo_service
-from app.services.tournament_planning_service import (
-    CalendarDefaultTournamentTypeNotFoundError,
-    CalendarWeeklyPlanIntegrityError,
-    WeeklyPlanningStatus,
-    tournament_planning_service,
-)
+from app.services.tournament_planning_service import tournament_planning_service
 from app.services.tournament_publication_service import (
     TournamentPublicationAlreadyPublishedError,
     TournamentPublicationNoDestinationsError,
@@ -267,10 +258,6 @@ async def select_close_tournament_action(
                     reply_markup=superadmin_tournament_close_kb.admin_publish_results_action_keyboard(
                         results.tournament.id,
                     ),
-                )
-                await _send_calendar_planning_notification_after_close(
-                    callback,
-                    results.tournament.date,
                 )
             return
 
@@ -1039,33 +1026,6 @@ async def select_closed_fund_action(
         tournament_id=callback_data.tournament_id,
         page=callback_data.page,
     )
-
-
-async def _send_calendar_planning_notification_after_close(
-    callback: CallbackQuery,
-    closed_tournament_date: date,
-) -> None:
-    if callback.message is None:
-        return
-    try:
-        planning = await tournament_planning_service.inspect_after_tournament_close(
-            await resolve_admin_actor_user_id(callback.from_user.id),
-            closed_tournament_date,
-        )
-    except (
-        AdminAccessDeniedError,
-        CalendarDefaultTournamentTypeNotFoundError,
-        CalendarWeeklyPlanIntegrityError,
-    ):
-        logger.exception("Failed to inspect weekly tournament planning after close")
-        return
-
-    if planning.status == WeeklyPlanningStatus.READY and planning.plan is not None:
-        await callback.message.answer(calendar_text.ADMIN_CALENDAR_TOURNAMENT_WEEK_EMPTY)
-        await callback.message.answer(
-            schedule_fmt.plan_preview(planning.plan),
-            reply_markup=admin_schedule_kb.manual_tournaments_plan_keyboard(planning.plan),
-        )
 
 
 async def _publish_result_report(callback: CallbackQuery, preview: object) -> object:

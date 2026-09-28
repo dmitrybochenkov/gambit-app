@@ -36,7 +36,6 @@ from app.bot.telegram.formatters import tournaments as tournament_fmt
 from app.bot.telegram.handlers import admin as admin_handlers
 from app.bot.telegram.handlers import superadmin as superadmin_handlers
 from app.bot.telegram.handlers import user as user_handlers
-from app.bot.telegram.handlers.admin import calendar as admin_calendar_handlers
 from app.bot.telegram.handlers.admin import check_in as admin_check_in_handlers
 from app.bot.telegram.handlers.admin import panel as admin_panel_handlers
 from app.bot.telegram.handlers.admin import results as admin_result_handlers
@@ -60,10 +59,8 @@ from app.bot.telegram.handlers.user import shared as user_shared_handlers
 from app.bot.telegram.handlers.user import start as user_start_handlers
 from app.bot.telegram.handlers.user import tournaments as user_tournament_handlers
 from app.bot.telegram.keyboards import labels
-from app.bot.telegram.keyboards.admin import calendar as admin_calendar_kb
 from app.bot.telegram.keyboards.admin import check_in as admin_check_in_kb
 from app.bot.telegram.keyboards.admin import results as admin_results_kb
-from app.bot.telegram.keyboards.admin import schedule as admin_schedule_kb
 from app.bot.telegram.keyboards.superadmin import administrators as superadmin_administrators_kb
 from app.bot.telegram.keyboards.superadmin import hall_of_fame as superadmin_hall_of_fame_kb
 from app.bot.telegram.keyboards.superadmin import registrations as superadmin_registrations_kb
@@ -142,18 +139,7 @@ from app.services.dto.rewards import (
     PlayerRewardNotificationView,
     PlayerRewardView,
 )
-from app.services.dto.schedules import (
-    TournamentPlanDayEditView,
-    TournamentPlanItemView,
-    TournamentRebuyView,
-    TournamentTypeDetailView,
-    TournamentTypeOptionView,
-    WeeklyScheduleTournamentView,
-    WeeklyScheduleView,
-    WeeklyTournamentFactItemView,
-    WeeklyTournamentFactView,
-    WeeklyTournamentPlanView,
-)
+from app.services.dto.schedules import TournamentRebuyView
 from app.services.dto.seasons import (
     ScoringConfigView,
     SeasonCreationPreviewView,
@@ -205,10 +191,6 @@ from app.services.result_service import (
 )
 from app.services.tournament_check_in_service import CheckInResultView, TournamentCheckInService
 from app.services.tournament_photo_service import TournamentPhotoService
-from app.services.tournament_planning_service import (
-    WeeklyPlanningCheckView,
-    WeeklyPlanningStatus,
-)
 from app.services.tournament_publication_service import TournamentPublicationService
 from app.services.tournament_service import TournamentRegistrationAlreadyCheckedInError
 from app.services.user_access_service import UserAccessService
@@ -457,112 +439,6 @@ def season_timeline_view() -> SeasonTimelineView:
         ),
         future_seasons=[],
         suggested_start=None,
-    )
-
-
-def tournament_type_detail_view(
-    *,
-    type_id: int = 1,
-    name: str = "Баунти турнир",
-    entry_fee: int = 600,
-    entry_stack: int = 20_000,
-    addon_fee: int = 800,
-    addon_stack: int = 125_000,
-    rebuys: list[TournamentRebuyView] | None = None,
-    knockout_mode: str = "none",
-) -> TournamentTypeDetailView:
-    return TournamentTypeDetailView(
-        id=type_id,
-        name=name,
-        description=None,
-        entry_fee=entry_fee,
-        entry_stack=entry_stack,
-        addon_fee=addon_fee,
-        addon_stack=addon_stack,
-        rebuys=rebuys or [TournamentRebuyView(fee=600, stack=30_000)],
-        knockout_mode=knockout_mode,
-    )
-
-
-def tournament_plan_view(
-    *,
-    tournament_type: TournamentTypeDetailView | None = None,
-    tournaments: list[TournamentPlanItemView] | None = None,
-) -> WeeklyTournamentPlanView:
-    tournament_items = tournaments or [
-        TournamentPlanItemView(
-            date=date(2026, 7, 22),
-            tournament_type=tournament_type or tournament_type_detail_view(),
-        ),
-        TournamentPlanItemView(
-            date=date(2026, 7, 23),
-            tournament_type=tournament_type_detail_view(
-                type_id=2,
-                name="Классика",
-            ),
-        ),
-        TournamentPlanItemView(
-            date=date(2026, 7, 24),
-            tournament_type=tournament_type_detail_view(
-                type_id=3,
-                name="Фризаут",
-                entry_fee=1000,
-                entry_stack=50_000,
-                addon_fee=1000,
-                addon_stack=175_000,
-                rebuys=[TournamentRebuyView(fee=1000, stack=75_000)],
-            ),
-        ),
-        TournamentPlanItemView(
-            date=date(2026, 7, 25),
-            tournament_type=tournament_type_detail_view(
-                type_id=4,
-                name="Double Double",
-            ),
-        ),
-        TournamentPlanItemView(
-            date=date(2026, 7, 26),
-            tournament_type=tournament_type_detail_view(
-                type_id=5,
-                name="Mystery Bounty",
-                knockout_mode="small",
-            ),
-        ),
-    ]
-    return WeeklyTournamentPlanView(
-        week_start=tournament_items[0].date,
-        week_end=tournament_items[-1].date,
-        tournaments=tournament_items,
-    )
-
-
-def weekly_fact_view(
-    names: list[str | None] | None = None,
-) -> WeeklyTournamentFactView:
-    tournament_names = names or [
-        "Баунти турнир",
-        "Классика",
-        "Фризаут",
-        "Double Double",
-        "Boss Bounty",
-    ]
-    dates = [
-        date(2026, 8, 12),
-        date(2026, 8, 13),
-        date(2026, 8, 14),
-        date(2026, 8, 15),
-        date(2026, 8, 16),
-    ]
-    return WeeklyTournamentFactView(
-        week_start=dates[0],
-        week_end=dates[-1],
-        tournaments=[
-            WeeklyTournamentFactItemView(
-                date=tournament_date,
-                tournament_type_name=tournament_name,
-            )
-            for tournament_date, tournament_name in zip(dates, tournament_names, strict=True)
-        ],
     )
 
 
@@ -4015,11 +3891,6 @@ async def test_superadmin_close_tournament_dispatcher_sends_short_success_after_
         superadmin_close_handlers,
         "tournament_publication_service",
         publication_service,
-    )
-    monkeypatch.setattr(
-        superadmin_close_handlers.tournament_planning_service,
-        "inspect_after_tournament_close",
-        AsyncMock(return_value=SimpleNamespace(status=SimpleNamespace(), plan=None)),
     )
     bot = RecordingBot()
 
@@ -8907,33 +8778,6 @@ async def test_superadmin_rename_confirm_updates_and_does_not_notify_target(
     assert state.state is None
 
 
-async def test_admin_calendar_button_shows_inline_menu(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    admin = admin_player(1, 100, UserRole.SUPERADMIN)
-    service = SimpleNamespace(require_superadmin=AsyncMock(return_value=admin))
-    monkeypatch.setattr(admin_calendar_handlers, "user_access_service", service)
-    message = SimpleNamespace(
-        from_user=SimpleNamespace(id=100),
-        answer=AsyncMock(),
-    )
-
-    await admin_calendar_handlers.open_admin_calendar(message)
-
-    service.require_superadmin.assert_awaited_once_with(100)
-    answer = message.answer.await_args
-    assert answer.args[0] == "Меню для создания сезонов и турниров в базе данных."
-    buttons = [
-        button.text for row in answer.kwargs["reply_markup"].inline_keyboard for button in row
-    ]
-    assert buttons == ["⏳ Сезоны", "🏆 Турниры", "❌ Отмена"]
-    assert [len(row) for row in answer.kwargs["reply_markup"].inline_keyboard] == [
-        1,
-        1,
-        1,
-    ]
-
-
 async def test_add_admin_button_shows_candidates(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -9151,47 +8995,6 @@ async def test_confirm_add_admin_promotes_player_and_notifies(
     assert "🛠 Админ-панель" in keyboard_texts(bot.send_message.await_args.kwargs["reply_markup"])
 
 
-async def test_admin_calendar_seasons_callback_shows_timeline_management(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    admin = admin_player(1, 100, UserRole.SUPERADMIN)
-    user_service = SimpleNamespace(require_superadmin=AsyncMock(return_value=admin))
-    season_service = SimpleNamespace(
-        get_season_timeline=AsyncMock(return_value=season_timeline_view())
-    )
-    monkeypatch.setattr(admin_calendar_handlers, "user_access_service", user_service)
-    monkeypatch.setattr(admin_calendar_handlers, "season_service", season_service)
-    message = SimpleNamespace(delete=AsyncMock(), answer=AsyncMock())
-    callback = SimpleNamespace(
-        from_user=SimpleNamespace(id=100),
-        message=message,
-        answer=AsyncMock(),
-    )
-    callback_data = SimpleNamespace(action=admin_calendar_kb.AdminCalendarAction.SEASONS)
-    state = SimpleNamespace(set_state=AsyncMock(), update_data=AsyncMock(), clear=AsyncMock())
-
-    await admin_calendar_handlers.select_admin_calendar_section(callback, callback_data, state)
-
-    user_service.require_superadmin.assert_awaited_once_with(100)
-    season_service.get_season_timeline.assert_awaited_once_with(1)
-    state.set_state.assert_not_awaited()
-    state.update_data.assert_not_awaited()
-    state.clear.assert_awaited_once()
-    message.delete.assert_awaited_once_with()
-    answer = message.answer.await_args
-    assert answer.args[0] == (
-        "🏆 Сезоны\n\n"
-        "Текущий сезон:\n"
-        "Лето 2026\n"
-        "с 1 июня 2026\n"
-        "без даты окончания\n\n"
-        "Будущий сезон отсутствует."
-    )
-    assert [
-        button.text for row in answer.kwargs["reply_markup"].inline_keyboard for button in row
-    ] == ["➕ Создать следующий сезон", "📋 Все сезоны", "❌ Отмена"]
-
-
 def test_season_creation_preview_shows_active_season_transition_from_dto() -> None:
     preview = SeasonCreationPreviewView(
         name="Осень 2026",
@@ -9207,429 +9010,6 @@ def test_season_creation_preview_shows_active_season_transition_from_dto() -> No
         "Текущий сезон завершится: 9.08.2026\n"
         "Новый сезон начнётся: 10.08.2026"
     )
-
-
-async def test_admin_calendar_tournaments_callback_shows_stateless_plan_preview(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    admin = admin_player(1, 100, UserRole.SUPERADMIN)
-    user_service = SimpleNamespace(require_superadmin=AsyncMock(return_value=admin))
-    planning_service = SimpleNamespace(
-        inspect_next_week=AsyncMock(
-            return_value=WeeklyPlanningCheckView(
-                status=WeeklyPlanningStatus.READY,
-                plan=tournament_plan_view(),
-            )
-        )
-    )
-    monkeypatch.setattr(admin_calendar_handlers, "user_access_service", user_service)
-    monkeypatch.setattr(admin_calendar_handlers, "tournament_planning_service", planning_service)
-    message = SimpleNamespace(delete=AsyncMock(), answer=AsyncMock())
-    callback = SimpleNamespace(
-        from_user=SimpleNamespace(id=100),
-        message=message,
-        answer=AsyncMock(),
-    )
-    state = SimpleNamespace(clear=AsyncMock(), update_data=AsyncMock())
-
-    await admin_calendar_handlers.select_admin_calendar_section(
-        callback,
-        SimpleNamespace(action=admin_calendar_kb.AdminCalendarAction.TOURNAMENTS),
-        state,
-    )
-
-    planning_service.inspect_next_week.assert_awaited_once_with(1)
-    state.clear.assert_awaited_once()
-    state.update_data.assert_not_called()
-    message.delete.assert_awaited_once_with()
-    assert message.answer.await_args_list[0].args[0] == (
-        "Суперадмин. На будущую неделю нужно создать турниры!"
-    )
-    answer = message.answer.await_args_list[1]
-    assert answer.args[0] == (
-        "Будет создано расписание:\n\n"
-        "Среда, 22 июля — Баунти турнир\n"
-        "Четверг, 23 июля — Классика\n"
-        "Пятница, 24 июля — Фризаут\n"
-        "Суббота, 25 июля — Double Double\n"
-        "Воскресенье, 26 июля — Mystery Bounty"
-    )
-    assert [
-        button.text for row in answer.kwargs["reply_markup"].inline_keyboard for button in row
-    ] == ["Изменить", "Создать", "Отмена"]
-
-
-async def test_admin_calendar_tournaments_callback_shows_in_progress_week(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    admin = admin_player(1, 100, UserRole.SUPERADMIN)
-    user_service = SimpleNamespace(require_superadmin=AsyncMock(return_value=admin))
-    planning_service = SimpleNamespace(
-        inspect_next_week=AsyncMock(
-            return_value=WeeklyPlanningCheckView(
-                status=WeeklyPlanningStatus.BLOCKED_BY_ACTIVE_WEEK,
-                schedule=weekly_fact_view(),
-            )
-        )
-    )
-    monkeypatch.setattr(admin_calendar_handlers, "user_access_service", user_service)
-    monkeypatch.setattr(admin_calendar_handlers, "tournament_planning_service", planning_service)
-    message = SimpleNamespace(delete=AsyncMock(), answer=AsyncMock())
-    callback = SimpleNamespace(
-        from_user=SimpleNamespace(id=100),
-        message=message,
-        answer=AsyncMock(),
-    )
-    state = SimpleNamespace(clear=AsyncMock(), update_data=AsyncMock())
-
-    await admin_calendar_handlers.select_admin_calendar_section(
-        callback,
-        SimpleNamespace(action=admin_calendar_kb.AdminCalendarAction.TOURNAMENTS),
-        state,
-    )
-
-    message.answer.assert_awaited_once_with(
-        "✅ Турниры на эту неделю уже созданы\n\n"
-        "Среда, 12 августа — Баунти турнир\n"
-        "Четверг, 13 августа — Классика\n"
-        "Пятница, 14 августа — Фризаут\n"
-        "Суббота, 15 августа — Double Double\n"
-        "Воскресенье, 16 августа — Boss Bounty\n\n"
-        "Следующее расписание можно будет создать после завершения текущей игровой недели."
-    )
-
-
-def test_tournament_management_callback_routes_do_not_collide() -> None:
-    top_level = admin_calendar_kb.AdminCalendarCallback(
-        action=admin_calendar_kb.AdminCalendarAction.TOURNAMENTS
-    ).pack()
-    plan_edit = admin_calendar_kb.CalendarPlanCallback(
-        action=admin_calendar_kb.CalendarPlanAction.EDIT
-    ).pack()
-    day_edit = admin_schedule_kb.TournamentPlanDayEditCallback(
-        tournament_date="2026-07-23",
-    ).pack()
-    type_edit = admin_schedule_kb.TournamentTypeEditCallback(
-        tournament_date="2026-07-23",
-        tournament_type_id=2,
-    ).pack()
-
-    assert top_level.startswith("admin_calendar:")
-    assert top_level == "admin_calendar:tournaments"
-    assert plan_edit.startswith("calendar_plan:")
-    assert day_edit.startswith("tour_plan_day:")
-    assert type_edit.startswith("tournament_type_edit:")
-    assert len({top_level, plan_edit, day_edit, type_edit}) == 4
-
-
-async def test_admin_calendar_plan_denies_regular_admin(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    planning_service = SimpleNamespace(
-        get_plan_view=AsyncMock(side_effect=AdminAccessDeniedError),
-    )
-    monkeypatch.setattr(admin_schedule_handlers, "tournament_planning_service", planning_service)
-    callback = SimpleNamespace(
-        from_user=SimpleNamespace(id=100),
-        answer=AsyncMock(),
-    )
-    state = SimpleNamespace(
-        get_data=AsyncMock(
-            return_value={
-                admin_schedule_handlers.FSM_PLAN_KEY: [
-                    {"date": "2026-07-22", "tournament_type_id": 1},
-                    {"date": "2026-07-23", "tournament_type_id": 2},
-                    {"date": "2026-07-24", "tournament_type_id": 3},
-                    {"date": "2026-07-25", "tournament_type_id": 4},
-                    {"date": "2026-07-26", "tournament_type_id": 5},
-                ]
-            }
-        ),
-        clear=AsyncMock(),
-    )
-
-    await admin_schedule_handlers.review_calendar_plan(
-        callback,
-        SimpleNamespace(action=admin_calendar_kb.CalendarPlanAction.EDIT),
-        state,
-    )
-
-    callback.answer.assert_awaited_once_with("Недостаточно прав.", show_alert=True)
-
-
-async def test_admin_calendar_plan_sends_public_schedule_after_success(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    plan = tournament_plan_view()
-    schedule = WeeklyScheduleView(
-        tournaments=[
-            WeeklyScheduleTournamentView(
-                id=1,
-                date=date(2026, 7, 22),
-                tournament_type_code="bounty",
-                tournament_type_name="Баунти турнир",
-                description=None,
-                entry_fee=600,
-                entry_stack=20_000,
-                addon_fee=800,
-                addon_stack=125_000,
-                rebuys=[TournamentRebuyView(fee=600, stack=30_000)],
-                knockout_mode="small_big",
-                points_multiplier=Decimal("1.00"),
-                prize_place_multiplier=Decimal("1.00"),
-                prize_place_multiplier_places=None,
-            )
-        ]
-    )
-    planning_service = SimpleNamespace(
-        create_weekly_schedule=AsyncMock(return_value=plan),
-    )
-    schedule_service = SimpleNamespace(
-        get_created_weekly_schedule=AsyncMock(return_value=schedule),
-    )
-    monkeypatch.setattr(admin_schedule_handlers, "tournament_planning_service", planning_service)
-    monkeypatch.setattr(admin_schedule_handlers, "tournament_schedule_service", schedule_service)
-    message = SimpleNamespace(delete=AsyncMock(), answer=AsyncMock())
-    callback = SimpleNamespace(
-        from_user=SimpleNamespace(id=100),
-        message=message,
-        answer=AsyncMock(),
-    )
-    state = SimpleNamespace(
-        get_data=AsyncMock(
-            return_value={
-                admin_schedule_handlers.FSM_PLAN_KEY: [
-                    {"date": item.date.isoformat(), "tournament_type_id": item.tournament_type.id}
-                    for item in plan.tournaments
-                ]
-            }
-        ),
-        clear=AsyncMock(),
-    )
-
-    await admin_schedule_handlers.review_calendar_plan(
-        callback,
-        SimpleNamespace(action=admin_calendar_kb.CalendarPlanAction.CONFIRM),
-        state,
-    )
-
-    planning_service.create_weekly_schedule.assert_awaited_once()
-    schedule_service.get_created_weekly_schedule.assert_awaited_once()
-    state.clear.assert_awaited_once()
-    assert message.answer.await_args_list[0].args[0].startswith("Создано расписание:")
-    assert (
-        message.answer.await_args_list[1]
-        .args[0]
-        .startswith("🔥 РАСПИСАНИЕ ТУРНИРОВ ПОКЕРНОГО КЛУБА «ГАМБИТ»")
-    )
-
-
-async def test_tournament_edit_button_shows_day_options(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    plan = tournament_plan_view()
-    planning_service = SimpleNamespace(get_plan_view=AsyncMock(return_value=plan))
-    monkeypatch.setattr(admin_schedule_handlers, "tournament_planning_service", planning_service)
-    state = SimpleNamespace(
-        get_data=AsyncMock(
-            return_value={
-                admin_schedule_handlers.FSM_PLAN_KEY: [
-                    {"date": item.date.isoformat(), "tournament_type_id": item.tournament_type.id}
-                    for item in plan.tournaments
-                ]
-            }
-        ),
-        clear=AsyncMock(),
-    )
-    message = SimpleNamespace(delete=AsyncMock(), answer=AsyncMock())
-    callback = SimpleNamespace(
-        from_user=SimpleNamespace(id=100),
-        message=message,
-        answer=AsyncMock(),
-    )
-
-    await admin_schedule_handlers.review_calendar_plan(
-        callback,
-        SimpleNamespace(action=admin_calendar_kb.CalendarPlanAction.EDIT),
-        state,
-    )
-
-    message.delete.assert_awaited_once_with()
-    assert message.answer.await_args.args[0] == "Что меняем?"
-    assert [
-        button.text
-        for row in message.answer.await_args.kwargs["reply_markup"].inline_keyboard
-        for button in row
-    ] == ["Среда", "Четверг", "Пятница", "Суббота", "Воскресенье", "⬅️ Назад"]
-
-
-async def test_tournament_edit_button_starts_fsm_from_stateless_preview(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    plan = tournament_plan_view()
-    planning_service = SimpleNamespace(build_next_week_plan=AsyncMock(return_value=plan))
-    monkeypatch.setattr(admin_schedule_handlers, "tournament_planning_service", planning_service)
-    state = SimpleNamespace(
-        get_data=AsyncMock(return_value={}),
-        update_data=AsyncMock(),
-        clear=AsyncMock(),
-    )
-    message = SimpleNamespace(delete=AsyncMock(), answer=AsyncMock())
-    callback = SimpleNamespace(
-        from_user=SimpleNamespace(id=100),
-        message=message,
-        answer=AsyncMock(),
-    )
-
-    await admin_schedule_handlers.review_calendar_plan(
-        callback,
-        SimpleNamespace(action=admin_calendar_kb.CalendarPlanAction.EDIT),
-        state,
-    )
-
-    planning_service.build_next_week_plan.assert_awaited_once_with(1)
-    state.update_data.assert_awaited_once()
-    assert state.update_data.await_args.kwargs[admin_schedule_handlers.FSM_PLAN_KEY][0] == {
-        "date": "2026-07-22",
-        "tournament_type_id": 1,
-    }
-    assert message.answer.await_args.args[0] == "Что меняем?"
-
-
-async def test_tournament_day_selection_shows_type_options(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    edit_view = TournamentPlanDayEditView(
-        tournament_date=date(2026, 7, 22),
-        tournament_types=[
-            TournamentTypeOptionView(id=1, name="Баунти турнир"),
-            TournamentTypeOptionView(id=2, name="Классика"),
-        ],
-    )
-    planning_service = SimpleNamespace(get_day_edit_options=AsyncMock(return_value=edit_view))
-    monkeypatch.setattr(admin_schedule_handlers, "tournament_planning_service", planning_service)
-    state = SimpleNamespace(
-        get_data=AsyncMock(
-            return_value={
-                admin_schedule_handlers.FSM_PLAN_KEY: [
-                    {"date": "2026-07-22", "tournament_type_id": 1},
-                    {"date": "2026-07-23", "tournament_type_id": 2},
-                    {"date": "2026-07-24", "tournament_type_id": 3},
-                    {"date": "2026-07-25", "tournament_type_id": 4},
-                    {"date": "2026-07-26", "tournament_type_id": 5},
-                ]
-            }
-        )
-    )
-    message = SimpleNamespace(delete=AsyncMock(), answer=AsyncMock())
-    callback = SimpleNamespace(
-        from_user=SimpleNamespace(id=100),
-        message=message,
-        answer=AsyncMock(),
-    )
-
-    await admin_schedule_handlers.select_tournament_plan_day(
-        callback,
-        SimpleNamespace(tournament_date="2026-07-22"),
-        state,
-    )
-
-    planning_service.get_day_edit_options.assert_awaited_once()
-    assert message.answer.await_args.args[0] == "Выбери тип турнира:\nСреда, 22 июля"
-    assert [
-        button.text
-        for row in message.answer.await_args.kwargs["reply_markup"].inline_keyboard
-        for button in row
-    ] == ["Баунти турнир", "Классика", "Удалить день", "⬅️ Назад"]
-
-
-async def test_tournament_type_selection_updates_fsm_plan(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    updated = tournament_plan_view()
-    planning_service = SimpleNamespace(update_plan_day_type=AsyncMock(return_value=updated))
-    monkeypatch.setattr(admin_schedule_handlers, "tournament_planning_service", planning_service)
-    state = SimpleNamespace(
-        get_data=AsyncMock(
-            return_value={
-                admin_schedule_handlers.FSM_PLAN_KEY: [
-                    {"date": "2026-07-22", "tournament_type_id": 1},
-                    {"date": "2026-07-23", "tournament_type_id": 2},
-                    {"date": "2026-07-24", "tournament_type_id": 3},
-                    {"date": "2026-07-25", "tournament_type_id": 4},
-                    {"date": "2026-07-26", "tournament_type_id": 5},
-                ]
-            }
-        ),
-        update_data=AsyncMock(),
-    )
-    message = SimpleNamespace(delete=AsyncMock(), answer=AsyncMock())
-    callback = SimpleNamespace(
-        from_user=SimpleNamespace(id=100),
-        message=message,
-        answer=AsyncMock(),
-    )
-
-    await admin_schedule_handlers.select_tournament_type(
-        callback,
-        SimpleNamespace(tournament_date="2026-07-23", tournament_type_id=3),
-        state,
-    )
-
-    planning_service.update_plan_day_type.assert_awaited_once()
-    state.update_data.assert_awaited_once()
-    assert state.update_data.await_args.kwargs[admin_schedule_handlers.FSM_PLAN_KEY][1] == {
-        "date": "2026-07-23",
-        "tournament_type_id": 3,
-    }
-
-
-async def test_tournament_day_delete_updates_fsm_plan(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    updated = tournament_plan_view(
-        tournaments=[
-            item for item in tournament_plan_view().tournaments if item.date != date(2026, 7, 25)
-        ]
-    )
-    planning_service = SimpleNamespace(remove_plan_day=AsyncMock(return_value=updated))
-    monkeypatch.setattr(admin_schedule_handlers, "tournament_planning_service", planning_service)
-    state = SimpleNamespace(
-        get_data=AsyncMock(
-            return_value={
-                admin_schedule_handlers.FSM_PLAN_KEY: [
-                    {"date": "2026-07-22", "tournament_type_id": 1},
-                    {"date": "2026-07-23", "tournament_type_id": 2},
-                    {"date": "2026-07-24", "tournament_type_id": 3},
-                    {"date": "2026-07-25", "tournament_type_id": 4},
-                    {"date": "2026-07-26", "tournament_type_id": 5},
-                ]
-            }
-        ),
-        update_data=AsyncMock(),
-    )
-    message = SimpleNamespace(delete=AsyncMock(), answer=AsyncMock())
-    callback = SimpleNamespace(
-        from_user=SimpleNamespace(id=100),
-        message=message,
-        answer=AsyncMock(),
-    )
-
-    await admin_schedule_handlers.delete_tournament_plan_day(
-        callback,
-        SimpleNamespace(tournament_date="2026-07-25"),
-        state,
-    )
-
-    planning_service.remove_plan_day.assert_awaited_once()
-    state.update_data.assert_awaited_once()
-    assert state.update_data.await_args.kwargs[admin_schedule_handlers.FSM_PLAN_KEY] == [
-        {"date": "2026-07-22", "tournament_type_id": 1},
-        {"date": "2026-07-23", "tournament_type_id": 2},
-        {"date": "2026-07-24", "tournament_type_id": 3},
-        {"date": "2026-07-26", "tournament_type_id": 5},
-    ]
-    assert "Суббота, 25 июля" not in message.answer.await_args.args[0]
 
 
 async def test_enter_season_name_prompts_for_start_date(
@@ -10567,13 +9947,13 @@ async def test_admin_panel_exit_returns_main_keyboard(
     service = SimpleNamespace(
         get_admin_panel_for_admin=AsyncMock(return_value=AdminPanelView(admin=admin, reviews=[]))
     )
-    monkeypatch.setattr(admin_calendar_handlers, "user_access_service", service)
+    monkeypatch.setattr(admin_panel_handlers, "user_access_service", service)
     message = SimpleNamespace(
         from_user=SimpleNamespace(id=100),
         answer=AsyncMock(),
     )
 
-    await admin_calendar_handlers.exit_admin_panel(message)
+    await admin_panel_handlers.exit_admin_panel(message)
 
     service.get_admin_panel_for_admin.assert_awaited_once_with(100)
     message.answer.assert_awaited_once()

@@ -116,9 +116,10 @@ calendar date as the current tournament day.
 ## FSM And Drafts
 
 Unfinished Telegram planning state lives in aiogram FSM. The database stores
-confirmed business facts only. Bot restarts may lose unfinished calendar,
-season, result-entry, and repair-flow drafts; handlers must handle stale FSM or
-callback state safely.
+confirmed business facts only. Bot restarts may lose unfinished season,
+result-entry, and repair-flow drafts; handlers must handle stale FSM or callback
+state safely. Calendar autofill does not keep a mutable FSM draft: confirmation
+rebuilds the plan from authoritative templates and calendar state.
 
 `admin_prompts` is removed from runtime schema. Do not reintroduce prompt tables
 for new planning flows without a separate architecture decision.

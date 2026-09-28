@@ -24,14 +24,11 @@ tournaments, results, rewards, and publication flows.
 - Create a future season and confirm the current season `ends_at` is adjusted.
 - Delete the future season before it starts and confirm previous season becomes
   open-ended again.
-- Create weekly tournament proposals.
-- Confirm weekly preview contains Wednesday, Thursday, Friday, Saturday, and
-  Sunday unless a day was intentionally removed.
+- Open an empty full week in Calendar and choose `Fill from template`.
+- Confirm the autofill preview contains Wednesday through Sunday.
 - Confirm Sunday type follows active `WeeklyTournamentTemplate.rotation_order`.
-- Remove one day from the draft and confirm only remaining tournament rows are
-  created.
-- Confirm the next week is blocked while any tournament in the latest created
-  week is `active`.
+- Confirm autofill creates all five tournaments with registration closed.
+- Approve the week and confirm registration opens for its tournaments.
 
 ## Registration And Access
 

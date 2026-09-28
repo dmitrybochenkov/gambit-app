@@ -200,7 +200,7 @@ def test_access_policy_uses_only_internal_actor_identity() -> None:
 def test_migrated_admin_telegram_handlers_resolve_actor_before_service_calls() -> None:
     handler_paths = [
         APP_DIR / "bot" / "telegram" / "handlers" / "admin" / filename
-        for filename in ("calendar.py", "schedule.py", "results.py")
+        for filename in ("schedule.py", "results.py")
     ] + [
         APP_DIR / "bot" / "telegram" / "handlers" / "superadmin" / filename
         for filename in (
@@ -665,3 +665,45 @@ def test_admin_promotion_boundary_is_transport_neutral_and_shared() -> None:
     assert ".send_message(" not in handler_source
     assert "AdminManagementUseCases" in handler_source
     assert "TelegramAdminPromotionNotificationDelivery" in handler_source
+
+
+def test_legacy_weekly_scheduling_flow_is_not_exposed() -> None:
+    planning_tree = ast.parse((SERVICES_DIR / "tournament_planning_service.py").read_text())
+    service_class = next(
+        node
+        for node in planning_tree.body
+        if isinstance(node, ast.ClassDef) and node.name == "TournamentPlanningService"
+    )
+    plan_class = next(
+        node
+        for node in planning_tree.body
+        if isinstance(node, ast.ClassDef) and node.name == "WeeklyTournamentPlan"
+    )
+
+    service_methods = {
+        node.name
+        for node in service_class.body
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
+    }
+    plan_methods = {
+        node.name
+        for node in plan_class.body
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
+    }
+
+    assert (
+        not {
+            "build_next_week_plan",
+            "inspect_next_week",
+            "inspect_after_tournament_close",
+            "create_weekly_schedule",
+            "get_day_edit_options",
+            "get_plan_view",
+            "update_plan_day_type",
+            "remove_plan_day",
+        }
+        & service_methods
+    )
+    assert not {"from_fsm", "to_fsm", "with_tournament_type", "without_date"} & plan_methods
+    assert not (APP_DIR / "bot" / "telegram" / "handlers" / "admin" / "calendar.py").exists()
+    assert not (APP_DIR / "bot" / "telegram" / "keyboards" / "admin" / "schedule.py").exists()

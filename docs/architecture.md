@@ -126,7 +126,6 @@ Current service classes include:
 - `TournamentCheckInService`
 - `TournamentPlanningService`
 - `TournamentPublicationService`
-- `TournamentScheduleService`
 - `TournamentService`
 - `UserAccessService`
 - `UserRenameService`
@@ -154,12 +153,12 @@ Repositories:
 Repository projection objects are persistence-layer records. Services map them
 explicitly into service DTOs before returning data to Telegram handlers.
 
-## Calendar Drafts
+## Calendar Planning
 
-Calendar and season planning use Telegram FSM for unfinished drafts. The
-database stores only confirmed business state: seasons, tournaments, templates,
-and results. If the bot restarts, unfinished drafts disappear and the
-administrator starts the flow again.
+The tournament calendar is the single scheduling surface. SUPERADMIN can plan
+a tournament manually on a free date or explicitly fill an empty full week from
+the configured templates. Both operations show a preview before confirmation;
+autofill confirmation rebuilds the plan from authoritative database state.
 
 Normal season management is a SUPERADMIN-only, transport-neutral
 `SeasonService` boundary shared by Telegram and `/api/v1/admin/seasons`.
@@ -170,13 +169,10 @@ future seasons cannot be deleted. `open_season()` remains a bootstrap/legacy
 operation and is not part of the HTTP management API.
 
 Tournament rows are either `active` or `closed`. Cancelled tournaments are
-deleted rather than status-tracked. Existing gaming weeks are not checked
-against templates for completeness: a week is in progress iff at least one real
-tournament row in that week is `active`. The next week becomes plannable only
-after the latest created week contains no active tournaments.
+deleted rather than status-tracked.
 
 Weekly tournament Sunday rotation is configured by active
-`WeeklyTournamentTemplate` rows with `rotation_order`. The planning flow sorts
+`WeeklyTournamentTemplate` rows with `rotation_order`. Calendar autofill sorts
 Sunday templates by `rotation_order`; if an earlier Sunday tournament exists,
 the next template after its type is selected, otherwise the first configured
 Sunday template is used. Adding another Sunday template in the database changes

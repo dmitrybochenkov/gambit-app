@@ -162,10 +162,9 @@ Rules:
 - If `tournament_fund` is set, the database requires it to be positive and
   divisible by `10`.
 - One tournament date is allowed in the database.
-- A created gaming week has no required number of tournaments. If a day is
-  removed before confirmation, no tournament row is created for that day.
-- Weekly tournament planning drafts live only in Telegram FSM until
-  confirmation. The database stores only created tournaments.
+- Manual calendar planning creates one selected date at a time.
+- Calendar template autofill is available only for an empty full gaming week;
+  confirmation rebuilds and creates the complete Wednesday-to-Sunday plan.
 
 ## TournamentRegistration
 

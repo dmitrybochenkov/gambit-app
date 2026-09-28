@@ -16,7 +16,7 @@ def test_role_handler_inits_only_assemble_routers() -> None:
 
 
 def test_role_keyboard_inits_export_modules_only() -> None:
-    assert admin_keyboards.__all__ == ["calendar", "check_in", "panel", "results", "schedule"]
+    assert admin_keyboards.__all__ == ["calendar", "check_in", "panel", "results"]
     assert user_keyboards.__all__ == [
         "history",
         "menu",
