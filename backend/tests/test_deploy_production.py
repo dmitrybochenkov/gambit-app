@@ -21,10 +21,13 @@ def deploy_checkout(tmp_path: Path) -> tuple[Path, Path, dict[str, str]]:
     backend = root / "backend"
     data = root / "data"
     bin_dir = tmp_path / "bin"
+    home_dir = tmp_path / "home"
+    home_bin_dir = home_dir / ".local" / "bin"
     scripts.mkdir(parents=True)
     backend.mkdir()
     data.mkdir()
     bin_dir.mkdir()
+    home_bin_dir.mkdir(parents=True)
     (backend / "alembic.ini").write_text("[alembic]\n")
     (backend / "pyproject.toml").write_text("[project]\n")
     (data / "gambit.db").write_bytes(b"database")
@@ -41,6 +44,8 @@ def deploy_checkout(tmp_path: Path) -> tuple[Path, Path, dict[str, str]]:
 case "$*" in
   *"rev-parse --show-toplevel"*) printf '%s\n' "$TEST_REPO_ROOT" ;;
   *"branch --show-current"*) printf 'main\n' ;;
+  *"diff --cached --quiet"*) [[ "${FAIL_STAGED_DIRT:-0}" != 1 ]] ;;
+  *"diff --quiet"*) [[ "${FAIL_TRACKED_DIRT:-0}" != 1 ]] ;;
   *"merge --ff-only"*) [[ "${FAIL_UPDATE:-0}" != 1 ]] ;;
   *"rev-parse HEAD"*) printf '0123456789abcdef0123456789abcdef01234567\n' ;;
 esac
@@ -59,7 +64,7 @@ fi
 """,
     )
     _write_executable(
-        bin_dir / "uv",
+        home_bin_dir / "uv",
         common_header
         + """
 case "$*" in
@@ -80,7 +85,8 @@ esac
     env = os.environ.copy()
     env.update(
         {
-            "PATH": f"{bin_dir}:{env['PATH']}",
+            "PATH": f"{bin_dir}:/usr/bin:/bin",
+            "HOME": str(home_dir),
             "COMMAND_LOG": str(command_log),
             "TEST_REPO_ROOT": str(root),
             "GAMBIT_HEALTH_ATTEMPTS": "1",
@@ -135,7 +141,8 @@ def test_local_deploy_wrapper_calls_expected_remote_entrypoint(tmp_path: Path) -
 
     assert result.returncode == 0
     assert command_log.read_text().strip() == (
-        "-t dimension-x cd /opt/apps/gambit && scripts/deploy-production.sh"
+        '-t dimension-x export PATH="$HOME/.local/bin:$PATH"; '
+        "cd /opt/apps/gambit && scripts/deploy-production.sh"
     )
 
 
@@ -179,6 +186,59 @@ def test_update_failure_does_not_stop_service(
     assert "merge --ff-only origin/main" in commands
     assert "systemctl stop" not in commands
     assert "sqlite3" not in commands
+
+
+def test_deploy_resolves_uv_from_home_local_bin(
+    deploy_checkout: tuple[Path, Path, dict[str, str]],
+) -> None:
+    script, command_log, env = deploy_checkout
+
+    result = _run(script, env)
+
+    assert result.returncode == 0, result.stderr
+    uv_path = Path(env["HOME"]) / ".local" / "bin" / "uv"
+    assert any(line.startswith(str(uv_path)) for line in command_log.read_text().splitlines())
+
+
+def test_missing_uv_fails_preflight_before_service_stop(
+    deploy_checkout: tuple[Path, Path, dict[str, str]],
+) -> None:
+    script, command_log, env = deploy_checkout
+    (Path(env["HOME"]) / ".local" / "bin" / "uv").unlink()
+
+    result = _run(script, env)
+
+    assert result.returncode != 0
+    assert "Required command is unavailable: uv" in result.stderr
+    assert not command_log.exists() or "systemctl stop" not in command_log.read_text()
+
+
+@pytest.mark.parametrize("dirty_flag", ["FAIL_TRACKED_DIRT", "FAIL_STAGED_DIRT"])
+def test_tracked_or_staged_changes_block_before_update(
+    deploy_checkout: tuple[Path, Path, dict[str, str]],
+    dirty_flag: str,
+) -> None:
+    script, command_log, env = deploy_checkout
+    env[dirty_flag] = "1"
+
+    result = _run(script, env)
+
+    assert result.returncode != 0
+    commands = command_log.read_text()
+    assert "merge --ff-only" not in commands
+    assert "systemctl stop" not in commands
+
+
+def test_untracked_runtime_file_does_not_block_deploy(
+    deploy_checkout: tuple[Path, Path, dict[str, str]],
+) -> None:
+    script, _, env = deploy_checkout
+    runtime_archive = Path(env["TEST_REPO_ROOT"]) / "data" / "gambit.db.before-import"
+    runtime_archive.write_bytes(b"archive")
+
+    result = _run(script, env)
+
+    assert result.returncode == 0, result.stderr
 
 
 def test_migration_failure_leaves_service_stopped_and_does_not_start_it(

@@ -2,6 +2,8 @@
 
 set -Eeuo pipefail
 
+export PATH="$HOME/.local/bin:$PATH"
+
 readonly SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 readonly REPO_ROOT="$(cd -- "$SCRIPT_DIR/.." && pwd)"
 readonly BACKEND_DIR="$REPO_ROOT/backend"

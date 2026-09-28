@@ -56,6 +56,13 @@ update, creates a consistent SQLite backup, stops `gambit.service`, synchronizes
 dependencies, migrates to the single Alembic head, starts the service, and
 performs bounded service/health/revision checks.
 
+The wrapper and entrypoint support non-login SSH execution by adding
+`$HOME/.local/bin` to `PATH`, which covers the standard per-user `uv`
+installation and lets the wrapper bootstrap an older remote entrypoint. Tracked
+or staged checkout changes block deployment. Untracked, non-conflicting runtime
+or archive data is left untouched and does not by itself block the fast-forward
+update.
+
 Failures before the stop phase leave the running service untouched. Dependency
 or migration failures after stop leave it stopped. A `systemctl start` failure
 means the service was not successfully started. Health or post-start revision
