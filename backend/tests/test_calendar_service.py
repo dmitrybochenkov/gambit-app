@@ -1,4 +1,4 @@
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 from pathlib import Path
 
 import pytest
@@ -41,6 +41,7 @@ from app.services.tournament_planning_service import (
     CalendarTournamentNotEditableError,
     CalendarTournamentTypeNotFoundError,
     CalendarWeeklyPlanIntegrityError,
+    CalendarWeekNotEmptyError,
     TournamentPlanningService,
 )
 from app.services.tournament_service import TournamentService
@@ -850,20 +851,76 @@ async def test_repeated_calendar_create_callback_does_not_duplicate_tournament(
         await engine.dispose()
 
 
-async def test_calendar_autofill_rejects_partial_month_boundary_week(
+async def test_calendar_cross_month_week_autofill_and_approval_are_canonical(
     tmp_path: Path,
 ) -> None:
     service, session_factory, engine = await create_planning_service(tmp_path / "boundary.db")
     try:
         await seed_calendar_data(session_factory)
 
-        with pytest.raises(CalendarWeeklyPlanIntegrityError):
-            await service.get_calendar_autofill_preview(
-                1,
-                year=2026,
-                month=8,
-                row_number=1,
-            )
+        september_week = await service.get_calendar_week(1, year=2026, month=9, row_number=5)
+        october_week = await service.get_calendar_week(1, year=2026, month=10, row_number=1)
+        expected_week_dates = [date(2026, 9, 28) + timedelta(days=offset) for offset in range(7)]
+
+        assert september_week.week_start == october_week.week_start == date(2026, 9, 28)
+        assert september_week.week_end == october_week.week_end == date(2026, 10, 4)
+        assert [day.date for day in september_week.days] == expected_week_dates
+        assert [day.date for day in october_week.days] == expected_week_dates
+
+        september_preview = await service.get_calendar_autofill_preview(
+            1, year=2026, month=9, row_number=5
+        )
+        october_preview = await service.get_calendar_autofill_preview(
+            1, year=2026, month=10, row_number=1
+        )
+        expected_tournament_dates = [
+            date(2026, 9, 30),
+            date(2026, 10, 1),
+            date(2026, 10, 2),
+            date(2026, 10, 3),
+            date(2026, 10, 4),
+        ]
+        assert [item.tournament_date for item in september_preview.tournaments] == (
+            expected_tournament_dates
+        )
+        assert october_preview == september_preview
+
+        await service.create_calendar_autofill_week(1, year=2026, month=9, row_number=5)
+        with pytest.raises(CalendarWeekNotEmptyError):
+            await service.create_calendar_autofill_week(1, year=2026, month=10, row_number=1)
+
+        september = await service.get_calendar_month(1, year=2026, month=9)
+        october = await service.get_calendar_month(1, year=2026, month=10)
+        assert [
+            day.date
+            for week in september.weeks
+            for day in week.days
+            if day.in_month and day.tournament is not None
+        ] == [date(2026, 9, 30)]
+        assert [
+            day.date
+            for week in october.weeks
+            for day in week.days
+            if day.in_month and day.tournament is not None
+        ] == expected_tournament_dates[1:]
+
+        approved = await service.approve_calendar_week(1, year=2026, month=10, row_number=1)
+        assert [item.date for item in approved.tournaments] == expected_tournament_dates
+    finally:
+        await engine.dispose()
+
+
+async def test_calendar_cross_year_week_uses_same_logical_dates(tmp_path: Path) -> None:
+    service, session_factory, engine = await create_planning_service(tmp_path / "year-boundary.db")
+    try:
+        await seed_calendar_data(session_factory)
+
+        december = await service.get_calendar_week(1, year=2026, month=12, row_number=5)
+        january = await service.get_calendar_week(1, year=2027, month=1, row_number=1)
+
+        assert december.week_start == january.week_start == date(2026, 12, 28)
+        assert december.week_end == january.week_end == date(2027, 1, 3)
+        assert [day.date for day in december.days] == [day.date for day in january.days]
     finally:
         await engine.dispose()
 

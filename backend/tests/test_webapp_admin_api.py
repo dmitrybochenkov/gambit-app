@@ -927,6 +927,29 @@ async def test_superadmin_planning_autofill_and_role_policy(
     assert all(not item.registration_open for item in tournaments)
 
 
+async def test_superadmin_planning_boundary_week_has_same_http_business_dates(
+    admin_api_client: tuple[AsyncClient, async_sessionmaker, dict[str, int]],
+) -> None:
+    client, _session_factory, _ids = admin_api_client
+    base = "/api/v1/admin/planning/calendar/week"
+
+    september = await client.get(
+        f"{base}?year=2026&month=9&row_number=5",
+        headers=auth_headers(200),
+    )
+    october = await client.get(
+        f"{base}?year=2026&month=10&row_number=1",
+        headers=auth_headers(200),
+    )
+
+    assert september.status_code == october.status_code == 200
+    assert september.json()["week_start"] == october.json()["week_start"] == "2026-09-28"
+    assert september.json()["week_end"] == october.json()["week_end"] == "2026-10-04"
+    assert [day["date"] for day in september.json()["days"]] == [
+        day["date"] for day in october.json()["days"]
+    ]
+
+
 async def test_superadmin_season_timeline_create_and_delete_use_shared_contract(
     admin_api_client: tuple[AsyncClient, async_sessionmaker, dict[str, int]],
 ) -> None:

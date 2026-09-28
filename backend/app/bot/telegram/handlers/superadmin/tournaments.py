@@ -387,11 +387,10 @@ async def select_tournament_calendar_action(
     except CalendarTournamentDateAlreadyExistsError:
         await callback.answer(text.CALENDAR_DATE_BUSY, show_alert=True)
         return
-    except (
-        CalendarDefaultTournamentTypeNotFoundError,
-        CalendarTournamentTypeNotFoundError,
-        CalendarWeeklyPlanIntegrityError,
-    ):
+    except CalendarDefaultTournamentTypeNotFoundError:
+        await callback.answer(text.CALENDAR_TEMPLATE_UNAVAILABLE, show_alert=True)
+        return
+    except (CalendarTournamentTypeNotFoundError, CalendarWeeklyPlanIntegrityError):
         await callback.answer(text.CALENDAR_UNAVAILABLE, show_alert=True)
         return
     except CalendarWeekNotEmptyError:

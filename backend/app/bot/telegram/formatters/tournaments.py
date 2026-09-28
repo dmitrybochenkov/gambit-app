@@ -1,3 +1,5 @@
+from datetime import date
+
 from app.bot.telegram.formatters import common as fmt_common
 from app.bot.telegram.texts import common as common_texts
 from app.bot.telegram.texts.superadmin import tournaments as superadmin_tournament_texts
@@ -171,13 +173,22 @@ def superadmin_calendar_format_detail(view: object) -> str:
 
 def superadmin_calendar_week(view: object) -> str:
     lines = [
-        f"📅 {view.week_start.day}–{view.week_end.day} {common_texts.MONTHS[view.week_end.month]}",
+        f"📅 {_calendar_week_range(view.week_start, view.week_end)}",
         "",
         "Выбери дату:",
     ]
     if view.is_empty:
         lines.extend(["", superadmin_tournament_texts.CALENDAR_EMPTY_WEEK_HINT])
     return "\n".join(lines)
+
+
+def _calendar_week_range(week_start: date, week_end: date) -> str:
+    if week_start.month == week_end.month and week_start.year == week_end.year:
+        return f"{week_start.day}–{week_end.day} {common_texts.MONTHS[week_end.month]}"
+    return (
+        f"{week_start.day} {common_texts.MONTHS[week_start.month]} — "
+        f"{week_end.day} {common_texts.MONTHS[week_end.month]}"
+    )
 
 
 def superadmin_calendar_create_preview(view: object) -> str:

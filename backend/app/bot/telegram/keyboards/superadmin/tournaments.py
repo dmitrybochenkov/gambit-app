@@ -151,15 +151,16 @@ def calendar_month_keyboard(view: object) -> InlineKeyboardMarkup:
             month=next_month,
         ),
     )
-    builder.button(
-        text=CALENDAR_FORMAT_HELP_LABEL,
-        callback_data=SuperadminTournamentCalendarFormatCallback(
-            action=SuperadminTournamentCalendarFormatAction.LIST,
-            year=view.year,
-            month=view.month,
-            page=0,
-        ),
-    )
+    if view.tournament_types:
+        builder.button(
+            text=CALENDAR_FORMAT_HELP_LABEL,
+            callback_data=SuperadminTournamentCalendarFormatCallback(
+                action=SuperadminTournamentCalendarFormatAction.LIST,
+                year=view.year,
+                month=view.month,
+                page=0,
+            ),
+        )
     builder.button(
         text=labels.ADMIN_CALENDAR_BACK,
         callback_data=SuperadminTournamentCalendarCallback(
@@ -167,7 +168,7 @@ def calendar_month_keyboard(view: object) -> InlineKeyboardMarkup:
         ),
     )
     week_rows = [len(view.weeks)] if view.weeks else []
-    builder.adjust(*week_rows, 2, 1, 1)
+    builder.adjust(*week_rows, 2, *([1] if view.tournament_types else []), 1)
     return builder.as_markup()
 
 

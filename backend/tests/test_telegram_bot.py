@@ -1,4 +1,5 @@
 import asyncio
+from dataclasses import replace
 from datetime import date, datetime
 from decimal import Decimal
 from pathlib import Path
@@ -656,12 +657,43 @@ def test_superadmin_calendar_month_uses_nominative_month_names() -> None:
 
 
 def test_superadmin_calendar_month_keyboard_has_format_help_above_back() -> None:
-    keyboard = superadmin_tournaments_kb.calendar_month_keyboard(tournament_calendar_month_view())
+    view = replace(
+        tournament_calendar_month_view(),
+        tournament_types=(
+            TournamentCalendarMonthTypeView(
+                id=1,
+                name="Классика",
+                short_name="Классика",
+                calendar_code="C",
+            ),
+        ),
+    )
+    keyboard = superadmin_tournaments_kb.calendar_month_keyboard(view)
 
     rows = [[button.text for button in row] for row in keyboard.inline_keyboard]
 
     assert rows[-2] == [superadmin_tournaments_kb.CALENDAR_FORMAT_HELP_LABEL]
     assert rows[-1] == ["⬅️ Назад"]
+
+
+def test_superadmin_calendar_month_keyboard_hides_format_help_for_empty_month() -> None:
+    keyboard = superadmin_tournaments_kb.calendar_month_keyboard(tournament_calendar_month_view())
+
+    assert superadmin_tournaments_kb.CALENDAR_FORMAT_HELP_LABEL not in inline_keyboard_texts(
+        keyboard
+    )
+
+
+def test_superadmin_calendar_week_formats_cross_month_range() -> None:
+    rendered = tournament_fmt.superadmin_calendar_week(
+        SimpleNamespace(
+            week_start=date(2026, 9, 28),
+            week_end=date(2026, 10, 4),
+            is_empty=False,
+        )
+    )
+
+    assert "📅 28 сентября — 4 октября" in rendered
 
 
 def test_superadmin_calendar_format_help_keyboard_is_paged_with_codes_and_short_names() -> None:
@@ -952,7 +984,19 @@ async def test_superadmin_calendar_format_detail_and_back_keep_source_month(
 async def test_superadmin_calendar_format_list_back_restores_calendar_keyboard_only(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    month_view = TournamentCalendarMonthView(year=2026, month=10, weeks=())
+    month_view = TournamentCalendarMonthView(
+        year=2026,
+        month=10,
+        weeks=(),
+        tournament_types=(
+            TournamentCalendarMonthTypeView(
+                id=1,
+                name="Классика",
+                short_name="Классика",
+                calendar_code="C",
+            ),
+        ),
+    )
     planning_service = SimpleNamespace(get_calendar_month=AsyncMock(return_value=month_view))
     monkeypatch.setattr(
         superadmin_tournament_handlers,
@@ -7899,7 +7943,6 @@ async def test_superadmin_tournament_hub_calendar_opens_month(
         "2",
         "⬅️ Месяц",
         "Месяц ➡️",
-        superadmin_tournaments_kb.CALENDAR_FORMAT_HELP_LABEL,
         "⬅️ Назад",
     ]
 

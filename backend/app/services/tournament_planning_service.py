@@ -546,6 +546,8 @@ class TournamentPlanningService:
         session: AsyncSession,
         year: int,
         month: int,
+        *,
+        enable_adjacent_actions: bool = False,
     ) -> TournamentCalendarMonthView:
         weeks = calendar.Calendar(firstweekday=0).monthdatescalendar(year, month)
         month_start = min(day for week in weeks for day in week)
@@ -577,6 +579,7 @@ class TournamentPlanningService:
                             if day in tournaments_by_date
                             else 0,
                             business_date=business_date,
+                            enable_adjacent_actions=enable_adjacent_actions,
                         )
                         for day in week
                     ),
@@ -601,13 +604,18 @@ class TournamentPlanningService:
     ) -> TournamentCalendarWeekDetailView:
         if row_number <= 0:
             raise CalendarWeeklyPlanIntegrityError
-        month_view = await self._calendar_month_view(session, year, month)
+        month_view = await self._calendar_month_view(
+            session,
+            year,
+            month,
+            enable_adjacent_actions=True,
+        )
         try:
             week = month_view.weeks[row_number - 1]
         except IndexError as exc:
             raise CalendarWeeklyPlanIntegrityError from exc
-        days = tuple(day for day in week.days if day.in_month)
-        if not days:
+        days = week.days
+        if len(days) != 7:
             raise CalendarWeeklyPlanIntegrityError
         return TournamentCalendarWeekDetailView(
             year=year,
@@ -631,6 +639,7 @@ class TournamentPlanningService:
         tournament: Tournament | None,
         registrations_count: int,
         business_date: date,
+        enable_adjacent_actions: bool,
     ) -> TournamentCalendarDayView:
         return TournamentCalendarDayView(
             date=day,
@@ -638,7 +647,7 @@ class TournamentPlanningService:
             tournament=tournament_view(tournament) if tournament is not None else None,
             registrations_count=registrations_count,
             editable_future=(
-                in_month
+                (in_month or enable_adjacent_actions)
                 and tournament is not None
                 and tournament.status == TournamentStatus.ACTIVE
                 and tournament.date > business_date
