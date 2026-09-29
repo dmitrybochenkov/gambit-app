@@ -1,3 +1,4 @@
+from collections.abc import Iterable
 from datetime import date
 
 from app.bot.telegram.formatters import common as fmt_common
@@ -145,20 +146,14 @@ def superadmin_calendar_month(view: object) -> str:
         "```",
         title.rstrip(),
         "",
-        "     Пн   Вт   Ср   Чт   Пт   Сб   Вс",
+        _calendar_month_row("", WEEKDAY_SHORT_NAMES),
     ]
     for week in view.weeks:
-        date_cells = [
-            f"{day.date.day:02d}".center(_MONTH_CELL_WIDTH) if day.in_month else " " * 4
-            for day in week.days
-        ]
-        type_cells = [
-            _calendar_day_code(day).center(_MONTH_CELL_WIDTH) if day.in_month else " " * 4
-            for day in week.days
-        ]
-        lines.append(f"{week.row_number:<2} " + " ".join(date_cells).rstrip())
+        date_cells = [f"{day.date.day:02d}" if day.in_month else "" for day in week.days]
+        type_cells = [_calendar_day_code(day) if day.in_month else "" for day in week.days]
+        lines.append(_calendar_month_row(str(week.row_number), date_cells))
         if any(cell.strip() for cell in type_cells):
-            lines.append("   " + " ".join(type_cells).rstrip())
+            lines.append(_calendar_month_row("", type_cells))
         lines.append("")
     if lines[-1] == "":
         lines.pop()
@@ -167,6 +162,11 @@ def superadmin_calendar_month(view: object) -> str:
     if legend:
         lines.extend(["", *legend])
     return "\n".join(lines)
+
+
+def _calendar_month_row(week_label: str, cells: Iterable[object]) -> str:
+    prefix = f"{week_label:<2} "
+    return prefix + " ".join(str(cell).center(_MONTH_CELL_WIDTH) for cell in cells).rstrip()
 
 
 def superadmin_calendar_format_detail(view: object) -> str:

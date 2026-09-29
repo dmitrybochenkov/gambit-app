@@ -648,6 +648,103 @@ def test_superadmin_calendar_month_uses_codes_without_registration_counts() -> N
     assert "BB — Boss Bounty" not in rendered
 
 
+def test_superadmin_calendar_month_aligns_header_dates_and_codes_for_cross_month_week() -> None:
+    codes = (None, "D", "B3", "S1", "MQ", None, None)
+    dates = (
+        date(2026, 8, 31),
+        date(2026, 9, 1),
+        date(2026, 9, 2),
+        date(2026, 9, 3),
+        date(2026, 9, 4),
+        date(2026, 9, 5),
+        date(2026, 9, 6),
+    )
+    view = SimpleNamespace(
+        year=2026,
+        month=9,
+        weeks=(
+            SimpleNamespace(
+                row_number=1,
+                days=tuple(
+                    SimpleNamespace(
+                        date=value,
+                        in_month=value.month == 9,
+                        tournament=(
+                            None
+                            if code is None
+                            else SimpleNamespace(tournament_type_calendar_code=code)
+                        ),
+                    )
+                    for value, code in zip(dates, codes, strict=True)
+                ),
+            ),
+        ),
+        tournament_types=(),
+    )
+
+    assert tournament_fmt.superadmin_calendar_month(view) == "\n".join(
+        [
+            "📅 Календарь",
+            "",
+            "```",
+            "               СЕНТЯБРЬ 2026",
+            "",
+            "    Пн   Вт   Ср   Чт   Пт   Сб   Вс",
+            "1        01   02   03   04   05   06",
+            "         D    B3   S1   MQ",
+            "```",
+        ]
+    )
+
+
+def test_superadmin_calendar_month_uses_identical_columns_when_month_starts_monday() -> None:
+    codes = ("D", "B3", "S1", "MQ", None, None, None)
+    view = SimpleNamespace(
+        year=2026,
+        month=6,
+        weeks=(
+            SimpleNamespace(
+                row_number=1,
+                days=tuple(
+                    SimpleNamespace(
+                        date=date(2026, 6, day),
+                        in_month=True,
+                        tournament=(
+                            None
+                            if code is None
+                            else SimpleNamespace(tournament_type_calendar_code=code)
+                        ),
+                    )
+                    for day, code in zip(range(1, 8), codes, strict=True)
+                ),
+            ),
+        ),
+        tournament_types=(),
+    )
+
+    rendered = tournament_fmt.superadmin_calendar_month(view)
+    assert rendered == "\n".join(
+        [
+            "📅 Календарь",
+            "",
+            "```",
+            "                 ИЮНЬ 2026",
+            "",
+            "    Пн   Вт   Ср   Чт   Пт   Сб   Вс",
+            "1   01   02   03   04   05   06   07",
+            "    D    B3   S1   MQ",
+            "```",
+        ]
+    )
+    header, dates_row, codes_row = rendered.split("\n")[5:8]
+    assert [header.index(label) for label in tournament_fmt.WEEKDAY_SHORT_NAMES] == [
+        dates_row.index(f"{day:02d}") for day in range(1, 8)
+    ]
+    assert [codes_row.index(code) for code in codes[:4]] == [
+        dates_row.index(f"{day:02d}") for day in range(1, 5)
+    ]
+
+
 def test_superadmin_calendar_month_uses_nominative_month_names() -> None:
     expected = {
         1: "ЯНВАРЬ 2026",
