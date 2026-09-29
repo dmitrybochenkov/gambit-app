@@ -6,14 +6,6 @@ class ResultTournamentNotFoundError(ValueError):
     pass
 
 
-class ResultTodayTournamentNotFoundError(ValueError):
-    pass
-
-
-class ResultTodayTournamentInvariantViolationError(ValueError):
-    pass
-
-
 class TournamentResultsEditingUnavailableError(ValueError):
     pass
 

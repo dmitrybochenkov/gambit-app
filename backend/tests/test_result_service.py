@@ -42,7 +42,11 @@ from app.services.access_policy import ActiveUserRequiredError, AdminAccessDenie
 from app.services.closed_tournament_correction_service import ClosedTournamentCorrectionService
 from app.services.player_reward_service import PlayerRewardService
 from app.services.result_fields import ResultField
-from app.services.result_rules import editable_result_fields, find_result_player
+from app.services.result_rules import (
+    editable_result_fields,
+    find_result_player,
+    validate_game_results,
+)
 from app.services.result_service import (
     ClosedTournamentCorrectionStaleError,
     FutureTournamentCannotBeClosedError,
@@ -52,7 +56,6 @@ from app.services.result_service import (
     ResultPlayerAlreadyAddedError,
     ResultPlayerRewardConflictError,
     ResultService,
-    ResultTodayTournamentNotFoundError,
     ResultTournamentNotFoundError,
     ResultUserNotFoundError,
     ResultValidationError,
@@ -548,72 +551,6 @@ async def test_tournament_combination_occurrences_are_independent(
     await engine.dispose()
 
 
-async def test_today_result_entry_uses_only_today_active_tournament(
-    tmp_path: Path,
-) -> None:
-    engine = create_async_engine(f"sqlite+aiosqlite:///{tmp_path / 'open_results.db'}")
-    async with engine.begin() as connection:
-        await connection.run_sync(Base.metadata.create_all)
-
-    session_factory = async_sessionmaker(engine, expire_on_commit=False)
-    async with session_factory() as session:
-        config = ScoringConfig()
-        session.add(config)
-        await session.flush()
-        await seed_tournament_types_async(session)
-        season = Season(
-            name="Test season",
-            scoring_config_id=config.id,
-            starts_at=date(2026, 7, 1),
-            ends_at=None,
-        )
-        admin = build_player(
-            telegram_id=100,
-            display_name="Admin",
-            status=UserStatus.ACTIVE,
-            role=UserRole.ADMIN,
-        )
-        session.add_all([season, admin])
-        await session.flush()
-        session.add_all(
-            [
-                Tournament(
-                    season_id=season.id,
-                    scoring_config_id=season.scoring_config_id,
-                    tournament_type_id=tournament_type_id("classic"),
-                    date=date(2026, 7, 19),
-                    status=TournamentStatus.ACTIVE,
-                ),
-                Tournament(
-                    season_id=season.id,
-                    scoring_config_id=season.scoring_config_id,
-                    tournament_type_id=tournament_type_id("freezeout"),
-                    date=date(2026, 7, 20),
-                    status=TournamentStatus.ACTIVE,
-                ),
-                Tournament(
-                    season_id=season.id,
-                    scoring_config_id=season.scoring_config_id,
-                    tournament_type_id=tournament_type_id("double_double"),
-                    date=date(2026, 7, 18),
-                    tournament_fund=1000,
-                    status=TournamentStatus.CLOSED,
-                ),
-            ]
-        )
-        await session.commit()
-
-    service = ResultService(
-        session_factory,
-        clock=FixedClock(datetime(2026, 7, 20, 12, tzinfo=ZoneInfo("Europe/Moscow"))),
-    )
-    results = await service.get_today_tournament_results(admin.id)
-
-    assert results.tournament.date == date(2026, 7, 20)
-    assert results.tournament.tournament_type_name == "Фризаут"
-    await engine.dispose()
-
-
 async def test_today_result_entry_uses_tournament_day_boundary(
     tmp_path: Path,
 ) -> None:
@@ -672,16 +609,12 @@ async def test_today_result_entry_uses_tournament_day_boundary(
         tournament_day_start_hour=11,
     )
 
-    assert (await before_start.get_today_tournament_results(admin.id)).tournament.date == date(
-        2026,
-        7,
-        19,
-    )
-    assert (await at_start.get_today_tournament_results(admin.id)).tournament.date == date(
-        2026,
-        7,
-        20,
-    )
+    assert [item.date for item in await before_start.list_editable_tournaments(admin.id)] == [
+        date(2026, 7, 19)
+    ]
+    assert [item.date for item in await at_start.list_editable_tournaments(admin.id)] == [
+        date(2026, 7, 20)
+    ]
     await engine.dispose()
 
 
@@ -753,7 +686,7 @@ async def test_superadmin_close_horizon_uses_tournament_day_boundary(
     await engine.dispose()
 
 
-async def test_today_result_entry_rejects_when_today_has_no_active_tournament(
+async def test_today_result_entry_returns_empty_when_today_has_no_editable_tournament(
     tmp_path: Path,
 ) -> None:
     engine = create_async_engine(f"sqlite+aiosqlite:///{tmp_path / 'no_today_results.db'}")
@@ -805,8 +738,7 @@ async def test_today_result_entry_rejects_when_today_has_no_active_tournament(
         session_factory,
         clock=FixedClock(datetime(2026, 7, 20, 12, tzinfo=ZoneInfo("Europe/Moscow"))),
     )
-    with pytest.raises(ResultTodayTournamentNotFoundError):
-        await service.get_today_tournament_results(admin.id)
+    assert await service.list_editable_tournaments(admin.id) == []
     await engine.dispose()
 
 
@@ -898,7 +830,7 @@ async def test_result_rows_are_edited_directly_and_close_tournament(
     assert not hasattr(results, "checked_in_count")
     assert results.knockout_mode == KnockoutMode.SMALL_BIG.value
     assert [player.player_id for player in results.players] == player_ids
-    assert await service.validate_results(admin.id, tournament_id) == [
+    assert validate_game_results(results) == [
         "Введи места: 1, 2, 3, 4, 5.",
         "Введи хотя бы один 🥊 или 👑🥊.",
     ]
@@ -1511,7 +1443,7 @@ async def test_mystery_bounty_uses_places_knockouts_and_bonus_without_big_knocko
         ResultField.BONUS,
     ]
     assert ResultField.BIG_KNOCKOUTS not in editable_result_fields(results)
-    assert await service.validate_results(superadmin.id, tournament_id) == [
+    assert validate_game_results(results) == [
         "Введи места: 1, 2, 3, 4, 5.",
         "Введи хотя бы один 🥊.",
     ]

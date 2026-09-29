@@ -5799,7 +5799,7 @@ async def test_telegram_error_boundary_handles_unexpected_handler_error(
     caplog: pytest.LogCaptureFixture,
 ) -> None:
     service = SimpleNamespace(
-        get_today_tournament_results=AsyncMock(side_effect=AttributeError("broken keyboard facade"))
+        list_editable_tournaments=AsyncMock(side_effect=AttributeError("broken keyboard facade"))
     )
     monkeypatch.setattr(admin_result_handlers, "result_service", service)
     bot = RecordingBot()

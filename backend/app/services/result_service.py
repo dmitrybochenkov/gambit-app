@@ -1,4 +1,3 @@
-import logging
 from dataclasses import replace
 from datetime import date
 from decimal import Decimal
@@ -44,8 +43,6 @@ from app.services.result_errors import (
     ResultInvalidTournamentTypeRuleError,
     ResultPlayerAlreadyAddedError,
     ResultPlayerRewardConflictError,
-    ResultTodayTournamentInvariantViolationError,
-    ResultTodayTournamentNotFoundError,
     ResultTournamentNotFoundError,
     ResultUserNotFoundError,
     ResultValidationError,
@@ -62,8 +59,6 @@ from app.services.result_rules import (
 from app.services.tournament_photo_service import TournamentPhotoService
 from app.services.tournament_service import tournament_view
 
-logger = logging.getLogger(__name__)
-
 __all__ = [
     "ClosedTournamentCorrectionStaleError",
     "FutureTournamentCannotBeClosedError",
@@ -76,8 +71,6 @@ __all__ = [
     "ResultPlayerAlreadyAddedError",
     "ResultPlayerRewardConflictError",
     "ResultService",
-    "ResultTodayTournamentInvariantViolationError",
-    "ResultTodayTournamentNotFoundError",
     "ResultTournamentNotFoundError",
     "ResultUserNotFoundError",
     "ResultValidationError",
@@ -101,28 +94,6 @@ class ResultService:
             clock=clock,
             tournament_day_start_hour=tournament_day_start_hour,
         )
-
-    async def get_today_tournament_results(
-        self,
-        actor_user_id: int,
-    ) -> TournamentResultsView:
-        async with self.session_factory() as session:
-            await access_policy.require_admin(session, actor_user_id)
-            business_date = self._tournament_day()
-            tournaments = await TournamentRepository(session).list_active_on_date(business_date)
-            if not tournaments:
-                raise ResultTodayTournamentNotFoundError
-            if len(tournaments) > 1:
-                logger.error(
-                    "Expected one active tournament for business date, got %s",
-                    len(tournaments),
-                    extra={
-                        "business_date": business_date.isoformat(),
-                        "tournament_ids": [tournament.id for tournament in tournaments],
-                    },
-                )
-                raise ResultTodayTournamentInvariantViolationError
-            return await self._results_view(session, tournaments[0].id)
 
     async def list_editable_tournaments(
         self,
@@ -310,21 +281,6 @@ class ResultService:
             await access_policy.require_superadmin(session, actor_user_id)
             tournament = await self._require_closeable_tournament(session, tournament_id)
             return await self._readiness_view(session, tournament)
-
-    async def validate_results(
-        self,
-        actor_user_id: int,
-        tournament_id: int,
-    ) -> list[str]:
-        async with self.session_factory() as session:
-            actor = await access_policy.require_admin(session, actor_user_id)
-            tournament = await self._require_editable_tournament_for_actor(
-                session,
-                tournament_id,
-                actor_role=actor.role,
-            )
-            view = await self._results_view(session, tournament.id)
-            return validate_game_results(view)
 
     async def _require_active_tournament(
         self,

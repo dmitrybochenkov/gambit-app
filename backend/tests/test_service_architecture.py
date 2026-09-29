@@ -59,11 +59,9 @@ INTERNAL_ACTOR_SERVICE_METHODS = {
         "create_user_and_check_in",
     },
     "result_service.py": {
-        "get_today_tournament_results",
         "list_editable_tournaments",
         "get_tournament_results",
         "update_player_result_field",
-        "validate_results",
     },
     "tournament_combination_service.py": {
         "list_for_tournament",
