@@ -22,6 +22,9 @@ class TournamentPhotoRepository:
     def __init__(self, session: AsyncSession) -> None:
         self.session = session
 
+    async def get_by_id(self, photo_id: int) -> TournamentPhoto | None:
+        return await self.session.get(TournamentPhoto, photo_id)
+
     async def list_for_tournament(self, tournament_id: int) -> list[TournamentPhoto]:
         result = await self.session.execute(
             select(TournamentPhoto)

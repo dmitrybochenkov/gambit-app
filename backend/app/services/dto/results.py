@@ -100,6 +100,7 @@ class TournamentResultsView:
     knockout_mode: str = "none"
     supports_bonus_points: bool = False
     photo_count: int = 0
+    photos: tuple["TournamentPhotoView", ...] = ()
     newly_issued_rewards: tuple[PlayerRewardNotificationView, ...] = ()
 
     @property

@@ -1,12 +1,13 @@
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from app.common.clock import Clock, club_clock
-from app.db.models import User
+from app.db.models import TournamentPhoto, User
 from app.db.repositories.hall_of_fame_repository import HallOfFameRepository
 from app.db.repositories.tournament_combination_repository import (
     TournamentCombinationRepository,
     TournamentCombinationUserRecord,
 )
+from app.db.repositories.tournament_photo_repository import TournamentPhotoRepository
 from app.db.repositories.tournament_repository import (
     HistoricalTournamentResultRow,
     TournamentRepository,
@@ -20,6 +21,7 @@ from app.services.dto.statistics.hall_of_fame import (
 )
 from app.services.dto.statistics.history import (
     HistoricalTournamentCombinationView,
+    HistoricalTournamentPhotoView,
     HistoricalTournamentResultRowView,
     HistoricalTournamentResultView,
     HistoricalTournamentView,
@@ -132,7 +134,8 @@ class UserStatisticsService:
             combinations = await TournamentCombinationRepository(session).list_with_users(
                 tournament_id
             )
-            return historical_tournament_result_view(rows, combinations)
+            photos = await TournamentPhotoRepository(session).list_for_tournament(tournament_id)
+            return historical_tournament_result_view(rows, combinations, photos)
 
     async def list_player_history(self, actor_user_id: int) -> list[PlayerHistoryTournamentView]:
         async with self.session_factory() as session:
@@ -157,7 +160,8 @@ class UserStatisticsService:
             combinations = await TournamentCombinationRepository(session).list_with_users(
                 tournament_id
             )
-            return historical_tournament_result_view(rows, combinations)
+            photos = await TournamentPhotoRepository(session).list_for_tournament(tournament_id)
+            return historical_tournament_result_view(rows, combinations, photos)
 
     async def get_hall_of_fame(self, actor_user_id: int) -> list[HallOfFameSeasonView]:
         async with self.session_factory() as session:
@@ -215,6 +219,7 @@ class UserStatisticsService:
 def historical_tournament_result_view(
     rows: list[HistoricalTournamentResultRow],
     combinations: list[TournamentCombinationUserRecord] | None = None,
+    photos: list[TournamentPhoto] | None = None,
 ) -> HistoricalTournamentResultView:
     first_row = rows[0]
     return HistoricalTournamentResultView(
@@ -253,6 +258,10 @@ def historical_tournament_result_view(
                 rank=row.combination.rank,
             )
             for row in combinations or ()
+        ),
+        photos=tuple(
+            HistoricalTournamentPhotoView(id=photo.id, position=photo.position)
+            for photo in photos or ()
         ),
     )
 

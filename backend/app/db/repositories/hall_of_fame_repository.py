@@ -96,6 +96,9 @@ class HallOfFameRepository:
     def __init__(self, session: AsyncSession) -> None:
         self.session = session
 
+    async def get_photo_by_id(self, photo_id: int) -> HallOfFamePhoto | None:
+        return await self.session.get(HallOfFamePhoto, photo_id)
+
     async def get_achievement(self, achievement_id: int) -> HallOfFameAchievement | None:
         return await self.session.get(HallOfFameAchievement, achievement_id)
 

@@ -456,14 +456,16 @@ class ResultService:
             session,
             tournament,
         )
+        photos = await self._photo_service.list_for_tournament_in_session(
+            session,
+            tournament.id,
+        )
         return TournamentResultsView(
             tournament=tournament_view(tournament),
             tournament_fund=tournament.tournament_fund,
             players=players,
-            photo_count=await self._photo_service.count_for_tournament_in_session(
-                session,
-                tournament.id,
-            ),
+            photo_count=len(photos),
+            photos=tuple(photos),
             knockout_mode=knockout_mode.value,
             supports_bonus_points=supports_bonus_points,
         )

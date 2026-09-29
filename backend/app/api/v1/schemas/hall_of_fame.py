@@ -4,6 +4,8 @@ from pydantic import BaseModel, ConfigDict
 
 from app.services.dto.statistics.hall_of_fame import HallOfFameSeasonView
 
+from .media import PhotoDescriptorResponse
+
 
 class HallOfFamePlayerResponse(BaseModel):
     id: int
@@ -15,6 +17,7 @@ class HallOfFameSeasonResponse(BaseModel):
     champion: HallOfFamePlayerResponse | None
     knockout_leader: HallOfFamePlayerResponse | None
     achievements: list["HallOfFameAchievementResponse"]
+    photos: list[PhotoDescriptorResponse]
 
     @classmethod
     def from_view(cls, view: HallOfFameSeasonView) -> "HallOfFameSeasonResponse":
@@ -43,6 +46,13 @@ class HallOfFameSeasonResponse(BaseModel):
                     ),
                 )
                 for item in view.achievements
+            ],
+            photos=[
+                PhotoDescriptorResponse.hall_of_fame_photo(
+                    photo_id=photo.id,
+                    position=photo.position,
+                )
+                for photo in view.photos
             ],
         )
 

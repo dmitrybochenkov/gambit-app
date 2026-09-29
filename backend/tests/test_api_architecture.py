@@ -133,6 +133,19 @@ def test_registration_review_http_delivery_uses_existing_bot_adapter() -> None:
     assert "Bot(" not in source
 
 
+def test_media_api_keeps_aiogram_behind_runtime_gateway_dependency() -> None:
+    route_source = (API_ROOT / "v1" / "media.py").read_text()
+    dependency_source = (API_ROOT / "media_dependencies.py").read_text()
+
+    assert "aiogram" not in route_source
+    assert "app.bot.telegram" not in route_source
+    assert "app.db.repositories" not in route_source
+    assert "from app.bot.telegram import runtime" in dependency_source
+    assert "bot = runtime.telegram_bot" in dependency_source
+    assert "AiogramTelegramMediaGateway(bot)" in dependency_source
+    assert "Bot(" not in dependency_source
+
+
 def test_admin_users_api_uses_shared_application_boundaries() -> None:
     path = API_ROOT / "v1" / "admin_users.py"
     source = path.read_text()

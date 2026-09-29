@@ -12,6 +12,7 @@ from app.api.v1 import (
     hall_of_fame,
     history,
     me,
+    media,
     profile,
     ratings,
     rewards,
@@ -29,6 +30,7 @@ router.include_router(admin_tournaments.router)
 router.include_router(admin_users.router)
 router.include_router(hall_of_fame.router)
 router.include_router(history.router)
+router.include_router(media.router)
 router.include_router(me.router)
 router.include_router(profile.router)
 router.include_router(ratings.router)

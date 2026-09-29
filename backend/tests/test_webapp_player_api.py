@@ -482,8 +482,10 @@ async def test_hall_of_fame_returns_structured_seasons_without_telegram_photo_id
     }
     assert body["seasons"][0]["champion"]["display_name"] == "Player"
     assert body["seasons"][0]["knockout_leader"]["display_name"] == "Rival"
+    assert body["seasons"][0]["photos"] == []
     assert "telegram-champion-file-id" not in json.dumps(body)
-    assert "photo" not in json.dumps(body)
+    assert "telegram_file_id" not in json.dumps(body)
+    assert "telegram_file_unique_id" not in json.dumps(body)
 
 
 async def test_hall_of_fame_api_includes_open_season_achievement(

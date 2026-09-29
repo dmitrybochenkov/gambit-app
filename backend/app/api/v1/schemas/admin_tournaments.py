@@ -8,6 +8,8 @@ from app.services.dto.results import TournamentCombinationsView, TournamentResul
 from app.services.dto.tournaments import TournamentView
 from app.services.result_fields import ResultField
 
+from .media import PhotoDescriptorResponse
+
 
 class AdminTournamentResponse(BaseModel):
     id: int
@@ -52,6 +54,7 @@ class AdminTournamentResultsResponse(BaseModel):
     knockout_mode: str
     supports_bonus_points: bool
     photo_count: int
+    photos: list[PhotoDescriptorResponse]
     players: list[AdminTournamentResultPlayerResponse]
 
     model_config = ConfigDict(
@@ -66,6 +69,13 @@ class AdminTournamentResultsResponse(BaseModel):
             knockout_mode=view.knockout_mode,
             supports_bonus_points=view.supports_bonus_points,
             photo_count=view.photo_count,
+            photos=[
+                PhotoDescriptorResponse.tournament_photo(
+                    photo_id=photo.id,
+                    position=photo.position,
+                )
+                for photo in view.photos
+            ],
             players=[
                 AdminTournamentResultPlayerResponse(
                     result_id=player.result_id,

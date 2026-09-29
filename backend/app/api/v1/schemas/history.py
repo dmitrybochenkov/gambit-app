@@ -9,6 +9,8 @@ from app.services.dto.statistics.history import (
     PlayerHistoryTournamentView,
 )
 
+from .media import PhotoDescriptorResponse
+
 
 class HistoryTournamentTypeResponse(BaseModel):
     code: str
@@ -86,6 +88,7 @@ class PlayerHistoryDetailResponse(BaseModel):
     type: HistoryTournamentTypeResponse
     my_result: HistoricalTournamentPlayerResultResponse
     combinations: list[HistoricalTournamentCombinationResponse]
+    photos: list[PhotoDescriptorResponse]
 
     model_config = ConfigDict(
         json_schema_extra={"description": "Current player's historical tournament result."}
@@ -130,5 +133,12 @@ class PlayerHistoryDetailResponse(BaseModel):
                     rank=combination.rank,
                 )
                 for combination in view.combinations
+            ],
+            photos=[
+                PhotoDescriptorResponse.tournament_photo(
+                    photo_id=photo.id,
+                    position=photo.position,
+                )
+                for photo in view.photos
             ],
         )

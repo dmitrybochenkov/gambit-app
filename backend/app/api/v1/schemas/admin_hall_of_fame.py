@@ -11,6 +11,8 @@ from app.services.dto.hall_of_fame import (
     HallOfFameSeasonListItemView,
 )
 
+from .media import PhotoDescriptorResponse
+
 
 class HallOfFameManagementSeasonResponse(BaseModel):
     id: int
@@ -114,6 +116,7 @@ class HallOfFameManagementEntryResponse(BaseModel):
     season: HallOfFameManagementSeasonResponse
     achievements: list[HallOfFameManagementAchievementResponse]
     achievement_types: list[HallOfFameAchievementTypeResponse]
+    photos: list[PhotoDescriptorResponse]
 
     @classmethod
     def from_view(cls, view: HallOfFameEntryView) -> "HallOfFameManagementEntryResponse":
@@ -130,6 +133,13 @@ class HallOfFameManagementEntryResponse(BaseModel):
             ],
             achievement_types=[
                 HallOfFameAchievementTypeResponse.from_view(item) for item in view.achievement_types
+            ],
+            photos=[
+                PhotoDescriptorResponse.hall_of_fame_photo(
+                    photo_id=photo.id,
+                    position=photo.position,
+                )
+                for photo in view.photos
             ],
         )
 
