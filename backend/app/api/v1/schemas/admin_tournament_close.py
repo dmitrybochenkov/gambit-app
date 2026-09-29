@@ -15,7 +15,6 @@ from app.services.dto.results import (
 )
 from app.services.dto.rewards import (
     PlayerRewardCorrectionChangeView,
-    PlayerRewardCorrectionNotificationView,
     PlayerRewardNotificationView,
 )
 
@@ -51,7 +50,6 @@ class AdminCloseReadinessResponse(BaseModel):
 class AdminRewardNotificationResponse(BaseModel):
     reward_id: int
     player_id: int
-    telegram_id: int | None
     chips_amount: int
     source_place: int
     source_tournament_id: int
@@ -61,7 +59,16 @@ class AdminRewardNotificationResponse(BaseModel):
 
     @classmethod
     def from_view(cls, view: PlayerRewardNotificationView) -> "AdminRewardNotificationResponse":
-        return cls(**view.__dict__)
+        return cls(
+            reward_id=view.reward_id,
+            player_id=view.player_id,
+            chips_amount=view.chips_amount,
+            source_place=view.source_place,
+            source_tournament_id=view.source_tournament_id,
+            source_tournament_date=view.source_tournament_date,
+            source_tournament_name=view.source_tournament_name,
+            valid_through=view.valid_through,
+        )
 
 
 class AdminTournamentCloseResponse(BaseModel):
@@ -158,23 +165,6 @@ class AdminRewardCorrectionChangeResponse(BaseModel):
         return cls(**view.__dict__)
 
 
-class AdminRewardCorrectionNotificationResponse(BaseModel):
-    player_id: int
-    telegram_id: int | None
-    source_tournament_id: int
-    source_tournament_date: date
-    source_tournament_name: str
-    valid_through: date
-    old_chips_amount: int | None
-    new_chips_amount: int | None
-
-    @classmethod
-    def from_view(
-        cls, view: PlayerRewardCorrectionNotificationView
-    ) -> "AdminRewardCorrectionNotificationResponse":
-        return cls(**view.__dict__)
-
-
 class AdminCorrectionResultResponse(BaseModel):
     tournament_id: int
     tournament_date: date
@@ -182,7 +172,6 @@ class AdminCorrectionResultResponse(BaseModel):
     result_changes: list[AdminCorrectionPlayerChangeResponse]
     reward_changes: list[AdminRewardCorrectionChangeResponse]
     used_reward_warnings: list[AdminRewardCorrectionChangeResponse]
-    player_notifications: list[AdminRewardCorrectionNotificationResponse]
     before_results: AdminTournamentResultsResponse | None
     after_results: AdminTournamentResultsResponse | None
     fund_before: int | None
@@ -220,10 +209,6 @@ class AdminCorrectionResultResponse(BaseModel):
             used_reward_warnings=[
                 AdminRewardCorrectionChangeResponse.from_view(item)
                 for item in view.used_reward_warnings
-            ],
-            player_notifications=[
-                AdminRewardCorrectionNotificationResponse.from_view(item)
-                for item in view.player_notifications
             ],
             before_results=(
                 AdminTournamentResultsResponse.from_view(before)

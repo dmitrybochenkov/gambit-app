@@ -5,6 +5,7 @@ from aiogram.exceptions import TelegramAPIError
 from aiogram.fsm.context import FSMContext
 from aiogram.types import CallbackQuery, InputMediaPhoto, Message
 
+from app.bot.telegram.business_notifications import TelegramPlayerRewardNotificationDelivery
 from app.bot.telegram.formatters import publications as publication_fmt
 from app.bot.telegram.formatters import results as result_fmt
 from app.bot.telegram.formatters import tournaments as tournament_fmt
@@ -27,10 +28,6 @@ from app.bot.telegram.message_edit import (
     edit_message_if_changed,
     edit_message_reply_markup_by_id_if_changed,
 )
-from app.bot.telegram.notifications import (
-    notify_players_about_prize_stack_bonus_corrections,
-    notify_players_about_prize_stack_bonuses,
-)
 from app.bot.telegram.states import AdminResultStates
 from app.bot.telegram.texts.admin import results as result_text
 from app.bot.telegram.texts.superadmin import panel as panel_text
@@ -38,6 +35,7 @@ from app.bot.telegram.texts.superadmin import tournament_close as text
 from app.bot.telegram.texts.superadmin import tournaments as tournaments_text
 from app.db.models.enums import TournamentPublicationDestination, TournamentPublicationType
 from app.services.access_policy import AdminAccessDeniedError
+from app.services.business_notification_use_cases import TournamentRewardUseCases
 from app.services.closed_tournament_correction_service import (
     ClosedTournamentCorrectionService,
 )
@@ -240,16 +238,16 @@ async def select_close_tournament_action(
         ):
             data = await state.get_data()
             tournament_fund = int(data["tournament_fund"])
-            results = await result_service.close_tournament(
+            results = await TournamentRewardUseCases(
+                result_service,
+                correction_service,
+            ).close_tournament(
                 actor_user_id=await resolve_admin_actor_user_id(callback.from_user.id),
                 tournament_id=callback_data.tournament_id,
                 tournament_fund=tournament_fund,
+                delivery=TelegramPlayerRewardNotificationDelivery(callback.bot),
             )
             await state.clear()
-            await notify_players_about_prize_stack_bonuses(
-                callback.bot,
-                results.newly_issued_rewards,
-            )
             await callback.answer("Турнир закрыт.")
             if callback.message is not None:
                 await edit_message_if_changed(
@@ -502,15 +500,15 @@ async def select_closed_correction_action(
                 callback_data.tournament_id,
                 state,
             )
-            result = await correction_service.apply_closed_tournament_correction(
-                await resolve_admin_actor_user_id(callback.from_user.id),
-                draft,
+            result = await TournamentRewardUseCases(
+                result_service,
+                correction_service,
+            ).apply_closed_tournament_correction(
+                actor_user_id=await resolve_admin_actor_user_id(callback.from_user.id),
+                draft=draft,
+                delivery=TelegramPlayerRewardNotificationDelivery(callback.bot),
             )
             await _clear_closed_correction_draft(state, callback_data.tournament_id)
-            await notify_players_about_prize_stack_bonus_corrections(
-                callback.bot,
-                result.player_notifications,
-            )
             await callback.answer("Исправление завершено.")
             if callback.message is not None:
                 await edit_message_if_changed(

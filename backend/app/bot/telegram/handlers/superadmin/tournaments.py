@@ -2,10 +2,10 @@ import logging
 from datetime import date, timedelta
 
 from aiogram import F, Router
-from aiogram.exceptions import TelegramAPIError
 from aiogram.fsm.context import FSMContext
 from aiogram.types import CallbackQuery, Message
 
+from app.bot.telegram.business_notifications import TelegramTournamentCancellationDelivery
 from app.bot.telegram.formatters import tournaments as tournament_fmt
 from app.bot.telegram.handlers.admin.shared import resolve_admin_actor_user_id
 from app.bot.telegram.handlers.superadmin.navigation import send_superadmin_panel
@@ -16,6 +16,7 @@ from app.bot.telegram.states import WeeklyAutofillEditorStates, WeeklyTemplateEd
 from app.bot.telegram.texts.superadmin import panel as panel_text
 from app.bot.telegram.texts.superadmin import tournaments as text
 from app.services.access_policy import AdminAccessDeniedError
+from app.services.business_notification_use_cases import TournamentPlanningUseCases
 from app.services.dto.tournaments import (
     TournamentCalendarDraftCommand,
     TournamentCalendarDraftItem,
@@ -370,11 +371,13 @@ async def select_tournament_calendar_action(
             callback_data.action
             == superadmin_tournaments_kb.SuperadminTournamentCalendarAction.DELETE_CONFIRM
         ):
-            _deleted, notifications = await tournament_planning_service.delete_calendar_tournament(
-                await resolve_admin_actor_user_id(callback.from_user.id),
+            await TournamentPlanningUseCases(
+                tournament_planning_service
+            ).delete_calendar_tournament(
+                actor_user_id=await resolve_admin_actor_user_id(callback.from_user.id),
                 tournament_id=callback_data.tournament_id,
+                delivery=TelegramTournamentCancellationDelivery(callback.bot),
             )
-            await _send_tournament_cancellation_notifications(callback, notifications)
             await _edit_calendar_week(
                 callback,
                 year=callback_data.year,
@@ -1502,22 +1505,6 @@ async def _edit_calendar_type_selection(
                 tournament_id=callback_data.tournament_id,
             ),
         )
-
-
-async def _send_tournament_cancellation_notifications(
-    callback: CallbackQuery,
-    notifications: tuple[object, ...],
-) -> None:
-    for notification in notifications:
-        try:
-            await callback.bot.send_message(
-                chat_id=notification.telegram_id,
-                text=text.CALENDAR_TOURNAMENT_CANCELLED_USER.format(
-                    tournament=tournament_fmt.label(notification.tournament)
-                ),
-            )
-        except TelegramAPIError:
-            logger.exception("Failed to send tournament cancellation notification")
 
 
 async def _edit_open_tournament_delete_player_list(

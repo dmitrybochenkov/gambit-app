@@ -20,6 +20,11 @@ class UserAccessService:
             user = await UserRepository(session).get_by_telegram_id(telegram_id)
             return user_view(user)
 
+    async def get_by_id(self, user_id: int) -> UserView | None:
+        async with self.session_factory() as session:
+            user = await UserRepository(session).get_by_id(user_id)
+            return user_view(user)
+
     async def get_start_view(self, telegram_id: int) -> UserStartView:
         async with self.session_factory() as session:
             user = await UserRepository(session).get_by_telegram_id(telegram_id)

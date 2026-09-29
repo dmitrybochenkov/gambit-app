@@ -14,7 +14,6 @@ from app.services.dto.tournaments import (
     TournamentCalendarTypeChangePreviewView,
     TournamentCalendarTypeOptionView,
     TournamentCalendarWeekDetailView,
-    TournamentCancellationNotificationView,
     TournamentEconomyView,
     TournamentRulesView,
     TournamentView,
@@ -291,21 +290,5 @@ class PlanningDeletePreviewResponse(BaseModel):
         )
 
 
-class PlanningCancellationNotificationResponse(BaseModel):
-    telegram_id: int
-    tournament: PlanningTournamentResponse
-
-    @classmethod
-    def from_view(
-        cls,
-        view: TournamentCancellationNotificationView,
-    ) -> "PlanningCancellationNotificationResponse":
-        return cls(
-            telegram_id=view.telegram_id,
-            tournament=PlanningTournamentResponse.from_view(view.tournament),
-        )
-
-
 class PlanningDeleteResponse(BaseModel):
     tournament: PlanningTournamentResponse
-    cancellation_notifications: list[PlanningCancellationNotificationResponse]

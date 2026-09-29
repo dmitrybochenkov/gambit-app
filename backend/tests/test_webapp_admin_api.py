@@ -21,6 +21,11 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
 from app.api import dependencies
+from app.api.business_notification_dependencies import (
+    check_in_notification_delivery,
+    player_reward_notification_delivery,
+    tournament_cancellation_delivery,
+)
 from app.api.v1 import (
     admin_check_in,
     admin_planning,
@@ -57,6 +62,34 @@ from app.services.tournament_combination_service import TournamentCombinationSer
 from app.services.tournament_participant_service import TournamentParticipantService
 from app.services.tournament_planning_service import TournamentPlanningService
 from app.services.user_access_service import UserAccessService
+
+
+class _NoopNotificationDelivery:
+    async def deliver(self, payload: object) -> None:
+        pass
+
+    async def deliver_issued(self, payload: object) -> None:
+        pass
+
+    async def deliver_corrections(self, payload: object) -> None:
+        pass
+
+
+class _RecordingNotificationDelivery(_NoopNotificationDelivery):
+    def __init__(self) -> None:
+        self.delivered: list[object] = []
+        self.issued: list[object] = []
+        self.corrections: list[object] = []
+
+    async def deliver(self, payload: object) -> None:
+        self.delivered.append(payload)
+
+    async def deliver_issued(self, payload: object) -> None:
+        self.issued.append(payload)
+
+    async def deliver_corrections(self, payload: object) -> None:
+        self.corrections.append(payload)
+
 
 TEST_BOT_TOKEN = "123456:test-token"
 NOW = datetime(2026, 9, 3, 12, tzinfo=ZoneInfo("Europe/Moscow"))
@@ -95,6 +128,10 @@ async def admin_api_client(
     monkeypatch.setattr(dependencies.settings, "telegram_bot_token", TEST_BOT_TOKEN)
     monkeypatch.setattr(dependencies.settings, "telegram_webapp_auth_max_age_seconds", 60)
     monkeypatch.setattr(dependencies, "user_access_service", UserAccessService(session_factory))
+    delivery = _NoopNotificationDelivery()
+    app.dependency_overrides[check_in_notification_delivery] = lambda: delivery
+    app.dependency_overrides[tournament_cancellation_delivery] = lambda: delivery
+    app.dependency_overrides[player_reward_notification_delivery] = lambda: delivery
     monkeypatch.setattr(
         admin_tournaments,
         "result_service",
@@ -246,6 +283,9 @@ async def admin_api_client(
     transport = ASGITransport(app=app)
     async with AsyncClient(transport=transport, base_url="http://test") as client:
         yield client, session_factory, ids
+    app.dependency_overrides.pop(check_in_notification_delivery, None)
+    app.dependency_overrides.pop(tournament_cancellation_delivery, None)
+    app.dependency_overrides.pop(player_reward_notification_delivery, None)
     await engine.dispose()
 
 
@@ -370,6 +410,8 @@ async def test_admin_check_in_read_and_registered_player_mutation(
     admin_api_client: tuple[AsyncClient, async_sessionmaker, dict[str, int]],
 ) -> None:
     client, session_factory, ids = admin_api_client
+    delivery = _RecordingNotificationDelivery()
+    app.dependency_overrides[check_in_notification_delivery] = lambda: delivery
     base = f"/api/v1/admin/tournaments/{ids['tournament_id']}"
 
     state = await client.get(f"{base}/check-in", headers=auth_headers(100))
@@ -391,6 +433,7 @@ async def test_admin_check_in_read_and_registered_player_mutation(
     ]
     assert completed.status_code == 201
     assert completed.json()["created"] is True
+    assert len(delivery.delivered) == 1
     async with session_factory() as session:
         result = await session.scalar(
             select(TournamentResult).where(
@@ -624,6 +667,8 @@ async def test_superadmin_close_and_correction_use_shared_application_contracts(
     admin_api_client: tuple[AsyncClient, async_sessionmaker, dict[str, int]],
 ) -> None:
     client, session_factory, ids = admin_api_client
+    delivery = _RecordingNotificationDelivery()
+    app.dependency_overrides[player_reward_notification_delivery] = lambda: delivery
     tournament_id = ids["tournament_id"]
     async with session_factory() as session:
         result = await session.scalar(
@@ -666,6 +711,8 @@ async def test_superadmin_close_and_correction_use_shared_application_contracts(
     assert preview.json()["results"]["players"][0]["tournament_points"] == "450.00"
     assert closed.status_code == 200
     assert len(closed.json()["newly_issued_rewards"]) == 1
+    assert "telegram_id" not in closed.json()["newly_issued_rewards"][0]
+    assert len(delivery.issued) == 1
 
     started = await client.get(
         f"/api/v1/admin/tournaments/{tournament_id}/correction",
@@ -696,6 +743,8 @@ async def test_superadmin_close_and_correction_use_shared_application_contracts(
     assert correction_preview.json()["after_results"]["players"][0]["display_name"] == "Participant"
     assert applied.status_code == 200
     assert applied.json()["after_results"]["tournament_fund"] == 2000
+    assert "player_notifications" not in applied.json()
+    assert delivery.corrections == []
     assert stale.status_code == 409
     assert stale.json()["error"]["code"] == "conflict"
     async with session_factory() as session:
@@ -771,6 +820,8 @@ async def test_superadmin_planning_create_edit_approve_and_delete(
     admin_api_client: tuple[AsyncClient, async_sessionmaker, dict[str, int]],
 ) -> None:
     client, session_factory, ids = admin_api_client
+    delivery = _RecordingNotificationDelivery()
+    app.dependency_overrides[tournament_cancellation_delivery] = lambda: delivery
     base = "/api/v1/admin/planning"
     target_date = date(2026, 9, 10)
     original_type_id = tournament_type_id("classic_v3")
@@ -854,7 +905,10 @@ async def test_superadmin_planning_create_edit_approve_and_delete(
     assert delete_preview.status_code == 200
     assert delete_preview.json()["registrations_count"] == 1
     assert deleted.status_code == 200
-    assert [item["telegram_id"] for item in deleted.json()["cancellation_notifications"]] == [400]
+    assert deleted.json() == {
+        "tournament": deleted.json()["tournament"],
+    }
+    assert len(delivery.delivered) == 1
     async with session_factory() as session:
         assert await session.get(Tournament, tournament_id) is None
         registration = await session.scalar(

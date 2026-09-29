@@ -3,13 +3,13 @@ from typing import Annotated, Never
 from fastapi import APIRouter, Depends, Query
 
 from app.api import errors
+from app.api.business_notification_dependencies import tournament_cancellation_delivery
 from app.api.dependencies import AuthenticatedActor, current_actor
 from app.api.v1.schemas.admin_planning import (
     PlanningApprovalResponse,
     PlanningAutofillResponse,
     PlanningCalendarMonthResponse,
     PlanningCalendarWeekDetailResponse,
-    PlanningCancellationNotificationResponse,
     PlanningCreatePreviewResponse,
     PlanningDeletePreviewResponse,
     PlanningDeleteResponse,
@@ -22,6 +22,10 @@ from app.api.v1.schemas.admin_planning import (
     PlanningWeekCommand,
 )
 from app.services.access_policy import AdminAccessDeniedError
+from app.services.business_notification_use_cases import (
+    TournamentCancellationDelivery,
+    TournamentPlanningUseCases,
+)
 from app.services.tournament_planning_service import (
     CalendarDefaultTournamentTypeNotFoundError,
     CalendarNoUnapprovedTournamentsError,
@@ -344,11 +348,18 @@ async def preview_tournament_delete(
 async def delete_tournament(
     tournament_id: int,
     actor: Annotated[AuthenticatedActor, Depends(current_actor)],
+    delivery: Annotated[
+        TournamentCancellationDelivery,
+        Depends(tournament_cancellation_delivery),
+    ],
 ) -> PlanningDeleteResponse:
     try:
-        tournament, notifications = await tournament_planning_service.delete_calendar_tournament(
-            actor.user_id,
+        tournament = await TournamentPlanningUseCases(
+            tournament_planning_service
+        ).delete_calendar_tournament(
+            actor_user_id=actor.user_id,
             tournament_id=tournament_id,
+            delivery=delivery,
         )
     except AdminAccessDeniedError as exc:
         raise errors.forbidden("Superadmin access required") from exc
@@ -356,7 +367,4 @@ async def delete_tournament(
         _raise_planning_error(exc)
     return PlanningDeleteResponse(
         tournament=PlanningTournamentResponse.from_view(tournament),
-        cancellation_notifications=[
-            PlanningCancellationNotificationResponse.from_view(item) for item in notifications
-        ],
     )

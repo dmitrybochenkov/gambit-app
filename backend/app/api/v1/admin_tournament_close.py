@@ -3,6 +3,7 @@ from typing import Annotated
 from fastapi import APIRouter, Depends
 
 from app.api import errors
+from app.api.business_notification_dependencies import player_reward_notification_delivery
 from app.api.dependencies import AuthenticatedActor, current_actor
 from app.api.v1.schemas.admin_tournament_close import (
     AdminClosePreviewResponse,
@@ -15,6 +16,10 @@ from app.api.v1.schemas.admin_tournament_close import (
 )
 from app.api.v1.schemas.admin_tournaments import AdminTournamentResultsResponse
 from app.services.access_policy import AdminAccessDeniedError
+from app.services.business_notification_use_cases import (
+    PlayerRewardNotificationDelivery,
+    TournamentRewardUseCases,
+)
 from app.services.closed_tournament_correction_service import (
     closed_tournament_correction_service,
 )
@@ -93,12 +98,20 @@ async def close_tournament(
     tournament_id: int,
     request: AdminTournamentFundRequest,
     actor: Annotated[AuthenticatedActor, Depends(current_actor)],
+    delivery: Annotated[
+        PlayerRewardNotificationDelivery,
+        Depends(player_reward_notification_delivery),
+    ],
 ) -> AdminTournamentCloseResponse:
     try:
-        view = await result_service.close_tournament(
-            actor.user_id,
-            tournament_id,
-            request.tournament_fund,
+        view = await TournamentRewardUseCases(
+            result_service,
+            closed_tournament_correction_service,
+        ).close_tournament(
+            actor_user_id=actor.user_id,
+            tournament_id=tournament_id,
+            tournament_fund=request.tournament_fund,
+            delivery=delivery,
         )
     except AdminAccessDeniedError as exc:
         raise errors.forbidden("Superadmin access required") from exc
@@ -182,14 +195,22 @@ async def apply_closed_tournament_correction(
     tournament_id: int,
     request: AdminCorrectionDraft,
     actor: Annotated[AuthenticatedActor, Depends(current_actor)],
+    delivery: Annotated[
+        PlayerRewardNotificationDelivery,
+        Depends(player_reward_notification_delivery),
+    ],
 ) -> AdminCorrectionResultResponse:
     draft = request.to_view()
     if draft.tournament_id != tournament_id:
         raise errors.validation_error("Correction tournament does not match route")
     try:
-        view = await closed_tournament_correction_service.apply_closed_tournament_correction(
-            actor.user_id,
-            draft,
+        view = await TournamentRewardUseCases(
+            result_service,
+            closed_tournament_correction_service,
+        ).apply_closed_tournament_correction(
+            actor_user_id=actor.user_id,
+            draft=draft,
+            delivery=delivery,
         )
     except AdminAccessDeniedError as exc:
         raise errors.forbidden("Superadmin access required") from exc

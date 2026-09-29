@@ -254,3 +254,24 @@ def test_admin_hall_commands_cannot_accept_canonical_metadata() -> None:
     }
 
     assert fields == {"season_id", "player_id", "kind", "awarded_at"}
+
+
+def test_business_notification_http_contracts_are_transport_neutral() -> None:
+    route_paths = (
+        API_ROOT / "v1" / "admin_check_in.py",
+        API_ROOT / "v1" / "admin_planning.py",
+        API_ROOT / "v1" / "admin_tournament_close.py",
+    )
+    schema_sources = (
+        API_ROOT / "v1" / "schemas" / "admin_planning.py",
+        API_ROOT / "v1" / "schemas" / "admin_tournament_close.py",
+    )
+
+    for path in route_paths:
+        source = path.read_text()
+        assert "aiogram" not in source
+        assert "Telegram" not in source
+    for path in schema_sources:
+        source = path.read_text()
+        assert "telegram_id" not in source
+        assert "chat_id" not in source

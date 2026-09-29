@@ -667,6 +667,15 @@ def test_admin_promotion_boundary_is_transport_neutral_and_shared() -> None:
     assert "TelegramAdminPromotionNotificationDelivery" in handler_source
 
 
+def test_business_notification_orchestration_is_transport_neutral() -> None:
+    source = (SERVICES_DIR / "business_notification_use_cases.py").read_text()
+
+    assert "aiogram" not in source
+    assert "app.bot.telegram" not in source
+    assert "AsyncSession" not in source
+    assert "Repository" not in source
+
+
 def test_legacy_weekly_scheduling_flow_is_not_exposed() -> None:
     planning_tree = ast.parse((SERVICES_DIR / "tournament_planning_service.py").read_text())
     service_class = next(

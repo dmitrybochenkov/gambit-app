@@ -3,6 +3,7 @@ from typing import Annotated
 from fastapi import APIRouter, Depends, Query, status
 
 from app.api import errors
+from app.api.business_notification_dependencies import check_in_notification_delivery
 from app.api.dependencies import AuthenticatedActor, current_actor
 from app.api.v1.schemas.admin_check_in import (
     AdminCheckedInPlayersResponse,
@@ -21,6 +22,10 @@ from app.api.v1.schemas.admin_check_in import (
 )
 from app.api.v1.schemas.admin_tournaments import AdminTournamentResultsResponse
 from app.services.access_policy import AdminAccessDeniedError
+from app.services.business_notification_use_cases import (
+    CheckInNotificationDelivery,
+    CheckInUseCases,
+)
 from app.services.player_reward_service import (
     PlayerRewardAlreadyRedeemedTodayError,
     PlayerRewardNotFoundError,
@@ -164,22 +169,26 @@ async def complete_check_in(
     tournament_id: int,
     request: AdminCheckInRequest,
     actor: Annotated[AuthenticatedActor, Depends(current_actor)],
+    delivery: Annotated[CheckInNotificationDelivery, Depends(check_in_notification_delivery)],
 ) -> AdminCheckInResultResponse:
+    use_cases = CheckInUseCases(tournament_check_in_service)
     try:
         if isinstance(request, AdminExistingPlayerCheckInRequest):
-            view = await tournament_check_in_service.complete_user_check_in(
-                actor.user_id,
-                tournament_id,
-                request.player_id,
+            view = await use_cases.complete_user_check_in(
+                actor_user_id=actor.user_id,
+                tournament_id=tournament_id,
+                user_id=request.player_id,
+                delivery=delivery,
                 gender_decision=request.gender_decision,
                 reward_id=request.reward_id,
             )
         else:
-            view = await tournament_check_in_service.create_user_and_check_in(
-                actor.user_id,
-                tournament_id,
-                request.display_name,
-                request.gender,
+            view = await use_cases.create_user_and_check_in(
+                actor_user_id=actor.user_id,
+                tournament_id=tournament_id,
+                display_name=request.display_name,
+                gender=request.gender,
+                delivery=delivery,
             )
     except AdminAccessDeniedError as exc:
         raise errors.forbidden("Admin access required") from exc

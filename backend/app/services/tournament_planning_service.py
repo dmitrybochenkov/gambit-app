@@ -791,11 +791,10 @@ class TournamentPlanningService:
                 ).list_active_registered_users(tournament.id)
                 notifications = tuple(
                     TournamentCancellationNotificationView(
-                        telegram_id=user.telegram_id,
+                        user_id=user.id,
                         tournament=view,
                     )
                     for user in registered_users
-                    if user.telegram_id is not None and user.telegram_id > 0
                 )
                 registration_repository = TournamentRegistrationRepository(session)
                 await registration_repository.delete_by_tournament(tournament.id)

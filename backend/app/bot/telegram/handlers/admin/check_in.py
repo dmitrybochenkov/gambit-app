@@ -3,10 +3,11 @@ from collections.abc import Callable
 from types import SimpleNamespace
 
 from aiogram import F, Router
-from aiogram.exceptions import TelegramBadRequest, TelegramForbiddenError
+from aiogram.exceptions import TelegramBadRequest
 from aiogram.fsm.context import FSMContext
 from aiogram.types import CallbackQuery, Message
 
+from app.bot.telegram.business_notifications import TelegramCheckInNotificationDelivery
 from app.bot.telegram.formatters import check_in as check_in_fmt
 from app.bot.telegram.handlers.admin.shared import (
     delete_callback_message as _delete_callback_message,
@@ -26,6 +27,7 @@ from app.bot.telegram.texts.admin import panel as panel_text
 from app.bot.telegram.texts.admin import results as result_text
 from app.db.models.enums import UserGender
 from app.services.access_policy import AdminAccessDeniedError
+from app.services.business_notification_use_cases import CheckInUseCases
 from app.services.dto.check_in import CheckInCandidateView, CheckInGenderDecision
 from app.services.pagination import Page, pagination_service
 from app.services.player_reward_service import (
@@ -45,10 +47,13 @@ from app.services.tournament_check_in_service import (
 )
 from app.services.user_access_service import user_access_service
 
+router = Router(name="admin.check_in")
+
 logger = logging.getLogger(__name__)
 
 
-router = Router(name="admin.check_in")
+def _check_in_use_cases() -> CheckInUseCases:
+    return CheckInUseCases(tournament_check_in_service)
 
 
 @router.message(F.text == labels.ADMIN_PANEL_CHECK_IN)
@@ -354,7 +359,7 @@ async def _handle_reward_or_gender_action(
     }:
         return False
 
-    result = await tournament_check_in_service.complete_user_check_in(
+    result = await _check_in_use_cases().complete_user_check_in(
         actor_user_id=await resolve_admin_actor_user_id(callback.from_user.id),
         tournament_id=callback_data.tournament_id,
         user_id=callback_data.player_id,
@@ -364,6 +369,7 @@ async def _handle_reward_or_gender_action(
             if callback_data.action == admin_check_in_kb.AdminCheckInAction.REDEEM_REWARD
             else None
         ),
+        delivery=TelegramCheckInNotificationDelivery(callback.bot),
     )
     view = await tournament_check_in_service.get_check_in(
         actor_user_id=await resolve_admin_actor_user_id(callback.from_user.id),
@@ -382,11 +388,12 @@ async def _complete_confirmed_check_in(
         admin_check_in_kb.AdminCheckInAction.ADD_EXISTING,
     }:
         return None
-    return await tournament_check_in_service.complete_user_check_in(
+    return await _check_in_use_cases().complete_user_check_in(
         actor_user_id=await resolve_admin_actor_user_id(callback.from_user.id),
         tournament_id=callback_data.tournament_id,
         user_id=callback_data.player_id,
         gender_decision=CheckInGenderDecision.KEEP,
+        delivery=TelegramCheckInNotificationDelivery(callback.bot),
     )
 
 
@@ -400,7 +407,6 @@ async def _finish_check_in_callback(
     await callback.answer(
         result_text.ADMIN_RESULTS_SAVED if result.created else "Игрок уже прошёл check-in."
     )
-    await _send_check_in_notification(callback, result)
     if callback.message is not None:
         await edit_message_if_changed(
             callback.message,
@@ -480,11 +486,12 @@ async def _handle_gender_decision(
     }[callback_data.action]
     if callback_data.player_id == 0:
         data = await state.get_data()
-        result = await tournament_check_in_service.create_user_and_check_in(
+        result = await _check_in_use_cases().create_user_and_check_in(
             actor_user_id=await resolve_admin_actor_user_id(callback.from_user.id),
             tournament_id=callback_data.tournament_id,
             display_name=str(data.get("new_check_in_display_name", "")),
             gender=gender,
+            delivery=TelegramCheckInNotificationDelivery(callback.bot),
         )
         view = await tournament_check_in_service.get_check_in(
             actor_user_id=await resolve_admin_actor_user_id(callback.from_user.id),
@@ -507,11 +514,12 @@ async def _handle_gender_decision(
     if decision.active_rewards:
         await _show_reward_selection(callback, callback_data)
         return
-    result = await tournament_check_in_service.complete_user_check_in(
+    result = await _check_in_use_cases().complete_user_check_in(
         actor_user_id=await resolve_admin_actor_user_id(callback.from_user.id),
         tournament_id=callback_data.tournament_id,
         user_id=callback_data.player_id,
         gender_decision=gender_decision,
+        delivery=TelegramCheckInNotificationDelivery(callback.bot),
     )
     view = await tournament_check_in_service.get_check_in(
         actor_user_id=await resolve_admin_actor_user_id(callback.from_user.id),
@@ -568,24 +576,6 @@ async def _show_check_in_decision(
             confirm_action=confirm_action,
         ),
     )
-
-
-async def _send_check_in_notification(
-    callback: CallbackQuery,
-    result: CheckInResultView,
-) -> None:
-    if not result.created:
-        return
-    user = result.user
-    if user.telegram_id is None:
-        return
-    try:
-        await callback.bot.send_message(
-            chat_id=user.telegram_id,
-            text=check_in_fmt.player_notification(result.tournament),
-        )
-    except (TelegramBadRequest, TelegramForbiddenError):
-        logger.info("Failed to send check-in notification", exc_info=True)
 
 
 async def _handle_check_in_tournament_navigation(

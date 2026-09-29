@@ -1676,7 +1676,7 @@ async def test_calendar_delete_removes_registrations_but_keeps_users(
         )
 
         assert deleted.id == tournament.id
-        assert [item.telegram_id for item in notifications] == [200]
+        assert [item.user_id for item in notifications] == [player_id]
         async with session_factory() as session:
             assert await session.get(Tournament, tournament.id) is None
             assert await session.get(User, player_id) is not None

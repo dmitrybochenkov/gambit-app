@@ -219,5 +219,5 @@ class TournamentCalendarDeletePreviewView:
 
 @dataclass(frozen=True)
 class TournamentCancellationNotificationView:
-    telegram_id: int
+    user_id: int
     tournament: TournamentView
