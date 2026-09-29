@@ -33,6 +33,8 @@ from app.services.dto.tournaments import (
     TournamentCalendarCreatePreviewView,
     TournamentCalendarDayView,
     TournamentCalendarDeletePreviewView,
+    TournamentCalendarDraftCommand,
+    TournamentCalendarDraftItem,
     TournamentCalendarFormatDetailView,
     TournamentCalendarMonthTypeView,
     TournamentCalendarMonthView,
@@ -65,6 +67,10 @@ class CalendarDefaultTournamentTypeNotFoundError(ValueError):
 
 
 class CalendarWeeklyPlanIntegrityError(ValueError):
+    pass
+
+
+class CalendarAutofillDraftInvalidError(ValueError):
     pass
 
 
@@ -416,7 +422,12 @@ class TournamentPlanningService:
                 raise CalendarWeekNotEmptyError
             target_dates = tuple(day.date for day in week.days)
             plan = await self._build_plan_for_dates(session, target_dates)
-            return await self._autofill_preview(session, plan)
+            return await self._autofill_preview(
+                session,
+                plan,
+                week_start=target_dates[0],
+                week_end=target_dates[-1],
+            )
 
     async def create_calendar_autofill_week(
         self,
@@ -426,22 +437,98 @@ class TournamentPlanningService:
         month: int,
         row_number: int,
     ) -> TournamentCalendarAutofillPreviewView:
+        preview = await self.get_calendar_autofill_preview(
+            actor_user_id,
+            year=year,
+            month=month,
+            row_number=row_number,
+        )
+        return await self._create_calendar_autofill_draft(
+            actor_user_id,
+            TournamentCalendarDraftCommand(
+                year=year,
+                month=month,
+                row_number=row_number,
+                tournaments=tuple(
+                    TournamentCalendarDraftItem(
+                        tournament_date=item.tournament_date,
+                        tournament_type_id=item.tournament_type.id,
+                    )
+                    for item in preview.tournaments
+                ),
+            ),
+            allow_existing_template_types=True,
+        )
+
+    async def create_calendar_autofill_draft(
+        self,
+        actor_user_id: int,
+        command: TournamentCalendarDraftCommand,
+    ) -> TournamentCalendarAutofillPreviewView:
+        return await self._create_calendar_autofill_draft(
+            actor_user_id,
+            command,
+            allow_existing_template_types=False,
+        )
+
+    async def _create_calendar_autofill_draft(
+        self,
+        actor_user_id: int,
+        command: TournamentCalendarDraftCommand,
+        *,
+        allow_existing_template_types: bool,
+    ) -> TournamentCalendarAutofillPreviewView:
         async with self.session_factory() as session:
             try:
                 await access_policy.require_superadmin(session, actor_user_id)
-                week = await self._calendar_week_view(session, year, month, row_number)
+                week = await self._calendar_week_view(
+                    session,
+                    command.year,
+                    command.month,
+                    command.row_number,
+                )
                 if not week.is_empty:
                     raise CalendarWeekNotEmptyError
-                target_dates = tuple(day.date for day in week.days)
-                plan = await self._build_plan_for_dates(session, target_dates)
-                preview = await self._autofill_preview(session, plan)
+
+                authoritative_dates = tuple(day.date for day in week.days)
+                requested_items = tuple(
+                    sorted(command.tournaments, key=lambda item: item.tournament_date)
+                )
+                requested_dates = tuple(item.tournament_date for item in requested_items)
+                if not requested_dates or len(requested_dates) != len(set(requested_dates)):
+                    raise CalendarAutofillDraftInvalidError
+                if any(item.tournament_type_id <= 0 for item in requested_items):
+                    raise CalendarAutofillDraftInvalidError
+                if any(item_date not in authoritative_dates for item_date in requested_dates):
+                    raise CalendarAutofillDraftInvalidError
+
+                repository = TournamentRepository(session)
+                for tournament_date in authoritative_dates:
+                    if await repository.exists_for_date(tournament_date):
+                        raise CalendarTournamentDateAlreadyExistsError
+
+                creatable_ids = {option.id for option in await self._calendar_type_options(session)}
+                if not allow_existing_template_types and any(
+                    item.tournament_type_id not in creatable_ids for item in requested_items
+                ):
+                    raise CalendarTournamentTypeNotFoundError
+
+                plan = WeeklyTournamentPlan.create(
+                    target_dates=requested_dates,
+                    tournament_type_ids=tuple(item.tournament_type_id for item in requested_items),
+                )
+                preview = await self._autofill_preview(
+                    session,
+                    plan,
+                    week_start=authoritative_dates[0],
+                    week_end=authoritative_dates[-1],
+                )
                 season_repository = SeasonRepository(session)
-                tournament_repository = TournamentRepository(session)
                 for item in plan.tournaments:
                     season = await season_repository.get_for_date(item.date)
                     if season is None:
                         raise CalendarWeeklyPlanIntegrityError
-                    await tournament_repository.add(
+                    await repository.add(
                         Tournament(
                             season_id=season.id,
                             tournament_type_id=item.tournament_type_id,
@@ -782,6 +869,9 @@ class TournamentPlanningService:
         self,
         session: AsyncSession,
         plan: WeeklyTournamentPlan,
+        *,
+        week_start: date | None = None,
+        week_end: date | None = None,
     ) -> TournamentCalendarAutofillPreviewView:
         items = []
         for item in plan.tournaments:
@@ -796,8 +886,8 @@ class TournamentPlanningService:
                 )
             )
         return TournamentCalendarAutofillPreviewView(
-            week_start=plan.dates[0],
-            week_end=plan.dates[-1],
+            week_start=week_start or plan.dates[0],
+            week_end=week_end or plan.dates[-1],
             tournaments=tuple(items),
         )
 

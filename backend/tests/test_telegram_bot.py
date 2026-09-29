@@ -1,6 +1,6 @@
 import asyncio
 from dataclasses import replace
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 from decimal import Decimal
 from pathlib import Path
 from types import SimpleNamespace
@@ -171,7 +171,10 @@ from app.services.dto.statistics.rating import PointsRatingView, RatingResultVie
 from app.services.dto.tournaments import (
     SuperadminOpenTournamentListItemView,
     SuperadminTournamentHubView,
+    TournamentCalendarAutofillPreviewView,
+    TournamentCalendarCreatePreviewView,
     TournamentCalendarDayView,
+    TournamentCalendarDraftCommand,
     TournamentCalendarFormatDetailView,
     TournamentCalendarMonthTypeView,
     TournamentCalendarMonthView,
@@ -196,6 +199,7 @@ from app.services.result_service import (
 )
 from app.services.tournament_check_in_service import CheckInResultView, TournamentCheckInService
 from app.services.tournament_photo_service import TournamentPhotoService
+from app.services.tournament_planning_service import CalendarTournamentTypeNotFoundError
 from app.services.tournament_publication_service import TournamentPublicationService
 from app.services.tournament_service import TournamentRegistrationAlreadyCheckedInError
 from app.services.user_access_service import UserAccessService
@@ -1262,6 +1266,414 @@ async def test_weekly_template_editor_draft_cancel_and_save_preserve_week_contex
         },
     )
     assert state.data == {}
+
+
+async def test_weekly_autofill_initializes_and_edits_one_off_fsm_draft(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    bounty = TournamentCalendarTypeOptionView(
+        id=10, code="bounty_v3", name="Bounty", calendar_code="B3"
+    )
+    freeroll = TournamentCalendarTypeOptionView(
+        id=11, code="classic_v3", name="Freeroll", calendar_code="FR"
+    )
+    month_main = TournamentCalendarTypeOptionView(
+        id=12, code="month_main", name="Month Main Tournament", calendar_code="MM"
+    )
+    preview = TournamentCalendarAutofillPreviewView(
+        week_start=date(2026, 9, 28),
+        week_end=date(2026, 10, 4),
+        tournaments=(
+            TournamentCalendarCreatePreviewView(date(2026, 9, 30), bounty),
+            TournamentCalendarCreatePreviewView(date(2026, 10, 2), freeroll),
+        ),
+    )
+    template = WeeklyTemplateView(
+        days=tuple(
+            WeeklyTemplateDayView(
+                weekday=weekday,
+                tournament_types=tuple(
+                    item
+                    for item in (
+                        WeeklyTemplateTypeView(
+                            id=option.id,
+                            code=option.code,
+                            name=option.name,
+                            calendar_code=option.calendar_code or "?",
+                            is_creatable=True,
+                        )
+                        for option in (bounty, freeroll, month_main)
+                    )
+                    if item.id in ({10} if weekday == 2 else {11} if weekday == 4 else set())
+                ),
+            )
+            for weekday in range(7)
+        )
+    )
+    planning_service = SimpleNamespace(
+        get_calendar_autofill_preview=AsyncMock(return_value=preview),
+        get_weekly_template=AsyncMock(return_value=template),
+        list_weekly_template_add_options=AsyncMock(return_value=[month_main]),
+        list_calendar_tournament_type_options=AsyncMock(
+            return_value=[bounty, freeroll, month_main]
+        ),
+        create_calendar_autofill_draft=AsyncMock(),
+        get_calendar_week=AsyncMock(
+            return_value=SimpleNamespace(
+                year=2026,
+                month=9,
+                row_number=5,
+                week_start=date(2026, 9, 28),
+                week_end=date(2026, 10, 4),
+                days=(),
+                is_empty=False,
+                has_unapproved_tournaments=True,
+                has_tournaments=True,
+            )
+        ),
+    )
+    monkeypatch.setattr(
+        superadmin_tournament_handlers,
+        "tournament_planning_service",
+        planning_service,
+    )
+    message = SimpleNamespace(edit_text=AsyncMock())
+    callback = SimpleNamespace(
+        from_user=SimpleNamespace(id=100),
+        message=message,
+        answer=AsyncMock(),
+    )
+    state = MutableState()
+
+    await superadmin_tournament_handlers.select_tournament_calendar_action(
+        callback,
+        superadmin_tournaments_kb.SuperadminTournamentCalendarCallback(
+            action=superadmin_tournaments_kb.SuperadminTournamentCalendarAction.AUTOFILL_PREVIEW,
+            year=2026,
+            month=9,
+            row=5,
+        ),
+        state,
+    )
+
+    assert state.data["weekly_autofill_context"] == {"year": 2026, "month": 9, "row": 5}
+    assert state.data["weekly_autofill_draft"] == {
+        "2026-09-28": None,
+        "2026-09-29": None,
+        "2026-09-30": 10,
+        "2026-10-01": None,
+        "2026-10-02": 11,
+        "2026-10-03": None,
+        "2026-10-04": None,
+    }
+    rendered = message.edit_text.await_args
+    assert "Пн — —" in rendered.args[0]
+    assert "Ср — B3" in rendered.args[0]
+    assert [
+        [button.text for button in row] for row in rendered.kwargs["reply_markup"].inline_keyboard
+    ][:2] == [
+        ["Пн", "Вт", "Ср", "Чт"],
+        ["Пт", "Сб", "Вс"],
+    ]
+
+    await superadmin_tournament_handlers.edit_weekly_autofill(
+        callback,
+        superadmin_tournaments_kb.WeeklyAutofillCallback(
+            action=superadmin_tournaments_kb.WeeklyAutofillAction.REMOVE,
+            weekday=4,
+        ),
+        state,
+    )
+    await superadmin_tournament_handlers.edit_weekly_autofill(
+        callback,
+        superadmin_tournaments_kb.WeeklyAutofillCallback(
+            action=superadmin_tournaments_kb.WeeklyAutofillAction.SELECT,
+            weekday=5,
+            tournament_type_id=12,
+        ),
+        state,
+    )
+    assert state.data["weekly_autofill_draft"]["2026-10-02"] is None
+    assert state.data["weekly_autofill_draft"]["2026-10-03"] == 12
+    planning_service.create_calendar_autofill_draft.assert_not_awaited()
+
+    await superadmin_tournament_handlers.edit_weekly_autofill(
+        callback,
+        superadmin_tournaments_kb.WeeklyAutofillCallback(
+            action=superadmin_tournaments_kb.WeeklyAutofillAction.CONFIRM
+        ),
+        state,
+    )
+    command = planning_service.create_calendar_autofill_draft.await_args.args[1]
+    assert isinstance(command, TournamentCalendarDraftCommand)
+    assert [(item.tournament_date, item.tournament_type_id) for item in command.tournaments] == [
+        (date(2026, 9, 30), 10),
+        (date(2026, 10, 3), 12),
+    ]
+
+
+@pytest.mark.parametrize(
+    ("action", "fields"),
+    [
+        (superadmin_tournaments_kb.WeeklyAutofillAction.DAY, {"weekday": 9}),
+        (superadmin_tournaments_kb.WeeklyAutofillAction.PICK_PAGE, {"weekday": 2, "page": -1}),
+        (
+            superadmin_tournaments_kb.WeeklyAutofillAction.SELECT,
+            {"weekday": 2, "tournament_type_id": 999_999},
+        ),
+    ],
+)
+async def test_weekly_autofill_invalid_callback_preserves_fsm_draft(
+    monkeypatch: pytest.MonkeyPatch,
+    action: superadmin_tournaments_kb.WeeklyAutofillAction,
+    fields: dict[str, int],
+) -> None:
+    planning_service = SimpleNamespace(
+        list_calendar_tournament_type_options=AsyncMock(return_value=[]),
+    )
+    monkeypatch.setattr(
+        superadmin_tournament_handlers,
+        "tournament_planning_service",
+        planning_service,
+    )
+    draft = {
+        (date(2026, 9, 28) + timedelta(days=offset)).isoformat(): (10 if offset == 2 else None)
+        for offset in range(7)
+    }
+    state = MutableState()
+    state.data.update(
+        weekly_autofill_draft=dict(draft),
+        weekly_autofill_context={"year": 2026, "month": 9, "row": 5},
+    )
+    callback = SimpleNamespace(
+        from_user=SimpleNamespace(id=100),
+        message=None,
+        answer=AsyncMock(),
+    )
+
+    await superadmin_tournament_handlers.edit_weekly_autofill(
+        callback,
+        superadmin_tournaments_kb.WeeklyAutofillCallback(action=action, **fields),
+        state,
+    )
+
+    assert state.data["weekly_autofill_draft"] == draft
+    callback.answer.assert_awaited_once_with(
+        superadmin_tournament_texts.WEEKLY_AUTOFILL_INVALID,
+        show_alert=True,
+    )
+
+
+def test_weekly_autofill_type_picker_is_paginated_and_back_targets_draft() -> None:
+    options = [
+        TournamentCalendarTypeOptionView(
+            id=index,
+            code=f"type_{index}",
+            name=f"Type {index}",
+            calendar_code=f"T{index}",
+        )
+        for index in range(1, 8)
+    ]
+
+    keyboard = superadmin_tournaments_kb.weekly_autofill_type_keyboard(
+        weekday=5,
+        options=options,
+        page=1,
+    )
+
+    assert inline_keyboard_texts(keyboard) == [
+        "T6 — Type 6",
+        "T7 — Type 7",
+        "◀️",
+        "2/2",
+        "▶️",
+        "⬅️ Назад",
+    ]
+    back = keyboard.inline_keyboard[-1][0]
+    assert back.callback_data is not None
+    assert "back_main" in back.callback_data
+
+
+async def test_weekly_autofill_empty_confirm_and_main_back_create_nothing(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    planning_service = SimpleNamespace(
+        create_calendar_autofill_draft=AsyncMock(),
+        get_calendar_week=AsyncMock(
+            return_value=SimpleNamespace(
+                year=2026,
+                month=9,
+                row_number=5,
+                week_start=date(2026, 9, 28),
+                week_end=date(2026, 10, 4),
+                days=(),
+                is_empty=True,
+                has_unapproved_tournaments=False,
+                has_tournaments=False,
+            )
+        ),
+    )
+    monkeypatch.setattr(
+        superadmin_tournament_handlers,
+        "tournament_planning_service",
+        planning_service,
+    )
+    state = MutableState()
+    state.data.update(
+        weekly_autofill_draft={
+            (date(2026, 9, 28) + timedelta(days=offset)).isoformat(): None for offset in range(7)
+        },
+        weekly_autofill_context={"year": 2026, "month": 9, "row": 5},
+    )
+    callback = SimpleNamespace(
+        from_user=SimpleNamespace(id=100),
+        message=SimpleNamespace(edit_text=AsyncMock()),
+        answer=AsyncMock(),
+    )
+
+    await superadmin_tournament_handlers.edit_weekly_autofill(
+        callback,
+        superadmin_tournaments_kb.WeeklyAutofillCallback(
+            action=superadmin_tournaments_kb.WeeklyAutofillAction.CONFIRM
+        ),
+        state,
+    )
+    planning_service.create_calendar_autofill_draft.assert_not_awaited()
+    assert state.data["weekly_autofill_draft"]
+    callback.answer.assert_awaited_with(
+        superadmin_tournament_texts.WEEKLY_AUTOFILL_EMPTY,
+        show_alert=True,
+    )
+
+    await superadmin_tournament_handlers.edit_weekly_autofill(
+        callback,
+        superadmin_tournaments_kb.WeeklyAutofillCallback(
+            action=superadmin_tournaments_kb.WeeklyAutofillAction.BACK_WEEK
+        ),
+        state,
+    )
+    assert state.data == {}
+    planning_service.create_calendar_autofill_draft.assert_not_awaited()
+
+
+async def test_weekly_autofill_stale_confirm_preserves_fsm_draft(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    planning_service = SimpleNamespace(
+        create_calendar_autofill_draft=AsyncMock(side_effect=CalendarTournamentTypeNotFoundError),
+    )
+    monkeypatch.setattr(
+        superadmin_tournament_handlers,
+        "tournament_planning_service",
+        planning_service,
+    )
+    draft = {
+        (date(2026, 9, 28) + timedelta(days=offset)).isoformat(): (10 if offset == 2 else None)
+        for offset in range(7)
+    }
+    state = MutableState()
+    state.data.update(
+        weekly_autofill_draft=dict(draft),
+        weekly_autofill_context={"year": 2026, "month": 9, "row": 5},
+    )
+    callback = SimpleNamespace(
+        from_user=SimpleNamespace(id=100),
+        message=None,
+        answer=AsyncMock(),
+    )
+
+    await superadmin_tournament_handlers.edit_weekly_autofill(
+        callback,
+        superadmin_tournaments_kb.WeeklyAutofillCallback(
+            action=superadmin_tournaments_kb.WeeklyAutofillAction.CONFIRM
+        ),
+        state,
+    )
+
+    assert state.data["weekly_autofill_draft"] == draft
+    callback.answer.assert_awaited_once_with(
+        superadmin_tournament_texts.WEEKLY_AUTOFILL_INVALID,
+        show_alert=True,
+    )
+
+
+async def test_weekly_autofill_nested_back_and_cancel_preserve_then_clear_draft(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    option = TournamentCalendarTypeOptionView(
+        id=10,
+        code="classic_v3",
+        name="Freeroll",
+        calendar_code="FR",
+    )
+    template_item = WeeklyTemplateTypeView(
+        id=10,
+        code="classic_v3",
+        name="Freeroll",
+        calendar_code="FR",
+        is_creatable=True,
+    )
+    planning_service = SimpleNamespace(
+        get_weekly_template=AsyncMock(
+            return_value=WeeklyTemplateView(
+                days=tuple(
+                    WeeklyTemplateDayView(
+                        weekday=weekday,
+                        tournament_types=(template_item,) if weekday == 2 else (),
+                    )
+                    for weekday in range(7)
+                )
+            )
+        ),
+        list_weekly_template_add_options=AsyncMock(return_value=[]),
+        list_calendar_tournament_type_options=AsyncMock(return_value=[option]),
+    )
+    panel = AsyncMock()
+    monkeypatch.setattr(
+        superadmin_tournament_handlers,
+        "tournament_planning_service",
+        planning_service,
+    )
+    monkeypatch.setattr(superadmin_tournament_handlers, "send_superadmin_panel", panel)
+    draft = {
+        (date(2026, 9, 28) + timedelta(days=offset)).isoformat(): (10 if offset == 2 else None)
+        for offset in range(7)
+    }
+    state = MutableState()
+    state.data.update(
+        weekly_autofill_draft=dict(draft),
+        weekly_autofill_context={"year": 2026, "month": 9, "row": 5},
+    )
+    callback = SimpleNamespace(
+        from_user=SimpleNamespace(id=100),
+        message=SimpleNamespace(edit_text=AsyncMock()),
+        answer=AsyncMock(),
+    )
+
+    for action in (
+        superadmin_tournaments_kb.WeeklyAutofillAction.DAY,
+        superadmin_tournaments_kb.WeeklyAutofillAction.PICK,
+        superadmin_tournaments_kb.WeeklyAutofillAction.BACK_MAIN,
+    ):
+        await superadmin_tournament_handlers.edit_weekly_autofill(
+            callback,
+            superadmin_tournaments_kb.WeeklyAutofillCallback(
+                action=action,
+                weekday=2,
+            ),
+            state,
+        )
+        assert state.data["weekly_autofill_draft"] == draft
+
+    await superadmin_tournament_handlers.edit_weekly_autofill(
+        callback,
+        superadmin_tournaments_kb.WeeklyAutofillCallback(
+            action=superadmin_tournaments_kb.WeeklyAutofillAction.CANCEL
+        ),
+        state,
+    )
+    assert state.data == {}
+    panel.assert_awaited_once()
 
 
 def test_weekly_template_add_options_are_paginated() -> None:

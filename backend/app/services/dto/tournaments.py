@@ -170,6 +170,20 @@ class TournamentCalendarAutofillPreviewView:
 
 
 @dataclass(frozen=True)
+class TournamentCalendarDraftItem:
+    tournament_date: date
+    tournament_type_id: int
+
+
+@dataclass(frozen=True)
+class TournamentCalendarDraftCommand:
+    year: int
+    month: int
+    row_number: int
+    tournaments: tuple[TournamentCalendarDraftItem, ...]
+
+
+@dataclass(frozen=True)
 class TournamentCalendarApprovalPreviewView:
     week_start: date
     week_end: date

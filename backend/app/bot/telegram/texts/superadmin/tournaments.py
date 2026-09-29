@@ -24,4 +24,6 @@ CALENDAR_NO_APPROVAL_TARGETS = "В этой неделе нечего утвер
 CALENDAR_WEEK_NOT_EMPTY = "В этой неделе уже есть турниры."
 WEEKLY_TEMPLATE_SAVED = "Шаблон расписания сохранён."
 WEEKLY_TEMPLATE_INVALID = "Не удалось сохранить шаблон расписания."
+WEEKLY_AUTOFILL_INVALID = "Черновик расписания устарел или содержит ошибку."
+WEEKLY_AUTOFILL_EMPTY = "Добавьте хотя бы один турнир."
 CALENDAR_TOURNAMENT_CANCELLED_USER = "Турнир {tournament} отменён."

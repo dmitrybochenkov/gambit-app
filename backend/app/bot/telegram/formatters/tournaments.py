@@ -225,6 +225,25 @@ def weekly_template_item(item: object) -> str:
     return f"⚙️ Формат\n\n{item.calendar_code} — {item.name}"
 
 
+def weekly_autofill_summary(
+    *, week_start: date, week_end: date, draft: dict[date, object | None]
+) -> str:
+    lines = [f"✏️ Расписание на {_calendar_week_range(week_start, week_end)}", ""]
+    for tournament_date, tournament_type in draft.items():
+        value = "—" if tournament_type is None else tournament_type.calendar_code
+        lines.append(f"{WEEKDAY_SHORT_NAMES[tournament_date.weekday()]} — {value}")
+    return "\n".join(lines)
+
+
+def weekly_autofill_day(tournament_date: date, tournament_type: object | None) -> str:
+    lines = [f"📅 {_date_with_weekday(tournament_date)}", ""]
+    if tournament_type is None:
+        lines.append("Турнир не запланирован.")
+    else:
+        lines.append(f"Сейчас: {tournament_type.calendar_code} — {tournament_type.name}")
+    return "\n".join(lines)
+
+
 def _calendar_week_range(week_start: date, week_end: date) -> str:
     if week_start.month == week_end.month and week_start.year == week_end.year:
         return f"{week_start.day}–{week_end.day} {common_texts.MONTHS[week_end.month]}"

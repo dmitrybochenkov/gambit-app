@@ -11,6 +11,7 @@ from conftest import (
     tournament_type_id,
 )
 from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncEngine, async_sessionmaker, create_async_engine
 
 from app.common.clock import FixedClock
@@ -37,8 +38,13 @@ from app.db.models.enums import (
 )
 from app.db.repositories.tournament_repository import TournamentRepository
 from app.services.access_policy import AdminAccessDeniedError
+from app.services.dto.tournaments import (
+    TournamentCalendarDraftCommand,
+    TournamentCalendarDraftItem,
+)
 from app.services.season_service import SeasonService
 from app.services.tournament_planning_service import (
+    CalendarAutofillDraftInvalidError,
     CalendarTournamentDateAlreadyExistsError,
     CalendarTournamentNotEditableError,
     CalendarTournamentTypeNotFoundError,
@@ -79,6 +85,37 @@ async def seed_calendar_data(session_factory: async_sessionmaker) -> None:
         await seed_tournament_configs_async(session)
         await seed_tournament_rules_async(session)
         await seed_weekly_templates_async(session)
+        await session.execute(WeeklyTournamentTemplate.__table__.delete())
+        session.add_all(
+            [
+                WeeklyTournamentTemplate(
+                    weekday=2,
+                    tournament_type_id=tournament_type_id("bounty_v3"),
+                ),
+                WeeklyTournamentTemplate(
+                    weekday=3,
+                    tournament_type_id=tournament_type_id("classic_v3"),
+                ),
+                WeeklyTournamentTemplate(
+                    weekday=4,
+                    tournament_type_id=tournament_type_id("freezeout_v2"),
+                ),
+                WeeklyTournamentTemplate(
+                    weekday=5,
+                    tournament_type_id=tournament_type_id("deep_stack_v2"),
+                ),
+                WeeklyTournamentTemplate(
+                    weekday=6,
+                    tournament_type_id=tournament_type_id("mystery_bounty"),
+                    rotation_order=1,
+                ),
+                WeeklyTournamentTemplate(
+                    weekday=6,
+                    tournament_type_id=tournament_type_id("boss_bounty"),
+                    rotation_order=2,
+                ),
+            ]
+        )
         session.add_all(
             [
                 build_player(
@@ -134,6 +171,268 @@ async def test_calendar_week_rejects_out_of_range_rows(
         await seed_calendar_data(session_factory)
         with pytest.raises(CalendarWeeklyPlanIntegrityError):
             await service.get_calendar_week(1, year=2026, month=8, row_number=row_number)
+    finally:
+        await engine.dispose()
+
+
+async def test_calendar_autofill_draft_creates_exact_edited_plan_without_recomputing_template(
+    tmp_path: Path,
+) -> None:
+    service, session_factory, engine = await create_planning_service(tmp_path / "draft.db")
+    try:
+        await seed_calendar_data(session_factory)
+        preview = await service.get_calendar_autofill_preview(1, year=2026, month=8, row_number=3)
+        assert preview.week_start == date(2026, 8, 10)
+        assert preview.week_end == date(2026, 8, 16)
+
+        await service.replace_weekly_template(
+            1,
+            tournament_type_ids_by_weekday={
+                0: (tournament_type_id("month_main"),),
+            },
+        )
+        command = TournamentCalendarDraftCommand(
+            year=2026,
+            month=8,
+            row_number=3,
+            tournaments=(
+                TournamentCalendarDraftItem(
+                    tournament_date=date(2026, 8, 12),
+                    tournament_type_id=tournament_type_id("classic_v3"),
+                ),
+                TournamentCalendarDraftItem(
+                    tournament_date=date(2026, 8, 15),
+                    tournament_type_id=tournament_type_id("freezeout_v2"),
+                ),
+            ),
+        )
+
+        created = await service.create_calendar_autofill_draft(1, command)
+
+        assert [
+            (item.tournament_date, item.tournament_type.code) for item in created.tournaments
+        ] == [
+            (date(2026, 8, 12), "classic_v3"),
+            (date(2026, 8, 15), "freezeout_v2"),
+        ]
+        async with session_factory() as session:
+            rows = list(
+                (await session.execute(select(Tournament).order_by(Tournament.date))).scalars()
+            )
+            template_rows = list(
+                (
+                    await session.execute(
+                        select(WeeklyTournamentTemplate).order_by(
+                            WeeklyTournamentTemplate.weekday,
+                            WeeklyTournamentTemplate.rotation_order,
+                        )
+                    )
+                ).scalars()
+            )
+        assert [(row.date, row.tournament_type_id) for row in rows] == [
+            (date(2026, 8, 12), tournament_type_id("classic_v3")),
+            (date(2026, 8, 15), tournament_type_id("freezeout_v2")),
+        ]
+        assert [(row.weekday, row.tournament_type_id) for row in template_rows] == [
+            (0, tournament_type_id("month_main")),
+        ]
+    finally:
+        await engine.dispose()
+
+
+@pytest.mark.parametrize(
+    "items",
+    [
+        (),
+        (
+            TournamentCalendarDraftItem(
+                tournament_date=date(2026, 8, 12),
+                tournament_type_id=tournament_type_id("classic_v3"),
+            ),
+            TournamentCalendarDraftItem(
+                tournament_date=date(2026, 8, 12),
+                tournament_type_id=tournament_type_id("freezeout_v2"),
+            ),
+        ),
+        (
+            TournamentCalendarDraftItem(
+                tournament_date=date(2026, 8, 20),
+                tournament_type_id=tournament_type_id("classic_v3"),
+            ),
+        ),
+    ],
+)
+async def test_calendar_autofill_draft_rejects_invalid_collection(
+    tmp_path: Path,
+    items: tuple[TournamentCalendarDraftItem, ...],
+) -> None:
+    service, session_factory, engine = await create_planning_service(tmp_path / "invalid-draft.db")
+    try:
+        await seed_calendar_data(session_factory)
+        command = TournamentCalendarDraftCommand(
+            year=2026,
+            month=8,
+            row_number=3,
+            tournaments=items,
+        )
+        with pytest.raises(CalendarAutofillDraftInvalidError):
+            await service.create_calendar_autofill_draft(1, command)
+        async with session_factory() as session:
+            assert list((await session.execute(select(Tournament))).scalars()) == []
+    finally:
+        await engine.dispose()
+
+
+async def test_calendar_autofill_draft_revalidates_type_and_week_occupancy(
+    tmp_path: Path,
+) -> None:
+    service, session_factory, engine = await create_planning_service(tmp_path / "stale-draft.db")
+    try:
+        await seed_calendar_data(session_factory)
+        item = TournamentCalendarDraftItem(
+            tournament_date=date(2026, 8, 12),
+            tournament_type_id=tournament_type_id("classic_v3"),
+        )
+        command = TournamentCalendarDraftCommand(
+            year=2026,
+            month=8,
+            row_number=3,
+            tournaments=(item,),
+        )
+        unknown_command = TournamentCalendarDraftCommand(
+            year=2026,
+            month=8,
+            row_number=3,
+            tournaments=(
+                TournamentCalendarDraftItem(
+                    tournament_date=date(2026, 8, 12),
+                    tournament_type_id=999_999,
+                ),
+            ),
+        )
+        with pytest.raises(CalendarTournamentTypeNotFoundError):
+            await service.create_calendar_autofill_draft(1, unknown_command)
+        async with session_factory() as session:
+            tournament_type = await session.get(TournamentType, item.tournament_type_id)
+            assert tournament_type is not None
+            tournament_type.is_creatable = False
+            await session.commit()
+        with pytest.raises(CalendarTournamentTypeNotFoundError):
+            await service.create_calendar_autofill_draft(1, command)
+
+        async with session_factory() as session:
+            tournament_type = await session.get(TournamentType, item.tournament_type_id)
+            assert tournament_type is not None
+            tournament_type.is_creatable = True
+            season = (await session.execute(select(Season))).scalars().first()
+            assert season is not None
+            session.add(
+                Tournament(
+                    season_id=season.id,
+                    tournament_type_id=tournament_type_id("freezeout_v2"),
+                    scoring_config_id=season.scoring_config_id,
+                    date=date(2026, 8, 14),
+                    status=TournamentStatus.ACTIVE,
+                    registration_open=False,
+                )
+            )
+            await session.commit()
+        with pytest.raises(CalendarWeekNotEmptyError):
+            await service.create_calendar_autofill_draft(1, command)
+        async with session_factory() as session:
+            rows = list((await session.execute(select(Tournament))).scalars())
+        assert [row.date for row in rows] == [date(2026, 8, 14)]
+    finally:
+        await engine.dispose()
+
+
+async def test_calendar_autofill_draft_maps_concurrent_unique_conflict_and_rolls_back(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    service, session_factory, engine = await create_planning_service(tmp_path / "unique-draft.db")
+    try:
+        await seed_calendar_data(session_factory)
+        command = TournamentCalendarDraftCommand(
+            year=2026,
+            month=8,
+            row_number=3,
+            tournaments=(
+                TournamentCalendarDraftItem(
+                    tournament_date=date(2026, 8, 12),
+                    tournament_type_id=tournament_type_id("classic_v3"),
+                ),
+            ),
+        )
+
+        async def fail_with_unique(
+            _repository: TournamentRepository,
+            _tournament: Tournament,
+        ) -> Tournament:
+            raise IntegrityError("INSERT", {}, Exception("unique date"))
+
+        monkeypatch.setattr(TournamentRepository, "add", fail_with_unique)
+        with pytest.raises(CalendarTournamentDateAlreadyExistsError):
+            await service.create_calendar_autofill_draft(1, command)
+        async with session_factory() as session:
+            assert list((await session.execute(select(Tournament))).scalars()) == []
+    finally:
+        await engine.dispose()
+
+
+async def test_calendar_autofill_draft_authorizes_and_rolls_back_as_one_transaction(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    service, session_factory, engine = await create_planning_service(tmp_path / "atomic-draft.db")
+    try:
+        await seed_calendar_data(session_factory)
+        async with session_factory() as session:
+            player = build_player(
+                telegram_id=200,
+                display_name="Player",
+                status=UserStatus.ACTIVE,
+                role=UserRole.PLAYER,
+            )
+            session.add(player)
+            await session.commit()
+            player_id = player.id
+        command = TournamentCalendarDraftCommand(
+            year=2026,
+            month=8,
+            row_number=3,
+            tournaments=(
+                TournamentCalendarDraftItem(
+                    tournament_date=date(2026, 8, 12),
+                    tournament_type_id=tournament_type_id("classic_v3"),
+                ),
+                TournamentCalendarDraftItem(
+                    tournament_date=date(2026, 8, 14),
+                    tournament_type_id=tournament_type_id("freezeout_v2"),
+                ),
+            ),
+        )
+        with pytest.raises(AdminAccessDeniedError):
+            await service.create_calendar_autofill_draft(player_id, command)
+
+        original_add = TournamentRepository.add
+        calls = 0
+
+        async def fail_second_add(
+            repository: TournamentRepository,
+            tournament: Tournament,
+        ) -> Tournament:
+            nonlocal calls
+            calls += 1
+            if calls == 2:
+                raise RuntimeError("forced failure")
+            return await original_add(repository, tournament)
+
+        monkeypatch.setattr(TournamentRepository, "add", fail_second_add)
+        with pytest.raises(RuntimeError, match="forced failure"):
+            await service.create_calendar_autofill_draft(1, command)
+        async with session_factory() as session:
+            assert list((await session.execute(select(Tournament))).scalars()) == []
     finally:
         await engine.dispose()
 
@@ -775,10 +1074,10 @@ async def test_calendar_autofill_creates_unapproved_week_and_approval_opens_regi
             date(2026, 8, 16),
         ]
         assert [item.tournament_type.code for item in preview.tournaments] == [
-            "bounty_v2",
-            "classic_v2",
+            "bounty_v3",
+            "classic_v3",
             "freezeout_v2",
-            "deep_stack",
+            "deep_stack_v2",
             "boss_bounty",
         ]
 

@@ -85,6 +85,18 @@ class WeeklyTemplateAction(StrEnum):
     CANCEL = "cancel"
 
 
+class WeeklyAutofillAction(StrEnum):
+    DAY = "day"
+    PICK = "pick"
+    PICK_PAGE = "pick_page"
+    SELECT = "select"
+    REMOVE = "remove"
+    BACK_MAIN = "back_main"
+    BACK_WEEK = "back_week"
+    CONFIRM = "confirm"
+    CANCEL = "cancel"
+
+
 class SuperadminTournamentCalendarCallback(
     CallbackData,
     prefix="superadmin_tour_cal",
@@ -116,6 +128,13 @@ class WeeklyTemplateCallback(CallbackData, prefix="weekly_template"):
     row: int = 0
     weekday: int = -1
     index: int = -1
+    tournament_type_id: int = 0
+    page: int = 0
+
+
+class WeeklyAutofillCallback(CallbackData, prefix="weekly_autofill"):
+    action: WeeklyAutofillAction
+    weekday: int = -1
     tournament_type_id: int = 0
     page: int = 0
 
@@ -373,6 +392,95 @@ def weekly_template_main_keyboard(*, year: int, month: int, row: int) -> InlineK
         ),
     )
     builder.adjust(2, 2, 2, 1, 1, 1)
+    return builder.as_markup()
+
+
+def weekly_autofill_main_keyboard() -> InlineKeyboardMarkup:
+    builder = InlineKeyboardBuilder()
+    for weekday, label in enumerate(("Пн", "Вт", "Ср", "Чт", "Пт", "Сб", "Вс")):
+        builder.button(
+            text=label,
+            callback_data=WeeklyAutofillCallback(
+                action=WeeklyAutofillAction.DAY,
+                weekday=weekday,
+            ),
+        )
+    builder.button(
+        text="✅ Создать турниры",
+        callback_data=WeeklyAutofillCallback(action=WeeklyAutofillAction.CONFIRM),
+    )
+    builder.button(
+        text=labels.ADMIN_CALENDAR_BACK,
+        callback_data=WeeklyAutofillCallback(action=WeeklyAutofillAction.BACK_WEEK),
+    )
+    builder.button(
+        text=labels.ADMIN_CALENDAR_CANCEL,
+        callback_data=WeeklyAutofillCallback(action=WeeklyAutofillAction.CANCEL),
+    )
+    builder.adjust(4, 3, 1, 1, 1)
+    return builder.as_markup()
+
+
+def weekly_autofill_day_keyboard(*, weekday: int, has_tournament: bool) -> InlineKeyboardMarkup:
+    builder = InlineKeyboardBuilder()
+    builder.button(
+        text="🔄 Изменить формат" if has_tournament else "➕ Добавить турнир",
+        callback_data=WeeklyAutofillCallback(
+            action=WeeklyAutofillAction.PICK,
+            weekday=weekday,
+        ),
+    )
+    if has_tournament:
+        builder.button(
+            text="🗑 Убрать турнир",
+            callback_data=WeeklyAutofillCallback(
+                action=WeeklyAutofillAction.REMOVE,
+                weekday=weekday,
+            ),
+        )
+    builder.button(
+        text=labels.ADMIN_CALENDAR_BACK,
+        callback_data=WeeklyAutofillCallback(action=WeeklyAutofillAction.BACK_MAIN),
+    )
+    builder.adjust(1)
+    return builder.as_markup()
+
+
+def weekly_autofill_type_keyboard(
+    *, weekday: int, options: list[object], page: int, page_size: int = 5
+) -> InlineKeyboardMarkup:
+    builder = InlineKeyboardBuilder()
+    total_pages = max(1, (len(options) + page_size - 1) // page_size)
+    current_page = min(max(page, 0), total_pages - 1)
+    items = options[current_page * page_size : (current_page + 1) * page_size]
+    for option in items:
+        builder.button(
+            text=f"{option.calendar_code} — {option.name}",
+            callback_data=WeeklyAutofillCallback(
+                action=WeeklyAutofillAction.SELECT,
+                weekday=weekday,
+                tournament_type_id=option.id,
+            ),
+        )
+    if total_pages > 1:
+        for label, target in (
+            ("◀️", max(0, current_page - 1)),
+            (f"{current_page + 1}/{total_pages}", current_page),
+            ("▶️", min(total_pages - 1, current_page + 1)),
+        ):
+            builder.button(
+                text=label,
+                callback_data=WeeklyAutofillCallback(
+                    action=WeeklyAutofillAction.PICK_PAGE,
+                    weekday=weekday,
+                    page=target,
+                ),
+            )
+    builder.button(
+        text=labels.ADMIN_CALENDAR_BACK,
+        callback_data=WeeklyAutofillCallback(action=WeeklyAutofillAction.BACK_MAIN),
+    )
+    builder.adjust(*([1] * len(items)), *([3] if total_pages > 1 else []), 1)
     return builder.as_markup()
 
 

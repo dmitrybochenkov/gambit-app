@@ -1,5 +1,5 @@
 import logging
-from datetime import date
+from datetime import date, timedelta
 
 from aiogram import F, Router
 from aiogram.exceptions import TelegramAPIError
@@ -12,10 +12,14 @@ from app.bot.telegram.handlers.superadmin.navigation import send_superadmin_pane
 from app.bot.telegram.keyboards import labels
 from app.bot.telegram.keyboards.superadmin import tournaments as superadmin_tournaments_kb
 from app.bot.telegram.message_edit import edit_message_if_changed, edit_reply_markup_if_changed
-from app.bot.telegram.states import WeeklyTemplateEditorStates
+from app.bot.telegram.states import WeeklyAutofillEditorStates, WeeklyTemplateEditorStates
 from app.bot.telegram.texts.superadmin import panel as panel_text
 from app.bot.telegram.texts.superadmin import tournaments as text
 from app.services.access_policy import AdminAccessDeniedError
+from app.services.dto.tournaments import (
+    TournamentCalendarDraftCommand,
+    TournamentCalendarDraftItem,
+)
 from app.services.result_service import (
     FutureTournamentCannotBeClosedError,
     ResultPlayerRewardConflictError,
@@ -25,6 +29,7 @@ from app.services.result_service import (
 )
 from app.services.tournament_participant_service import tournament_participant_service
 from app.services.tournament_planning_service import (
+    CalendarAutofillDraftInvalidError,
     CalendarDefaultTournamentTypeNotFoundError,
     CalendarNoUnapprovedTournamentsError,
     CalendarTournamentDateAlreadyExistsError,
@@ -44,6 +49,8 @@ router = Router(name="superadmin.tournaments")
 
 _TEMPLATE_DRAFT_KEY = "weekly_template_draft"
 _TEMPLATE_CONTEXT_KEY = "weekly_template_context"
+_AUTOFILL_DRAFT_KEY = "weekly_autofill_draft"
+_AUTOFILL_CONTEXT_KEY = "weekly_autofill_context"
 
 
 @router.message(F.text == labels.SUPERADMIN_PANEL_TOURNAMENTS)
@@ -212,40 +219,30 @@ async def select_tournament_calendar_action(
                 month=callback_data.month,
                 row_number=callback_data.row,
             )
-            await callback.answer()
-            if callback.message is not None:
-                await edit_message_if_changed(
-                    callback.message,
-                    text=tournament_fmt.superadmin_calendar_autofill_preview(preview),
-                    reply_markup=(
-                        superadmin_tournaments_kb.calendar_simple_confirmation_keyboard(
-                            confirm_action=(
-                                superadmin_tournaments_kb.SuperadminTournamentCalendarAction.AUTOFILL_CONFIRM
-                            ),
-                            year=callback_data.year,
-                            month=callback_data.month,
-                            row=callback_data.row,
-                        )
-                    ),
-                )
+            draft = {
+                (preview.week_start + timedelta(days=offset)).isoformat(): None
+                for offset in range(7)
+            }
+            for item in preview.tournaments:
+                draft[item.tournament_date.isoformat()] = item.tournament_type.id
+            await state.set_state(WeeklyAutofillEditorStates.editing)
+            await state.update_data(
+                **{
+                    _AUTOFILL_DRAFT_KEY: draft,
+                    _AUTOFILL_CONTEXT_KEY: {
+                        "year": callback_data.year,
+                        "month": callback_data.month,
+                        "row": callback_data.row,
+                    },
+                }
+            )
+            await _render_weekly_autofill_main(callback, state)
             return
         if (
             callback_data.action
             == superadmin_tournaments_kb.SuperadminTournamentCalendarAction.AUTOFILL_CONFIRM
         ):
-            await tournament_planning_service.create_calendar_autofill_week(
-                await resolve_admin_actor_user_id(callback.from_user.id),
-                year=callback_data.year,
-                month=callback_data.month,
-                row_number=callback_data.row,
-            )
-            await _edit_calendar_week(
-                callback,
-                year=callback_data.year,
-                month=callback_data.month,
-                row=callback_data.row,
-                answer_text=text.CALENDAR_WEEK_CREATED,
-            )
+            await callback.answer(text.WEEKLY_AUTOFILL_INVALID, show_alert=True)
             return
         if (
             callback_data.action
@@ -396,7 +393,11 @@ async def select_tournament_calendar_action(
     except CalendarDefaultTournamentTypeNotFoundError:
         await callback.answer(text.CALENDAR_TEMPLATE_UNAVAILABLE, show_alert=True)
         return
-    except (CalendarTournamentTypeNotFoundError, CalendarWeeklyPlanIntegrityError):
+    except (
+        CalendarAutofillDraftInvalidError,
+        CalendarTournamentTypeNotFoundError,
+        CalendarWeeklyPlanIntegrityError,
+    ):
         await callback.answer(text.CALENDAR_UNAVAILABLE, show_alert=True)
         return
     except CalendarWeekNotEmptyError:
@@ -408,6 +409,107 @@ async def select_tournament_calendar_action(
     except (CalendarTournamentNotEditableError, CalendarTournamentNotFoundError):
         await callback.answer(text.CALENDAR_TOURNAMENT_NOT_EDITABLE, show_alert=True)
         return
+
+
+@router.callback_query(superadmin_tournaments_kb.WeeklyAutofillCallback.filter())
+async def edit_weekly_autofill(
+    callback: CallbackQuery,
+    callback_data: superadmin_tournaments_kb.WeeklyAutofillCallback,
+    state: FSMContext,
+) -> None:
+    try:
+        draft, context = await _weekly_autofill_state(state)
+        _validate_weekly_autofill_callback(draft, callback_data)
+        action = callback_data.action
+        weekday = callback_data.weekday
+
+        if action == superadmin_tournaments_kb.WeeklyAutofillAction.CANCEL:
+            await state.clear()
+            await callback.answer()
+            if callback.message is not None:
+                await send_superadmin_panel(
+                    callback.message,
+                    superadmin_telegram_id=callback.from_user.id,
+                    text=panel_text.SUPERADMIN_PANEL_WELCOME,
+                )
+            return
+        if action == superadmin_tournaments_kb.WeeklyAutofillAction.BACK_WEEK:
+            await state.clear()
+            await _edit_calendar_week(callback, **context)
+            return
+        if action == superadmin_tournaments_kb.WeeklyAutofillAction.BACK_MAIN:
+            await _render_weekly_autofill_main(callback, state)
+            return
+        if action == superadmin_tournaments_kb.WeeklyAutofillAction.DAY:
+            await _render_weekly_autofill_day(callback, state, weekday)
+            return
+        if action in {
+            superadmin_tournaments_kb.WeeklyAutofillAction.PICK,
+            superadmin_tournaments_kb.WeeklyAutofillAction.PICK_PAGE,
+        }:
+            await _render_weekly_autofill_options(
+                callback,
+                state,
+                weekday,
+                page=callback_data.page,
+            )
+            return
+        if action == superadmin_tournaments_kb.WeeklyAutofillAction.SELECT:
+            options = await tournament_planning_service.list_calendar_tournament_type_options(
+                await resolve_admin_actor_user_id(callback.from_user.id)
+            )
+            if callback_data.tournament_type_id not in {option.id for option in options}:
+                raise CalendarAutofillDraftInvalidError
+            draft[_autofill_date_for_weekday(draft, weekday)] = callback_data.tournament_type_id
+            await _store_weekly_autofill_draft(state, draft)
+            await _render_weekly_autofill_main(callback, state)
+            return
+        if action == superadmin_tournaments_kb.WeeklyAutofillAction.REMOVE:
+            draft[_autofill_date_for_weekday(draft, weekday)] = None
+            await _store_weekly_autofill_draft(state, draft)
+            await _render_weekly_autofill_main(callback, state)
+            return
+        if action == superadmin_tournaments_kb.WeeklyAutofillAction.CONFIRM:
+            items = tuple(
+                TournamentCalendarDraftItem(
+                    tournament_date=tournament_date,
+                    tournament_type_id=tournament_type_id,
+                )
+                for tournament_date, tournament_type_id in draft.items()
+                if tournament_type_id is not None
+            )
+            if not items:
+                await callback.answer(text.WEEKLY_AUTOFILL_EMPTY, show_alert=True)
+                return
+            await tournament_planning_service.create_calendar_autofill_draft(
+                await resolve_admin_actor_user_id(callback.from_user.id),
+                TournamentCalendarDraftCommand(
+                    year=context["year"],
+                    month=context["month"],
+                    row_number=context["row"],
+                    tournaments=items,
+                ),
+            )
+            await state.clear()
+            await _edit_calendar_week(
+                callback,
+                **context,
+                answer_text=text.CALENDAR_WEEK_CREATED,
+            )
+    except AdminAccessDeniedError:
+        await state.clear()
+        await callback.answer(panel_text.INSUFFICIENT_RIGHTS, show_alert=True)
+    except CalendarWeekNotEmptyError:
+        await callback.answer(text.CALENDAR_WEEK_NOT_EMPTY, show_alert=True)
+    except CalendarTournamentDateAlreadyExistsError:
+        await callback.answer(text.CALENDAR_DATE_BUSY, show_alert=True)
+    except (
+        CalendarAutofillDraftInvalidError,
+        CalendarTournamentTypeNotFoundError,
+        CalendarWeeklyPlanIntegrityError,
+        WeeklyTemplateInvalidError,
+    ):
+        await callback.answer(text.WEEKLY_AUTOFILL_INVALID, show_alert=True)
 
 
 @router.callback_query(superadmin_tournaments_kb.WeeklyTemplateCallback.filter())
@@ -900,6 +1002,170 @@ async def _weekly_template_state(
     except (KeyError, TypeError, ValueError) as exc:
         raise WeeklyTemplateInvalidError from exc
     return draft, context
+
+
+async def _weekly_autofill_state(
+    state: FSMContext,
+) -> tuple[dict[date, int | None], dict[str, int]]:
+    data = await state.get_data()
+    raw_draft = data.get(_AUTOFILL_DRAFT_KEY)
+    raw_context = data.get(_AUTOFILL_CONTEXT_KEY)
+    if not isinstance(raw_draft, dict) or not isinstance(raw_context, dict):
+        raise CalendarAutofillDraftInvalidError
+    try:
+        draft = {
+            date.fromisoformat(str(raw_date)): (
+                None if tournament_type_id is None else int(tournament_type_id)
+            )
+            for raw_date, tournament_type_id in raw_draft.items()
+        }
+        context = {
+            "year": int(raw_context["year"]),
+            "month": int(raw_context["month"]),
+            "row": int(raw_context["row"]),
+        }
+    except (KeyError, TypeError, ValueError) as exc:
+        raise CalendarAutofillDraftInvalidError from exc
+    if context["year"] < 1 or context["month"] not in range(1, 13) or context["row"] < 1:
+        raise CalendarAutofillDraftInvalidError
+    if len(draft) != 7 or tuple(draft) != tuple(sorted(draft)):
+        raise CalendarAutofillDraftInvalidError
+    week_start = next(iter(draft))
+    if week_start.weekday() != 0 or tuple(draft) != tuple(
+        week_start + timedelta(days=offset) for offset in range(7)
+    ):
+        raise CalendarAutofillDraftInvalidError
+    return draft, context
+
+
+def _validate_weekly_autofill_callback(
+    draft: dict[date, int | None],
+    callback_data: superadmin_tournaments_kb.WeeklyAutofillCallback,
+) -> None:
+    action = callback_data.action
+    weekday_actions = {
+        superadmin_tournaments_kb.WeeklyAutofillAction.DAY,
+        superadmin_tournaments_kb.WeeklyAutofillAction.PICK,
+        superadmin_tournaments_kb.WeeklyAutofillAction.PICK_PAGE,
+        superadmin_tournaments_kb.WeeklyAutofillAction.SELECT,
+        superadmin_tournaments_kb.WeeklyAutofillAction.REMOVE,
+    }
+    if action in weekday_actions and callback_data.weekday not in range(7):
+        raise CalendarAutofillDraftInvalidError
+    if (
+        action == superadmin_tournaments_kb.WeeklyAutofillAction.PICK_PAGE
+        and callback_data.page < 0
+    ):
+        raise CalendarAutofillDraftInvalidError
+    if (
+        action == superadmin_tournaments_kb.WeeklyAutofillAction.SELECT
+        and callback_data.tournament_type_id <= 0
+    ):
+        raise CalendarAutofillDraftInvalidError
+    if action == superadmin_tournaments_kb.WeeklyAutofillAction.REMOVE:
+        tournament_date = _autofill_date_for_weekday(draft, callback_data.weekday)
+        if draft[tournament_date] is None:
+            raise CalendarAutofillDraftInvalidError
+
+
+def _autofill_date_for_weekday(draft: dict[date, int | None], weekday: int) -> date:
+    try:
+        return next(item for item in draft if item.weekday() == weekday)
+    except StopIteration as exc:
+        raise CalendarAutofillDraftInvalidError from exc
+
+
+async def _store_weekly_autofill_draft(
+    state: FSMContext,
+    draft: dict[date, int | None],
+) -> None:
+    await state.update_data(
+        **{
+            _AUTOFILL_DRAFT_KEY: {
+                tournament_date.isoformat(): tournament_type_id
+                for tournament_date, tournament_type_id in draft.items()
+            }
+        }
+    )
+
+
+async def _weekly_autofill_render_data(
+    callback: CallbackQuery,
+    state: FSMContext,
+) -> tuple[dict[date, object | None], dict[str, int]]:
+    draft, context = await _weekly_autofill_state(state)
+    catalog = await _weekly_template_catalog(
+        await resolve_admin_actor_user_id(callback.from_user.id)
+    )
+    try:
+        rendered = {
+            tournament_date: (None if tournament_type_id is None else catalog[tournament_type_id])
+            for tournament_date, tournament_type_id in draft.items()
+        }
+    except KeyError as exc:
+        raise CalendarAutofillDraftInvalidError from exc
+    return rendered, context
+
+
+async def _render_weekly_autofill_main(callback: CallbackQuery, state: FSMContext) -> None:
+    draft, _context = await _weekly_autofill_render_data(callback, state)
+    dates = tuple(draft)
+    await callback.answer()
+    if callback.message is not None:
+        await edit_message_if_changed(
+            callback.message,
+            text=tournament_fmt.weekly_autofill_summary(
+                week_start=dates[0],
+                week_end=dates[-1],
+                draft=draft,
+            ),
+            reply_markup=superadmin_tournaments_kb.weekly_autofill_main_keyboard(),
+        )
+
+
+async def _render_weekly_autofill_day(
+    callback: CallbackQuery,
+    state: FSMContext,
+    weekday: int,
+) -> None:
+    draft, _context = await _weekly_autofill_render_data(callback, state)
+    tournament_date = _autofill_date_for_weekday(draft, weekday)
+    tournament_type = draft[tournament_date]
+    await callback.answer()
+    if callback.message is not None:
+        await edit_message_if_changed(
+            callback.message,
+            text=tournament_fmt.weekly_autofill_day(tournament_date, tournament_type),
+            reply_markup=superadmin_tournaments_kb.weekly_autofill_day_keyboard(
+                weekday=weekday,
+                has_tournament=tournament_type is not None,
+            ),
+        )
+
+
+async def _render_weekly_autofill_options(
+    callback: CallbackQuery,
+    state: FSMContext,
+    weekday: int,
+    *,
+    page: int,
+) -> None:
+    draft, _context = await _weekly_autofill_state(state)
+    _autofill_date_for_weekday(draft, weekday)
+    options = await tournament_planning_service.list_calendar_tournament_type_options(
+        await resolve_admin_actor_user_id(callback.from_user.id)
+    )
+    await callback.answer()
+    if callback.message is not None:
+        await edit_message_if_changed(
+            callback.message,
+            text="Выбери формат:",
+            reply_markup=superadmin_tournaments_kb.weekly_autofill_type_keyboard(
+                weekday=weekday,
+                options=options,
+                page=page,
+            ),
+        )
 
 
 def _validate_weekly_template_callback(
