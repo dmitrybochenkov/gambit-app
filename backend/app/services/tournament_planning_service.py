@@ -9,7 +9,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from app.common.clock import Clock, club_clock
 from app.config import settings
-from app.db.models import Tournament, WeeklyTournamentTemplate
+from app.db.models import Tournament, TournamentType, WeeklyTournamentTemplate
 from app.db.models.enums import TournamentStatus
 from app.db.repositories.season_repository import SeasonRepository
 from app.db.repositories.tournament_registration_repository import (
@@ -44,6 +44,8 @@ from app.services.dto.tournaments import (
     TournamentCalendarWeekView,
     TournamentCancellationNotificationView,
     TournamentEconomyView,
+    TournamentFormatAvailabilityResultView,
+    TournamentFormatView,
     TournamentRulesView,
     TournamentView,
     WeeklyTemplateDayView,
@@ -117,6 +119,8 @@ REAL_TOURNAMENT_TYPE_CODES = (
     "satellite",
     "black_party",
     "month_main",
+    "satellite_v2",
+    "mystery_quest",
 )
 
 
@@ -322,6 +326,102 @@ class TournamentPlanningService:
                 view = await self._weekly_template_view(session)
                 await session.commit()
                 return view
+            except Exception:
+                await session.rollback()
+                raise
+
+    async def list_tournament_formats(self, actor_user_id: int) -> list[TournamentFormatView]:
+        async with self.session_factory() as session:
+            await access_policy.require_superadmin(session, actor_user_id)
+            rows = await TournamentTypeRepository(session).list_active_real_types()
+            return [self._tournament_format_view(row) for row in rows]
+
+    async def get_tournament_format(
+        self,
+        actor_user_id: int,
+        tournament_type_id: int,
+    ) -> TournamentFormatAvailabilityResultView:
+        async with self.session_factory() as session:
+            await access_policy.require_superadmin(session, actor_user_id)
+            tournament_type = await TournamentTypeRepository(session).get_by_id(tournament_type_id)
+            if (
+                tournament_type is None
+                or tournament_type.code == LEGACY_UNKNOWN_TOURNAMENT_TYPE_CODE
+            ):
+                raise CalendarTournamentTypeNotFoundError
+            templates = await TournamentRepository(session).list_active_weekly_templates()
+            return TournamentFormatAvailabilityResultView(
+                tournament_format=self._tournament_format_view(tournament_type),
+                affected_weekdays=tuple(
+                    sorted(
+                        {
+                            row.weekday
+                            for row in templates
+                            if row.tournament_type_id == tournament_type_id
+                        }
+                    )
+                ),
+            )
+
+    async def set_tournament_format_creatable(
+        self,
+        actor_user_id: int,
+        *,
+        tournament_type_id: int,
+        is_creatable: bool,
+    ) -> TournamentFormatAvailabilityResultView:
+        async with self.session_factory() as session:
+            try:
+                await access_policy.require_superadmin(session, actor_user_id)
+                type_repository = TournamentTypeRepository(session)
+                tournament_type = await type_repository.get_by_id(tournament_type_id)
+                if (
+                    tournament_type is None
+                    or tournament_type.code == LEGACY_UNKNOWN_TOURNAMENT_TYPE_CODE
+                ):
+                    raise CalendarTournamentTypeNotFoundError
+                repository = TournamentRepository(session)
+                templates = await repository.list_active_weekly_templates()
+                affected_weekdays = tuple(
+                    sorted(
+                        {
+                            row.weekday
+                            for row in templates
+                            if row.tournament_type_id == tournament_type_id
+                        }
+                    )
+                )
+                tournament_type.is_creatable = is_creatable
+                if not is_creatable and affected_weekdays:
+                    remaining_by_weekday = {
+                        weekday: [
+                            row
+                            for row in templates
+                            if row.weekday == weekday
+                            and row.tournament_type_id != tournament_type_id
+                        ]
+                        for weekday in range(7)
+                    }
+                    replacement = [
+                        WeeklyTournamentTemplate(
+                            weekday=weekday,
+                            tournament_type_id=row.tournament_type_id,
+                            rotation_order=index,
+                            is_active=True,
+                        )
+                        for weekday in range(7)
+                        for index, row in enumerate(
+                            remaining_by_weekday[weekday],
+                            start=1,
+                        )
+                    ]
+                    await repository.replace_active_weekly_templates(replacement)
+                await session.flush()
+                await session.commit()
+                return TournamentFormatAvailabilityResultView(
+                    tournament_format=self._tournament_format_view(tournament_type),
+                    affected_weekdays=affected_weekdays,
+                )
             except Exception:
                 await session.rollback()
                 raise
@@ -1010,6 +1110,16 @@ class TournamentPlanningService:
                 )
                 for weekday in range(7)
             )
+        )
+
+    @staticmethod
+    def _tournament_format_view(tournament_type: TournamentType) -> TournamentFormatView:
+        return TournamentFormatView(
+            id=tournament_type.id,
+            code=tournament_type.code,
+            name=tournament_type.name,
+            calendar_code=tournament_type.calendar_code,
+            is_creatable=tournament_type.is_creatable,
         )
 
 

@@ -68,9 +68,9 @@ fi
         common_header
         + """
 case "$*" in
-  "run alembic heads") printf 'd4e5f6a7b8c9 (head)\n' ;;
+  "run alembic heads") printf 'e5f6a7b8c9d1 (head)\n' ;;
   "run alembic upgrade head") [[ "${FAIL_MIGRATION:-0}" != 1 ]] ;;
-  "run alembic current") printf 'd4e5f6a7b8c9 (head)\n' ;;
+  "run alembic current") printf 'e5f6a7b8c9d1 (head)\n' ;;
 esac
 """,
     )
@@ -276,6 +276,6 @@ def test_successful_deploy_runs_fail_safe_sequence(
     health_index = next(i for i, item in enumerate(commands) if "/curl " in item)
     assert update_index < backup_index < stop_index < sync_index < migrate_index < start_index
     assert start_index < health_index
-    assert "Alembic revision: d4e5f6a7b8c9" in result.stdout
+    assert "Alembic revision: e5f6a7b8c9d1" in result.stdout
     assert "Service state: active" in result.stdout
     assert "Health result: ok" in result.stdout

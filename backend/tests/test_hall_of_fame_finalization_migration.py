@@ -7,7 +7,7 @@ from pathlib import Path
 import pytest
 
 PREVIOUS_REVISION = "bd2e3f4a5b6c"
-HEAD_REVISION = "d4e5f6a7b8c9"
+HEAD_REVISION = "e5f6a7b8c9d1"
 FINALIZATION_REVISION = "ce3f4a5b6c7d"
 
 

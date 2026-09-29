@@ -678,7 +678,9 @@ async def test_versioned_format_configs_preserve_historical_rows(tmp_path: Path)
         assert types["deep_stack_v2"].is_creatable is True
         assert types["main_ko"].is_creatable is True
         assert types["slow_blinds"].is_creatable is True
-        assert types["satellite"].is_creatable is True
+        assert types["satellite"].is_creatable is False
+        assert types["satellite_v2"].is_creatable is True
+        assert types["mystery_quest"].is_creatable is True
         assert types["black_party"].is_creatable is True
 
         bounty = economies[types["bounty"].id]
@@ -880,7 +882,7 @@ async def test_versioned_format_configs_preserve_historical_rows(tmp_path: Path)
         assert types["satellite"].code == "satellite"
         assert types["satellite"].name == "Satellite"
         assert types["satellite"].short_name == "Satellite"
-        assert types["satellite"].calendar_code == "ST"
+        assert types["satellite"].calendar_code == "S1"
         assert (
             satellite.entry_fee,
             satellite.entry_stack,
@@ -1416,6 +1418,123 @@ async def test_weekly_template_replacement_rolls_back_on_repository_failure(
             )
 
         assert await service.get_weekly_template(1) == before
+    finally:
+        await engine.dispose()
+
+
+async def test_tournament_format_availability_updates_template_atomically(
+    tmp_path: Path,
+) -> None:
+    service, session_factory, engine = await create_planning_service(tmp_path / "formats.db")
+    try:
+        await seed_calendar_data(session_factory)
+        satellite_id = tournament_type_id("satellite_v2")
+        await service.replace_weekly_template(
+            1,
+            tournament_type_ids_by_weekday={
+                2: (satellite_id, tournament_type_id("bounty_v3")),
+                6: (tournament_type_id("mystery_bounty"), satellite_id),
+            },
+        )
+        async with session_factory() as session:
+            season = (await session.execute(select(Season))).scalar_one()
+            historical = Tournament(
+                season_id=season.id,
+                scoring_config_id=season.scoring_config_id,
+                tournament_type_id=satellite_id,
+                date=date(2026, 7, 1),
+                status=TournamentStatus.CLOSED,
+                registration_open=False,
+            )
+            player = build_player(
+                telegram_id=202,
+                display_name="Player",
+                status=UserStatus.ACTIVE,
+                role=UserRole.PLAYER,
+            )
+            session.add_all([historical, player])
+            await session.flush()
+            historical_id = historical.id
+            player_id = player.id
+            await session.commit()
+
+        with pytest.raises(AdminAccessDeniedError):
+            await service.set_tournament_format_creatable(
+                player_id,
+                tournament_type_id=satellite_id,
+                is_creatable=False,
+            )
+
+        formats = await service.list_tournament_formats(1)
+        assert "legacy_unknown" not in {item.code for item in formats}
+        assert {item.code: item.is_creatable for item in formats}["satellite"] is False
+        assert {item.code: item.is_creatable for item in formats}["satellite_v2"] is True
+
+        result = await service.set_tournament_format_creatable(
+            1,
+            tournament_type_id=satellite_id,
+            is_creatable=False,
+        )
+        assert result.affected_weekdays == (2, 6)
+        assert result.tournament_format.is_creatable is False
+        template = await service.get_weekly_template(1)
+        assert [item.code for item in template.days[2].tournament_types] == ["bounty_v3"]
+        assert [item.code for item in template.days[6].tournament_types] == ["mystery_bounty"]
+        async with session_factory() as session:
+            assert (await session.get(Tournament, historical_id)).tournament_type_id == satellite_id
+
+        enabled = await service.set_tournament_format_creatable(
+            1,
+            tournament_type_id=satellite_id,
+            is_creatable=True,
+        )
+        assert enabled.tournament_format.is_creatable is True
+        assert await service.get_weekly_template(1) == template
+    finally:
+        await engine.dispose()
+
+
+async def test_tournament_format_disable_rolls_back_flag_and_template(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    service, session_factory, engine = await create_planning_service(
+        tmp_path / "format-rollback.db"
+    )
+    try:
+        await seed_calendar_data(session_factory)
+        satellite_id = tournament_type_id("satellite_v2")
+        await service.replace_weekly_template(
+            1,
+            tournament_type_ids_by_weekday={2: (satellite_id,)},
+        )
+        before = await service.get_weekly_template(1)
+        original_replace = TournamentRepository.replace_active_weekly_templates
+
+        async def fail_after_replace(
+            repository: TournamentRepository,
+            rows: list[WeeklyTournamentTemplate],
+        ) -> None:
+            await original_replace(repository, rows)
+            raise RuntimeError("write failed")
+
+        monkeypatch.setattr(
+            TournamentRepository,
+            "replace_active_weekly_templates",
+            fail_after_replace,
+        )
+        with pytest.raises(RuntimeError, match="write failed"):
+            await service.set_tournament_format_creatable(
+                1,
+                tournament_type_id=satellite_id,
+                is_creatable=False,
+            )
+
+        assert await service.get_weekly_template(1) == before
+        async with session_factory() as session:
+            tournament_type = await session.get(TournamentType, satellite_id)
+            assert tournament_type is not None
+            assert tournament_type.is_creatable is True
     finally:
         await engine.dispose()
 

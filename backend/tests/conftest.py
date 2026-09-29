@@ -47,6 +47,8 @@ TOURNAMENT_TYPE_IDS = {
     "satellite": 18,
     "black_party": 19,
     "month_main": 20,
+    "satellite_v2": 21,
+    "mystery_quest": 22,
 }
 
 TOURNAMENT_TYPE_NAMES = {
@@ -69,6 +71,8 @@ TOURNAMENT_TYPE_NAMES = {
     "satellite": "Satellite",
     "black_party": "Black Party",
     "month_main": "Month Main Tournament",
+    "satellite_v2": "Satellite",
+    "mystery_quest": "Mystery Quest",
 }
 
 TOURNAMENT_TYPE_SHORT_NAMES = {
@@ -91,6 +95,8 @@ TOURNAMENT_TYPE_SHORT_NAMES = {
     "satellite": "Satellite",
     "black_party": "Black Party",
     "month_main": "Month Main Tournament",
+    "satellite_v2": "Satellite",
+    "mystery_quest": "Mystery Quest",
 }
 TOURNAMENT_TYPE_CALENDAR_CODES = {
     "bounty": "B",
@@ -110,9 +116,11 @@ TOURNAMENT_TYPE_CALENDAR_CODES = {
     "deep_stack_v2": "D2",
     "main_ko": "MK",
     "slow_blinds": "SB",
-    "satellite": "ST",
+    "satellite": "S1",
     "black_party": "BP",
     "month_main": "MM",
+    "satellite_v2": "S2",
+    "mystery_quest": "MQ",
 }
 TOURNAMENT_TYPE_DESCRIPTIONS = {
     "bounty": (
@@ -157,6 +165,11 @@ TOURNAMENT_TYPE_DESCRIPTIONS = {
     ),
     "black_party": "Тематическая вечеринка.\nВсе как в White Party.",
     "month_main": None,
+    "satellite_v2": (
+        "Игроки, занявшие 1 и 2 место, отправляются на межклубный турнир.\n"
+        "Плавная структура блайндов."
+    ),
+    "mystery_quest": None,
 }
 CREATABLE_TOURNAMENT_TYPE_CODES = {
     "freezeout_v2",
@@ -165,7 +178,8 @@ CREATABLE_TOURNAMENT_TYPE_CODES = {
     "deep_stack_v2",
     "white_party",
     "slow_blinds",
-    "satellite",
+    "satellite_v2",
+    "mystery_quest",
     "black_party",
     "month_main",
     "mystery_bounty",
@@ -213,6 +227,8 @@ TOURNAMENT_TYPE_RULES = {
     "satellite": ("1.00", "1.00", None, KnockoutMode.NONE, False),
     "black_party": ("1.00", "1.00", None, KnockoutMode.NONE, False),
     "month_main": ("1.00", "1.00", None, KnockoutMode.NONE, False),
+    "satellite_v2": ("1.00", "1.00", None, KnockoutMode.NONE, False),
+    "mystery_quest": ("1.00", "1.00", None, KnockoutMode.NONE, True),
 }
 
 
@@ -391,6 +407,20 @@ def build_tournament_economy_configs() -> list[TournamentEconomyConfig]:
                 addon_fee=1000,
                 addon_stack=125_000,
             ),
+            TournamentEconomyConfig(
+                tournament_type_id=tournament_type_id("satellite_v2"),
+                entry_fee=1000,
+                entry_stack=30_000,
+                addon_fee=1000,
+                addon_stack=125_000,
+            ),
+            TournamentEconomyConfig(
+                tournament_type_id=tournament_type_id("mystery_quest"),
+                entry_fee=800,
+                entry_stack=20_000,
+                addon_fee=800,
+                addon_stack=125_000,
+            ),
         ]
     )
     return configs
@@ -541,6 +571,30 @@ def build_tournament_rebuy_configs() -> list[TournamentRebuyConfig]:
             stack=stack,
         )
         for rebuy_order, stack in ((1, 40_000), (2, 50_000), (3, 60_000))
+    )
+    configs.extend(
+        TournamentRebuyConfig(
+            tournament_type_id=tournament_type_id("satellite_v2"),
+            rebuy_order=rebuy_order,
+            fee=1000,
+            stack=stack,
+        )
+        for rebuy_order, stack in ((1, 40_000), (2, 50_000), (3, 70_000))
+    )
+    configs.extend(
+        TournamentRebuyConfig(
+            tournament_type_id=tournament_type_id("mystery_quest"),
+            rebuy_order=rebuy_order,
+            fee=fee,
+            stack=stack,
+        )
+        for rebuy_order, fee, stack in (
+            (1, 800, 30_000),
+            (2, 800, 50_000),
+            (3, 800, 60_000),
+            (4, 1000, 80_000),
+            (5, 1000, 80_000),
+        )
     )
     return configs
 

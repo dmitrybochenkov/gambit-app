@@ -97,6 +97,16 @@ class WeeklyAutofillAction(StrEnum):
     CANCEL = "cancel"
 
 
+class TournamentFormatAction(StrEnum):
+    LIST = "list"
+    PAGE = "page"
+    DETAIL = "detail"
+    ENABLE = "enable"
+    DISABLE_PREVIEW = "disable_preview"
+    DISABLE_CONFIRM = "disable_confirm"
+    BACK_TEMPLATE = "back_template"
+
+
 class SuperadminTournamentCalendarCallback(
     CallbackData,
     prefix="superadmin_tour_cal",
@@ -135,6 +145,12 @@ class WeeklyTemplateCallback(CallbackData, prefix="weekly_template"):
 class WeeklyAutofillCallback(CallbackData, prefix="weekly_autofill"):
     action: WeeklyAutofillAction
     weekday: int = -1
+    tournament_type_id: int = 0
+    page: int = 0
+
+
+class TournamentFormatCallback(CallbackData, prefix="tournament_format"):
+    action: TournamentFormatAction
     tournament_type_id: int = 0
     page: int = 0
 
@@ -379,6 +395,10 @@ def weekly_template_main_keyboard(*, year: int, month: int, row: int) -> InlineK
             ),
         )
     builder.button(
+        text="🏆 Форматы турниров",
+        callback_data=TournamentFormatCallback(action=TournamentFormatAction.LIST),
+    )
+    builder.button(
         text="✅ Сохранить шаблон",
         callback_data=WeeklyTemplateCallback(action=WeeklyTemplateAction.SAVE),
     )
@@ -391,7 +411,96 @@ def weekly_template_main_keyboard(*, year: int, month: int, row: int) -> InlineK
             row=row,
         ),
     )
-    builder.adjust(2, 2, 2, 1, 1, 1)
+    builder.adjust(4, 3, 1, 1, 1)
+    return builder.as_markup()
+
+
+def tournament_format_list_keyboard(
+    *, formats: list[object], page: int, page_size: int = 6
+) -> InlineKeyboardMarkup:
+    builder = InlineKeyboardBuilder()
+    total_pages = max(1, (len(formats) + page_size - 1) // page_size)
+    current_page = min(max(page, 0), total_pages - 1)
+    items = formats[current_page * page_size : (current_page + 1) * page_size]
+    for item in items:
+        status = "🟢" if item.is_creatable else "⚪️"
+        builder.button(
+            text=f"{status} {item.calendar_code} — {item.name}",
+            callback_data=TournamentFormatCallback(
+                action=TournamentFormatAction.DETAIL,
+                tournament_type_id=item.id,
+                page=current_page,
+            ),
+        )
+    if total_pages > 1:
+        for label, target in (
+            ("◀️", max(0, current_page - 1)),
+            (f"{current_page + 1}/{total_pages}", current_page),
+            ("▶️", min(total_pages - 1, current_page + 1)),
+        ):
+            builder.button(
+                text=label,
+                callback_data=TournamentFormatCallback(
+                    action=TournamentFormatAction.PAGE,
+                    page=target,
+                ),
+            )
+    builder.button(
+        text=labels.ADMIN_CALENDAR_BACK,
+        callback_data=TournamentFormatCallback(action=TournamentFormatAction.BACK_TEMPLATE),
+    )
+    builder.adjust(*([1] * len(items)), *([3] if total_pages > 1 else []), 1)
+    return builder.as_markup()
+
+
+def tournament_format_detail_keyboard(
+    *, tournament_type_id: int, is_creatable: bool, page: int
+) -> InlineKeyboardMarkup:
+    builder = InlineKeyboardBuilder()
+    builder.button(
+        text=("🚫 Отключить для новых турниров" if is_creatable else "✅ Сделать доступным"),
+        callback_data=TournamentFormatCallback(
+            action=(
+                TournamentFormatAction.DISABLE_PREVIEW
+                if is_creatable
+                else TournamentFormatAction.ENABLE
+            ),
+            tournament_type_id=tournament_type_id,
+            page=page,
+        ),
+    )
+    builder.button(
+        text=labels.ADMIN_CALENDAR_BACK,
+        callback_data=TournamentFormatCallback(
+            action=TournamentFormatAction.LIST,
+            page=page,
+        ),
+    )
+    builder.adjust(1)
+    return builder.as_markup()
+
+
+def tournament_format_disable_confirmation_keyboard(
+    *, tournament_type_id: int, page: int
+) -> InlineKeyboardMarkup:
+    builder = InlineKeyboardBuilder()
+    builder.button(
+        text="🚫 Отключить и убрать",
+        callback_data=TournamentFormatCallback(
+            action=TournamentFormatAction.DISABLE_CONFIRM,
+            tournament_type_id=tournament_type_id,
+            page=page,
+        ),
+    )
+    builder.button(
+        text=labels.ADMIN_CALENDAR_CANCEL,
+        callback_data=TournamentFormatCallback(
+            action=TournamentFormatAction.DETAIL,
+            tournament_type_id=tournament_type_id,
+            page=page,
+        ),
+    )
+    builder.adjust(1)
     return builder.as_markup()
 
 

@@ -627,6 +627,95 @@ async def edit_weekly_template(
         await callback.answer(text.WEEKLY_TEMPLATE_INVALID, show_alert=True)
 
 
+@router.callback_query(superadmin_tournaments_kb.TournamentFormatCallback.filter())
+async def manage_tournament_formats(
+    callback: CallbackQuery,
+    callback_data: superadmin_tournaments_kb.TournamentFormatCallback,
+    state: FSMContext,
+) -> None:
+    try:
+        draft, _context = await _weekly_template_state(state)
+        _validate_tournament_format_callback(callback_data)
+        action = callback_data.action
+        if action == superadmin_tournaments_kb.TournamentFormatAction.BACK_TEMPLATE:
+            await _render_weekly_template_main(callback, state)
+            return
+        if action in {
+            superadmin_tournaments_kb.TournamentFormatAction.LIST,
+            superadmin_tournaments_kb.TournamentFormatAction.PAGE,
+        }:
+            await _render_tournament_format_list(callback, page=callback_data.page)
+            return
+        if action == superadmin_tournaments_kb.TournamentFormatAction.DETAIL:
+            await _render_tournament_format_detail(
+                callback,
+                tournament_type_id=callback_data.tournament_type_id,
+                page=callback_data.page,
+            )
+            return
+        if action == superadmin_tournaments_kb.TournamentFormatAction.ENABLE:
+            await tournament_planning_service.set_tournament_format_creatable(
+                await resolve_admin_actor_user_id(callback.from_user.id),
+                tournament_type_id=callback_data.tournament_type_id,
+                is_creatable=True,
+            )
+            await _render_tournament_format_detail(
+                callback,
+                tournament_type_id=callback_data.tournament_type_id,
+                page=callback_data.page,
+            )
+            return
+        if action == superadmin_tournaments_kb.TournamentFormatAction.DISABLE_PREVIEW:
+            view = await tournament_planning_service.get_tournament_format(
+                await resolve_admin_actor_user_id(callback.from_user.id),
+                callback_data.tournament_type_id,
+            )
+            affected = set(view.affected_weekdays)
+            affected.update(
+                weekday
+                for weekday, type_ids in draft.items()
+                if callback_data.tournament_type_id in type_ids
+            )
+            await callback.answer()
+            if callback.message is not None:
+                await edit_message_if_changed(
+                    callback.message,
+                    text=tournament_fmt.tournament_format_disable_confirmation(
+                        view.tournament_format,
+                        tuple(sorted(affected)),
+                    ),
+                    reply_markup=(
+                        superadmin_tournaments_kb.tournament_format_disable_confirmation_keyboard(
+                            tournament_type_id=callback_data.tournament_type_id,
+                            page=callback_data.page,
+                        )
+                    ),
+                )
+            return
+        if action == superadmin_tournaments_kb.TournamentFormatAction.DISABLE_CONFIRM:
+            await tournament_planning_service.set_tournament_format_creatable(
+                await resolve_admin_actor_user_id(callback.from_user.id),
+                tournament_type_id=callback_data.tournament_type_id,
+                is_creatable=False,
+            )
+            updated_draft = {
+                weekday: [
+                    type_id for type_id in type_ids if type_id != callback_data.tournament_type_id
+                ]
+                for weekday, type_ids in draft.items()
+            }
+            await _store_weekly_template_draft(state, updated_draft)
+            await _render_tournament_format_detail(
+                callback,
+                tournament_type_id=callback_data.tournament_type_id,
+                page=callback_data.page,
+            )
+    except AdminAccessDeniedError:
+        await callback.answer(panel_text.INSUFFICIENT_RIGHTS, show_alert=True)
+    except (CalendarTournamentTypeNotFoundError, WeeklyTemplateInvalidError):
+        await callback.answer(text.TOURNAMENT_FORMAT_INVALID, show_alert=True)
+
+
 @router.callback_query(
     superadmin_tournaments_kb.SuperadminTournamentCalendarFormatCallback.filter()
 )
@@ -1002,6 +1091,63 @@ async def _weekly_template_state(
     except (KeyError, TypeError, ValueError) as exc:
         raise WeeklyTemplateInvalidError from exc
     return draft, context
+
+
+def _validate_tournament_format_callback(
+    callback_data: superadmin_tournaments_kb.TournamentFormatCallback,
+) -> None:
+    if callback_data.page < 0:
+        raise WeeklyTemplateInvalidError
+    if (
+        callback_data.action
+        in {
+            superadmin_tournaments_kb.TournamentFormatAction.DETAIL,
+            superadmin_tournaments_kb.TournamentFormatAction.ENABLE,
+            superadmin_tournaments_kb.TournamentFormatAction.DISABLE_PREVIEW,
+            superadmin_tournaments_kb.TournamentFormatAction.DISABLE_CONFIRM,
+        }
+        and callback_data.tournament_type_id <= 0
+    ):
+        raise WeeklyTemplateInvalidError
+
+
+async def _render_tournament_format_list(callback: CallbackQuery, *, page: int) -> None:
+    formats = await tournament_planning_service.list_tournament_formats(
+        await resolve_admin_actor_user_id(callback.from_user.id)
+    )
+    await callback.answer()
+    if callback.message is not None:
+        await edit_message_if_changed(
+            callback.message,
+            text=tournament_fmt.tournament_format_list(),
+            reply_markup=superadmin_tournaments_kb.tournament_format_list_keyboard(
+                formats=formats,
+                page=page,
+            ),
+        )
+
+
+async def _render_tournament_format_detail(
+    callback: CallbackQuery,
+    *,
+    tournament_type_id: int,
+    page: int,
+) -> None:
+    view = await tournament_planning_service.get_tournament_format(
+        await resolve_admin_actor_user_id(callback.from_user.id),
+        tournament_type_id,
+    )
+    await callback.answer()
+    if callback.message is not None:
+        await edit_message_if_changed(
+            callback.message,
+            text=tournament_fmt.tournament_format_detail(view.tournament_format),
+            reply_markup=superadmin_tournaments_kb.tournament_format_detail_keyboard(
+                tournament_type_id=tournament_type_id,
+                is_creatable=view.tournament_format.is_creatable,
+                page=page,
+            ),
+        )
 
 
 async def _weekly_autofill_state(

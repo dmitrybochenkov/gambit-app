@@ -24,6 +24,7 @@ from app.db.models import (
     Season,
     Tournament,
     TournamentResult,
+    TournamentType,
 )
 from app.db.models.enums import PlayerRewardType, TournamentStatus, UserRole, UserStatus
 
@@ -89,6 +90,11 @@ async def seed_scoring_v2_data(session_factory: async_sessionmaker) -> None:
         await seed_tournament_types_async(session)
         await seed_tournament_configs_async(session)
         await seed_tournament_rules_async(session)
+        satellite = (
+            await session.execute(select(TournamentType).where(TournamentType.code == "satellite"))
+        ).scalar_one()
+        satellite.is_creatable = True
+        satellite.calendar_code = "ST"
         session.add(
             Season(
                 name="Осень 2026",

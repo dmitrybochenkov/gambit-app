@@ -181,6 +181,8 @@ from app.services.dto.tournaments import (
     TournamentCalendarTypeOptionView,
     TournamentCalendarWeekView,
     TournamentEconomyView,
+    TournamentFormatAvailabilityResultView,
+    TournamentFormatView,
     TournamentRulesView,
     TournamentScheduleDetailsView,
     TournamentView,
@@ -199,7 +201,10 @@ from app.services.result_service import (
 )
 from app.services.tournament_check_in_service import CheckInResultView, TournamentCheckInService
 from app.services.tournament_photo_service import TournamentPhotoService
-from app.services.tournament_planning_service import CalendarTournamentTypeNotFoundError
+from app.services.tournament_planning_service import (
+    CalendarTournamentTypeNotFoundError,
+    WeeklyTemplateInvalidError,
+)
 from app.services.tournament_publication_service import TournamentPublicationService
 from app.services.tournament_service import TournamentRegistrationAlreadyCheckedInError
 from app.services.user_access_service import UserAccessService
@@ -1266,6 +1271,201 @@ async def test_weekly_template_editor_draft_cancel_and_save_preserve_week_contex
         },
     )
     assert state.data == {}
+
+
+def test_weekly_template_root_uses_four_plus_three_weekday_rows() -> None:
+    keyboard = superadmin_tournaments_kb.weekly_template_main_keyboard(
+        year=2026,
+        month=9,
+        row=5,
+    )
+
+    assert [[button.text for button in row] for row in keyboard.inline_keyboard] == [
+        ["Понедельник", "Вторник", "Среда", "Четверг"],
+        ["Пятница", "Суббота", "Воскресенье"],
+        ["🏆 Форматы турниров"],
+        ["✅ Сохранить шаблон"],
+        ["❌ Отмена"],
+    ]
+
+
+async def test_tournament_format_navigation_preserves_draft_and_disable_updates_it(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    tournament_format = TournamentFormatView(
+        id=21,
+        code="satellite_v2",
+        name="Satellite",
+        calendar_code="S2",
+        is_creatable=True,
+    )
+    format_view = TournamentFormatAvailabilityResultView(
+        tournament_format=tournament_format,
+        affected_weekdays=(2,),
+    )
+    disabled_view = replace(
+        format_view,
+        tournament_format=replace(tournament_format, is_creatable=False),
+    )
+    template = WeeklyTemplateView(
+        days=tuple(
+            WeeklyTemplateDayView(
+                weekday=weekday,
+                tournament_types=(
+                    WeeklyTemplateTypeView(
+                        id=10,
+                        code="bounty_v3",
+                        name="Bounty",
+                        calendar_code="B3",
+                        is_creatable=True,
+                    ),
+                )
+                if weekday == 2
+                else (),
+            )
+            for weekday in range(7)
+        )
+    )
+    planning_service = SimpleNamespace(
+        list_tournament_formats=AsyncMock(return_value=[tournament_format]),
+        get_tournament_format=AsyncMock(return_value=format_view),
+        set_tournament_format_creatable=AsyncMock(return_value=disabled_view),
+        get_weekly_template=AsyncMock(return_value=template),
+        list_weekly_template_add_options=AsyncMock(return_value=[]),
+    )
+    monkeypatch.setattr(
+        superadmin_tournament_handlers,
+        "tournament_planning_service",
+        planning_service,
+    )
+    state = MutableState()
+    draft = {
+        weekday: ([21, 10] if weekday == 2 else ([21] if weekday == 6 else []))
+        for weekday in range(7)
+    }
+    state.data.update(
+        weekly_template_draft=draft,
+        weekly_template_context={"year": 2026, "month": 9, "row": 5},
+    )
+    callback = SimpleNamespace(
+        from_user=SimpleNamespace(id=100),
+        message=SimpleNamespace(edit_text=AsyncMock()),
+        answer=AsyncMock(),
+    )
+
+    await superadmin_tournament_handlers.manage_tournament_formats(
+        callback,
+        superadmin_tournaments_kb.TournamentFormatCallback(
+            action=superadmin_tournaments_kb.TournamentFormatAction.DISABLE_PREVIEW,
+            tournament_type_id=21,
+        ),
+        state,
+    )
+    preview_text = callback.message.edit_text.await_args.args[0]
+    assert "• Ср" in preview_text
+    assert "• Вс" in preview_text
+    assert state.data["weekly_template_draft"] == draft
+
+    await superadmin_tournament_handlers.manage_tournament_formats(
+        callback,
+        superadmin_tournaments_kb.TournamentFormatCallback(
+            action=superadmin_tournaments_kb.TournamentFormatAction.DISABLE_CONFIRM,
+            tournament_type_id=21,
+        ),
+        state,
+    )
+    assert state.data["weekly_template_draft"][2] == [10]
+    assert state.data["weekly_template_draft"][6] == []
+    assert state.data["weekly_template_context"] == {"year": 2026, "month": 9, "row": 5}
+
+    await superadmin_tournament_handlers.manage_tournament_formats(
+        callback,
+        superadmin_tournaments_kb.TournamentFormatCallback(
+            action=superadmin_tournaments_kb.TournamentFormatAction.BACK_TEMPLATE,
+        ),
+        state,
+    )
+    assert state.data["weekly_template_draft"][2] == [10]
+
+
+async def test_tournament_format_failed_disable_preserves_fsm_draft(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    planning_service = SimpleNamespace(
+        set_tournament_format_creatable=AsyncMock(side_effect=WeeklyTemplateInvalidError),
+    )
+    monkeypatch.setattr(
+        superadmin_tournament_handlers,
+        "tournament_planning_service",
+        planning_service,
+    )
+    draft = {weekday: ([21] if weekday == 2 else []) for weekday in range(7)}
+    state = MutableState()
+    state.data.update(
+        weekly_template_draft=draft,
+        weekly_template_context={"year": 2026, "month": 9, "row": 5},
+    )
+    callback = SimpleNamespace(
+        from_user=SimpleNamespace(id=100),
+        message=None,
+        answer=AsyncMock(),
+    )
+
+    await superadmin_tournament_handlers.manage_tournament_formats(
+        callback,
+        superadmin_tournaments_kb.TournamentFormatCallback(
+            action=superadmin_tournaments_kb.TournamentFormatAction.DISABLE_CONFIRM,
+            tournament_type_id=21,
+        ),
+        state,
+    )
+
+    assert state.data["weekly_template_draft"] == draft
+    callback.answer.assert_awaited_once_with(
+        superadmin_tournament_texts.TOURNAMENT_FORMAT_INVALID,
+        show_alert=True,
+    )
+
+
+@pytest.mark.parametrize(
+    "callback_data",
+    [
+        superadmin_tournaments_kb.TournamentFormatCallback(
+            action=superadmin_tournaments_kb.TournamentFormatAction.PAGE,
+            page=-1,
+        ),
+        superadmin_tournaments_kb.TournamentFormatCallback(
+            action=superadmin_tournaments_kb.TournamentFormatAction.DISABLE_CONFIRM,
+            tournament_type_id=0,
+        ),
+    ],
+)
+async def test_tournament_format_invalid_callback_preserves_fsm_draft(
+    callback_data: superadmin_tournaments_kb.TournamentFormatCallback,
+) -> None:
+    draft = {weekday: ([21] if weekday == 2 else []) for weekday in range(7)}
+    state = MutableState()
+    state.data.update(
+        weekly_template_draft=draft,
+        weekly_template_context={"year": 2026, "month": 9, "row": 5},
+    )
+    callback = SimpleNamespace(
+        from_user=SimpleNamespace(id=100),
+        message=None,
+        answer=AsyncMock(),
+    )
+
+    await superadmin_tournament_handlers.manage_tournament_formats(
+        callback,
+        callback_data,
+        state,
+    )
+
+    assert state.data["weekly_template_draft"] == draft
+    callback.answer.assert_awaited_once_with(
+        superadmin_tournament_texts.TOURNAMENT_FORMAT_INVALID,
+        show_alert=True,
+    )
 
 
 async def test_weekly_autofill_initializes_and_edits_one_off_fsm_draft(

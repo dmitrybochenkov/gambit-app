@@ -244,6 +244,44 @@ def weekly_autofill_day(tournament_date: date, tournament_type: object | None) -
     return "\n".join(lines)
 
 
+def tournament_format_list() -> str:
+    return "🏆 Форматы турниров\n\nВыберите формат:"
+
+
+def tournament_format_detail(tournament_format: object) -> str:
+    status = (
+        "🟢 Доступен для создания"
+        if tournament_format.is_creatable
+        else "⚪️ Недоступен для создания"
+    )
+    return "\n".join(
+        [
+            f"🏆 {tournament_format.name}",
+            "",
+            f"Код: {tournament_format.calendar_code}",
+            f"Статус: {status}",
+        ]
+    )
+
+
+def tournament_format_disable_confirmation(
+    tournament_format: object,
+    affected_weekdays: tuple[int, ...],
+) -> str:
+    lines = [f"⚠️ Отключить {tournament_format.calendar_code}?"]
+    if affected_weekdays:
+        lines.extend(
+            [
+                "",
+                f"{tournament_format.calendar_code} используется в шаблоне расписания:",
+                *(f"• {WEEKDAY_SHORT_NAMES[weekday]}" for weekday in affected_weekdays),
+                "",
+                "При отключении формат будет удалён из шаблона.",
+            ]
+        )
+    return "\n".join(lines)
+
+
 def _calendar_week_range(week_start: date, week_end: date) -> str:
     if week_start.month == week_end.month and week_start.year == week_end.year:
         return f"{week_start.day}–{week_end.day} {common_texts.MONTHS[week_end.month]}"

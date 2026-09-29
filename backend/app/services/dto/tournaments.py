@@ -148,6 +148,21 @@ class WeeklyTemplateView:
 
 
 @dataclass(frozen=True)
+class TournamentFormatView:
+    id: int
+    code: str
+    name: str
+    calendar_code: str
+    is_creatable: bool
+
+
+@dataclass(frozen=True)
+class TournamentFormatAvailabilityResultView:
+    tournament_format: TournamentFormatView
+    affected_weekdays: tuple[int, ...]
+
+
+@dataclass(frozen=True)
 class TournamentCalendarFormatDetailView:
     id: int
     name: str

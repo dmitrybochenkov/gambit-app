@@ -21,7 +21,9 @@ EXPECTED_CODES = {
     "white_party": ("White Party", "WP"),
     "main_ko": ("MAIN KO", "MK"),
     "slow_blinds": ("Slow Blinds", "SB"),
-    "satellite": ("Satellite", "ST"),
+    "satellite": ("Satellite", "S1"),
+    "satellite_v2": ("Satellite", "S2"),
+    "mystery_quest": ("Mystery Quest", "MQ"),
     "black_party": ("Black Party", "BP"),
     "month_main": ("Month Main Tournament", "MM"),
     "legacy_unknown": ("Турнир", "?"),
@@ -107,7 +109,15 @@ def test_tournament_type_calendar_code_migration_upgrade_and_downgrade(
 
     assert "calendar_code" not in columns
     for code, (short_name, _calendar_code) in EXPECTED_CODES.items():
-        if code in {"classic_v3", "slow_blinds", "satellite", "black_party", "month_main"}:
+        if code in {
+            "classic_v3",
+            "slow_blinds",
+            "satellite",
+            "satellite_v2",
+            "mystery_quest",
+            "black_party",
+            "month_main",
+        }:
             continue
         assert short_names[code] == short_name
     assert short_names["classic_v3"] == "Classic"
@@ -133,7 +143,7 @@ def test_month_main_migration_preserves_populated_existing_data(
         ).fetchall()
         before_tournaments = connection.execute("SELECT * FROM tournaments ORDER BY id").fetchall()
 
-    _month_main_alembic(db_path, "upgrade", "head")
+    _month_main_alembic(db_path, "upgrade", "9b0c1d2e3f4a")
     with sqlite3.connect(db_path) as connection:
         after_types = connection.execute("SELECT * FROM tournament_types ORDER BY id").fetchall()
         code_index = next(
