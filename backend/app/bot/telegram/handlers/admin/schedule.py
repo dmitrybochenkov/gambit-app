@@ -41,6 +41,7 @@ async def review_calendar_plan(
                     callback.message,
                     text=publication_fmt.schedule_publication_preview(preview),
                     reply_markup=admin_calendar_kb.schedule_publication_preview_keyboard(),
+                    parse_mode="HTML",
                 )
             return
 
@@ -84,7 +85,11 @@ async def _publish_schedule(callback: CallbackQuery, preview: object) -> object:
         try:
             first_message_id: int | None = None
             for text in messages:
-                message = await callback.bot.send_message(chat_id=destination.chat_id, text=text)
+                message = await callback.bot.send_message(
+                    chat_id=destination.chat_id,
+                    text=text,
+                    parse_mode="HTML",
+                )
                 if first_message_id is None:
                     first_message_id = message.message_id
         except TelegramAPIError:

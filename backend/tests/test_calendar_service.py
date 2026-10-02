@@ -594,6 +594,12 @@ async def test_calendar_format_detail_is_restricted_to_selected_month(
         )
 
         assert detail.name == "Deep Stack"
+        assert detail.calendar_code == "D"
+        assert detail.is_creatable is False
+        assigned = await service.get_calendar_tournament_detail(1, 1)
+        assert assigned.tournament.id == 1
+        assert assigned.knockout_small_points == 15
+        assert assigned.knockout_big_points == 60
         month = await service.get_calendar_month(1, year=2026, month=9)
         assert [(item.calendar_code, item.short_name) for item in month.tournament_types] == [
             ("D", "Дипстек")

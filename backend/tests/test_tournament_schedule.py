@@ -34,6 +34,14 @@ from app.db.models.enums import (
     UserRole,
     UserStatus,
 )
+from app.services.dto.schedules import TournamentRebuyView
+from app.services.dto.tournaments import (
+    TournamentCalendarTournamentDetailView,
+    TournamentEconomyView,
+    TournamentFormatView,
+    TournamentRulesView,
+    TournamentView,
+)
 from app.services.tournament_check_in_service import (
     TournamentCheckInClosedError,
     TournamentCheckInService,
@@ -184,17 +192,116 @@ async def test_schedule_tournament_details_are_db_driven(tmp_path: Path) -> None
 
         assert details.tournament_type_name == "Тестовый DB-турнир"
         assert details.description == "Уникальное описание из базы"
-        assert "Суббота, 22 августа — Тестовый DB-турнир" in text
+        assert "🗓 Суббота, 22 августа" in text
+        assert "<b>ТЕСТОВЫЙ DB-ТУРНИР</b>" in text
         assert "Уникальное описание из базы" in text
-        assert "Вход: 1 234 ₽ — 56 789 фишек" in text
-        assert "Ребай: 3 456 ₽ — 78 901 фишек" in text
-        assert "2 345 ₽ — 67 890 фишек" in text
-        assert "Множитель рейтинга: ×1.25" in text
-        assert "Множитель призовых мест: ×1.5 (1, 3)" in text
-        assert "Нокауты: КО и БКО" in text
-        assert "Бонусные очки" in text
+        assert "<b>Вход:</b>\n💵 1 234 ₽ — 56 789 фишек" in text
+        assert "1️⃣ 3 456 ₽ — 78 901 фишек" in text
+        assert "➕ 2 345 ₽ — 67 890 фишек" in text
+        assert "Множитель" not in text
+        assert "Нокауты" not in text
+        assert "Бонусные очки" not in text
     finally:
         await engine.dispose()
+
+
+def test_public_tournament_card_escapes_text_and_numbers_each_rebuy() -> None:
+    details = type(
+        "Details",
+        (),
+        {
+            "date": date(2026, 8, 22),
+            "tournament_type_name": "Quest <Royal>",
+            "description": "A&B <лучший>",
+            "economy": TournamentEconomyView(
+                entry_fee=1000,
+                entry_stack=10_000,
+                addon_fee=0,
+                addon_stack=1,
+                rebuys=[
+                    TournamentRebuyView(fee=index * 100, stack=index * 1000)
+                    for index in range(1, 12)
+                ],
+            ),
+        },
+    )()
+
+    rendered = tournament_fmt.schedule_detail(details)
+
+    assert "<b>QUEST &lt;ROYAL&gt;</b>" in rendered
+    assert "A&amp;B &lt;лучший&gt;" in rendered
+    assert "1️⃣ 100 ₽ — 1 000 фишек" in rendered
+    assert "🔟 1 000 ₽ — 10 000 фишек" in rendered
+    assert "11. 1 100 ₽ — 11 000 фишек" in rendered
+    assert "Аддон" not in rendered
+
+
+def test_admin_tournament_card_renders_actual_settings_in_russian_format() -> None:
+    tournament_format = TournamentFormatView(
+        id=1,
+        code="mystery_quest",
+        name="Mystery Quest",
+        calendar_code="MQ",
+        is_creatable=True,
+        description="Описание",
+        economy=TournamentEconomyView(
+            entry_fee=1000,
+            entry_stack=10_000,
+            addon_fee=500,
+            addon_stack=10_000,
+            rebuys=[],
+        ),
+        rules=TournamentRulesView(
+            points_multiplier=Decimal("1.50"),
+            prize_place_multiplier=Decimal("1.30"),
+            prize_place_multiplier_places="[1, 2]",
+            knockout_mode="small_big",
+            supports_bonus_points=True,
+        ),
+    )
+
+    rendered = tournament_fmt.tournament_format_detail(tournament_format)
+
+    assert "<b>MYSTERY QUEST</b>" in rendered
+    assert "🟢 Код формата: MQ" in rendered
+    assert "🟢 Статус: доступен для создания" in rendered
+    assert "🟢 Нокауты: KO и BKO" in rendered
+    assert "🟢 Бонусные очки: включены" in rendered
+    assert "🟢 Множитель турнирных очков: ×1,5" in rendered
+    assert "    1️⃣ — ×1,3" in rendered
+    assert "    2️⃣ — ×1,3" in rendered
+
+
+def test_assigned_admin_card_uses_tournament_scoring_snapshot_without_type_status() -> None:
+    detail = TournamentCalendarTournamentDetailView(
+        tournament=TournamentView(
+            id=1,
+            date=date(2026, 8, 22),
+            tournament_type_id=2,
+            tournament_type_name="MAIN KO",
+            tournament_type_calendar_code="MK",
+            registration_open=True,
+        ),
+        description=None,
+        economy=None,
+        rules=TournamentRulesView(
+            points_multiplier=Decimal("1"),
+            prize_place_multiplier=Decimal("1"),
+            prize_place_multiplier_places=None,
+            knockout_mode="main_ko",
+            supports_bonus_points=False,
+        ),
+        knockout_small_points=15,
+        knockout_big_points=60,
+        knockout_main_points=30,
+        knockout_main_final_points=100,
+    )
+
+    rendered = tournament_fmt.superadmin_calendar_tournament_card(detail, 7)
+
+    assert "🟢 Нокауты: KO — 30, BKO — 100" in rendered
+    assert "Статус:" not in rendered
+    assert "Зарегистрировано: 7" in rendered
 
 
 async def test_player_schedule_is_limited_to_current_business_week(tmp_path: Path) -> None:

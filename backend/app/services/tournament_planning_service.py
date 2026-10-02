@@ -11,6 +11,7 @@ from app.common.clock import Clock, club_clock
 from app.config import settings
 from app.db.models import Tournament, TournamentType, WeeklyTournamentTemplate
 from app.db.models.enums import TournamentStatus
+from app.db.repositories.scoring_config_repository import ScoringConfigRepository
 from app.db.repositories.season_repository import SeasonRepository
 from app.db.repositories.tournament_registration_repository import (
     TournamentRegistrationRepository,
@@ -38,6 +39,7 @@ from app.services.dto.tournaments import (
     TournamentCalendarFormatDetailView,
     TournamentCalendarMonthTypeView,
     TournamentCalendarMonthView,
+    TournamentCalendarTournamentDetailView,
     TournamentCalendarTypeChangePreviewView,
     TournamentCalendarTypeOptionView,
     TournamentCalendarWeekDetailView,
@@ -343,15 +345,13 @@ class TournamentPlanningService:
     ) -> TournamentFormatAvailabilityResultView:
         async with self.session_factory() as session:
             await access_policy.require_superadmin(session, actor_user_id)
-            tournament_type = await TournamentTypeRepository(session).get_by_id(tournament_type_id)
-            if (
-                tournament_type is None
-                or tournament_type.code == LEGACY_UNKNOWN_TOURNAMENT_TYPE_CODE
-            ):
+            type_repository = TournamentTypeRepository(session)
+            config = await type_repository.get_config(tournament_type_id)
+            if config is None or config.tournament_type.code == LEGACY_UNKNOWN_TOURNAMENT_TYPE_CODE:
                 raise CalendarTournamentTypeNotFoundError
             templates = await TournamentRepository(session).list_active_weekly_templates()
             return TournamentFormatAvailabilityResultView(
-                tournament_format=self._tournament_format_view(tournament_type),
+                tournament_format=_tournament_format_detail_view(config),
                 affected_weekdays=tuple(
                     sorted(
                         {
@@ -417,11 +417,15 @@ class TournamentPlanningService:
                     ]
                     await repository.replace_active_weekly_templates(replacement)
                 await session.flush()
-                await session.commit()
-                return TournamentFormatAvailabilityResultView(
-                    tournament_format=self._tournament_format_view(tournament_type),
+                updated_config = await type_repository.get_config(tournament_type_id)
+                if updated_config is None:
+                    raise CalendarTournamentTypeNotFoundError
+                view = TournamentFormatAvailabilityResultView(
+                    tournament_format=_tournament_format_detail_view(updated_config),
                     affected_weekdays=affected_weekdays,
                 )
+                await session.commit()
+                return view
             except Exception:
                 await session.rollback()
                 raise
@@ -445,6 +449,34 @@ class TournamentPlanningService:
             if config is None:
                 raise CalendarTournamentTypeNotFoundError
             return _calendar_format_detail_view(config)
+
+    async def get_calendar_tournament_detail(
+        self,
+        actor_user_id: int,
+        tournament_id: int,
+    ) -> TournamentCalendarTournamentDetailView:
+        async with self.session_factory() as session:
+            await access_policy.require_superadmin(session, actor_user_id)
+            tournament = await TournamentRepository(session).get_by_id(tournament_id)
+            if tournament is None:
+                raise CalendarTournamentNotFoundError
+            config = await TournamentTypeRepository(session).get_config(
+                tournament.tournament_type_id
+            )
+            scoring = await ScoringConfigRepository(session).get_by_id(tournament.scoring_config_id)
+            if config is None or scoring is None:
+                raise CalendarTournamentNotFoundError
+            detail = _calendar_format_detail_view(config)
+            return TournamentCalendarTournamentDetailView(
+                tournament=tournament_view(tournament),
+                description=detail.description,
+                economy=detail.economy,
+                rules=detail.rules,
+                knockout_small_points=scoring.knockout_small_points,
+                knockout_big_points=scoring.knockout_big_points,
+                knockout_main_points=scoring.knockout_main_points,
+                knockout_main_final_points=scoring.knockout_main_final_points,
+            )
 
     async def get_calendar_create_preview(
         self,
@@ -1127,7 +1159,10 @@ def _calendar_format_detail_view(
 ) -> TournamentCalendarFormatDetailView:
     return TournamentCalendarFormatDetailView(
         id=config.tournament_type.id,
+        code=config.tournament_type.code,
         name=config.tournament_type.name,
+        calendar_code=config.tournament_type.calendar_code,
+        is_creatable=config.tournament_type.is_creatable,
         description=config.tournament_type.description,
         economy=(
             TournamentEconomyView(
@@ -1153,6 +1188,20 @@ def _calendar_format_detail_view(
             if config.rule is not None
             else None
         ),
+    )
+
+
+def _tournament_format_detail_view(config: TournamentTypeConfigRecord) -> TournamentFormatView:
+    detail = _calendar_format_detail_view(config)
+    return TournamentFormatView(
+        id=detail.id,
+        code=detail.code,
+        name=detail.name,
+        calendar_code=detail.calendar_code,
+        is_creatable=detail.is_creatable,
+        description=detail.description,
+        economy=detail.economy,
+        rules=detail.rules,
     )
 
 

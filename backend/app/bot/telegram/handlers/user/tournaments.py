@@ -80,6 +80,7 @@ async def navigate_tournament_schedule(
             callback.message,
             text=tournament_fmt.schedule_detail(details),
             reply_markup=user_tournaments_kb.tournament_schedule_detail_keyboard(),
+            parse_mode="HTML",
         )
 
 

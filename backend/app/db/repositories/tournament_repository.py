@@ -306,7 +306,7 @@ class TournamentRepository:
             .join(TournamentResult, TournamentResult.tournament_id == Tournament.id)
             .where(closed_tournament_filter())
             .group_by("year")
-            .order_by(func.strftime("%Y", Tournament.date))
+            .order_by(func.strftime("%Y", Tournament.date).desc())
         )
         return [int(year) for year in result.scalars()]
 
@@ -319,7 +319,7 @@ class TournamentRepository:
                 func.strftime("%Y", Tournament.date) == str(year),
             )
             .group_by("month")
-            .order_by(func.strftime("%m", Tournament.date))
+            .order_by(func.strftime("%m", Tournament.date).desc())
         )
         return [int(month) for month in result.scalars()]
 
@@ -355,7 +355,7 @@ class TournamentRepository:
                 TournamentType.short_name,
                 TournamentType.code,
             )
-            .order_by(Tournament.date, Tournament.id)
+            .order_by(Tournament.date.desc(), Tournament.id.desc())
         )
         return [
             HistoricalTournamentRow(

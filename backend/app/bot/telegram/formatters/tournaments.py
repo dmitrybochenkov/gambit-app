@@ -1,5 +1,6 @@
 from collections.abc import Iterable
 from datetime import date
+from html import escape
 
 from app.bot.telegram.formatters import common as fmt_common
 from app.bot.telegram.texts import common as common_texts
@@ -65,17 +66,14 @@ def schedule_root(tournaments: list) -> str:
 
 
 def schedule_detail(details: object) -> str:
-    lines = [
-        f"🗓 {label(details)}",
-    ]
-    if details.description:
-        lines.extend(["", str(details.description)])
-    if details.economy is not None:
-        lines.extend(["", *_economy_lines(details.economy)])
-    rule_lines = _rule_lines(details.rules)
-    if rule_lines:
-        lines.extend(["", *rule_lines])
-    return "\n".join(lines)
+    weekday = common_texts.WEEKDAYS[details.date.weekday()]
+    month = common_texts.MONTHS[details.date.month]
+    return public_tournament_card(
+        name=details.tournament_type_name,
+        description=details.description,
+        economy=details.economy,
+        date_label=f"{weekday}, {details.date.day} {month}",
+    )
 
 
 def superadmin_open_list(page: object) -> str:
@@ -170,15 +168,7 @@ def _calendar_month_row(week_label: str, cells: Iterable[object]) -> str:
 
 
 def superadmin_calendar_format_detail(view: object) -> str:
-    lines = [f"🏆 {view.name}"]
-    if view.description:
-        lines.extend(["", str(view.description)])
-    if view.economy is not None:
-        lines.extend(["", *_economy_lines(view.economy)])
-    rule_lines = _rule_lines(view.rules)
-    if rule_lines:
-        lines.extend(["", *rule_lines])
-    return "\n".join(lines)
+    return _admin_tournament_card(view, show_creatable_status=True)
 
 
 def superadmin_calendar_week(view: object) -> str:
@@ -249,19 +239,7 @@ def tournament_format_list() -> str:
 
 
 def tournament_format_detail(tournament_format: object) -> str:
-    status = (
-        "🟢 Доступен для создания"
-        if tournament_format.is_creatable
-        else "⚪️ Недоступен для создания"
-    )
-    return "\n".join(
-        [
-            f"🏆 {tournament_format.name}",
-            "",
-            f"Код: {tournament_format.calendar_code}",
-            f"Статус: {status}",
-        ]
-    )
+    return _admin_tournament_card(tournament_format, show_creatable_status=True)
 
 
 def tournament_format_disable_confirmation(
@@ -329,19 +307,28 @@ def superadmin_calendar_approval_preview(view: object) -> str:
     return "\n".join(lines)
 
 
-def superadmin_calendar_tournament_card(day: object) -> str:
-    tournament = day.tournament
-    if tournament is None:
-        return "Турнир не найден."
-    return "\n".join(
-        [
-            f"{_date_with_weekday(tournament.date)}",
-            type_name(tournament),
-            "",
-            f"Зарегистрировано: {day.registrations_count}",
-            f"Регистрация: {'открыта' if tournament.registration_open else 'закрыта'}",
-        ]
+def superadmin_calendar_tournament_card(detail: object, registrations_count: int) -> str:
+    weekday = common_texts.WEEKDAYS[detail.tournament.date.weekday()]
+    month = common_texts.MONTHS[detail.tournament.date.month]
+    public_card = public_tournament_card(
+        name=type_name(detail.tournament),
+        description=detail.description,
+        economy=detail.economy,
+        date_label=f"{weekday}, {detail.tournament.date.day} {month}",
     )
+    parameters = _admin_parameters(
+        detail,
+        show_creatable_status=False,
+        knockout_small_points=detail.knockout_small_points,
+        knockout_big_points=detail.knockout_big_points,
+        knockout_main_points=detail.knockout_main_points,
+        knockout_main_final_points=detail.knockout_main_final_points,
+    )
+    operational = [
+        f"Зарегистрировано: {registrations_count}",
+        "Регистрация: " + ("открыта" if detail.tournament.registration_open else "закрыта"),
+    ]
+    return "\n\n".join([public_card, "\n".join(parameters), "\n".join(operational)])
 
 
 def superadmin_calendar_type_change_preview(view: object) -> str:
@@ -426,70 +413,161 @@ def _delete_player_details(preview: object) -> list[str]:
     return lines
 
 
-def _economy_lines(economy: object) -> list[str]:
-    lines = [
-        "💰 Условия участия",
-        f"Вход: {fmt_common.number(economy.entry_fee)} ₽ — "
-        f"{fmt_common.number(economy.entry_stack)} фишек",
+def public_tournament_card(
+    *,
+    name: str,
+    description: str | None,
+    economy: object | None,
+    date_label: str | None = None,
+) -> str:
+    sections: list[str] = []
+    if date_label is not None:
+        sections.append(f"🗓 {escape(date_label)}")
+    sections.append(f"<b>{escape(name.upper())}</b>")
+    if description:
+        sections.append(escape(description))
+    if economy is not None:
+        sections.extend(_economy_sections(economy))
+    return "\n\n".join(sections)
+
+
+def _economy_sections(economy: object) -> list[str]:
+    sections = [
+        "<b>Вход:</b>\n"
+        f"💵 {fmt_common.number(economy.entry_fee)} ₽ — "
+        f"{fmt_common.number(economy.entry_stack)} фишек"
     ]
-    if len(economy.rebuys) == 1:
-        rebuy = economy.rebuys[0]
-        lines.append(
-            f"Ребай: {fmt_common.number(rebuy.fee)} ₽ — {fmt_common.number(rebuy.stack)} фишек"
-        )
-    elif len(economy.rebuys) > 1:
-        lines.extend(
-            [
-                "",
-                "Ребаи:",
-                f"{' / '.join(fmt_common.number(rebuy.fee) for rebuy in economy.rebuys)} ₽",
-                f"{' / '.join(fmt_common.number(rebuy.stack) for rebuy in economy.rebuys)} фишек",
-            ]
+    if economy.rebuys:
+        sections.append(
+            "<b>Ребаи:</b>\n"
+            + "\n".join(
+                f"{_number_marker(index)} {fmt_common.number(rebuy.fee)} ₽ — "
+                f"{fmt_common.number(rebuy.stack)} фишек"
+                for index, rebuy in enumerate(economy.rebuys, start=1)
+            )
         )
     if economy.addon_fee > 0 and economy.addon_stack > 0:
-        lines.extend(
-            [
-                "",
-                "Аддон:",
-                f"{fmt_common.number(economy.addon_fee)} ₽ — "
-                f"{fmt_common.number(economy.addon_stack)} фишек",
-            ]
+        sections.append(
+            "<b>Аддон:</b>\n"
+            f"➕ {fmt_common.number(economy.addon_fee)} ₽ — "
+            f"{fmt_common.number(economy.addon_stack)} фишек"
         )
+    return sections
+
+
+def _admin_tournament_card(view: object, *, show_creatable_status: bool) -> str:
+    public_card = public_tournament_card(
+        name=view.name,
+        description=view.description,
+        economy=view.economy,
+    )
+    return "\n\n".join(
+        [
+            public_card,
+            "\n".join(_admin_parameters(view, show_creatable_status=show_creatable_status)),
+        ]
+    )
+
+
+def _admin_parameters(
+    view: object,
+    *,
+    show_creatable_status: bool,
+    knockout_small_points: int | None = None,
+    knockout_big_points: int | None = None,
+    knockout_main_points: int | None = None,
+    knockout_main_final_points: int | None = None,
+) -> list[str]:
+    calendar_code = getattr(view, "calendar_code", None)
+    if calendar_code is None:
+        calendar_code = view.tournament.tournament_type_calendar_code or "?"
+    lines = [
+        "<b>⚙️ Параметры (не видны игрокам)</b>",
+        f"🟢 Код формата: {escape(calendar_code)}",
+    ]
+    if show_creatable_status:
+        lines.append(
+            "🟢 Статус: доступен для создания"
+            if view.is_creatable
+            else "⚪ Статус: недоступен для создания"
+        )
+    rules = view.rules
+    if rules is None or rules.knockout_mode == "none":
+        lines.append("⚪ Нокауты: выключены")
+    else:
+        knockout_text = _knockout_parameters(
+            rules.knockout_mode,
+            small=knockout_small_points,
+            big=knockout_big_points,
+            main=knockout_main_points,
+            main_final=knockout_main_final_points,
+        )
+        lines.append(f"🟢 Нокауты: {knockout_text}")
+    lines.append(
+        "🟢 Бонусные очки: включены"
+        if rules is not None and rules.supports_bonus_points
+        else "⚪ Бонусные очки: выключены"
+    )
+    if rules is not None and rules.points_multiplier != 1:
+        lines.append(f"🟢 Множитель турнирных очков: ×{_decimal_ru(rules.points_multiplier)}")
+    else:
+        lines.append("⚪ Множитель турнирных очков: выключен")
+    individual = _individual_multiplier_lines(rules)
+    if individual:
+        lines.extend(["🟢 Множители отдельных призовых мест:", *individual])
+    else:
+        lines.append("⚪ Множители отдельных призовых мест: выключены")
     return lines
 
 
-def _rule_lines(rules: object | None) -> list[str]:
-    if rules is None:
+def _knockout_parameters(
+    mode: str,
+    *,
+    small: int | None,
+    big: int | None,
+    main: int | None,
+    main_final: int | None,
+) -> str:
+    if mode == "small":
+        return f"KO — {small}" if small is not None else "KO"
+    if mode == "small_big":
+        if small is not None and big is not None:
+            return f"KO — {small}, BKO — {big}"
+        return "KO и BKO"
+    if mode == "main_ko":
+        if main is not None and main_final is not None:
+            return f"KO — {main}, BKO — {main_final}"
+        return "KO и BKO"
+    return escape(mode)
+
+
+def _individual_multiplier_lines(rules: object | None) -> list[str]:
+    if rules is None or rules.prize_place_multiplier == 1:
         return []
-    lines = ["📌 Правила"]
-    if rules.points_multiplier != 1:
-        lines.append(f"Множитель рейтинга: ×{fmt_common.decimal(rules.points_multiplier)}")
-    if rules.prize_place_multiplier != 1:
-        places = _prize_places_label(rules.prize_place_multiplier_places)
-        suffix = f" ({places})" if places else ""
-        lines.append(
-            f"Множитель призовых мест: ×{fmt_common.decimal(rules.prize_place_multiplier)}{suffix}"
-        )
-    if rules.knockout_mode != "none":
-        lines.append(f"Нокауты: {_knockout_mode_label(rules.knockout_mode)}")
-    if rules.supports_bonus_points:
-        lines.append("Бонусные очки")
-    return lines if len(lines) > 1 else []
+    # The current domain stores one shared coefficient for every selected place.
+    # A future constructor must not imply independently configurable place values.
+    places = _prize_places(rules.prize_place_multiplier_places)
+    return [
+        f"    {_number_marker(place)} — ×{_decimal_ru(rules.prize_place_multiplier)}"
+        for place in places
+    ]
 
 
-def _prize_places_label(raw_places: str | None) -> str | None:
+def _prize_places(raw_places: str | None) -> tuple[int, ...]:
     if not raw_places:
-        return None
+        return ()
     try:
-        places = parse_prize_multiplier_places(raw_places)
+        return parse_prize_multiplier_places(raw_places)
     except PrizeMultiplierPlacesError:
-        return None
-    return ", ".join(str(place) for place in places)
+        return ()
 
 
-def _knockout_mode_label(knockout_mode: str) -> str:
-    if knockout_mode == "small":
-        return "КО"
-    if knockout_mode in {"small_big", "main_ko"}:
-        return "КО и БКО"
-    return knockout_mode
+def _number_marker(value: int) -> str:
+    keycaps = ("1️⃣", "2️⃣", "3️⃣", "4️⃣", "5️⃣", "6️⃣", "7️⃣", "8️⃣", "9️⃣", "🔟")
+    if 1 <= value <= len(keycaps):
+        return keycaps[value - 1]
+    return f"{value}."
+
+
+def _decimal_ru(value: object) -> str:
+    return fmt_common.decimal(value).replace(".", ",")

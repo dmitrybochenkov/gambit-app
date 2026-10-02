@@ -958,7 +958,10 @@ def test_superadmin_calendar_format_help_keyboard_omits_pagination_for_single_pa
 def test_superadmin_calendar_format_detail_is_db_driven() -> None:
     detail = TournamentCalendarFormatDetailView(
         id=1,
+        code="main_ko",
         name="MAIN KO",
+        calendar_code="MK",
+        is_creatable=True,
         description="Описание из базы",
         economy=TournamentEconomyView(
             entry_fee=800,
@@ -978,12 +981,13 @@ def test_superadmin_calendar_format_detail_is_db_driven() -> None:
 
     rendered = tournament_fmt.superadmin_calendar_format_detail(detail)
 
-    assert "🏆 MAIN KO" in rendered
+    assert "<b>MAIN KO</b>" in rendered
     assert "Описание из базы" in rendered
-    assert "Вход: 800 ₽ — 30 000 фишек" in rendered
-    assert "Ребай: 1 000 ₽ — 40 000 фишек" in rendered
-    assert "Аддон:" in rendered
-    assert "Нокауты: КО и БКО" in rendered
+    assert "💵 800 ₽ — 30 000 фишек" in rendered
+    assert "1️⃣ 1 000 ₽ — 40 000 фишек" in rendered
+    assert "<b>Аддон:</b>" in rendered
+    assert "🟢 Код формата: MK" in rendered
+    assert "🟢 Нокауты: KO и BKO" in rendered
 
 
 async def test_superadmin_calendar_format_help_changes_markup_only(
@@ -1037,7 +1041,10 @@ async def test_superadmin_calendar_format_detail_and_back_keep_source_month(
     month_view = TournamentCalendarMonthView(year=2026, month=10, weeks=())
     detail = TournamentCalendarFormatDetailView(
         id=16,
+        code="main_ko",
         name="MAIN KO",
+        calendar_code="MK",
+        is_creatable=True,
         description="Описание из базы",
         economy=None,
         rules=None,
@@ -1087,7 +1094,7 @@ async def test_superadmin_calendar_format_detail_and_back_keep_source_month(
         tournament_type_id=16,
     )
     planning_service.get_calendar_month.assert_awaited_once_with(1, year=2026, month=10)
-    assert message.edit_text.await_args_list[0].args[0] == "🏆 MAIN KO\n\nОписание из базы"
+    assert "<b>MAIN KO</b>\n\nОписание из базы" in message.edit_text.await_args_list[0].args[0]
     assert "ОКТЯБРЬ 2026" in message.edit_text.await_args_list[1].args[0]
 
 
@@ -1384,6 +1391,73 @@ def test_weekly_template_root_uses_four_plus_three_weekday_rows() -> None:
         ["✅ Сохранить шаблон"],
         ["❌ Отмена"],
     ]
+
+
+async def test_tournament_format_detail_action_opens_full_admin_card(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    tournament_format = TournamentFormatView(
+        id=21,
+        code="satellite_v2",
+        name="Satellite",
+        calendar_code="S2",
+        is_creatable=True,
+        description="Описание формата",
+        economy=TournamentEconomyView(
+            entry_fee=800,
+            entry_stack=30_000,
+            addon_fee=1000,
+            addon_stack=150_000,
+            rebuys=[],
+        ),
+        rules=TournamentRulesView(
+            points_multiplier=Decimal("1"),
+            prize_place_multiplier=Decimal("1"),
+            prize_place_multiplier_places=None,
+            knockout_mode="none",
+            supports_bonus_points=False,
+        ),
+    )
+    planning_service = SimpleNamespace(
+        get_tournament_format=AsyncMock(
+            return_value=TournamentFormatAvailabilityResultView(
+                tournament_format=tournament_format,
+                affected_weekdays=(),
+            )
+        )
+    )
+    monkeypatch.setattr(
+        superadmin_tournament_handlers,
+        "tournament_planning_service",
+        planning_service,
+    )
+    state = MutableState()
+    state.data.update(
+        weekly_template_draft={weekday: [] for weekday in range(7)},
+        weekly_template_context={"year": 2026, "month": 9, "row": 1},
+    )
+    message = SimpleNamespace(edit_text=AsyncMock())
+    callback = SimpleNamespace(
+        from_user=SimpleNamespace(id=100),
+        message=message,
+        answer=AsyncMock(),
+    )
+
+    await superadmin_tournament_handlers.manage_tournament_formats(
+        callback,
+        superadmin_tournaments_kb.TournamentFormatCallback(
+            action=superadmin_tournaments_kb.TournamentFormatAction.DETAIL,
+            tournament_type_id=21,
+        ),
+        state,
+    )
+
+    rendered = message.edit_text.await_args.args[0]
+    assert "<b>SATELLITE</b>" in rendered
+    assert "Описание формата" in rendered
+    assert "💵 800 ₽ — 30 000 фишек" in rendered
+    assert "🟢 Код формата: S2" in rendered
+    assert message.edit_text.await_args.kwargs["parse_mode"] == "HTML"
 
 
 async def test_tournament_format_navigation_preserves_draft_and_disable_updates_it(
@@ -6088,13 +6162,14 @@ async def test_schedule_tournament_button_opens_db_driven_detail(
 
     tournament_service.get_schedule_tournament_details_for_player.assert_awaited_once_with(42, 7)
     text = message.edit_text.await_args.args[0]
-    assert "Суббота, 22 августа — Тестовый DB-турнир" in text
+    assert "🗓 Суббота, 22 августа" in text
+    assert "<b>ТЕСТОВЫЙ DB-ТУРНИР</b>" in text
     assert "Уникальное описание из DTO" in text
-    assert "Вход: 1 234 ₽ — 56 789 фишек" in text
-    assert "Ребай: 3 456 ₽ — 78 901 фишек" in text
-    assert "Аддон:\n2 345 ₽ — 67 890 фишек" in text
-    assert "Множитель рейтинга: ×1.25" in text
-    assert "Множитель призовых мест: ×1.5 (1, 3)" in text
+    assert "<b>Вход:</b>\n💵 1 234 ₽ — 56 789 фишек" in text
+    assert "1️⃣ 3 456 ₽ — 78 901 фишек" in text
+    assert "<b>Аддон:</b>\n➕ 2 345 ₽ — 67 890 фишек" in text
+    assert "Множитель" not in text
+    assert message.edit_text.await_args.kwargs["parse_mode"] == "HTML"
     assert inline_keyboard_texts(message.edit_text.await_args.kwargs["reply_markup"]) == [
         "⬅️ Назад",
         "❌ Выход",
@@ -6132,7 +6207,7 @@ async def test_schedule_detail_hides_optional_sections(
     )
 
     detail_text = message.edit_text.await_args.args[0]
-    assert "Тихий турнир" in detail_text
+    assert "<b>ТИХИЙ ТУРНИР</b>" in detail_text
     assert "Условия участия" not in detail_text
     assert "Ребаи" not in detail_text
     assert "Аддон" not in detail_text

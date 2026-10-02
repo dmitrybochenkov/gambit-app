@@ -16,6 +16,7 @@ from app.bot.telegram.formatters.statistics import history as history_fmt
 from app.db.base import Base
 from app.db.models import ScoringConfig, Season, Tournament, TournamentResult, TournamentType
 from app.db.models.enums import TournamentStatus, UserStatus
+from app.db.repositories.tournament_repository import TournamentRepository
 from app.services.dto.statistics.history import (
     HistoricalTournamentResultRowView,
     HistoricalTournamentResultView,
@@ -52,6 +53,25 @@ def test_history_formats_points_as_rounded_integer() -> None:
 
     assert "   89" in text
     assert "88.5" not in text
+
+
+async def test_history_tournament_query_uses_descending_id_tie_breaker() -> None:
+    class EmptyResult:
+        def __iter__(self):
+            return iter(())
+
+    class CapturingSession:
+        statement = None
+
+        async def execute(self, statement):
+            self.statement = statement
+            return EmptyResult()
+
+    session = CapturingSession()
+
+    await TournamentRepository(session).list_result_tournaments(2026, 1)  # type: ignore[arg-type]
+
+    assert "ORDER BY tournaments.date DESC, tournaments.id DESC" in str(session.statement)
 
 
 async def test_history_lists_only_periods_and_tournaments_with_results(
@@ -161,10 +181,66 @@ async def test_history_lists_only_periods_and_tournaments_with_results(
 
         assert [item.year for item in years] == [2026]
         assert [(item.month, item.label) for item in months] == [
-            (7, "Июль"),
             (8, "Август"),
+            (7, "Июль"),
         ]
         assert [(item.date.day, item.display_name) for item in tournaments] == [(17, "Classic")]
+    finally:
+        await engine.dispose()
+
+
+async def test_history_first_page_contains_freshest_tournaments(tmp_path: Path) -> None:
+    engine = create_async_engine(f"sqlite+aiosqlite:///{tmp_path / 'history_pages.db'}")
+    async with engine.begin() as connection:
+        await connection.run_sync(Base.metadata.create_all)
+
+    session_factory = async_sessionmaker(engine, expire_on_commit=False)
+    async with session_factory() as session:
+        config = ScoringConfig()
+        session.add(config)
+        await session.flush()
+        await seed_tournament_types_async(session)
+        season = Season(
+            name="История",
+            scoring_config_id=config.id,
+            starts_at=date(2026, 1, 1),
+            ends_at=None,
+        )
+        viewer = build_player(telegram_id=100, display_name="Viewer")
+        player = build_player(telegram_id=101, display_name="Player")
+        session.add_all([season, viewer, player])
+        await session.flush()
+        tournaments = [
+            Tournament(
+                season_id=season.id,
+                scoring_config_id=config.id,
+                tournament_type_id=tournament_type_id("classic"),
+                date=date(2026, 1, day),
+                status=TournamentStatus.CLOSED,
+                tournament_fund=1000,
+            )
+            for day in range(1, 14)
+        ]
+        session.add_all(tournaments)
+        await session.flush()
+        session.add_all(
+            TournamentResult(
+                tournament_id=tournament.id,
+                player_id=player.id,
+                tournament_points=Decimal("10"),
+            )
+            for tournament in tournaments
+        )
+        await session.commit()
+
+    service = UserStatisticsService(session_factory)
+    try:
+        items = await service.list_history_tournaments(1, 2026, 1)
+        first_page = pagination_service.paginate(items, page=0, page_size=12)
+        second_page = pagination_service.paginate(items, page=1, page_size=12)
+
+        assert [item.date.day for item in first_page.items] == list(range(13, 1, -1))
+        assert [item.date.day for item in second_page.items] == [1]
     finally:
         await engine.dispose()
 
@@ -510,11 +586,11 @@ async def test_history_chronological_order_and_legacy_display_names(tmp_path: Pa
         first_result = await service.get_historical_tournament_result(1, first.id)
         second_result = await service.get_historical_tournament_result(1, second.id)
 
-        assert [item.year for item in years] == [2025, 2026]
+        assert [item.year for item in years] == [2026, 2025]
         assert [(item.month, item.label) for item in months] == [(1, "Январь")]
         assert [(item.date.day, item.display_name) for item in tournaments] == [
-            (2, "Bounty"),
             (5, "Classic"),
+            (2, "Bounty"),
         ]
         assert first_result.tournament.display_name == "Турнир"
         assert second_result.tournament.display_name == "Bounty"
@@ -577,7 +653,7 @@ async def test_history_tournament_list_uses_short_names_for_real_types(
         history_tournaments = await service.list_history_tournaments(1, 2026, 1)
 
         assert [item.display_name for item in history_tournaments] == [
-            TOURNAMENT_TYPE_SHORT_NAMES[code] for code in type_codes
+            TOURNAMENT_TYPE_SHORT_NAMES[code] for code in reversed(type_codes)
         ]
     finally:
         await engine.dispose()

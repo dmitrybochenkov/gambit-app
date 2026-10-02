@@ -1,3 +1,6 @@
+from html import escape
+from html.parser import HTMLParser
+
 from app.bot.telegram.formatters import common as fmt_common
 from app.bot.telegram.formatters import tournaments as tournament_fmt
 from app.bot.telegram.texts import common as common_texts
@@ -182,45 +185,12 @@ def _join_schedule_blocks(blocks: list[str]) -> str:
 def _schedule_tournament_block(tournament: object) -> str:
     weekday = common_texts.WEEKDAYS[tournament.date.weekday()].upper()
     month = common_texts.MONTHS[tournament.date.month].upper()
-    lines = [
-        f"🗓 {tournament.date.day} {month} — {weekday} — {tournament.tournament_type_name.upper()}"
-    ]
-    if tournament.description:
-        lines.extend(["", str(tournament.description).strip()])
-    if tournament.economy is not None:
-        lines.extend(["", *_schedule_economy_lines(tournament.economy)])
-    return "\n".join(lines)
-
-
-def _schedule_economy_lines(economy: object) -> list[str]:
-    lines = [
-        "💰 Условия участия",
-        "",
-        f"Вход: {fmt_common.number(economy.entry_fee)} ₽ — "
-        f"{fmt_common.number(economy.entry_stack)} фишек",
-    ]
-    if economy.rebuys:
-        lines.extend(
-            [
-                "",
-                "Ребаи:",
-                "",
-                f"{' / '.join(fmt_common.number(rebuy.fee) for rebuy in economy.rebuys)} ₽",
-                "",
-                f"{' / '.join(fmt_common.number(rebuy.stack) for rebuy in economy.rebuys)} фишек",
-            ]
-        )
-    if economy.addon_fee > 0 and economy.addon_stack > 0:
-        lines.extend(
-            [
-                "",
-                "Аддон:",
-                "",
-                f"{fmt_common.number(economy.addon_fee)} ₽ — "
-                f"{fmt_common.number(economy.addon_stack)} фишек",
-            ]
-        )
-    return lines
+    return tournament_fmt.public_tournament_card(
+        name=tournament.tournament_type_name,
+        description=tournament.description,
+        economy=tournament.economy,
+        date_label=f"{tournament.date.day} {month} — {weekday}",
+    )
 
 
 def _split_text_by_paragraphs(text: str, limit: int) -> list[str]:
@@ -237,10 +207,40 @@ def _split_text_by_paragraphs(text: str, limit: int) -> list[str]:
         if len(paragraph) <= limit:
             current = paragraph
             continue
-        messages.extend(
-            paragraph[index : index + limit] for index in range(0, len(paragraph), limit)
-        )
+        messages.extend(_split_long_html_paragraph(paragraph, limit))
         current = ""
     if current:
         messages.append(current)
     return messages
+
+
+def _split_long_html_paragraph(paragraph: str, limit: int) -> list[str]:
+    parser = _HTMLTextExtractor()
+    parser.feed(paragraph)
+    parser.close()
+    chunks: list[str] = []
+    current = ""
+    for character in parser.text:
+        encoded = escape(character)
+        if current and len(current) + len(encoded) > limit:
+            chunks.append(current)
+            current = ""
+        if len(encoded) > limit:
+            raise ValueError("Telegram message limit is too small for an HTML entity")
+        current += encoded
+    if current:
+        chunks.append(current)
+    return chunks
+
+
+class _HTMLTextExtractor(HTMLParser):
+    def __init__(self) -> None:
+        super().__init__(convert_charrefs=True)
+        self._parts: list[str] = []
+
+    @property
+    def text(self) -> str:
+        return "".join(self._parts)
+
+    def handle_data(self, data: str) -> None:
+        self._parts.append(data)

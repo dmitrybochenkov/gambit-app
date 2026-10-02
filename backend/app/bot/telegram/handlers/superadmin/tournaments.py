@@ -793,6 +793,7 @@ async def select_tournament_calendar_format_action(
                         year=callback_data.year,
                         month=callback_data.month,
                     ),
+                    parse_mode="HTML",
                 )
             return
     except AdminAccessDeniedError:
@@ -1061,15 +1062,23 @@ async def _edit_calendar_day(
             ),
         )
         return
+    detail = await tournament_planning_service.get_calendar_tournament_detail(
+        await resolve_admin_actor_user_id(callback.from_user.id),
+        day.tournament.id,
+    )
     await edit_message_if_changed(
         callback.message,
-        text=tournament_fmt.superadmin_calendar_tournament_card(day),
+        text=tournament_fmt.superadmin_calendar_tournament_card(
+            detail,
+            day.registrations_count,
+        ),
         reply_markup=superadmin_tournaments_kb.calendar_occupied_tournament_keyboard(
             day,
             year=callback_data.year,
             month=callback_data.month,
             row=callback_data.row,
         ),
+        parse_mode="HTML",
     )
 
 
@@ -1150,6 +1159,7 @@ async def _render_tournament_format_detail(
                 is_creatable=view.tournament_format.is_creatable,
                 page=page,
             ),
+            parse_mode="HTML",
         )
 
 

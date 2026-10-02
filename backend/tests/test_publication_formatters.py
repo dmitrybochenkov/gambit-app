@@ -1,5 +1,8 @@
+import re
 from datetime import date
 from decimal import Decimal
+from html import unescape
+from html.parser import HTMLParser
 
 import pytest
 
@@ -187,27 +190,28 @@ def test_schedule_publication_report_is_full_db_driven_poster() -> None:
 
     assert text.startswith("🔥 РАСПИСАНИЕ ТУРНИРОВ ПОКЕРНОГО КЛУБА «ГАМБИТ»")
     assert "🔥♠️♥️♣️♦️" in text
-    assert "🗓 26 АВГУСТА — СРЕДА — MYSTERY BOUNTY" in text
-    assert "🗓 27 АВГУСТА — ЧЕТВЕРГ — КЛАССИКА" in text
+    assert "🗓 26 АВГУСТА — СРЕДА\n\n<b>MYSTERY BOUNTY</b>" in text
+    assert "🗓 27 АВГУСТА — ЧЕТВЕРГ\n\n<b>КЛАССИКА</b>" in text
     assert "🎁 Награды за нокауты" in text
-    assert "Вход: 600 ₽ — 20 000 фишек" in text
-    assert "600 / 800 ₽" in text
-    assert "30 000 / 50 000 фишек" in text
-    assert "800 ₽ — 125 000 фишек" in text
-    assert "Вход: 1 000 ₽ — 40 000 фишек" in text
+    assert "💵 600 ₽ — 20 000 фишек" in text
+    assert "1️⃣ 600 ₽ — 30 000 фишек" in text
+    assert "2️⃣ 800 ₽ — 50 000 фишек" in text
+    assert "➕ 800 ₽ — 125 000 фишек" in text
+    assert "💵 1 000 ₽ — 40 000 фишек" in text
     assert text.count("━━━━━━━━━━━━━━") == 1
     assert "Аддон:" in text
     assert text.rfind("Аддон:") < text.find("🗓 27 АВГУСТА")
 
 
-def test_schedule_publication_messages_split_without_losing_content() -> None:
+def test_schedule_publication_messages_split_into_standalone_valid_html() -> None:
+    long_description = 'Спец <tag> & "quote" ' * 20
     view = SchedulePublicationView(
         tournaments=[
             TournamentScheduleDetailsView(
                 id=1,
                 date=date(2026, 8, 26),
                 tournament_type_name="Long Tournament",
-                description="Первый абзац\n\n" + "A" * 80,
+                description="Первый абзац\n\n" + long_description,
                 economy=None,
                 rules=None,
             ),
@@ -229,5 +233,26 @@ def test_schedule_publication_messages_split_without_losing_content() -> None:
     assert len(messages) > 1
     assert messages[0].startswith("🔥 РАСПИСАНИЕ")
     assert all(len(message) <= 120 for message in messages)
-    assert "LONG TOURNAMENT" in "\n".join(messages)
-    assert "NEXT TOURNAMENT" in "\n".join(messages)
+    assert "<b>LONG TOURNAMENT</b>" in "\n".join(messages)
+    assert "<b>NEXT TOURNAMENT</b>" in "\n".join(messages)
+    assert long_description in unescape("".join(messages))
+    for message in messages:
+        parser = _BalancedHTMLParser()
+        parser.feed(message)
+        parser.close()
+        assert parser.open_tags == []
+        assert re.search(r"&(?!amp;|lt;|gt;|quot;|#x27;)", message) is None
+
+
+class _BalancedHTMLParser(HTMLParser):
+    def __init__(self) -> None:
+        super().__init__(convert_charrefs=False)
+        self.open_tags: list[str] = []
+
+    def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
+        del attrs
+        self.open_tags.append(tag)
+
+    def handle_endtag(self, tag: str) -> None:
+        assert self.open_tags and self.open_tags[-1] == tag
+        self.open_tags.pop()

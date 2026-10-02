@@ -154,6 +154,9 @@ class TournamentFormatView:
     name: str
     calendar_code: str
     is_creatable: bool
+    description: str | None = None
+    economy: TournamentEconomyView | None = None
+    rules: TournamentRulesView | None = None
 
 
 @dataclass(frozen=True)
@@ -169,6 +172,21 @@ class TournamentCalendarFormatDetailView:
     description: str | None
     economy: TournamentEconomyView | None
     rules: TournamentRulesView | None
+    code: str = ""
+    calendar_code: str = "?"
+    is_creatable: bool = False
+
+
+@dataclass(frozen=True)
+class TournamentCalendarTournamentDetailView:
+    tournament: TournamentView
+    description: str | None
+    economy: TournamentEconomyView | None
+    rules: TournamentRulesView | None
+    knockout_small_points: int
+    knockout_big_points: int
+    knockout_main_points: int | None
+    knockout_main_final_points: int | None
 
 
 @dataclass(frozen=True)
