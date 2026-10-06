@@ -702,6 +702,43 @@ async def test_calendar_creates_classic_after_format_is_enabled(tmp_path: Path) 
         await engine.dispose()
 
 
+async def test_calendar_and_management_format_lists_are_sorted_by_display_name(
+    tmp_path: Path,
+) -> None:
+    service, session_factory, engine = await create_planning_service(tmp_path / "format-order.db")
+    try:
+        await seed_calendar_data(session_factory)
+        await service.set_tournament_format_creatable(
+            1,
+            tournament_type_id=tournament_type_id("classic"),
+            is_creatable=True,
+        )
+        await service.set_tournament_format_creatable(
+            1,
+            tournament_type_id=tournament_type_id("bounty_v2"),
+            is_creatable=True,
+        )
+
+        formats = await service.list_tournament_formats(1)
+        options = await service.list_calendar_tournament_type_options(1)
+
+        assert [item.display_name for item in formats] == sorted(
+            (item.display_name for item in formats), key=str.casefold
+        )
+        assert [item.display_name for item in options] == sorted(
+            (item.display_name for item in options), key=str.casefold
+        )
+        assert [
+            item.display_name for item in options if item.code in {"bounty_v2", "bounty_v3"}
+        ] == ["Bounty", "Bounty v2"]
+        assert "legacy_unknown" not in {item.code for item in formats}
+        assert "legacy_unknown" not in {item.code for item in options}
+        assert "classic" in {item.code for item in options}
+        assert "bounty" not in {item.code for item in options}
+    finally:
+        await engine.dispose()
+
+
 async def test_versioned_format_configs_preserve_historical_rows(tmp_path: Path) -> None:
     _service, session_factory, engine = await create_planning_service(tmp_path / "formats.db")
     try:

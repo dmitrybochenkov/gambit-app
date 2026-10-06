@@ -126,6 +126,10 @@ class TournamentCalendarTypeOptionView:
     name: str
     calendar_code: str | None = None
 
+    @property
+    def display_name(self) -> str:
+        return tournament_type_display_name(self.code, self.name)
+
 
 @dataclass(frozen=True)
 class WeeklyTemplateTypeView:
@@ -157,6 +161,19 @@ class TournamentFormatView:
     description: str | None = None
     economy: TournamentEconomyView | None = None
     rules: TournamentRulesView | None = None
+
+    @property
+    def display_name(self) -> str:
+        return tournament_type_display_name(self.code, self.name)
+
+
+def tournament_type_display_name(code: str, name: str) -> str:
+    versioned_names = {
+        "bounty_v2": "Bounty v2",
+        "classic_v2": "Classic v2",
+        "freezeout_v2": "Freezeout v2",
+    }
+    return versioned_names.get(code, name)
 
 
 @dataclass(frozen=True)

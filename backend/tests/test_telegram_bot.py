@@ -1177,6 +1177,83 @@ def test_superadmin_calendar_type_picker_uses_service_version_labels() -> None:
     assert all("_v2" not in label for row in labels_by_row for label in row)
 
 
+def test_calendar_type_picker_paginates_without_overlap_and_clamps_pages() -> None:
+    options = [
+        TournamentCalendarTypeOptionView(
+            id=index,
+            code=f"type_{index}",
+            name=f"Format {index:02d}",
+            calendar_code=f"T{index}",
+        )
+        for index in range(1, 15)
+    ]
+
+    pages = [
+        superadmin_tournaments_kb.calendar_type_keyboard(
+            options=options,
+            action=superadmin_tournaments_kb.SuperadminTournamentCalendarAction.CREATE_TYPE,
+            year=2026,
+            month=9,
+            row=1,
+            day="2026-09-02",
+            page=page,
+            show_management=True,
+        )
+        for page in (0, 1, 2, 99)
+    ]
+    page_labels = [inline_keyboard_texts(keyboard) for keyboard in pages]
+
+    assert page_labels[0][:6] == [f"Format {index:02d}" for index in range(1, 7)]
+    assert page_labels[1][:6] == [f"Format {index:02d}" for index in range(7, 13)]
+    assert page_labels[2][:2] == ["Format 13", "Format 14"]
+    assert page_labels[3] == page_labels[2]
+    assert len(set(page_labels[0][:6] + page_labels[1][:6] + page_labels[2][:2])) == 14
+    for labels_on_page in page_labels[:3]:
+        assert "◀️" in labels_on_page
+        assert "▶️" in labels_on_page
+        assert superadmin_tournaments_kb.TOURNAMENT_LIST_MANAGEMENT_LABEL in labels_on_page
+        assert labels_on_page[-2:] == ["⬅️ Назад", "❌ Отмена"]
+
+
+def test_tournament_format_management_paginates_first_middle_and_last_pages() -> None:
+    formats = [
+        TournamentFormatView(
+            id=index,
+            code=f"type_{index}",
+            name=f"Format {index:02d}",
+            calendar_code=f"T{index}",
+            is_creatable=index % 2 == 0,
+        )
+        for index in range(1, 15)
+    ]
+
+    labels_by_page = [
+        inline_keyboard_texts(
+            superadmin_tournaments_kb.tournament_format_list_keyboard(
+                formats=formats,
+                page=page,
+            )
+        )
+        for page in (0, 1, 2)
+    ]
+
+    assert [label.split(" ", 1)[1] for label in labels_by_page[0][:6]] == [
+        f"T{index} — Format {index:02d}" for index in range(1, 7)
+    ]
+    assert [label.split(" ", 1)[1] for label in labels_by_page[1][:6]] == [
+        f"T{index} — Format {index:02d}" for index in range(7, 13)
+    ]
+    assert [label.split(" ", 1)[1] for label in labels_by_page[2][:2]] == [
+        "T13 — Format 13",
+        "T14 — Format 14",
+    ]
+    assert [next(label for label in labels if "/3" in label) for labels in labels_by_page] == [
+        "1/3",
+        "2/3",
+        "3/3",
+    ]
+
+
 def test_superadmin_calendar_week_buttons_show_full_name_and_registration_count() -> None:
     view = SimpleNamespace(
         year=2026,
@@ -1387,9 +1464,322 @@ def test_weekly_template_root_uses_four_plus_three_weekday_rows() -> None:
     assert [[button.text for button in row] for row in keyboard.inline_keyboard] == [
         ["Понедельник", "Вторник", "Среда", "Четверг"],
         ["Пятница", "Суббота", "Воскресенье"],
-        ["🏆 Форматы турниров"],
+        [superadmin_tournaments_kb.TOURNAMENT_LIST_MANAGEMENT_LABEL],
         ["✅ Сохранить шаблон"],
         ["❌ Отмена"],
+    ]
+
+
+async def test_manual_create_format_management_returns_to_same_date_and_page(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    options = [
+        TournamentCalendarTypeOptionView(
+            id=index,
+            code=f"type_{index}",
+            name=f"Format {index:02d}",
+            calendar_code=f"T{index}",
+        )
+        for index in range(1, 9)
+    ]
+    formats = [
+        TournamentFormatView(
+            id=option.id,
+            code=option.code,
+            name=option.name,
+            calendar_code=option.calendar_code or "?",
+            is_creatable=True,
+        )
+        for option in options
+    ]
+    planning_service = SimpleNamespace(
+        list_tournament_formats=AsyncMock(return_value=formats),
+        list_calendar_tournament_type_options=AsyncMock(return_value=options),
+    )
+    monkeypatch.setattr(
+        superadmin_tournament_handlers,
+        "tournament_planning_service",
+        planning_service,
+    )
+    state = MutableState()
+    message = SimpleNamespace(edit_text=AsyncMock())
+    callback = SimpleNamespace(
+        from_user=SimpleNamespace(id=100),
+        message=message,
+        answer=AsyncMock(),
+    )
+
+    await superadmin_tournament_handlers.select_tournament_calendar_action(
+        callback,
+        superadmin_tournaments_kb.SuperadminTournamentCalendarCallback(
+            action=superadmin_tournaments_kb.SuperadminTournamentCalendarAction.MANAGE_FORMATS,
+            year=2026,
+            month=9,
+            row=1,
+            day="2026-09-02",
+            page=1,
+        ),
+        state,
+    )
+
+    assert state.data["tournament_format_return"] == {
+        "source": "calendar_create",
+        "year": 2026,
+        "month": 9,
+        "row": 1,
+        "day": "2026-09-02",
+        "page": 1,
+    }
+    assert superadmin_tournaments_kb.TOURNAMENT_LIST_MANAGEMENT_LABEL not in inline_keyboard_texts(
+        message.edit_text.await_args.kwargs["reply_markup"]
+    )
+
+    await superadmin_tournament_handlers.manage_tournament_formats(
+        callback,
+        superadmin_tournaments_kb.TournamentFormatCallback(
+            action=superadmin_tournaments_kb.TournamentFormatAction.BACK_TEMPLATE,
+        ),
+        state,
+    )
+
+    returned = message.edit_text.await_args
+    assert returned.args[0] == "Выбери тип турнира:"
+    returned_labels = inline_keyboard_texts(returned.kwargs["reply_markup"])
+    assert returned_labels[:2] == ["Format 07", "Format 08"]
+    assert superadmin_tournaments_kb.TOURNAMENT_LIST_MANAGEMENT_LABEL in returned_labels
+    management_button = next(
+        button
+        for row in returned.kwargs["reply_markup"].inline_keyboard
+        for button in row
+        if button.text == superadmin_tournaments_kb.TOURNAMENT_LIST_MANAGEMENT_LABEL
+    )
+    assert management_button.callback_data is not None
+    assert "2026-09-02" in management_button.callback_data
+    assert ":1" in management_button.callback_data
+    assert "tournament_format_return" not in state.data
+
+    planning_service.list_calendar_tournament_type_options.return_value = options[:2]
+    await superadmin_tournament_handlers.select_tournament_calendar_action(
+        callback,
+        superadmin_tournaments_kb.SuperadminTournamentCalendarCallback(
+            action=superadmin_tournaments_kb.SuperadminTournamentCalendarAction.MANAGE_FORMATS,
+            year=2026,
+            month=9,
+            row=1,
+            day="2026-09-02",
+            page=1,
+        ),
+        state,
+    )
+    await superadmin_tournament_handlers.manage_tournament_formats(
+        callback,
+        superadmin_tournaments_kb.TournamentFormatCallback(
+            action=superadmin_tournaments_kb.TournamentFormatAction.BACK_TEMPLATE,
+        ),
+        state,
+    )
+    clamped_labels = inline_keyboard_texts(message.edit_text.await_args.kwargs["reply_markup"])
+    assert clamped_labels[:2] == ["Format 01", "Format 02"]
+    assert "2/2" not in clamped_labels
+
+
+async def test_manual_format_management_ignores_stale_weekly_template_draft(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    tournament_format = TournamentFormatView(
+        id=21,
+        code="satellite_v2",
+        name="Satellite",
+        calendar_code="S2",
+        is_creatable=True,
+    )
+    planning_service = SimpleNamespace(
+        list_tournament_formats=AsyncMock(return_value=[tournament_format]),
+        list_calendar_tournament_type_options=AsyncMock(return_value=[]),
+        get_tournament_format=AsyncMock(
+            return_value=TournamentFormatAvailabilityResultView(
+                tournament_format=tournament_format,
+                affected_weekdays=(),
+            )
+        ),
+        set_tournament_format_creatable=AsyncMock(),
+    )
+    monkeypatch.setattr(
+        superadmin_tournament_handlers,
+        "tournament_planning_service",
+        planning_service,
+    )
+    stale_draft = {weekday: ([21] if weekday == 6 else []) for weekday in range(7)}
+    state = MutableState()
+    state.data.update(
+        weekly_template_draft=stale_draft,
+        weekly_template_context={"year": 2026, "month": 8, "row": 4},
+    )
+    callback = SimpleNamespace(
+        from_user=SimpleNamespace(id=100),
+        message=SimpleNamespace(edit_text=AsyncMock()),
+        answer=AsyncMock(),
+    )
+
+    await superadmin_tournament_handlers.select_tournament_calendar_action(
+        callback,
+        superadmin_tournaments_kb.SuperadminTournamentCalendarCallback(
+            action=superadmin_tournaments_kb.SuperadminTournamentCalendarAction.MANAGE_FORMATS,
+            year=2026,
+            month=9,
+            row=1,
+            day="2026-09-02",
+            page=0,
+        ),
+        state,
+    )
+    await superadmin_tournament_handlers.manage_tournament_formats(
+        callback,
+        superadmin_tournaments_kb.TournamentFormatCallback(
+            action=superadmin_tournaments_kb.TournamentFormatAction.DISABLE_PREVIEW,
+            tournament_type_id=21,
+        ),
+        state,
+    )
+    assert "Вс" not in callback.message.edit_text.await_args.args[0]
+
+    await superadmin_tournament_handlers.manage_tournament_formats(
+        callback,
+        superadmin_tournaments_kb.TournamentFormatCallback(
+            action=superadmin_tournaments_kb.TournamentFormatAction.DISABLE_CONFIRM,
+            tournament_type_id=21,
+        ),
+        state,
+    )
+    assert state.data["weekly_template_draft"] == stale_draft
+
+    await superadmin_tournament_handlers.manage_tournament_formats(
+        callback,
+        superadmin_tournaments_kb.TournamentFormatCallback(
+            action=superadmin_tournaments_kb.TournamentFormatAction.BACK_TEMPLATE,
+        ),
+        state,
+    )
+    assert "tournament_format_return" not in state.data
+    assert state.data["weekly_template_draft"] == stale_draft
+
+
+def test_calendar_type_pagination_uses_canonical_display_label_order() -> None:
+    options = [
+        TournamentCalendarTypeOptionView(id=index, code=f"alpha_{index}", name=f"Alpha {index}")
+        for index in range(1, 6)
+    ] + [
+        TournamentCalendarTypeOptionView(id=2, code="bounty_v3", name="Bounty"),
+        TournamentCalendarTypeOptionView(id=1, code="bounty_v2", name="Bounty"),
+    ]
+
+    first_page = superadmin_tournaments_kb.calendar_type_keyboard(
+        options=options,
+        action=superadmin_tournaments_kb.SuperadminTournamentCalendarAction.CREATE_TYPE,
+        year=2026,
+        month=9,
+        row=1,
+        day="2026-09-02",
+        page=0,
+    )
+    second_page = superadmin_tournaments_kb.calendar_type_keyboard(
+        options=options,
+        action=superadmin_tournaments_kb.SuperadminTournamentCalendarAction.CREATE_TYPE,
+        year=2026,
+        month=9,
+        row=1,
+        day="2026-09-02",
+        page=1,
+    )
+
+    assert inline_keyboard_texts(first_page)[5] == "Bounty"
+    assert inline_keyboard_texts(second_page)[0] == "Bounty v2"
+
+
+async def test_calendar_day_renders_empty_state_or_existing_unified_card(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    tournament = TournamentView(
+        id=91,
+        date=date(2026, 9, 3),
+        tournament_type_id=2,
+        tournament_type_name="Классика",
+        tournament_type_code="classic",
+    )
+    empty_day = TournamentCalendarDayView(
+        date=date(2026, 9, 2),
+        in_month=True,
+        tournament=None,
+    )
+    occupied_day = TournamentCalendarDayView(
+        date=date(2026, 9, 3),
+        in_month=True,
+        tournament=tournament,
+        registrations_count=4,
+        editable_future=True,
+    )
+    planning_service = SimpleNamespace(
+        get_calendar_week=AsyncMock(
+            side_effect=[
+                SimpleNamespace(days=(empty_day,)),
+                SimpleNamespace(days=(occupied_day,)),
+            ]
+        ),
+        get_calendar_tournament_detail=AsyncMock(return_value=object()),
+    )
+    card = Mock(return_value="UNIFIED TOURNAMENT CARD")
+    monkeypatch.setattr(
+        superadmin_tournament_handlers,
+        "tournament_planning_service",
+        planning_service,
+    )
+    monkeypatch.setattr(tournament_fmt, "superadmin_calendar_tournament_card", card)
+    message = SimpleNamespace(edit_text=AsyncMock())
+    callback = SimpleNamespace(
+        from_user=SimpleNamespace(id=100),
+        message=message,
+        answer=AsyncMock(),
+    )
+    state = MutableState()
+
+    await superadmin_tournament_handlers.select_tournament_calendar_action(
+        callback,
+        superadmin_tournaments_kb.SuperadminTournamentCalendarCallback(
+            action=superadmin_tournaments_kb.SuperadminTournamentCalendarAction.DAY,
+            year=2026,
+            month=9,
+            row=1,
+            day="2026-09-02",
+        ),
+        state,
+    )
+    empty_render = message.edit_text.await_args
+    assert "На этот день турнир не назначен." in empty_render.args[0]
+    assert inline_keyboard_texts(empty_render.kwargs["reply_markup"]) == [
+        "➕ Создать турнир",
+        "⬅️ Назад",
+        "❌ Отмена",
+    ]
+
+    await superadmin_tournament_handlers.select_tournament_calendar_action(
+        callback,
+        superadmin_tournaments_kb.SuperadminTournamentCalendarCallback(
+            action=superadmin_tournaments_kb.SuperadminTournamentCalendarAction.DAY,
+            year=2026,
+            month=9,
+            row=1,
+            day="2026-09-03",
+        ),
+        state,
+    )
+    occupied_render = message.edit_text.await_args
+    assert occupied_render.args[0] == "UNIFIED TOURNAMENT CARD"
+    card.assert_called_once_with(planning_service.get_calendar_tournament_detail.return_value, 4)
+    assert inline_keyboard_texts(occupied_render.kwargs["reply_markup"]) == [
+        "✏️ Изменить тип",
+        "🗑 Удалить турнир",
+        "⬅️ Назад",
+        "❌ Отмена",
     ]
 
 
@@ -1517,6 +1907,7 @@ async def test_tournament_format_navigation_preserves_draft_and_disable_updates_
     state.data.update(
         weekly_template_draft=draft,
         weekly_template_context={"year": 2026, "month": 9, "row": 5},
+        tournament_format_return={"source": "weekly_template"},
     )
     callback = SimpleNamespace(
         from_user=SimpleNamespace(id=100),
@@ -1557,6 +1948,7 @@ async def test_tournament_format_navigation_preserves_draft_and_disable_updates_
         state,
     )
     assert state.data["weekly_template_draft"][2] == [10]
+    assert "tournament_format_return" not in state.data
 
 
 async def test_tournament_format_failed_disable_preserves_fsm_draft(
@@ -3534,6 +3926,7 @@ class MutableState:
         self.state: object | None = None
         self.clear = AsyncMock(side_effect=self._clear)
         self.set_state = AsyncMock(side_effect=self._set_state)
+        self.set_data = AsyncMock(side_effect=self._set_data)
         self.update_data = AsyncMock(side_effect=self._update_data)
         self.get_data = AsyncMock(side_effect=self._get_data)
         self.get_state = AsyncMock(side_effect=self._get_state)
@@ -3547,6 +3940,9 @@ class MutableState:
 
     async def _update_data(self, **kwargs: object) -> None:
         self.data.update(kwargs)
+
+    async def _set_data(self, data: dict[str, object]) -> None:
+        self.data = dict(data)
 
     async def _get_data(self) -> dict[str, object]:
         return dict(self.data)

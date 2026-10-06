@@ -320,7 +320,7 @@ class TournamentPlanningService:
         async with self.session_factory() as session:
             await access_policy.require_superadmin(session, actor_user_id)
             rows = await TournamentTypeRepository(session).list_active_real_types()
-            return [self._tournament_format_view(row) for row in rows]
+            return _sort_tournament_type_views([self._tournament_format_view(row) for row in rows])
 
     async def get_tournament_format(
         self,
@@ -938,17 +938,19 @@ class TournamentPlanningService:
         self,
         session: AsyncSession,
     ) -> list[TournamentCalendarTypeOptionView]:
-        return [
-            TournamentCalendarTypeOptionView(
-                id=tournament_type.id,
-                code=tournament_type.code,
-                name=tournament_type.name,
-                calendar_code=tournament_type.calendar_code,
-            )
-            for tournament_type in await TournamentTypeRepository(
-                session
-            ).list_creatable_real_types()
-        ]
+        return _sort_tournament_type_views(
+            [
+                TournamentCalendarTypeOptionView(
+                    id=tournament_type.id,
+                    code=tournament_type.code,
+                    name=tournament_type.name,
+                    calendar_code=tournament_type.calendar_code,
+                )
+                for tournament_type in (
+                    await TournamentTypeRepository(session).list_creatable_real_types()
+                )
+            ]
+        )
 
     async def _calendar_type_option(
         self,
@@ -1207,6 +1209,15 @@ def _calendar_month_tournament_types(
             )
         )
     return tuple(items)
+
+
+def _sort_tournament_type_views[T: TournamentCalendarTypeOptionView | TournamentFormatView](
+    tournament_types: list[T],
+) -> list[T]:
+    return sorted(
+        tournament_types,
+        key=lambda item: (item.display_name.casefold(), item.code.casefold(), item.id),
+    )
 
 
 def rotation_codes_for_templates(

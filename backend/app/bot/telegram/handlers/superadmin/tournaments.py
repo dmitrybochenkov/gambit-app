@@ -50,6 +50,7 @@ router = Router(name="superadmin.tournaments")
 
 _TEMPLATE_DRAFT_KEY = "weekly_template_draft"
 _TEMPLATE_CONTEXT_KEY = "weekly_template_context"
+_FORMAT_RETURN_KEY = "tournament_format_return"
 _AUTOFILL_DRAFT_KEY = "weekly_autofill_draft"
 _AUTOFILL_CONTEXT_KEY = "weekly_autofill_context"
 
@@ -167,6 +168,34 @@ async def select_tournament_calendar_action(
             return
         if callback_data.action == superadmin_tournaments_kb.SuperadminTournamentCalendarAction.DAY:
             await _edit_calendar_day(callback, callback_data)
+            return
+        if callback_data.action in {
+            superadmin_tournaments_kb.SuperadminTournamentCalendarAction.CREATE_LIST,
+            superadmin_tournaments_kb.SuperadminTournamentCalendarAction.CREATE_PAGE,
+        }:
+            if callback_data.page < 0:
+                raise CalendarTournamentTypeNotFoundError
+            await _render_calendar_create_selection(callback, callback_data)
+            return
+        if (
+            callback_data.action
+            == superadmin_tournaments_kb.SuperadminTournamentCalendarAction.MANAGE_FORMATS
+        ):
+            if callback_data.page < 0 or not callback_data.day:
+                raise CalendarTournamentTypeNotFoundError
+            await state.update_data(
+                **{
+                    _FORMAT_RETURN_KEY: {
+                        "source": "calendar_create",
+                        "year": callback_data.year,
+                        "month": callback_data.month,
+                        "row": callback_data.row,
+                        "day": callback_data.day,
+                        "page": callback_data.page,
+                    }
+                }
+            )
+            await _render_tournament_format_list(callback, page=0)
             return
         if (
             callback_data.action
@@ -537,6 +566,7 @@ async def edit_weekly_template(
                         "month": callback_data.month,
                         "row": callback_data.row,
                     },
+                    _FORMAT_RETURN_KEY: {"source": "weekly_template"},
                 }
             )
             await _render_weekly_template_main(callback, state)
@@ -637,16 +667,31 @@ async def manage_tournament_formats(
     state: FSMContext,
 ) -> None:
     try:
-        draft, _context = await _weekly_template_state(state)
+        data = await state.get_data()
+        return_context = data.get(_FORMAT_RETURN_KEY)
+        return_source = return_context.get("source") if isinstance(return_context, dict) else None
+        raw_draft = data.get(_TEMPLATE_DRAFT_KEY) if return_source == "weekly_template" else None
+        draft = (
+            {
+                weekday: list(raw_draft.get(weekday, raw_draft.get(str(weekday), [])))
+                for weekday in range(7)
+            }
+            if isinstance(raw_draft, dict)
+            else None
+        )
         _validate_tournament_format_callback(callback_data)
         action = callback_data.action
         if action == superadmin_tournaments_kb.TournamentFormatAction.BACK_TEMPLATE:
-            await _render_weekly_template_main(callback, state)
+            await _return_from_tournament_formats(callback, state)
             return
         if action in {
             superadmin_tournaments_kb.TournamentFormatAction.LIST,
             superadmin_tournaments_kb.TournamentFormatAction.PAGE,
         }:
+            if _FORMAT_RETURN_KEY not in data:
+                if draft is None:
+                    raise WeeklyTemplateInvalidError
+                await state.update_data(**{_FORMAT_RETURN_KEY: {"source": "weekly_template"}})
             await _render_tournament_format_list(callback, page=callback_data.page)
             return
         if action == superadmin_tournaments_kb.TournamentFormatAction.DETAIL:
@@ -674,11 +719,12 @@ async def manage_tournament_formats(
                 callback_data.tournament_type_id,
             )
             affected = set(view.affected_weekdays)
-            affected.update(
-                weekday
-                for weekday, type_ids in draft.items()
-                if callback_data.tournament_type_id in type_ids
-            )
+            if draft is not None:
+                affected.update(
+                    weekday
+                    for weekday, type_ids in draft.items()
+                    if callback_data.tournament_type_id in type_ids
+                )
             await callback.answer()
             if callback.message is not None:
                 await edit_message_if_changed(
@@ -701,13 +747,16 @@ async def manage_tournament_formats(
                 tournament_type_id=callback_data.tournament_type_id,
                 is_creatable=False,
             )
-            updated_draft = {
-                weekday: [
-                    type_id for type_id in type_ids if type_id != callback_data.tournament_type_id
-                ]
-                for weekday, type_ids in draft.items()
-            }
-            await _store_weekly_template_draft(state, updated_draft)
+            if draft is not None:
+                updated_draft = {
+                    weekday: [
+                        type_id
+                        for type_id in type_ids
+                        if type_id != callback_data.tournament_type_id
+                    ]
+                    for weekday, type_ids in draft.items()
+                }
+                await _store_weekly_template_draft(state, updated_draft)
             await _render_tournament_format_detail(
                 callback,
                 tournament_type_id=callback_data.tournament_type_id,
@@ -1046,15 +1095,10 @@ async def _edit_calendar_day(
     if callback.message is None:
         return
     if day.tournament is None:
-        options = await tournament_planning_service.list_calendar_tournament_type_options(
-            await resolve_admin_actor_user_id(callback.from_user.id)
-        )
         await edit_message_if_changed(
             callback.message,
-            text="Выбери тип турнира:",
-            reply_markup=superadmin_tournaments_kb.calendar_type_keyboard(
-                options=options,
-                action=superadmin_tournaments_kb.SuperadminTournamentCalendarAction.CREATE_TYPE,
+            text=tournament_fmt.superadmin_calendar_empty_day(day.date),
+            reply_markup=superadmin_tournaments_kb.calendar_empty_day_keyboard(
                 year=callback_data.year,
                 month=callback_data.month,
                 row=callback_data.row,
@@ -1161,6 +1205,32 @@ async def _render_tournament_format_detail(
             ),
             parse_mode="HTML",
         )
+
+
+async def _return_from_tournament_formats(callback: CallbackQuery, state: FSMContext) -> None:
+    data = await state.get_data()
+    context = data.get(_FORMAT_RETURN_KEY)
+    if not isinstance(context, dict):
+        raise WeeklyTemplateInvalidError
+    data.pop(_FORMAT_RETURN_KEY)
+    await state.set_data(data)
+    if context.get("source") == "weekly_template":
+        await _render_weekly_template_main(callback, state)
+        return
+    if context.get("source") != "calendar_create":
+        raise WeeklyTemplateInvalidError
+    try:
+        callback_data = superadmin_tournaments_kb.SuperadminTournamentCalendarCallback(
+            action=superadmin_tournaments_kb.SuperadminTournamentCalendarAction.CREATE_PAGE,
+            year=int(context["year"]),
+            month=int(context["month"]),
+            row=int(context["row"]),
+            day=str(context["day"]),
+            page=int(context["page"]),
+        )
+    except (KeyError, TypeError, ValueError) as exc:
+        raise WeeklyTemplateInvalidError from exc
+    await _render_calendar_create_selection(callback, callback_data)
 
 
 async def _weekly_autofill_state(
@@ -1494,6 +1564,33 @@ async def _render_weekly_template_add_options(
         )
 
 
+async def _render_calendar_create_selection(
+    callback: CallbackQuery,
+    callback_data: superadmin_tournaments_kb.SuperadminTournamentCalendarCallback,
+) -> None:
+    if not callback_data.day:
+        raise CalendarTournamentTypeNotFoundError
+    options = await tournament_planning_service.list_calendar_tournament_type_options(
+        await resolve_admin_actor_user_id(callback.from_user.id)
+    )
+    await callback.answer()
+    if callback.message is not None:
+        await edit_message_if_changed(
+            callback.message,
+            text="Выбери тип турнира:",
+            reply_markup=superadmin_tournaments_kb.calendar_type_keyboard(
+                options=options,
+                action=superadmin_tournaments_kb.SuperadminTournamentCalendarAction.CREATE_TYPE,
+                year=callback_data.year,
+                month=callback_data.month,
+                row=callback_data.row,
+                day=callback_data.day,
+                page=callback_data.page,
+                show_management=True,
+            ),
+        )
+
+
 async def _edit_calendar_type_selection(
     callback: CallbackQuery,
     callback_data: superadmin_tournaments_kb.SuperadminTournamentCalendarCallback,
@@ -1513,6 +1610,7 @@ async def _edit_calendar_type_selection(
                 month=callback_data.month,
                 row=callback_data.row,
                 tournament_id=callback_data.tournament_id,
+                page=callback_data.page,
             ),
         )
 

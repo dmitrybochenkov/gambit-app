@@ -43,7 +43,10 @@ class SuperadminTournamentCalendarAction(StrEnum):
     MONTH = "month"
     WEEK = "week"
     DAY = "day"
+    CREATE_LIST = "create_list"
+    CREATE_PAGE = "create_page"
     CREATE_TYPE = "create_type"
+    MANAGE_FORMATS = "manage_formats"
     CREATE_CONFIRM = "create_confirm"
     AUTOFILL_PREVIEW = "autofill_preview"
     AUTOFILL_CONFIRM = "autofill_confirm"
@@ -118,6 +121,7 @@ class SuperadminTournamentCalendarCallback(
     day: str = ""
     tournament_id: int = 0
     tournament_type_id: int = 0
+    page: int = 0
 
 
 class SuperadminTournamentCalendarFormatCallback(
@@ -156,6 +160,9 @@ class TournamentFormatCallback(CallbackData, prefix="tournament_format"):
 
 
 CALENDAR_FORMATS_PAGE_SIZE = 5
+TOURNAMENT_PICKER_PAGE_SIZE = 6
+TOURNAMENT_FORMATS_PAGE_SIZE = 6
+TOURNAMENT_LIST_MANAGEMENT_LABEL = "⚙️ Настроить список турниров"
 CALENDAR_FORMAT_HELP_LABEL = "💡 Подсказка по форматам"
 CALENDAR_FORMAT_BACK_LABEL = "◀️ Назад в календарь"
 
@@ -395,7 +402,7 @@ def weekly_template_main_keyboard(*, year: int, month: int, row: int) -> InlineK
             ),
         )
     builder.button(
-        text="🏆 Форматы турниров",
+        text=TOURNAMENT_LIST_MANAGEMENT_LABEL,
         callback_data=TournamentFormatCallback(action=TournamentFormatAction.LIST),
     )
     builder.button(
@@ -416,7 +423,7 @@ def weekly_template_main_keyboard(*, year: int, month: int, row: int) -> InlineK
 
 
 def tournament_format_list_keyboard(
-    *, formats: list[object], page: int, page_size: int = 6
+    *, formats: list[object], page: int, page_size: int = TOURNAMENT_FORMATS_PAGE_SIZE
 ) -> InlineKeyboardMarkup:
     builder = InlineKeyboardBuilder()
     total_pages = max(1, (len(formats) + page_size - 1) // page_size)
@@ -425,7 +432,7 @@ def tournament_format_list_keyboard(
     for item in items:
         status = "🟢" if item.is_creatable else "⚪️"
         builder.button(
-            text=f"{status} {item.calendar_code} — {item.name}",
+            text=f"{status} {item.calendar_code} — {item.display_name}",
             callback_data=TournamentFormatCallback(
                 action=TournamentFormatAction.DETAIL,
                 tournament_type_id=item.id,
@@ -564,7 +571,7 @@ def weekly_autofill_type_keyboard(
     items = options[current_page * page_size : (current_page + 1) * page_size]
     for option in items:
         builder.button(
-            text=f"{option.calendar_code} — {option.name}",
+            text=f"{option.calendar_code} — {option.display_name}",
             callback_data=WeeklyAutofillCallback(
                 action=WeeklyAutofillAction.SELECT,
                 weekday=weekday,
@@ -668,7 +675,7 @@ def weekly_template_add_keyboard(
     items = options[current_page * page_size : (current_page + 1) * page_size]
     for option in items:
         builder.button(
-            text=option.name,
+            text=option.display_name,
             callback_data=WeeklyTemplateCallback(
                 action=WeeklyTemplateAction.ADD,
                 weekday=weekday,
@@ -709,11 +716,22 @@ def calendar_type_keyboard(
     row: int,
     day: str = "",
     tournament_id: int = 0,
+    page: int = 0,
+    show_management: bool = False,
 ) -> InlineKeyboardMarkup:
     builder = InlineKeyboardBuilder()
-    for option in options:
+    total_pages = max(
+        1,
+        (len(options) + TOURNAMENT_PICKER_PAGE_SIZE - 1) // TOURNAMENT_PICKER_PAGE_SIZE,
+    )
+    current_page = min(max(page, 0), total_pages - 1)
+    items = options[
+        current_page * TOURNAMENT_PICKER_PAGE_SIZE : (current_page + 1)
+        * TOURNAMENT_PICKER_PAGE_SIZE
+    ]
+    for option in items:
         builder.button(
-            text=_tournament_type_picker_label(option),
+            text=option.display_name,
             callback_data=SuperadminTournamentCalendarCallback(
                 action=action,
                 year=year,
@@ -722,8 +740,88 @@ def calendar_type_keyboard(
                 day=day,
                 tournament_id=tournament_id,
                 tournament_type_id=option.id,
+                page=current_page,
             ),
         )
+    if total_pages > 1:
+        page_action = (
+            SuperadminTournamentCalendarAction.CREATE_PAGE
+            if action == SuperadminTournamentCalendarAction.CREATE_TYPE
+            else SuperadminTournamentCalendarAction.CHANGE_TYPE
+        )
+        for label, target in (
+            ("◀️", max(0, current_page - 1)),
+            (f"{current_page + 1}/{total_pages}", current_page),
+            ("▶️", min(total_pages - 1, current_page + 1)),
+        ):
+            builder.button(
+                text=label,
+                callback_data=SuperadminTournamentCalendarCallback(
+                    action=page_action,
+                    year=year,
+                    month=month,
+                    row=row,
+                    day=day,
+                    tournament_id=tournament_id,
+                    page=target,
+                ),
+            )
+    if show_management:
+        builder.button(
+            text=TOURNAMENT_LIST_MANAGEMENT_LABEL,
+            callback_data=SuperadminTournamentCalendarCallback(
+                action=SuperadminTournamentCalendarAction.MANAGE_FORMATS,
+                year=year,
+                month=month,
+                row=row,
+                day=day,
+                page=current_page,
+            ),
+        )
+    builder.button(
+        text=labels.ADMIN_CALENDAR_BACK,
+        callback_data=SuperadminTournamentCalendarCallback(
+            action=(
+                SuperadminTournamentCalendarAction.DAY
+                if day
+                else SuperadminTournamentCalendarAction.BACK_WEEK
+            ),
+            year=year,
+            month=month,
+            row=row,
+            day=day,
+        ),
+    )
+    builder.button(
+        text=labels.ADMIN_CALENDAR_CANCEL,
+        callback_data=SuperadminTournamentCalendarCallback(
+            action=SuperadminTournamentCalendarAction.CANCEL,
+        ),
+    )
+    builder.adjust(
+        *([1] * len(items)),
+        *([3] if total_pages > 1 else []),
+        *([1] if show_management else []),
+        1,
+        1,
+    )
+    return builder.as_markup()
+
+
+def calendar_empty_day_keyboard(
+    *, year: int, month: int, row: int, day: str
+) -> InlineKeyboardMarkup:
+    builder = InlineKeyboardBuilder()
+    builder.button(
+        text="➕ Создать турнир",
+        callback_data=SuperadminTournamentCalendarCallback(
+            action=SuperadminTournamentCalendarAction.CREATE_LIST,
+            year=year,
+            month=month,
+            row=row,
+            day=day,
+        ),
+    )
     builder.button(
         text=labels.ADMIN_CALENDAR_BACK,
         callback_data=SuperadminTournamentCalendarCallback(
@@ -739,7 +837,7 @@ def calendar_type_keyboard(
             action=SuperadminTournamentCalendarAction.CANCEL,
         ),
     )
-    builder.adjust(*([1] * len(options)), 1, 1)
+    builder.adjust(1)
     return builder.as_markup()
 
 
@@ -842,17 +940,6 @@ def calendar_occupied_tournament_keyboard(
     )
     builder.adjust(1)
     return builder.as_markup()
-
-
-def _tournament_type_picker_label(option: object) -> str:
-    code = getattr(option, "code", None)
-    if code == "bounty_v2":
-        return "Bounty v2"
-    if code == "classic_v2":
-        return "Classic v2"
-    if code == "freezeout_v2":
-        return "Freezeout v2"
-    return str(option.name)
 
 
 def _confirmation_keyboard(

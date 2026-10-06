@@ -182,6 +182,10 @@ def superadmin_calendar_week(view: object) -> str:
     return "\n".join(lines)
 
 
+def superadmin_calendar_empty_day(tournament_date: date) -> str:
+    return f"📅 {_date_with_weekday(tournament_date)}\n\nНа этот день турнир не назначен."
+
+
 def weekly_template_summary(draft: dict[int, list[object]]) -> str:
     lines = ["⚙️ Шаблон расписания", ""]
     for weekday, label in enumerate(WEEKDAY_SHORT_NAMES):
