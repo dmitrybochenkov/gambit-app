@@ -824,7 +824,7 @@ async def test_superadmin_planning_create_edit_approve_and_delete(
     app.dependency_overrides[tournament_cancellation_delivery] = lambda: delivery
     base = "/api/v1/admin/planning"
     target_date = date(2026, 9, 10)
-    original_type_id = tournament_type_id("classic_v3")
+    original_type_id = tournament_type_id("freeroll")
     replacement_type_id = tournament_type_id("bounty_v3")
 
     month = await client.get(
@@ -1086,7 +1086,7 @@ async def test_superadmin_season_delete_rejects_referenced_future_and_stale_stat
             Tournament(
                 season_id=future_id,
                 scoring_config_id=created.json()["scoring_config_id"],
-                tournament_type_id=tournament_type_id("classic_v3"),
+                tournament_type_id=tournament_type_id("freeroll"),
                 date=date(2026, 10, 2),
                 status=TournamentStatus.ACTIVE,
             )

@@ -40,7 +40,7 @@ TOURNAMENT_TYPE_IDS = {
     "deep_stack": 11,
     "white_party": 12,
     "bounty_v3": 13,
-    "classic_v3": 14,
+    "freeroll": 14,
     "deep_stack_v2": 15,
     "main_ko": 16,
     "slow_blinds": 17,
@@ -49,6 +49,7 @@ TOURNAMENT_TYPE_IDS = {
     "month_main": 20,
     "satellite_v2": 21,
     "mystery_quest": 22,
+    "classic_v3": 23,
 }
 
 TOURNAMENT_TYPE_NAMES = {
@@ -64,7 +65,7 @@ TOURNAMENT_TYPE_NAMES = {
     "deep_stack": "Deep Stack",
     "white_party": "White Party Tournament",
     "bounty_v3": "Bounty",
-    "classic_v3": "Freeroll",
+    "freeroll": "Freeroll",
     "deep_stack_v2": "Deep Stack",
     "main_ko": "MAIN KO",
     "slow_blinds": "Slow Blinds",
@@ -73,6 +74,7 @@ TOURNAMENT_TYPE_NAMES = {
     "month_main": "Month Main Tournament",
     "satellite_v2": "Satellite",
     "mystery_quest": "Mystery Quest",
+    "classic_v3": "Классика 3",
 }
 
 TOURNAMENT_TYPE_SHORT_NAMES = {
@@ -88,7 +90,7 @@ TOURNAMENT_TYPE_SHORT_NAMES = {
     "deep_stack": "Deep Stack",
     "white_party": "White Party",
     "bounty_v3": "Bounty",
-    "classic_v3": "Freeroll",
+    "freeroll": "Freeroll",
     "deep_stack_v2": "Deep Stack",
     "main_ko": "MAIN KO",
     "slow_blinds": "Slow Blinds",
@@ -97,6 +99,7 @@ TOURNAMENT_TYPE_SHORT_NAMES = {
     "month_main": "Month Main Tournament",
     "satellite_v2": "Satellite",
     "mystery_quest": "Mystery Quest",
+    "classic_v3": "Классика 3",
 }
 TOURNAMENT_TYPE_CALENDAR_CODES = {
     "bounty": "B",
@@ -112,7 +115,7 @@ TOURNAMENT_TYPE_CALENDAR_CODES = {
     "deep_stack": "D",
     "white_party": "WP",
     "bounty_v3": "B3",
-    "classic_v3": "FR",
+    "freeroll": "FR",
     "deep_stack_v2": "D2",
     "main_ko": "MK",
     "slow_blinds": "SB",
@@ -121,6 +124,7 @@ TOURNAMENT_TYPE_CALENDAR_CODES = {
     "month_main": "MM",
     "satellite_v2": "S2",
     "mystery_quest": "MQ",
+    "classic_v3": "C3",
 }
 TOURNAMENT_TYPE_DESCRIPTIONS = {
     "bounty": (
@@ -152,7 +156,7 @@ TOURNAMENT_TYPE_DESCRIPTIONS = {
     "bounty_v3": (
         "Динамические нокауты: до финального стола малые КО, на финальном столе большие КО."
     ),
-    "classic_v3": (
+    "freeroll": (
         "Классический турнир. Комбо-бонусы выплачиваются фишками "
         "во время игры и не влияют на рейтинг."
     ),
@@ -170,16 +174,21 @@ TOURNAMENT_TYPE_DESCRIPTIONS = {
         "Плавная структура блайндов."
     ),
     "mystery_quest": None,
+    "classic_v3": (
+        "Классический турнир. Комбо-бонусы выплачиваются фишками "
+        "во время игры и не влияют на рейтинг."
+    ),
 }
 CREATABLE_TOURNAMENT_TYPE_CODES = {
     "freezeout_v2",
     "bounty_v3",
-    "classic_v3",
+    "freeroll",
     "deep_stack_v2",
     "white_party",
     "slow_blinds",
     "satellite_v2",
     "mystery_quest",
+    "classic_v3",
     "black_party",
     "month_main",
     "mystery_bounty",
@@ -220,7 +229,7 @@ TOURNAMENT_TYPE_RULES = {
     "deep_stack": ("1.00", "1.00", None, KnockoutMode.NONE, False),
     "white_party": ("1.00", "1.00", None, KnockoutMode.NONE, False),
     "bounty_v3": ("1.00", "1.00", None, KnockoutMode.SMALL_BIG, False),
-    "classic_v3": ("1.00", "1.00", None, KnockoutMode.NONE, False),
+    "freeroll": ("1.00", "1.00", None, KnockoutMode.NONE, False),
     "deep_stack_v2": ("1.00", "1.00", None, KnockoutMode.NONE, False),
     "main_ko": ("1.00", "1.00", None, KnockoutMode.MAIN_KO, False),
     "slow_blinds": ("1.00", "1.00", None, KnockoutMode.NONE, False),
@@ -229,6 +238,7 @@ TOURNAMENT_TYPE_RULES = {
     "month_main": ("1.00", "1.00", None, KnockoutMode.NONE, False),
     "satellite_v2": ("1.00", "1.00", None, KnockoutMode.NONE, False),
     "mystery_quest": ("1.00", "1.00", None, KnockoutMode.NONE, True),
+    "classic_v3": ("1.00", "1.00", None, KnockoutMode.NONE, False),
 }
 
 
@@ -359,9 +369,16 @@ def build_tournament_economy_configs() -> list[TournamentEconomyConfig]:
                 addon_stack=125_000,
             ),
             TournamentEconomyConfig(
-                tournament_type_id=tournament_type_id("classic_v3"),
+                tournament_type_id=tournament_type_id("freeroll"),
                 entry_fee=0,
                 entry_stack=15_000,
+                addon_fee=800,
+                addon_stack=125_000,
+            ),
+            TournamentEconomyConfig(
+                tournament_type_id=tournament_type_id("classic_v3"),
+                entry_fee=800,
+                entry_stack=20_000,
                 addon_fee=800,
                 addon_stack=125_000,
             ),
@@ -438,7 +455,7 @@ def build_tournament_rebuy_configs() -> list[TournamentRebuyConfig]:
             )
             for rebuy_order, fee, stack in STANDARD_REBUYS
         )
-    for code in {"bounty_v2", "classic_v2"}:
+    for code in {"bounty_v2", "classic_v2", "classic_v3"}:
         configs.extend(
             TournamentRebuyConfig(
                 tournament_type_id=tournament_type_id(code),
@@ -448,7 +465,7 @@ def build_tournament_rebuy_configs() -> list[TournamentRebuyConfig]:
             )
             for rebuy_order, fee, stack in STANDARD_REBUYS
         )
-    for code in {"bounty_v3", "classic_v3"}:
+    for code in {"bounty_v3", "freeroll"}:
         configs.extend(
             TournamentRebuyConfig(
                 tournament_type_id=tournament_type_id(code),

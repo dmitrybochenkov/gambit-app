@@ -147,9 +147,9 @@ async def test_superadmin_reads_seasons_metadata_players_and_all_occurrences(
     assert len({item["id"] for item in grand_months}) == 2
     assert [item["awarded_at"] for item in grand_months] == ["2026-09-20", "2026-09-01"]
     assert [item["kind"] for item in metadata.json()["items"]] == [
+        "grand_season",
         "rating_winner",
         "ko_rating_winner",
-        "grand_season",
         "grand_month",
         "grand_knockout",
     ]

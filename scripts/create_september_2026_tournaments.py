@@ -43,7 +43,7 @@ class TournamentPlanItem:
 
 TARGET_TOURNAMENTS = (
     TargetTournament(date(2026, 9, 9), "bounty_v3"),
-    TargetTournament(date(2026, 9, 10), "classic_v3"),
+    TargetTournament(date(2026, 9, 10), "freeroll"),
     TargetTournament(date(2026, 9, 11), "deep_stack_v2"),
     TargetTournament(date(2026, 9, 12), "freezeout_v2", 2000),
     TargetTournament(date(2026, 9, 13), "main_ko"),

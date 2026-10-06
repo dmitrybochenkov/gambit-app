@@ -102,6 +102,7 @@ from app.db.models.enums import (
     UserStatus,
 )
 from app.db.repositories.tournament_photo_repository import TournamentPhotoRepository
+from app.domain.hall_of_fame import ACHIEVEMENT_KIND_ORDER
 from app.services.access_policy import AdminAccessDeniedError
 from app.services.dto.achievements import AchievementTypeView
 from app.services.dto.check_in import CheckInCandidateView, CheckInGenderDecision
@@ -255,7 +256,7 @@ def achievement_type_view(kind: HallOfFameAchievementKind) -> AchievementTypeVie
     return AchievementTypeView(kind=kind.value, title=title, emoji=emoji)
 
 
-ACHIEVEMENT_TYPE_VIEWS = tuple(achievement_type_view(kind) for kind in HallOfFameAchievementKind)
+ACHIEVEMENT_TYPE_VIEWS = tuple(achievement_type_view(kind) for kind in ACHIEVEMENT_KIND_ORDER)
 
 
 def public_achievement(**values: object) -> HallOfFameAchievementView:
@@ -1149,7 +1150,9 @@ def test_superadmin_calendar_type_picker_uses_service_version_labels() -> None:
     keyboard = superadmin_tournaments_kb.calendar_type_keyboard(
         options=[
             TournamentCalendarTypeOptionView(id=8, code="bounty_v2", name="Bounty"),
+            TournamentCalendarTypeOptionView(id=2, code="classic", name="Классика"),
             TournamentCalendarTypeOptionView(id=9, code="classic_v2", name="Classic"),
+            TournamentCalendarTypeOptionView(id=23, code="classic_v3", name="Классика 3"),
             TournamentCalendarTypeOptionView(id=10, code="freezeout_v2", name="Freezeout"),
             TournamentCalendarTypeOptionView(id=11, code="deep_stack", name="Deep Stack"),
             TournamentCalendarTypeOptionView(
@@ -1167,12 +1170,13 @@ def test_superadmin_calendar_type_picker_uses_service_version_labels() -> None:
 
     labels_by_row = [[button.text for button in row] for row in keyboard.inline_keyboard]
 
-    assert labels_by_row[:5] == [
+    assert labels_by_row[:6] == [
         ["Bounty v2"],
-        ["Classic v2"],
+        ["Классика"],
+        ["Классика 2"],
+        ["Классика 3"],
         ["Freezeout v2"],
         ["Deep Stack"],
-        ["White Party Tournament"],
     ]
     assert all("_v2" not in label for row in labels_by_row for label in row)
 
@@ -1254,6 +1258,44 @@ def test_tournament_format_management_paginates_first_middle_and_last_pages() ->
     ]
 
 
+def test_tournament_format_management_uses_canonical_classic_labels_and_heading() -> None:
+    formats = [
+        TournamentFormatView(
+            id=2,
+            code="classic",
+            name="Классика",
+            calendar_code="C",
+            is_creatable=False,
+        ),
+        TournamentFormatView(
+            id=9,
+            code="classic_v2",
+            name="Classic",
+            calendar_code="C2",
+            is_creatable=False,
+        ),
+        TournamentFormatView(
+            id=23,
+            code="classic_v3",
+            name="Классика 3",
+            calendar_code="C3",
+            is_creatable=True,
+        ),
+    ]
+
+    keyboard = superadmin_tournaments_kb.tournament_format_list_keyboard(
+        formats=formats,
+        page=0,
+    )
+
+    assert inline_keyboard_texts(keyboard)[:3] == [
+        "⚪️ C — Классика",
+        "⚪️ C2 — Классика 2",
+        "🟢 C3 — Классика 3",
+    ]
+    assert tournament_fmt.tournament_format_list() == "⚙️ Список турниров\n\nВыберите турнир:"
+
+
 def test_superadmin_calendar_week_buttons_show_full_name_and_registration_count() -> None:
     view = SimpleNamespace(
         year=2026,
@@ -1321,7 +1363,7 @@ async def test_weekly_template_editor_draft_cancel_and_save_preserve_week_contex
 ) -> None:
     fixed = WeeklyTemplateTypeView(
         id=10,
-        code="classic_v3",
+        code="freeroll",
         name="Freeroll",
         calendar_code="FR",
         is_creatable=True,
@@ -1696,6 +1738,44 @@ def test_calendar_type_pagination_uses_canonical_display_label_order() -> None:
     assert inline_keyboard_texts(second_page)[0] == "Bounty v2"
 
 
+def test_classic_display_names_remain_adjacent_across_picker_page_boundary() -> None:
+    options = [
+        TournamentCalendarTypeOptionView(
+            id=index,
+            code=f"earlier_{index}",
+            name=name,
+        )
+        for index, name in enumerate(("Альфа", "Бета", "Вега", "Гамма", "Дельта"), start=20)
+    ] + [
+        TournamentCalendarTypeOptionView(id=2, code="classic", name="Классика"),
+        TournamentCalendarTypeOptionView(id=9, code="classic_v2", name="Classic"),
+        TournamentCalendarTypeOptionView(id=23, code="classic_v3", name="Классика 3"),
+    ]
+
+    first_page = superadmin_tournaments_kb.calendar_type_keyboard(
+        options=options,
+        action=superadmin_tournaments_kb.SuperadminTournamentCalendarAction.CREATE_TYPE,
+        year=2026,
+        month=9,
+        row=1,
+        day="2026-09-02",
+        page=0,
+    )
+    second_page = superadmin_tournaments_kb.calendar_type_keyboard(
+        options=options,
+        action=superadmin_tournaments_kb.SuperadminTournamentCalendarAction.CREATE_TYPE,
+        year=2026,
+        month=9,
+        row=1,
+        day="2026-09-02",
+        page=1,
+    )
+
+    assert inline_keyboard_texts(first_page)[5] == "Классика"
+    assert inline_keyboard_texts(second_page)[0] == "Классика 2"
+    assert inline_keyboard_texts(second_page)[1] == "Классика 3"
+
+
 async def test_calendar_day_renders_empty_state_or_existing_unified_card(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -2038,7 +2118,7 @@ async def test_weekly_autofill_initializes_and_edits_one_off_fsm_draft(
         id=10, code="bounty_v3", name="Bounty", calendar_code="B3"
     )
     freeroll = TournamentCalendarTypeOptionView(
-        id=11, code="classic_v3", name="Freeroll", calendar_code="FR"
+        id=11, code="freeroll", name="Freeroll", calendar_code="FR"
     )
     month_main = TournamentCalendarTypeOptionView(
         id=12, code="month_main", name="Month Main Tournament", calendar_code="MM"
@@ -2365,13 +2445,13 @@ async def test_weekly_autofill_nested_back_and_cancel_preserve_then_clear_draft(
 ) -> None:
     option = TournamentCalendarTypeOptionView(
         id=10,
-        code="classic_v3",
+        code="freeroll",
         name="Freeroll",
         calendar_code="FR",
     )
     template_item = WeeklyTemplateTypeView(
         id=10,
-        code="classic_v3",
+        code="freeroll",
         name="Freeroll",
         calendar_code="FR",
         is_creatable=True,
@@ -2483,7 +2563,7 @@ async def test_weekly_template_invalid_callback_does_not_mutate_fsm_draft(
     action: superadmin_tournaments_kb.WeeklyTemplateAction,
     callback_fields: dict[str, int],
 ) -> None:
-    option = TournamentCalendarTypeOptionView(id=10, code="classic_v3", name="Freeroll")
+    option = TournamentCalendarTypeOptionView(id=10, code="freeroll", name="Freeroll")
     planning_service = SimpleNamespace(
         list_weekly_template_add_options=AsyncMock(return_value=[option]),
     )
@@ -7747,14 +7827,35 @@ def test_superadmin_hall_of_fame_card_and_submenus() -> None:
     assert inline_keyboard_texts(
         superadmin_hall_of_fame_kb.achievements_keyboard(entry=champion_only, page=0)
     ) == [
+        "💍 Победитель Grand Season",
         "🏆 Победитель Season Rating",
         "💥 Победитель KO Season Rating",
-        "💍 Победитель Grand Season",
         "🏅 Победитель Grand Month",
         "🥊 Победитель Grand Knockout",
         "🗑 Удалить награду",
         "⬅️ Назад",
         "❌ Отмена",
+    ]
+    removal_entry = replace(
+        champion_only,
+        achievements=tuple(
+            management_achievement(
+                id=index,
+                player=champion,
+                kind=kind,
+                awarded_at=date(2026, 8, 31),
+            )
+            for index, kind in enumerate(ACHIEVEMENT_KIND_ORDER, start=1)
+        ),
+    )
+    assert inline_keyboard_texts(
+        superadmin_hall_of_fame_kb.delete_achievements_keyboard(entry=removal_entry)
+    )[:5] == [
+        "💍 Иван",
+        "🏆 Иван",
+        "💥 Иван",
+        "🏅 Иван — 31.08",
+        "🥊 Иван — 31.08",
     ]
     assert inline_keyboard_texts(
         superadmin_hall_of_fame_kb.photo_menu_keyboard(season_id=1, page=0)

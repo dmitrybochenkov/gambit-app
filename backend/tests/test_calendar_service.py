@@ -95,7 +95,7 @@ async def seed_calendar_data(session_factory: async_sessionmaker) -> None:
                 ),
                 WeeklyTournamentTemplate(
                     weekday=3,
-                    tournament_type_id=tournament_type_id("classic_v3"),
+                    tournament_type_id=tournament_type_id("freeroll"),
                 ),
                 WeeklyTournamentTemplate(
                     weekday=4,
@@ -199,7 +199,7 @@ async def test_calendar_autofill_draft_creates_exact_edited_plan_without_recompu
             tournaments=(
                 TournamentCalendarDraftItem(
                     tournament_date=date(2026, 8, 12),
-                    tournament_type_id=tournament_type_id("classic_v3"),
+                    tournament_type_id=tournament_type_id("freeroll"),
                 ),
                 TournamentCalendarDraftItem(
                     tournament_date=date(2026, 8, 15),
@@ -213,7 +213,7 @@ async def test_calendar_autofill_draft_creates_exact_edited_plan_without_recompu
         assert [
             (item.tournament_date, item.tournament_type.code) for item in created.tournaments
         ] == [
-            (date(2026, 8, 12), "classic_v3"),
+            (date(2026, 8, 12), "freeroll"),
             (date(2026, 8, 15), "freezeout_v2"),
         ]
         async with session_factory() as session:
@@ -231,7 +231,7 @@ async def test_calendar_autofill_draft_creates_exact_edited_plan_without_recompu
                 ).scalars()
             )
         assert [(row.date, row.tournament_type_id) for row in rows] == [
-            (date(2026, 8, 12), tournament_type_id("classic_v3")),
+            (date(2026, 8, 12), tournament_type_id("freeroll")),
             (date(2026, 8, 15), tournament_type_id("freezeout_v2")),
         ]
         assert [(row.weekday, row.tournament_type_id) for row in template_rows] == [
@@ -248,7 +248,7 @@ async def test_calendar_autofill_draft_creates_exact_edited_plan_without_recompu
         (
             TournamentCalendarDraftItem(
                 tournament_date=date(2026, 8, 12),
-                tournament_type_id=tournament_type_id("classic_v3"),
+                tournament_type_id=tournament_type_id("freeroll"),
             ),
             TournamentCalendarDraftItem(
                 tournament_date=date(2026, 8, 12),
@@ -258,7 +258,7 @@ async def test_calendar_autofill_draft_creates_exact_edited_plan_without_recompu
         (
             TournamentCalendarDraftItem(
                 tournament_date=date(2026, 8, 20),
-                tournament_type_id=tournament_type_id("classic_v3"),
+                tournament_type_id=tournament_type_id("freeroll"),
             ),
         ),
     ],
@@ -292,7 +292,7 @@ async def test_calendar_autofill_draft_revalidates_type_and_week_occupancy(
         await seed_calendar_data(session_factory)
         item = TournamentCalendarDraftItem(
             tournament_date=date(2026, 8, 12),
-            tournament_type_id=tournament_type_id("classic_v3"),
+            tournament_type_id=tournament_type_id("freeroll"),
         )
         command = TournamentCalendarDraftCommand(
             year=2026,
@@ -361,7 +361,7 @@ async def test_calendar_autofill_draft_maps_concurrent_unique_conflict_and_rolls
             tournaments=(
                 TournamentCalendarDraftItem(
                     tournament_date=date(2026, 8, 12),
-                    tournament_type_id=tournament_type_id("classic_v3"),
+                    tournament_type_id=tournament_type_id("freeroll"),
                 ),
             ),
         )
@@ -405,7 +405,7 @@ async def test_calendar_autofill_draft_authorizes_and_rolls_back_as_one_transact
             tournaments=(
                 TournamentCalendarDraftItem(
                     tournament_date=date(2026, 8, 12),
-                    tournament_type_id=tournament_type_id("classic_v3"),
+                    tournament_type_id=tournament_type_id("freeroll"),
                 ),
                 TournamentCalendarDraftItem(
                     tournament_date=date(2026, 8, 14),
@@ -451,7 +451,7 @@ async def test_future_type_change_rejects_existing_fact_data(tmp_path: Path) -> 
             tournament = Tournament(
                 season_id=1,
                 scoring_config_id=1,
-                tournament_type_id=tournament_type_id("classic_v3"),
+                tournament_type_id=tournament_type_id("freeroll"),
                 date=date(2026, 8, 12),
                 status=TournamentStatus.ACTIVE,
             )
@@ -499,7 +499,7 @@ async def test_calendar_month_uses_db_calendar_codes_and_month_type_order(
                     Tournament(
                         season_id=1,
                         scoring_config_id=1,
-                        tournament_type_id=tournament_type_id("classic_v3"),
+                        tournament_type_id=tournament_type_id("freeroll"),
                         date=date(2026, 8, 31),
                         status=TournamentStatus.ACTIVE,
                     ),
@@ -718,6 +718,11 @@ async def test_calendar_and_management_format_lists_are_sorted_by_display_name(
             tournament_type_id=tournament_type_id("bounty_v2"),
             is_creatable=True,
         )
+        await service.set_tournament_format_creatable(
+            1,
+            tournament_type_id=tournament_type_id("classic_v2"),
+            is_creatable=True,
+        )
 
         formats = await service.list_tournament_formats(1)
         options = await service.list_calendar_tournament_type_options(1)
@@ -731,6 +736,11 @@ async def test_calendar_and_management_format_lists_are_sorted_by_display_name(
         assert [
             item.display_name for item in options if item.code in {"bounty_v2", "bounty_v3"}
         ] == ["Bounty", "Bounty v2"]
+        assert [
+            item.display_name
+            for item in options
+            if item.code in {"classic", "classic_v2", "classic_v3"}
+        ] == ["Классика", "Классика 2", "Классика 3"]
         assert "legacy_unknown" not in {item.code for item in formats}
         assert "legacy_unknown" not in {item.code for item in options}
         assert "classic" in {item.code for item in options}
@@ -779,6 +789,7 @@ async def test_versioned_format_configs_preserve_historical_rows(tmp_path: Path)
         assert types["classic_v2"].is_creatable is False
         assert types["deep_stack"].is_creatable is False
         assert types["bounty_v3"].is_creatable is True
+        assert types["freeroll"].is_creatable is True
         assert types["classic_v3"].is_creatable is True
         assert types["deep_stack_v2"].is_creatable is True
         assert types["main_ko"].is_creatable is True
@@ -917,25 +928,64 @@ async def test_versioned_format_configs_preserve_historical_rows(tmp_path: Path)
         ]
         assert rules[types["bounty_v3"].id].knockout_mode == KnockoutMode.SMALL_BIG
 
-        classic_v3 = economies[types["classic_v3"].id]
-        assert types["classic_v3"].code == "classic_v3"
-        assert types["classic_v3"].name == "Freeroll"
-        assert types["classic_v3"].short_name == "Freeroll"
-        assert types["classic_v3"].calendar_code == "FR"
+        freeroll = economies[types["freeroll"].id]
+        assert types["freeroll"].code == "freeroll"
+        assert types["freeroll"].name == "Freeroll"
+        assert types["freeroll"].short_name == "Freeroll"
+        assert types["freeroll"].calendar_code == "FR"
         assert (
-            classic_v3.entry_fee,
-            classic_v3.entry_stack,
-            classic_v3.addon_fee,
-            classic_v3.addon_stack,
+            freeroll.entry_fee,
+            freeroll.entry_stack,
+            freeroll.addon_fee,
+            freeroll.addon_stack,
         ) == (0, 15_000, 800, 125_000)
-        assert [(rebuy.fee, rebuy.stack) for rebuy in rebuys_by_type[types["classic_v3"].id]] == [
+        assert [(rebuy.fee, rebuy.stack) for rebuy in rebuys_by_type[types["freeroll"].id]] == [
             (800, 30_000),
             (800, 50_000),
             (800, 60_000),
             (1000, 80_000),
             (1000, 80_000),
         ]
-        assert rules[types["classic_v3"].id].knockout_mode == KnockoutMode.NONE
+        assert rules[types["freeroll"].id].knockout_mode == KnockoutMode.NONE
+
+        classic_v2 = economies[types["classic_v2"].id]
+        classic_v3 = economies[types["classic_v3"].id]
+        assert types["classic_v3"].code == "classic_v3"
+        assert types["classic_v3"].name == "Классика 3"
+        assert types["classic_v3"].short_name == "Классика 3"
+        assert types["classic_v3"].calendar_code == "C3"
+        assert classic_v2.entry_fee == 600
+        assert classic_v3.entry_fee == 800
+        assert (
+            classic_v3.entry_stack,
+            classic_v3.addon_fee,
+            classic_v3.addon_stack,
+        ) == (
+            classic_v2.entry_stack,
+            classic_v2.addon_fee,
+            classic_v2.addon_stack,
+        )
+        assert rebuys_by_type[types["classic_v3"].id] != []
+        assert [
+            (rebuy.rebuy_order, rebuy.fee, rebuy.stack)
+            for rebuy in rebuys_by_type[types["classic_v3"].id]
+        ] == [
+            (rebuy.rebuy_order, rebuy.fee, rebuy.stack)
+            for rebuy in rebuys_by_type[types["classic_v2"].id]
+        ]
+        assert (
+            rules[types["classic_v3"].id].points_multiplier,
+            rules[types["classic_v3"].id].prize_place_multiplier,
+            rules[types["classic_v3"].id].prize_place_multiplier_places,
+            rules[types["classic_v3"].id].knockout_mode,
+            rules[types["classic_v3"].id].supports_bonus_points,
+        ) == (
+            rules[types["classic_v2"].id].points_multiplier,
+            rules[types["classic_v2"].id].prize_place_multiplier,
+            rules[types["classic_v2"].id].prize_place_multiplier_places,
+            rules[types["classic_v2"].id].knockout_mode,
+            rules[types["classic_v2"].id].supports_bonus_points,
+        )
 
         deep_stack_v2 = economies[types["deep_stack_v2"].id]
         assert (
@@ -1182,7 +1232,7 @@ async def test_calendar_autofill_creates_unapproved_week_and_approval_opens_regi
         ]
         assert [item.tournament_type.code for item in preview.tournaments] == [
             "bounty_v3",
-            "classic_v3",
+            "freeroll",
             "freezeout_v2",
             "deep_stack_v2",
             "boss_bounty",
@@ -1243,7 +1293,7 @@ async def test_repeated_calendar_create_callback_does_not_duplicate_tournament(
         await service.create_calendar_tournament(
             1,
             tournament_date=date(2026, 8, 12),
-            tournament_type_id=tournament_type_id("classic_v3"),
+            tournament_type_id=tournament_type_id("freeroll"),
         )
         with pytest.raises(CalendarTournamentDateAlreadyExistsError):
             await service.create_calendar_tournament(
@@ -1256,7 +1306,7 @@ async def test_repeated_calendar_create_callback_does_not_duplicate_tournament(
             tournaments = list((await session.execute(select(Tournament))).scalars())
         assert len(tournaments) == 1
         assert tournaments[0].date == date(2026, 8, 12)
-        assert tournaments[0].tournament_type_id == tournament_type_id("classic_v3")
+        assert tournaments[0].tournament_type_id == tournament_type_id("freeroll")
     finally:
         await engine.dispose()
 
@@ -1345,7 +1395,7 @@ async def test_weekly_template_read_replace_and_order_normalization(tmp_path: Pa
 
         replacement = {
             2: (
-                tournament_type_id("classic_v3"),
+                tournament_type_id("freeroll"),
                 tournament_type_id("bounty_v3"),
             ),
             3: (tournament_type_id("freezeout_v2"),),
@@ -1360,7 +1410,7 @@ async def test_weekly_template_read_replace_and_order_normalization(tmp_path: Pa
         )
 
         assert [item.code for item in view.days[2].tournament_types] == [
-            "classic_v3",
+            "freeroll",
             "bounty_v3",
         ]
         async with session_factory() as session:
@@ -1449,7 +1499,7 @@ async def test_weekday_rotation_uses_only_matching_history_and_is_independent(
             tournament_type_ids_by_weekday={
                 2: (
                     tournament_type_id("bounty_v3"),
-                    tournament_type_id("classic_v3"),
+                    tournament_type_id("freeroll"),
                 ),
                 3: (tournament_type_id("freezeout_v2"),),
                 6: (
@@ -1483,7 +1533,7 @@ async def test_weekday_rotation_uses_only_matching_history_and_is_independent(
             (item.tournament_date.weekday(), item.tournament_type.code)
             for item in preview.tournaments
         ] == [
-            (2, "classic_v3"),
+            (2, "freeroll"),
             (3, "freezeout_v2"),
             (6, "boss_bounty"),
         ]
@@ -1518,7 +1568,7 @@ async def test_weekly_template_replacement_rolls_back_on_repository_failure(
             await service.replace_weekly_template(
                 1,
                 tournament_type_ids_by_weekday={
-                    2: (tournament_type_id("classic_v3"),),
+                    2: (tournament_type_id("freeroll"),),
                 },
             )
 
@@ -1660,7 +1710,7 @@ async def test_week_approval_only_opens_unapproved_tournaments_and_can_be_repeat
         await service.create_calendar_tournament(
             1,
             tournament_date=date(2026, 8, 13),
-            tournament_type_id=tournament_type_id("classic_v3"),
+            tournament_type_id=tournament_type_id("freeroll"),
         )
         async with session_factory() as session:
             before = list(
@@ -1755,7 +1805,7 @@ async def test_calendar_delete_removes_registrations_but_keeps_users(
         tournament = await service.create_calendar_tournament(
             1,
             tournament_date=date(2026, 8, 12),
-            tournament_type_id=tournament_type_id("classic_v3"),
+            tournament_type_id=tournament_type_id("freeroll"),
         )
         async with session_factory() as session:
             player = build_player(
@@ -1809,12 +1859,12 @@ async def test_calendar_tournament_uses_season_for_its_own_date_after_boundary_c
         august = await service.create_calendar_tournament(
             1,
             tournament_date=date(2026, 8, 26),
-            tournament_type_id=tournament_type_id("classic_v3"),
+            tournament_type_id=tournament_type_id("freeroll"),
         )
         september = await service.create_calendar_tournament(
             1,
             tournament_date=date(2026, 9, 2),
-            tournament_type_id=tournament_type_id("classic_v3"),
+            tournament_type_id=tournament_type_id("freeroll"),
         )
 
         async with session_factory() as session:

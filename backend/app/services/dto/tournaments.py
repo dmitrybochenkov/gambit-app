@@ -170,7 +170,9 @@ class TournamentFormatView:
 def tournament_type_display_name(code: str, name: str) -> str:
     versioned_names = {
         "bounty_v2": "Bounty v2",
-        "classic_v2": "Classic v2",
+        "classic": "Классика",
+        "classic_v2": "Классика 2",
+        "classic_v3": "Классика 3",
         "freezeout_v2": "Freezeout v2",
     }
     return versioned_names.get(code, name)

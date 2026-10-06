@@ -10,7 +10,8 @@ EXPECTED_CODES = {
     "bounty_v3": ("Bounty", "B3"),
     "classic": ("Classic", "C"),
     "classic_v2": ("Classic", "C2"),
-    "classic_v3": ("Freeroll", "FR"),
+    "classic_v3": ("Классика 3", "C3"),
+    "freeroll": ("Freeroll", "FR"),
     "freezeout": ("Freezeout", "F"),
     "freezeout_v2": ("Freezeout", "F2"),
     "deep_stack": ("Deep Stack", "D"),
@@ -111,6 +112,7 @@ def test_tournament_type_calendar_code_migration_upgrade_and_downgrade(
     for code, (short_name, _calendar_code) in EXPECTED_CODES.items():
         if code in {
             "classic_v3",
+            "freeroll",
             "slow_blinds",
             "satellite",
             "satellite_v2",

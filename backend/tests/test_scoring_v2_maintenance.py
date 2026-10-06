@@ -155,7 +155,7 @@ async def test_create_week_apply_is_idempotent_and_uses_season_scoring_config(
                 (item.date, item.tournament_type_id, item.tournament_fund) for item in tournaments
             ] == [
                 (date(2026, 9, 9), tournament_type_id("bounty_v3"), None),
-                (date(2026, 9, 10), tournament_type_id("classic_v3"), None),
+                (date(2026, 9, 10), tournament_type_id("freeroll"), None),
                 (date(2026, 9, 11), tournament_type_id("deep_stack_v2"), None),
                 (date(2026, 9, 12), tournament_type_id("freezeout_v2"), 2000),
                 (date(2026, 9, 13), tournament_type_id("main_ko"), None),
@@ -180,7 +180,7 @@ async def test_create_week_conflict_blocks_apply_without_partial_rows(tmp_path: 
                 Tournament(
                     season_id=season.id,
                     scoring_config_id=season.scoring_config_id,
-                    tournament_type_id=tournament_type_id("classic_v3"),
+                    tournament_type_id=tournament_type_id("freeroll"),
                     date=date(2026, 9, 9),
                     status=TournamentStatus.ACTIVE,
                     registration_open=False,
@@ -231,7 +231,7 @@ async def test_create_next_week_apply_is_idempotent_and_uses_season_scoring_conf
             ] == [
                 (date(2026, 9, 16), tournament_type_id("slow_blinds"), None),
                 (date(2026, 9, 17), tournament_type_id("bounty_v3"), None),
-                (date(2026, 9, 18), tournament_type_id("classic_v3"), None),
+                (date(2026, 9, 18), tournament_type_id("freeroll"), None),
                 (date(2026, 9, 19), tournament_type_id("satellite"), None),
                 (date(2026, 9, 20), tournament_type_id("black_party"), None),
             ]
@@ -258,7 +258,7 @@ async def test_create_next_week_conflict_blocks_apply_without_partial_rows(
                 Tournament(
                     season_id=season.id,
                     scoring_config_id=season.scoring_config_id,
-                    tournament_type_id=tournament_type_id("classic_v3"),
+                    tournament_type_id=tournament_type_id("freeroll"),
                     date=date(2026, 9, 16),
                     status=TournamentStatus.ACTIVE,
                     registration_open=False,
@@ -316,7 +316,7 @@ async def seed_recalculation_data(session_factory: async_sessionmaker) -> None:
                 tournament_type_id=(
                     tournament_type_id("freezeout_v2")
                     if tournament_date == date(2026, 9, 4)
-                    else tournament_type_id("classic_v3")
+                    else tournament_type_id("freeroll")
                 ),
                 date=tournament_date,
                 status=TournamentStatus.CLOSED,

@@ -1,10 +1,6 @@
-ACHIEVEMENT_KIND_ORDER = (
-    "rating_winner",
-    "ko_rating_winner",
-    "grand_season",
-    "grand_month",
-    "grand_knockout",
-)
+from app.domain.hall_of_fame import ACHIEVEMENT_KIND_ORDER as DOMAIN_ACHIEVEMENT_KIND_ORDER
+
+ACHIEVEMENT_KIND_ORDER = tuple(kind.value for kind in DOMAIN_ACHIEVEMENT_KIND_ORDER)
 
 _DATED_ACHIEVEMENT_KINDS = {"grand_month", "grand_knockout"}
 

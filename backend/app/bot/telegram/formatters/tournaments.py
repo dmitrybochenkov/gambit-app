@@ -239,7 +239,7 @@ def weekly_autofill_day(tournament_date: date, tournament_type: object | None) -
 
 
 def tournament_format_list() -> str:
-    return "🏆 Форматы турниров\n\nВыберите формат:"
+    return "⚙️ Список турниров\n\nВыберите турнир:"
 
 
 def tournament_format_detail(tournament_format: object) -> str:

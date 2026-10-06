@@ -923,7 +923,7 @@ async def test_tournament_scoring_config_is_bound_to_tournament_not_mutable_seas
         tournament = Tournament(
             season_id=season.id,
             scoring_config_id=season.scoring_config_id,
-            tournament_type_id=tournament_type_id("classic_v3"),
+            tournament_type_id=tournament_type_id("freeroll"),
             date=date(2026, 9, 10),
             status=TournamentStatus.ACTIVE,
         )

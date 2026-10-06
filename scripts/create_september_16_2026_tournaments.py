@@ -58,7 +58,7 @@ class TournamentPlanItem:
 TARGET_TOURNAMENTS = (
     TargetTournament(date(2026, 9, 16), "slow_blinds"),
     TargetTournament(date(2026, 9, 17), "bounty_v3"),
-    TargetTournament(date(2026, 9, 18), "classic_v3"),
+    TargetTournament(date(2026, 9, 18), "freeroll"),
     TargetTournament(date(2026, 9, 19), "satellite"),
     TargetTournament(date(2026, 9, 20), "black_party"),
 )
@@ -92,7 +92,7 @@ EXPECTED_TYPES = {
         ),
         knockout_mode=KnockoutMode.SMALL_BIG,
     ),
-    "classic_v3": ExpectedTypeConfig(
+    "freeroll": ExpectedTypeConfig(
         name="Freeroll",
         short_name="Freeroll",
         calendar_code="FR",

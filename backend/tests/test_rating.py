@@ -333,7 +333,7 @@ def test_rating_badges_and_legend_are_distinct_and_page_local() -> None:
         current_player_id=99,
     )
 
-    assert "All badges 🏆🏆💥💍🏅🏅🥊" in first
+    assert "All badges 💍🏆🏆💥🏅🏅🥊" in first
     assert first.count("🏅") == 3
     assert "🏆 - победитель Season Rating" in first
     assert "🥊 - победитель Grand Knockout" in first
@@ -389,9 +389,9 @@ def test_rating_legends_use_statistic_first_and_deterministic_lowercased_titles(
     assert points_message.splitlines()[:7] == [
         "Рейтинг",
         "🎲 - количество турниров",
+        "💍 - победитель Grand Season",
         "🏆 - победитель Season Rating",
         "💥 - победитель KO Season Rating",
-        "💍 - победитель Grand Season",
         "🏅 - победитель Grand Month",
         "🥊 - победитель Grand Knockout",
     ]
@@ -506,8 +506,8 @@ def test_rating_badge_ties_use_kind_hierarchy_then_occurrence_id() -> None:
 
     ordered = rating_texts._ordered_achievements(achievements)
 
-    assert [achievement.id for achievement in ordered] == [15, 21, 30, 35, 40, 50]
-    assert "".join(achievement.emoji for achievement in ordered) == "🏆🏆💥💍🏅🥊"
+    assert [achievement.id for achievement in ordered] == [35, 15, 21, 30, 40, 50]
+    assert "".join(achievement.emoji for achievement in ordered) == "💍🏆🏆💥🏅🥊"
 
 
 async def test_rating_counts_historical_tied_places_with_authoritative_points(

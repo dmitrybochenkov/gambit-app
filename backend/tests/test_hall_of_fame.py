@@ -17,6 +17,7 @@ from app.db.models import (
     Season,
 )
 from app.db.models.enums import HallOfFameAchievementKind, UserRole, UserStatus
+from app.domain.hall_of_fame import ACHIEVEMENT_KIND_ORDER
 from app.services.access_policy import AdminAccessDeniedError
 from app.services.dto.statistics.hall_of_fame import (
     HallOfFameAchievementView,
@@ -29,6 +30,16 @@ from app.services.hall_of_fame_management_service import (
 )
 from app.services.user_common import UserNotFoundError
 from app.services.user_statistics_service import UserStatisticsService
+
+
+def test_achievement_kind_order_is_canonical_hierarchy() -> None:
+    assert ACHIEVEMENT_KIND_ORDER == (
+        HallOfFameAchievementKind.GRAND_SEASON,
+        HallOfFameAchievementKind.RATING_WINNER,
+        HallOfFameAchievementKind.KO_RATING_WINNER,
+        HallOfFameAchievementKind.GRAND_MONTH,
+        HallOfFameAchievementKind.GRAND_KNOCKOUT,
+    )
 
 
 async def test_hall_of_fame_uses_manual_entries_from_completed_seasons(
@@ -220,9 +231,9 @@ def test_hall_of_fame_formatter_preserves_occurrence_order_and_repetitions() -> 
     legend = hall_fmt.message([season])
     assert legend == (
         "🏆 Зал славы\n\n"
+        "💍 - победитель Grand Season\n"
         "🏆 - победитель Season Rating\n"
         "💥 - победитель KO Season Rating\n"
-        "💍 - победитель Grand Season\n"
         "🏅 - победитель Grand Month\n"
         "🥊 - победитель Grand Knockout"
     )
@@ -386,6 +397,17 @@ async def test_hall_of_fame_management_crud_preserves_repeated_occurrences(
         ]
         assert len(grand_knockouts) == 2
         assert len({item.id for item in grand_knockouts}) == 2
+        assert [item.kind for item in entry.achievements] == [
+            HallOfFameAchievementKind.GRAND_SEASON,
+            HallOfFameAchievementKind.RATING_WINNER,
+            HallOfFameAchievementKind.KO_RATING_WINNER,
+            HallOfFameAchievementKind.GRAND_MONTH,
+            HallOfFameAchievementKind.GRAND_KNOCKOUT,
+            HallOfFameAchievementKind.GRAND_KNOCKOUT,
+        ]
+        assert [item.kind for item in entry.achievement_types] == [
+            kind.value for kind in ACHIEVEMENT_KIND_ORDER
+        ]
 
         open_entry = await service.add_achievement(
             1,

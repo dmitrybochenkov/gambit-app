@@ -353,7 +353,7 @@ async def test_delete_referenced_future_season_fails_with_semantic_conflict(
                 Tournament(
                     season_id=future.id,
                     scoring_config_id=config_id,
-                    tournament_type_id=tournament_type_id("classic_v3"),
+                    tournament_type_id=tournament_type_id("freeroll"),
                     date=date(2026, 9, 2),
                     status=TournamentStatus.ACTIVE,
                 )

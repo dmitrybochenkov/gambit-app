@@ -11,14 +11,7 @@ from app.db.models.enums import (
     UserRole,
     UserStatus,
 )
-
-_ACHIEVEMENT_KIND_ORDER = {
-    HallOfFameAchievementKind.RATING_WINNER: 0,
-    HallOfFameAchievementKind.KO_RATING_WINNER: 1,
-    HallOfFameAchievementKind.GRAND_SEASON: 2,
-    HallOfFameAchievementKind.GRAND_MONTH: 3,
-    HallOfFameAchievementKind.GRAND_KNOCKOUT: 4,
-}
+from app.domain.hall_of_fame import ACHIEVEMENT_KIND_ORDER, ACHIEVEMENT_KIND_PRIORITY
 
 
 @dataclass(frozen=True)
@@ -236,7 +229,7 @@ class HallOfFameRepository:
                 sorted(
                     items,
                     key=lambda item: (
-                        _ACHIEVEMENT_KIND_ORDER[item.kind],
+                        ACHIEVEMENT_KIND_PRIORITY[item.kind],
                         -item.awarded_at.toordinal()
                         if item.kind
                         in {
@@ -339,7 +332,7 @@ class HallOfFameRepository:
             rows,
             key=lambda row: (
                 row.starts_at,
-                _ACHIEVEMENT_KIND_ORDER[HallOfFameAchievementKind(row.kind)],
+                ACHIEVEMENT_KIND_PRIORITY[HallOfFameAchievementKind(row.kind)],
                 -row.awarded_at.toordinal()
                 if row.kind in {"grand_month", "grand_knockout"}
                 else row.awarded_at.toordinal(),
@@ -395,6 +388,6 @@ class HallOfFameRepository:
                 emoji=by_kind[kind].emoji,
                 custom_emoji_id=by_kind[kind].custom_emoji_id,
             )
-            for kind in _ACHIEVEMENT_KIND_ORDER
+            for kind in ACHIEVEMENT_KIND_ORDER
             if kind in by_kind
         )
