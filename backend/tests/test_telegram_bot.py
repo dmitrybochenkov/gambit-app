@@ -6547,9 +6547,9 @@ async def test_hall_of_fame_button_shows_message(
     first_answer = message.answer.await_args_list[0]
     second_answer = message.answer.await_args_list[1]
     assert first_answer.args[0] == (
-        "🏆 Зал славы\n\n💍 - победитель рейтингового сезона\n💥 - лучший нокаутер сезона"
+        "🏆 Зал славы\n\n🏆 - победитель Season Rating\n💥 - победитель KO Season Rating"
     )
-    assert second_answer.args[0] == ("Сезон 2026\n💍 Иван\n💥 Петр")
+    assert second_answer.args[0] == ("Сезон 2026\n🏆 Иван\n💥 Петр")
     assert "reply_markup" not in first_answer.kwargs
     assert "reply_markup" not in second_answer.kwargs
     assert first_answer.kwargs["parse_mode"] == "Markdown"
@@ -6591,7 +6591,7 @@ async def test_hall_of_fame_season_without_photos_is_text_card() -> None:
     await user_hall_of_fame_handlers._send_hall_of_fame_season(message, season)
 
     message.answer.assert_awaited_once_with(
-        "Лето 2026\n💍 Иван\n💥 Петр",
+        "Лето 2026\n🏆 Иван\n💥 Петр",
         parse_mode="Markdown",
     )
     message.answer_photo.assert_not_awaited()
@@ -6636,7 +6636,7 @@ async def test_hall_of_fame_season_with_one_photo_uses_captioned_photo() -> None
     message.answer.assert_not_awaited()
     message.answer_photo.assert_awaited_once_with(
         "champion-photo",
-        caption="Лето 2026\n💍 Иван\n💥 Петр",
+        caption="Лето 2026\n🏆 Иван\n💥 Петр",
         parse_mode="Markdown",
     )
     message.answer_media_group.assert_not_awaited()
@@ -6691,7 +6691,7 @@ async def test_hall_of_fame_season_with_two_photos_uses_captioned_collage(
     message.answer.assert_not_awaited()
     message.answer_photo.assert_awaited_once_with(
         collage,
-        caption="Лето 2026\n💍 Иван\n💥 Петр",
+        caption="Лето 2026\n🏆 Иван\n💥 Петр",
         parse_mode="Markdown",
     )
     message.answer_media_group.assert_not_awaited()
@@ -7343,17 +7343,17 @@ def test_superadmin_hall_of_fame_card_and_submenus() -> None:
     ]
 
     assert hall_management_fmt.season_card(champion_only) == (
-        "🏆 Зал славы\nЛето 2026\n📸 Фото: 0\n💍 Иван"
+        "🏆 Зал славы\nЛето 2026\n📸 Фото: 0\n🏆 Иван"
     )
     assert hall_management_fmt.achievements_menu(champion_only) == (
-        "🏆 Награды\nЛето 2026\n💍 Иван"
+        "🏆 Награды\nЛето 2026\n🏆 Иван"
     )
     assert inline_keyboard_texts(
         superadmin_hall_of_fame_kb.achievements_keyboard(entry=champion_only, page=0)
     ) == [
-        "💍 Победитель рейтингового сезона",
-        "💥 Лучший нокаутер сезона",
-        "🏆 Победитель Grand Season",
+        "🏆 Победитель Season Rating",
+        "💥 Победитель KO Season Rating",
+        "💍 Победитель Grand Season",
         "🏅 Победитель Grand Month",
         "🥊 Победитель Grand Knockout",
         "🗑 Удалить награду",

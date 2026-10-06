@@ -124,13 +124,13 @@ async def test_hall_of_fame_uses_manual_entries_from_completed_seasons(
         assert "Будущий финал" not in hall_fmt.message(seasons)
         assert hall_fmt.message(seasons) == (
             "🏆 Зал славы\n\n"
-            "💍 - победитель рейтингового сезона\n"
-            "💥 - лучший нокаутер сезона\n"
+            "🏆 - победитель Season Rating\n"
+            "💥 - победитель KO Season Rating\n"
             "🏅 - победитель Grand Month"
         )
         assert hall_fmt.season_caption(seasons[0]) == ("Открытый сезон\n🏅 Петр (01.07.2026)")
-        assert hall_fmt.season_caption(seasons[1]) == "Сезон 2026\n💍 Петр"
-        assert hall_fmt.season_caption(seasons[2]) == "Сезон 2025\n💍 Иван\n💥 Петр"
+        assert hall_fmt.season_caption(seasons[1]) == "Сезон 2026\n🏆 Петр"
+        assert hall_fmt.season_caption(seasons[2]) == "Сезон 2025\n🏆 Иван\n💥 Петр"
     finally:
         await engine.dispose()
 
@@ -213,16 +213,16 @@ def test_hall_of_fame_formatter_preserves_occurrence_order_and_repetitions() -> 
 
     assert hall_fmt.season_caption(season) == (
         "Лето 2026\n🥊 KO new (20.08.2026)\n🏅 Month new (01.08.2026)\n"
-        "💍 Rating\n🏆 Season\n💥 KO\n🏅 Month old (01.07.2026)\n"
+        "🏆 Rating\n💍 Season\n💥 KO\n🏅 Month old (01.07.2026)\n"
         "🥊 KO old (20.06.2026)"
     )
 
     legend = hall_fmt.message([season])
     assert legend == (
         "🏆 Зал славы\n\n"
-        "💍 - победитель рейтингового сезона\n"
-        "💥 - лучший нокаутер сезона\n"
-        "🏆 - победитель Grand Season\n"
+        "🏆 - победитель Season Rating\n"
+        "💥 - победитель KO Season Rating\n"
+        "💍 - победитель Grand Season\n"
         "🏅 - победитель Grand Month\n"
         "🥊 - победитель Grand Knockout"
     )

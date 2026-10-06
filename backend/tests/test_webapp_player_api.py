@@ -294,8 +294,8 @@ async def test_ratings_return_semantic_achievement_counts(
         "id": ordinary_achievement["id"],
         "kind": "rating_winner",
         "awarded_at": "2026-06-30",
-        "title": "Победитель рейтингового сезона",
-        "emoji": "💍",
+        "title": "Победитель Season Rating",
+        "emoji": "🏆",
         "custom_emoji_id": None,
     }
     assert "knockout_titles_count" not in ordinary.json()["items"][0]
@@ -312,7 +312,7 @@ async def test_ratings_return_semantic_achievement_counts(
         "id": knockout_achievement["id"],
         "kind": "ko_rating_winner",
         "awarded_at": "2026-06-30",
-        "title": "Лучший нокаутер сезона",
+        "title": "Победитель KO Season Rating",
         "emoji": "💥",
         "custom_emoji_id": None,
     }
@@ -366,8 +366,8 @@ async def test_profile_returns_current_actor_semantic_stats(
             "season_starts_at": "2026-04-01",
             "kind": "rating_winner",
             "awarded_at": "2026-06-30",
-            "title": "Победитель рейтингового сезона",
-            "emoji": "💍",
+            "title": "Победитель Season Rating",
+            "emoji": "🏆",
             "custom_emoji_id": None,
         }
     ]
@@ -452,8 +452,8 @@ async def test_hall_of_fame_returns_structured_seasons_without_telegram_photo_id
             "id": response.json()["seasons"][0]["achievements"][0]["id"],
             "kind": "rating_winner",
             "awarded_at": "2026-06-30",
-            "title": "Победитель рейтингового сезона",
-            "emoji": "💍",
+            "title": "Победитель Season Rating",
+            "emoji": "🏆",
             "custom_emoji_id": None,
             "player": {
                 "id": response.json()["seasons"][0]["champion"]["id"],
@@ -464,7 +464,7 @@ async def test_hall_of_fame_returns_structured_seasons_without_telegram_photo_id
             "id": response.json()["seasons"][0]["achievements"][1]["id"],
             "kind": "ko_rating_winner",
             "awarded_at": "2026-06-30",
-            "title": "Лучший нокаутер сезона",
+            "title": "Победитель KO Season Rating",
             "emoji": "💥",
             "custom_emoji_id": None,
             "player": {

@@ -15,14 +15,14 @@ from app.db.models.enums import HallOfFameAchievementKind, KnockoutMode
 
 ACHIEVEMENT_TYPES = {
     HallOfFameAchievementKind.RATING_WINNER: (
-        "Победитель рейтингового сезона",
-        "💍",
+        "Победитель Season Rating",
+        "🏆",
     ),
     HallOfFameAchievementKind.KO_RATING_WINNER: (
-        "Лучший нокаутер сезона",
+        "Победитель KO Season Rating",
         "💥",
     ),
-    HallOfFameAchievementKind.GRAND_SEASON: ("Победитель Grand Season", "🏆"),
+    HallOfFameAchievementKind.GRAND_SEASON: ("Победитель Grand Season", "💍"),
     HallOfFameAchievementKind.GRAND_MONTH: ("Победитель Grand Month", "🏅"),
     HallOfFameAchievementKind.GRAND_KNOCKOUT: ("Победитель Grand Knockout", "🥊"),
 }

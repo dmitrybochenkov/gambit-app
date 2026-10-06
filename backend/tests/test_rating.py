@@ -273,8 +273,8 @@ async def test_rating_filters_current_season_and_all_time(tmp_path: Path) -> Non
             current_player_id=second_player.id,
         ).startswith(
             "Рейтинг — текущий сезон\n🎲 - количество турниров\n"
-            "💍 - победитель рейтингового сезона\n"
-            "💥 - лучший нокаутер сезона\n\n👉 1. *King* — 120 | 🎲 1"
+            "🏆 - победитель Season Rating\n"
+            "💥 - победитель KO Season Rating\n\n👉 1. *King* — 120 | 🎲 1"
         )
         knockout_message = rating_fmt.message(
             knockout_title,
@@ -284,10 +284,10 @@ async def test_rating_filters_current_season_and_all_time(tmp_path: Path) -> Non
         assert (
             "Рейтинг по нокаутам — за всё время\n"
             "🎲 - количество турниров с нокаутами\n"
-            "💍 - победитель рейтингового сезона\n"
-            "💥 - лучший нокаутер сезона\n\n"
+            "🏆 - победитель Season Rating\n"
+            "💥 - победитель KO Season Rating\n\n"
         ) in knockout_message
-        assert "👉 1. *Игрок Первый* 💍💥 — 6 | 🎲 2" in knockout_message
+        assert "👉 1. *Игрок Первый* 🏆💥 — 6 | 🎲 2" in knockout_message
         assert "⭐" not in knockout_message
         assert "✅" not in knockout_message
     finally:
@@ -333,9 +333,9 @@ def test_rating_badges_and_legend_are_distinct_and_page_local() -> None:
         current_player_id=99,
     )
 
-    assert "All badges 💍💍💥🏆🏅🏅🥊" in first
+    assert "All badges 🏆🏆💥💍🏅🏅🥊" in first
     assert first.count("🏅") == 3
-    assert "💍 - победитель рейтингового сезона" in first
+    assert "🏆 - победитель Season Rating" in first
     assert "🥊 - победитель Grand Knockout" in first
     assert "победитель" not in second
     assert "🎲 - количество турниров" in second
@@ -389,20 +389,20 @@ def test_rating_legends_use_statistic_first_and_deterministic_lowercased_titles(
     assert points_message.splitlines()[:7] == [
         "Рейтинг",
         "🎲 - количество турниров",
-        "💍 - победитель рейтингового сезона",
-        "💥 - лучший нокаутер сезона",
-        "🏆 - победитель Grand Season",
+        "🏆 - победитель Season Rating",
+        "💥 - победитель KO Season Rating",
+        "💍 - победитель Grand Season",
         "🏅 - победитель Grand Month",
         "🥊 - победитель Grand Knockout",
     ]
     assert knockout_message.splitlines()[:4] == [
         "Рейтинг по нокаутам",
         "🎲 - количество турниров с нокаутами",
-        "💍 - победитель рейтингового сезона",
+        "🏆 - победитель Season Rating",
         "🥊 - победитель Grand Knockout",
     ]
     assert "💥" not in knockout_message
-    assert "🏆" not in knockout_message
+    assert "💍" not in knockout_message
     assert "🏅" not in knockout_message
     assert grand_knockout.title == "Победитель Grand Knockout"
 
@@ -488,9 +488,9 @@ def test_rating_badges_preserve_occurrences_in_chronological_order() -> None:
         "Рейтинг по нокаутам", knockout_page, current_player_id=99
     )
 
-    assert "Chrono 💍💍🥊🏅 — 100 | 🎲 1" in points_message
-    assert "Chrono 💍💍🥊🏅 — 1 | 🎲 1" in knockout_message
-    assert points_message.count("💍 - победитель рейтингового сезона") == 1
+    assert "Chrono 🏆🏆🥊🏅 — 100 | 🎲 1" in points_message
+    assert "Chrono 🏆🏆🥊🏅 — 1 | 🎲 1" in knockout_message
+    assert points_message.count("🏆 - победитель Season Rating") == 1
 
 
 def test_rating_badge_ties_use_kind_hierarchy_then_occurrence_id() -> None:
@@ -507,7 +507,7 @@ def test_rating_badge_ties_use_kind_hierarchy_then_occurrence_id() -> None:
     ordered = rating_texts._ordered_achievements(achievements)
 
     assert [achievement.id for achievement in ordered] == [15, 21, 30, 35, 40, 50]
-    assert "".join(achievement.emoji for achievement in ordered) == "💍💍💥🏆🏅🥊"
+    assert "".join(achievement.emoji for achievement in ordered) == "🏆🏆💥💍🏅🥊"
 
 
 async def test_rating_counts_historical_tied_places_with_authoritative_points(
@@ -609,8 +609,8 @@ def test_points_rating_format_uses_half_up_rounding_and_current_marker() -> None
     assert (
         "Рейтинг — за всё время\n"
         "🎲 - количество турниров\n"
-        "💍 - победитель рейтингового сезона\n\n"
-        "👉 1. *King* 💍 — 121 | 🎲 3\n"
+        "🏆 - победитель Season Rating\n\n"
+        "👉 1. *King* 🏆 — 121 | 🎲 3\n"
         "🥈 Player — 90 | 🎲 2"
     ) == message
     assert "✅" not in message
@@ -645,9 +645,9 @@ def test_knockout_rating_format_hides_points_and_repeats_titles() -> None:
     assert (
         "Рейтинг по нокаутам — за всё время\n"
         "🎲 - количество турниров с нокаутами\n"
-        "💍 - победитель рейтингового сезона\n"
-        "💥 - лучший нокаутер сезона\n\n"
-        "🥇 King 💍💥💥 — 6 | 🎲 2"
+        "🏆 - победитель Season Rating\n"
+        "💥 - победитель KO Season Rating\n\n"
+        "🥇 King 🏆💥💥 — 6 | 🎲 2"
     ) == message
     assert "×2" not in message
 
@@ -714,7 +714,7 @@ def test_knockout_rating_format_marks_current_player_with_ring_and_knockout_titl
 
     message = rating_fmt.message("Рейтинг по нокаутам — за всё время", page, current_player_id=5)
 
-    assert "👉 5. *Дима* 💍💥 — 12 | 🎲 18" in message
+    assert "👉 5. *Дима* 🏆💥 — 12 | 🎲 18" in message
     assert "✅" not in message
 
 
@@ -766,9 +766,9 @@ def test_points_rating_format_repeats_only_champion_badges() -> None:
     message = rating_fmt.message("Рейтинг — за всё время", page, current_player_id=99)
 
     assert "🥇 No Titles — 100 | 🎲 3" in message
-    assert "🥈 One Champion 💍 — 90 | 🎲 3" in message
-    assert "🥉 Two Champions 💍💍 — 80 | 🎲 3" in message
-    assert "4. Three Champions 💍💍💍 — 70 | 🎲 3" in message
+    assert "🥈 One Champion 🏆 — 90 | 🎲 3" in message
+    assert "🥉 Two Champions 🏆🏆 — 80 | 🎲 3" in message
+    assert "4. Three Champions 🏆🏆🏆 — 70 | 🎲 3" in message
     assert "x2" not in message
     assert "×2" not in message
     assert "(2)" not in message
@@ -832,7 +832,7 @@ def test_knockout_rating_format_repeats_only_knockout_title_badges() -> None:
     assert "🥇 No Titles — 10 | 🎲 3" in message
     assert "🥈 One Knockout Title 💥 — 9 | 🎲 3" in message
     assert "🥉 Two Knockout Titles 💥💥 — 8 | 🎲 3" in message
-    assert "4. Three Knockout Titles 💍💍💍💥💥💥 — 7 | 🎲 3" in message
+    assert "4. Three Knockout Titles 🏆🏆🏆💥💥💥 — 7 | 🎲 3" in message
     assert "🥊 - количество K.O." not in message
     assert "x2" not in message
     assert "×2" not in message
@@ -932,8 +932,8 @@ async def test_rating_badges_are_shared_across_rating_kinds(tmp_path: Path) -> N
             current_player_id=999,
         )
 
-        assert "Title Collector 💍💥 — 110 | 🎲 1" in points_message
-        assert "Title Collector 💍💥 — 1 | 🎲 1" in knockout_message
+        assert "Title Collector 🏆💥 — 110 | 🎲 1" in points_message
+        assert "Title Collector 🏆💥 — 1 | 🎲 1" in knockout_message
     finally:
         await engine.dispose()
 
@@ -1103,8 +1103,8 @@ async def test_rating_achievements_are_ordered_chronologically_across_all_rating
             pagination_service.paginate(knockout_rating.rows, page=0, page_size=10),
             current_player_id=player.id,
         )
-        assert "Chrono 💥💍💍💥🏅 — 345 | 🎲 3" in points_message
-        assert "👉 1. *Chrono* 💥💍💍💥🏅 — 3 | 🎲 3" in knockout_message
+        assert "Chrono 💥🏆🏆💥🏅 — 345 | 🎲 3" in points_message
+        assert "👉 1. *Chrono* 💥🏆🏆💥🏅 — 3 | 🎲 3" in knockout_message
     finally:
         await engine.dispose()
 
@@ -1130,7 +1130,7 @@ def test_points_rating_format_repeats_champion_badges_without_counter_suffix() -
 
     message = rating_fmt.message("Рейтинг — за всё время", page, current_player_id=99)
 
-    assert "🥇 Mixed 💍💍 — 100 | 🎲 3" in message
+    assert "🥇 Mixed 🏆🏆 — 100 | 🎲 3" in message
     assert "×2" not in message
 
 

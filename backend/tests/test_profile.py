@@ -111,7 +111,7 @@ def test_profile_formats_season_honours() -> None:
     message = profile_texts.achievements_block("Твой профиль — за всё время", stats, 2)
 
     assert "Награды — Лето 2026" in message
-    assert "💥 Лучший нокаутер сезона" in message
+    assert "💥 Победитель KO Season Rating" in message
     assert "Весна 2026" not in message
 
 
@@ -156,8 +156,8 @@ def test_profile_formats_champion_and_knockout_titles_separately() -> None:
     )
     message = profile_texts.achievements_block("Твой профиль — за всё время", stats, 0)
 
-    assert message.count("💍 Победитель рейтингового сезона") == 2
-    assert message.count("💥 Лучший нокаутер сезона") == 2
+    assert message.count("🏆 Победитель Season Rating") == 2
+    assert message.count("💥 Победитель KO Season Rating") == 2
     assert "🥊 17" in message
 
 
