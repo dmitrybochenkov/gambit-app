@@ -44,6 +44,7 @@ from app.services.dto.tournaments import (
 )
 from app.services.season_service import SeasonService
 from app.services.tournament_planning_service import (
+    LEGACY_UNKNOWN_TOURNAMENT_TYPE_CODE,
     CalendarAutofillDraftInvalidError,
     CalendarTournamentDateAlreadyExistsError,
     CalendarTournamentNotEditableError,
@@ -636,6 +637,67 @@ async def test_calendar_create_rejects_historical_non_creatable_type(tmp_path: P
         async with session_factory() as session:
             tournaments = list((await session.execute(select(Tournament))).scalars())
         assert tournaments == []
+    finally:
+        await engine.dispose()
+
+
+async def test_calendar_creates_classic_after_format_is_enabled(tmp_path: Path) -> None:
+    service, session_factory, engine = await create_planning_service(
+        tmp_path / "creatable-classic.db"
+    )
+    try:
+        await seed_calendar_data(session_factory)
+        classic_id = tournament_type_id("classic")
+
+        async with session_factory() as session:
+            classic = await session.get(TournamentType, classic_id)
+            economy = await session.get(TournamentEconomyConfig, classic_id)
+            rule = await session.get(TournamentTypeRule, classic_id)
+
+        assert classic is not None
+        assert classic.code == "classic"
+        assert classic.name == "Классика"
+        assert classic.code != LEGACY_UNKNOWN_TOURNAMENT_TYPE_CODE
+        assert classic.is_creatable is False
+        assert economy is not None
+        assert rule is not None
+
+        enabled = await service.set_tournament_format_creatable(
+            1,
+            tournament_type_id=classic_id,
+            is_creatable=True,
+        )
+        assert enabled.tournament_format.is_creatable is True
+
+        options = await service.list_calendar_tournament_type_options(1)
+        assert classic_id in {option.id for option in options}
+
+        preview = await service.get_calendar_create_preview(
+            1,
+            tournament_date=date(2026, 8, 12),
+            tournament_type_id=classic_id,
+        )
+        assert preview.tournament_type.id == classic_id
+        assert preview.tournament_type.name == "Классика"
+
+        created = await service.create_calendar_tournament(
+            1,
+            tournament_date=date(2026, 8, 12),
+            tournament_type_id=classic_id,
+        )
+        assert created.tournament_type_id == classic_id
+        assert created.tournament_type_name == "Классика"
+        assert created.registration_open is False
+
+        async with session_factory() as session:
+            persisted = (
+                await session.execute(
+                    select(Tournament).where(Tournament.date == date(2026, 8, 12))
+                )
+            ).scalar_one()
+        assert persisted.tournament_type_id == classic_id
+        assert persisted.season_id == 1
+        assert persisted.scoring_config_id == 1
     finally:
         await engine.dispose()
 

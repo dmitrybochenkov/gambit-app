@@ -108,22 +108,6 @@ class WeeklyTemplateTournamentTypeNotAllowedError(ValueError):
 
 LEGACY_UNKNOWN_TOURNAMENT_TYPE_CODE = "legacy_unknown"
 SUPERADMIN_OPEN_TOURNAMENT_PAGE_SIZE = 6
-REAL_TOURNAMENT_TYPE_CODES = (
-    "bounty_v3",
-    "classic_v3",
-    "freezeout_v2",
-    "deep_stack_v2",
-    "white_party",
-    "mystery_bounty",
-    "boss_bounty",
-    "main_ko",
-    "slow_blinds",
-    "satellite",
-    "black_party",
-    "month_main",
-    "satellite_v2",
-    "mystery_quest",
-)
 
 
 @dataclass(frozen=True)
@@ -964,7 +948,6 @@ class TournamentPlanningService:
             for tournament_type in await TournamentTypeRepository(
                 session
             ).list_creatable_real_types()
-            if tournament_type.code in REAL_TOURNAMENT_TYPE_CODES
         ]
 
     async def _calendar_type_option(
